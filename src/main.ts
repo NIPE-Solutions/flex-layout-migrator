@@ -24,13 +24,9 @@ program
       options.target === "tailwind"
         ? new TailwindCssConverter()
         : new PlainCssConverter();
-    const migrator = new Migrator(converter);
 
-    if (fs.statSync(input).isDirectory()) {
-      migrator.migrateFolder(input, output);
-    } else {
-      migrator.migrateFile(input, output);
-    }
+    const migrator = new Migrator(converter);
+    migrator.migrate(input, output);
   });
 
 program.parse(process.argv);
