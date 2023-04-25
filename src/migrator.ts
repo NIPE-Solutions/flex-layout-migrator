@@ -60,6 +60,14 @@ class Migrator {
 
     console.log(`Migration completed for folder: ${inputFolder}`);
   }
+
+  public migrate(input: string, output: string): void {
+    if (fs.statSync(input).isDirectory()) {
+      this.migrateFolder(input, output);
+    } else {
+      this.migrateFile(input, output);
+    }
+  }
 }
 
 export { Migrator };
