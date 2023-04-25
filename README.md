@@ -5,6 +5,8 @@
 
 This tool assists in migrating projects that use the deprecated Angular Flex-Layout library to CSS classes. The package is designed to be as flexible and customizable as possible to accommodate different migration scenarios. Contributions are highly welcome!
 
+**Please note that this project is currently under development and not yet stable. Use it at your own risk.**
+
 ## Features
 
 - Scans and processes HTML files or entire directories.
