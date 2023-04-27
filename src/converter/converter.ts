@@ -29,7 +29,8 @@ export abstract class Converter {
    * @returns
    */
   public canConvert(attribute: string): boolean {
-    return this.converters.has(attribute);
+    const normalizedAttribute = this.normalizeAttribute(attribute);
+    return this.converters.has(normalizedAttribute);
   }
 
   /**
@@ -37,6 +38,12 @@ export abstract class Converter {
    * @returns a list of selectors that the converter can convert
    */
   public getAllSelectors(): string {
-    return Array.from(this.converters.keys()).join(", ");
+    return Array.from(this.converters.values())
+      .map((converter) => converter.getSelector())
+      .join(", ");
+  }
+
+  private normalizeAttribute(attribute: string): string {
+    return attribute.replace("[", "").replace("]", "").trim();
   }
 }

@@ -1,7 +1,8 @@
 {
   "compilerOptions": {
-    "target": "ES2019",
+    "target": "ESNext",
     "module": "CommonJS",
+    "moduleResolution": "node",
     "baseUrl": ".",
     "strict": true,
     "esModuleInterop": true,
@@ -12,6 +13,6 @@
       "@util/*": ["./src/util/*"]
     }
   },
-  "include": ["./src/**/*.ts"],
+  "include": ["./src/**/*.ts", "src/main.ts"],
   "exclude": ["node_modules"]
 }

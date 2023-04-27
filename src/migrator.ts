@@ -1,7 +1,10 @@
 import * as fs from "fs-extra";
 import * as path from "path";
 import * as cheerio from "cheerio";
+import chalk from "chalk";
+import cliProgress from "cli-progress";
 import { Converter } from "./converter";
+import { handleError, logger } from "./logger";
 
 class Migrator {
   private converter: Converter;
@@ -10,64 +13,141 @@ class Migrator {
     this.converter = converter;
   }
 
-  public migrateFile(input: string, output: string): void {
+  public async migrateFile(input: string, output: string): Promise<void> {
     const inputFilename = path.basename(input);
-    console.log(`Starting migration for file: ${inputFilename}`);
+    logger.info("Starting migration for file: %s", inputFilename);
 
-    const html = fs.readFileSync(input, "utf8");
-    const $ = cheerio.load(html, null, false);
+    const html = await fs.promises.readFile(input, "utf8");
+
+    // Load the HTML into Cheerio and disable XML encoding
+    // otherwise attributenames will be lowercased
+    const $ = cheerio.load(
+      html,
+      { xml: { decodeEntities: false, lowerCaseAttributeNames: false } },
+      false
+    );
 
     // Find all elements that have Flex-Layout attributes
     const selectors = this.converter.getAllSelectors();
+    logger.debug("Selectors: [%s]", selectors);
     const elements = $(selectors);
 
+    logger.debug("Found %i elements", elements.length);
+
+    const fileProgressBar = createFileProgressBar(inputFilename);
+    fileProgressBar.start(elements.length, 0);
+
     // Iterate through the elements and perform the conversion
-    elements.each((_, element) => {
+    elements.each((index, element) => {
       const el = $(element);
       const attrs = el.attr();
+
       if (!attrs) return;
       for (const [attribute, value] of Object.entries(attrs)) {
+        logger.debug("Attribute: %s, value: %s", attribute, value);
+        logger.debug("Can convert: %s", this.converter.canConvert(attribute));
         if (this.converter.canConvert(attribute)) {
           this.converter.convert(attribute, value, el);
-          // el.removeAttr(attribute);
-          // el.addClass(convertedValue);
+
+          el.removeAttr(attribute);
         }
       }
+
+      fileProgressBar.update(index + 1);
     });
 
-    const migratedHtml = $.html();
-    fs.writeFileSync(output, migratedHtml);
+    fileProgressBar.stop();
 
-    console.log(`Migration completed for file: ${inputFilename}`);
+    const migratedHtml = $.html({ xmlMode: false });
+
+    // Ensure the output directory exists
+    const outputDir = path.dirname(output);
+    await fs.promises.mkdir(outputDir, { recursive: true });
+
+    await fs.promises.writeFile(output, migratedHtml);
+
+    logger.info("Migration completed for file: %s", inputFilename);
   }
 
-  public migrateFolder(inputFolder: string, outputFolder: string): void {
-    const files = fs.readdirSync(inputFolder);
+  public async migrateFolder(
+    inputFolder: string,
+    outputFolder: string
+  ): Promise<void> {
+    const files = await fs.promises.readdir(inputFolder);
     const totalFiles = files.length;
-    console.log(
-      `Starting migration for ${totalFiles} files in folder: ${inputFolder}`
+    logger.info(
+      chalk.yellow("Starting migration for %i files in folder: %s"),
+      totalFiles,
+      inputFolder
     );
 
-    let completedFiles = 0;
+    // Starten Sie den Fortschrittsbalken
+    this.progressBar.start(totalFiles, 0);
 
-    files.forEach((file) => {
-      const inputFile = path.join(inputFolder, file);
-      const outputFile = path.join(outputFolder, file);
-      this.migrateFile(inputFile, outputFile);
-      completedFiles++;
-      console.log(`Progress: ${completedFiles}/${totalFiles} files completed.`);
-    });
+    await Promise.all(
+      files.map(async (file, index) => {
+        const inputFile = path.join(inputFolder, file);
+        const outputFile = path.join(outputFolder, file);
+        await this.migrateFile(inputFile, outputFile);
+        logger.info(chalk.green("Migration completed for file: %s"), file);
 
-    console.log(`Migration completed for folder: ${inputFolder}`);
+        // Aktualisieren Sie den Fortschrittsbalken
+        this.progressBar.update(index + 1);
+      })
+    );
+
+    // Beenden Sie den Fortschrittsbalken
+    this.progressBar.stop();
+
+    logger.info(chalk.green("Migration completed for folder: %s"), inputFolder);
   }
 
-  public migrate(input: string, output: string): void {
-    if (fs.statSync(input).isDirectory()) {
-      this.migrateFolder(input, output);
-    } else {
-      this.migrateFile(input, output);
+  public async migrate(input: string, output: string): Promise<void> {
+    try {
+      const absoluteInputPath = path.resolve(input);
+      const stat = await fs.promises.stat(absoluteInputPath);
+
+      if (stat.isDirectory()) {
+        await this.migrateFolder(input, output);
+      } else if (stat.isFile()) {
+        await this.migrateFile(input, output);
+      } else {
+        handleError(
+          `The input path is neither a file nor a directory: ${input}`
+        );
+      }
+    } catch (error: any) {
+      handleError(`Error while processing the input path: ${input}`, error);
     }
   }
+
+  private progressBar = new cliProgress.SingleBar({
+    format:
+      chalk.yellow("Migrating Files") +
+      " |" +
+      chalk.cyan("{bar}") +
+      "| {percentage}% || {value}/{total} Files",
+    barCompleteChar: "\u2588",
+    barIncompleteChar: "\u2591",
+    hideCursor: true,
+  });
+}
+
+function createFileProgressBar(fileName: string): cliProgress.SingleBar {
+  const fileProgressBar = new cliProgress.SingleBar({
+    format:
+      chalk.blue(`Migrating ${fileName}`) +
+      " |" +
+      chalk.cyan("{bar}") +
+      "| {percentage}% || {value}/{total} Elements",
+    barCompleteChar: "\u2588",
+    barIncompleteChar: "\u2591",
+    hideCursor: true,
+  });
+
+  return fileProgressBar;
 }
 
 export { Migrator };
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
