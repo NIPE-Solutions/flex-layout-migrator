@@ -5,7 +5,7 @@
   "main": "./dist/main.js",
   "scripts": {
     "build": "tsc",
-    "start": "node ./dist/main.js"
+    "start": "ts-node ./src/main.ts"
   },
   "repository": {
     "type": "git",
@@ -25,9 +25,11 @@
   "dependencies": {
     "cheerio": "^1.0.0-rc.12",
     "commander": "^10.0.1",
+    "date-fns": "^2.29.3",
     "fs-extra": "^11.1.1",
     "jsdom": "^21.1.1",
-    "typescript": "^5.0.4"
+    "typescript": "^5.0.4",
+    "winston": "^3.8.2"
   },
   "bin": {
     "fxMigrate": "./dist/main.js"
@@ -35,6 +37,7 @@
   "devDependencies": {
     "@types/fs-extra": "^11.0.1",
     "@types/jsdom": "^21.1.1",
+    "ts-node": "^10.9.1",
     "tsconfig-paths": "^4.2.0"
   }
 }
