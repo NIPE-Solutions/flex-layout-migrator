@@ -3,7 +3,7 @@ import { AttributeConverter } from "../../attribute.converter";
 
 export class FxFlexAttributeConverter extends AttributeConverter {
   public convert(value: string, element: Cheerio<any>): void {
-    throw new Error("Method not implemented.");
+    element.addClass(`flex-${value}`);
   }
 
   public getSelector(): string {
