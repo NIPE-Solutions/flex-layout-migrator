@@ -7,12 +7,55 @@ This tool assists in migrating projects that use the deprecated Angular Flex-Lay
 
 **Please note that this project is currently under development and not yet stable. Use it at your own risk.**
 
+The Idea of this project is to migrate the Angular Flex-Layout attributes to CSS classes, CSS styles or whatever is needed. The current plan is to implement the conversion to Tailwind and Plain CSS but it should be possible to implement other converters as well. Right now the focus relies on Tailwind and the most used attributes. If you need a specific attribute, feel free to open an issue or implement it yourself and create a pull request.
+
 ## Features
 
 - Scans and processes HTML files or entire directories.
 - Migrates Angular Flex-Layout attributes to CSS classes.
 - Configurable attribute-to-class mapping using a JSON configuration file.
 - Support for handling attribute values.
+
+## Status
+
+The following features are currently available: 
+- Scans and processes HTML files or entire directories.
+- Migrates Angular Flex-Layout attributes according to the implementation of the specific attribute converter (See available converters).
+
+### Flex-Layout Attributes
+
+The following Angular Flex-Layout attributes need to be migrated:
+
+| Flex-Layout Attribute | Supported Values                                                                                              | Breakpoint Modifiers Supported  |
+| --------------------- | ------------------------------------------------------------------------------------------------------------- | ------------------------------- |
+| fxLayout              | row, column, row-reverse, column-reverse                                                                      | [X]                             |
+| fxLayoutAlign         | start start, start center, start end, center start, center center, center end, end start, end center, end end | [X]                             |
+| fxLayoutGap           | e.g. 5px, 10px, 1rem, 2rem                                                                                    | [X]                             |
+| fxFlex                | e.g. 0 1 auto, 1 1 0%, 2 2 0%                                                                                 | [X]                             |
+| fxFlexOffset          | e.g. 5px, 10px, 1rem, 2rem                                                                                    | [X]                             |
+| fxFlexOrder           | e.g. 0, 1, 2, 3                                                                                               | [X]                             |
+| fxFlexAlign           | start, center, end, stretch, baseline                                                                         | [X]                             |
+| fxFlexFill            | No specific values, simply fills available space                                                              | [ ]                             |
+
+### Available Converters
+
+| Flex-Layout Attribute | Tailwind Converter | Plain-CSS Converter |
+| --------------------- | ------------------ | ------------------- |
+| fxLayout              | [ ]                | [ ]                 |
+| fxLayoutAlign         | [ ]                | [ ]                 |
+| fxLayoutGap           | [ ]                | [ ]                 |
+| fxFlex                | [ ]                | [ ]                 |
+| fxFlexOffset          | [ ]                | [ ]                 |
+| fxFlexOrder           | [ ]                | [ ]                 |
+| fxFlexAlign           | [ ]                | [ ]                 |
+| fxFlexFill            | [ ]                | [ ]                 |
+
+## How to use it localy
+
+1. Clone the project via `git clone git@github.com:NIPE-Solutions/flex-layout-migrator.git`
+2. Navigate to the project folder via `cd flex-layout-migrator`
+3. Install the dependencies via `npm ci`
+4. Run the project via `npm run start -- ./path/to/your/input/folder ./path/to/your/output/folder --target <tailwind|plain-css>`
 
 ## Installation
 
@@ -42,22 +85,7 @@ You can customize the migration process using the following options:
 
 - --input: The path to the input folder or file.
 - --output: The path to the output folder or file.
-- --target <target>: Which converter should be used (See available converters)
-
-## Available Converters
-
-Currently this project is under heavy development, so no converter is realy ready yet. But in this state, "tailwind" and "plain-css" can be chosen as target property.
-
-## Configuration
-
-The migration tool uses a JSON configuration file to define the mapping of Angular Flex-Layout attributes to CSS classes. An example configuration file is provided in the repository.
-
-You can customize the configuration to suit your specific migration needs. The configuration file contains an array of objects, each representing an Angular Flex-Layout attribute group. Each object has the following properties:
-
-- attribute: The base name of the Angular Flex-Layout attribute.
-- classPrefix: The prefix to be used for the generated CSS class.
-- useValueAsClassSuffix: (Optional) A flag indicating whether to use the attribute value as a class suffix. Defaults to false.
-- suffixes: An array of objects that define suffixes for the attribute and corresponding class prefixes.
+- --target <target>: Which converter should be used (tailwind|plain-css)
 
 ## Contributing
 
