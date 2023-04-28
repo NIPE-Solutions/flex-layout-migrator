@@ -1,4 +1,18 @@
+## Table of Contents
+
+- [Angular Flex-Layout Migration Tool](#angular-flex-layout-migration-tool)
+  - [Features](#features)
+  - [Status](#status)
+  - [How to use it localy](#how-to-use-it-localy)
+  - [Installation](#installation)
+  - [Usage](#usage)
+  - [Options](#options)
+  - [Contributing](#contributing)
+  - [License](#license)
+
 # Angular Flex-Layout Migration Tool
+
+<a id="angular-flex-layout-migration-tool"></a>
 
 [![Development Status](https://img.shields.io/badge/status-under%20development-critical)](https://github.com/NIPE-Solutions/flex-layout-migrator)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
@@ -9,16 +23,17 @@ This tool assists in migrating projects that use the deprecated Angular Flex-Lay
 
 The Idea of this project is to migrate the Angular Flex-Layout attributes to CSS classes, CSS styles or whatever is needed. The current plan is to implement the conversion to Tailwind and Plain CSS but it should be possible to implement other converters as well. Right now the focus relies on Tailwind and the most used attributes. If you need a specific attribute, feel free to open an issue or implement it yourself and create a pull request.
 
-## Features
+## Features <a name="features"></a>
 
 - Scans and processes HTML files or entire directories.
 - Migrates Angular Flex-Layout attributes to CSS classes.
 - Configurable attribute-to-class mapping using a JSON configuration file.
 - Support for handling attribute values.
 
-## Status
+## Status <a name="status"></a>
 
-The following features are currently available: 
+The following features are currently available:
+
 - Scans and processes HTML files or entire directories.
 - Migrates Angular Flex-Layout attributes according to the implementation of the specific attribute converter (See available converters).
 
@@ -26,16 +41,65 @@ The following features are currently available:
 
 The following Angular Flex-Layout attributes need to be migrated:
 
-| Flex-Layout Attribute | Supported Values                                                                                              | Breakpoint Modifiers Supported  |
-| --------------------- | ------------------------------------------------------------------------------------------------------------- | ------------------------------- |
-| fxLayout              | row, column, row-reverse, column-reverse                                                                      | [X]                             |
-| fxLayoutAlign         | start start, start center, start end, center start, center center, center end, end start, end center, end end | [X]                             |
-| fxLayoutGap           | e.g. 5px, 10px, 1rem, 2rem                                                                                    | [X]                             |
-| fxFlex                | e.g. 0 1 auto, 1 1 0%, 2 2 0%                                                                                 | [X]                             |
-| fxFlexOffset          | e.g. 5px, 10px, 1rem, 2rem                                                                                    | [X]                             |
-| fxFlexOrder           | e.g. 0, 1, 2, 3                                                                                               | [X]                             |
-| fxFlexAlign           | start, center, end, stretch, baseline                                                                         | [X]                             |
-| fxFlexFill            | No specific values, simply fills available space                                                              | [ ]                             |
+| Flex-Layout Attribute | Supported Values                                                                                              | Breakpoint Modifiers Supported |
+| --------------------- | ------------------------------------------------------------------------------------------------------------- | ------------------------------ |
+| fxLayout              | row, column, row-reverse, column-reverse                                                                      | [X]                            |
+| fxLayoutAlign         | start start, start center, start end, center start, center center, center end, end start, end center, end end | [X]                            |
+| fxLayoutGap           | e.g. 5px, 10px, 1rem, 2rem                                                                                    | [X]                            |
+| fxFlex                | e.g. 0 1 auto, 1 1 0%, 2 2 0%                                                                                 | [X]                            |
+| fxFlexOffset          | e.g. 5px, 10px, 1rem, 2rem                                                                                    | [X]                            |
+| fxFlexOrder           | e.g. 0, 1, 2, 3                                                                                               | [X]                            |
+| fxFlexAlign           | start, center, end, stretch, baseline                                                                         | [X]                            |
+| fxFlexFill            | No specific values, simply fills available space                                                              | [ ]                            |
+
+All attributes marked with [X] do support breakpoint modifiers. This means that you can specify different values for different breakpoints.
+The following breakpoints are supported:
+
+| Breakpoint | Description              |
+| ---------- | ------------------------ |
+| sm         | Small                    |
+| md         | Medium                   |
+| lg         | Large                    |
+| xl         | Extra Large              |
+| lt-sm      | Less than Small          |
+| lt-md      | Less than Medium         |
+| lt-lg      | Less than Large          |
+| lt-xl      | Less than Extra Large    |
+| gt-xs      | Greater than Extra Small |
+| gt-sm      | Greater than Small       |
+| gt-md      | Greater than Medium      |
+| gt-lg      | Greater than Large       |
+
+Here is an example of how many different combinations are possible for the `fxFlex` attribute:
+
+| Attribute | Breakpoint | Example Values     | Description                                                                        |
+| --------- | ---------- | ------------------ | ---------------------------------------------------------------------------------- |
+| fxFlex    |            |                    | Grow and shrink based on available space, equally sharing it with other flex items |
+|           |            | 1 1 auto           | Flex grow 1, flex shrink 1, flex-basis auto                                        |
+|           |            | 2 2 0%             | Flex grow 2, flex shrink 2, flex-basis 0%                                          |
+|           | sm         | 1 1 auto           | Small: Flex grow 1, flex shrink 1, flex-basis auto                                 |
+|           | md         | 2 2 0%             | Medium: Flex grow 2, flex shrink 2, flex-basis 0%                                  |
+|           | lg         | [flexValue]        | Large: Use a dynamic value for the flex property                                   |
+|           | gt-sm      | 1 1 auto, [custom] | Greater than Small: Custom or dynamic value                                        |
+
+Another example for the use in Angular templates:
+
+```html
+
+<div
+  fxFlex
+  fxFlex="1 1 auto"
+  fxFlex.sm="1 1 auto"
+  fxFlex.md="2 2 0%"
+  [fxFlex.lg]="flexValue"
+  [fxFlex.gt-sm]="custom"
+>
+  <!-- Content -->
+</div
+
+```
+
+For more information about the Angular Flex-Layout attributes, please refer to the [official documentation]().
 
 ### Available Converters
 
@@ -50,14 +114,14 @@ The following Angular Flex-Layout attributes need to be migrated:
 | fxFlexAlign           | [ ]                | [ ]                 |
 | fxFlexFill            | [ ]                | [ ]                 |
 
-## How to use it localy
+## How to use it localy <a name="how-to-use-it-localy"></a>
 
 1. Clone the project via `git clone git@github.com:NIPE-Solutions/flex-layout-migrator.git`
 2. Navigate to the project folder via `cd flex-layout-migrator`
 3. Install the dependencies via `npm ci`
 4. Run the project via `npm run start -- ./path/to/your/input/folder ./path/to/your/output/folder --target <tailwind|plain-css>`
 
-## Installation
+## Installation <a name="installation"></a>
 
 Install the package globally using npm:
 
@@ -65,7 +129,7 @@ Install the package globally using npm:
 npm install -g @ng-flex/layout-migrator
 ```
 
-## Usage
+## Usage <a name="usage"></a>
 
 After installing the package, you can use the fxMigrate command to start the migration process. Here is a basic example:
 
@@ -79,7 +143,7 @@ You can also migrate individual files:
 fxMigrate --input ./path/to/your/input/file.html --output ./path/to/your/output/file.html
 ```
 
-## Options
+## Options <a name="options"></a>
 
 You can customize the migration process using the following options:
 
@@ -87,7 +151,7 @@ You can customize the migration process using the following options:
 - --output: The path to the output folder or file.
 - --target <target>: Which converter should be used (tailwind|plain-css)
 
-## Contributing
+## Contributing <a name="contributing"></a>
 
 We appreciate any contributions to improve the Angular Flex-Layout Migrator and make it more useful for the community. If you would like to contribute to this project, please follow the steps below:
 
@@ -129,6 +193,6 @@ We will review your pull request and provide feedback as necessary. Once your ch
 
 Thank you for considering contributing to the Angular Flex-Layout Migrator!
 
-## License
+## License <a name="license"></a>
 
 This project is licensed under the MIT License.
