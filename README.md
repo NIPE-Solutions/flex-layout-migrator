@@ -43,16 +43,16 @@ The following Angular Flex-Layout attributes need to be migrated:
 
 | Flex-Layout Attribute | Supported Values                                                                                              | Breakpoint Modifiers Supported |
 | --------------------- | ------------------------------------------------------------------------------------------------------------- | ------------------------------ |
-| fxLayout              | row, column, row-reverse, column-reverse                                                                      | [X]                            |
-| fxLayoutAlign         | start start, start center, start end, center start, center center, center end, end start, end center, end end | [X]                            |
-| fxLayoutGap           | e.g. 5px, 10px, 1rem, 2rem                                                                                    | [X]                            |
-| fxFlex                | e.g. 0 1 auto, 1 1 0%, 2 2 0%                                                                                 | [X]                            |
-| fxFlexOffset          | e.g. 5px, 10px, 1rem, 2rem                                                                                    | [X]                            |
-| fxFlexOrder           | e.g. 0, 1, 2, 3                                                                                               | [X]                            |
-| fxFlexAlign           | start, center, end, stretch, baseline                                                                         | [X]                            |
-| fxFlexFill            | No specific values, simply fills available space                                                              | [ ]                            |
+| fxLayout              | row, column, row-reverse, column-reverse                                                                      | :white_check_mark:             |
+| fxLayoutAlign         | start start, start center, start end, center start, center center, center end, end start, end center, end end | :white_check_mark:             |
+| fxLayoutGap           | e.g. 5px, 10px, 1rem, 2rem                                                                                    | :white_check_mark:             |
+| fxFlex                | e.g. 0 1 auto, 1 1 0%, 2 2 0%                                                                                 | :white_check_mark:             |
+| fxFlexOffset          | e.g. 5px, 10px, 1rem, 2rem                                                                                    | :white_check_mark:             |
+| fxFlexOrder           | e.g. 0, 1, 2, 3                                                                                               | :white_check_mark:             |
+| fxFlexAlign           | start, center, end, stretch, baseline                                                                         | :white_check_mark:             |
+| fxFlexFill            | No specific values, simply fills available space                                                              | :x:                            |
 
-All attributes marked with [X] do support breakpoint modifiers. This means that you can specify different values for different breakpoints.
+All attributes marked with :white_check_mark: do support breakpoint modifiers. This means that you can specify different values for different breakpoints.
 The following breakpoints are supported:
 
 | Breakpoint | Description              |
@@ -99,20 +99,20 @@ Another example for the use in Angular templates:
 
 ```
 
-For more information about the Angular Flex-Layout attributes, please refer to the [official documentation]().
+For more information about the Angular Flex-Layout attributes, please refer to the [official documentation](https://github.com/angular/flex-layout/wiki/fxLayout-API).
 
 ### Available Converters
 
 | Flex-Layout Attribute | Tailwind Converter | Plain-CSS Converter |
 | --------------------- | ------------------ | ------------------- |
-| fxLayout              | [ ]                | [ ]                 |
-| fxLayoutAlign         | [ ]                | [ ]                 |
-| fxLayoutGap           | [ ]                | [ ]                 |
-| fxFlex                | [ ]                | [ ]                 |
-| fxFlexOffset          | [ ]                | [ ]                 |
-| fxFlexOrder           | [ ]                | [ ]                 |
-| fxFlexAlign           | [ ]                | [ ]                 |
-| fxFlexFill            | [ ]                | [ ]                 |
+| fxLayout              | :x:                | :x:                 |
+| fxLayoutAlign         | :x:                | :x:                 |
+| fxLayoutGap           | :x:                | :x:                 |
+| fxFlex                | :x:                | :x:                 |
+| fxFlexOffset          | :x:                | :x:                 |
+| fxFlexOrder           | :x:                | :x:                 |
+| fxFlexAlign           | :x:                | :x:                 |
+| fxFlexFill            | :x:                | :x:                 |
 
 ## How to use it localy <a name="how-to-use-it-localy"></a>
 
