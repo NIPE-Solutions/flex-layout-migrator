@@ -6,7 +6,7 @@ export class FxFlexAttributeConverter extends AttributeConverter {
     element.addClass(`flex-${value}`);
   }
 
-  public getSelector(): string {
-    return "[fxFlex]";
+  public getAttributeName(): string {
+    return "fxFlex";
   }
 }
