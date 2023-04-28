@@ -5,6 +5,7 @@ import chalk from "chalk";
 import cliProgress from "cli-progress";
 import { Converter } from "./converter";
 import { handleError, logger } from "./logger";
+import { BreakPoint } from "./converter/converter.type";
 
 class Migrator {
   private converter: Converter;
@@ -87,12 +88,12 @@ class Migrator {
     isBreakpointAttribute: boolean
   ): {
     attr: string;
-    breakPoint: string | undefined;
+    breakPoint: BreakPoint | undefined;
   } {
     // Check if the attribute is a breakpoint attribute
     if (isBreakpointAttribute) {
       const [attr, breakPoint] = attribute.split(".");
-      return { attr, breakPoint };
+      return { attr, breakPoint: breakPoint as BreakPoint };
     }
     return { attr: attribute, breakPoint: undefined };
   }
