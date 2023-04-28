@@ -1,4 +1,5 @@
 import { Cheerio } from "cheerio";
+import { BreakPoint } from "src/converter/converter.type";
 import { AttributeConverter } from "../../attribute.converter";
 
 export class FxFlexAttributeConverter extends AttributeConverter {
@@ -6,7 +7,7 @@ export class FxFlexAttributeConverter extends AttributeConverter {
     element.addClass(`flex-${value}`);
   }
 
-  public getSelector(): string {
-    return "[fxFlex]";
+  public getAttributeName(): string {
+    return "fxFlex";
   }
 }

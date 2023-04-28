@@ -42,15 +42,28 @@ class Migrator {
       const el = $(element);
       const attrs = el.attr();
 
+      // If the element has no attributes, skip it
       if (!attrs) return;
+
       for (const [attribute, value] of Object.entries(attrs)) {
         logger.debug("Attribute: %s, value: %s", attribute, value);
         logger.debug("Can convert: %s", this.converter.canConvert(attribute));
-        if (this.converter.canConvert(attribute)) {
-          this.converter.convert(attribute, value, el);
 
-          el.removeAttr(attribute);
+        const isBreakpointAttribute = !!attribute && attribute.includes(".");
+        if (!this.converter.canConvert(attribute, isBreakpointAttribute)) {
+          logger.debug("Cannot convert attribute: %s", attribute);
+
+          continue;
         }
+
+        const { attr, breakPoint } = this.extractAttributeAndBreakpoint(
+          attribute,
+          isBreakpointAttribute
+        );
+
+        this.converter.convert(attr, value, el, breakPoint);
+
+        el.removeAttr(attribute);
       }
 
       fileProgressBar.update(index + 1);
@@ -67,6 +80,21 @@ class Migrator {
     await fs.promises.writeFile(output, migratedHtml);
 
     logger.info("Migration completed for file: %s", inputFilename);
+  }
+
+  private extractAttributeAndBreakpoint(
+    attribute: string,
+    isBreakpointAttribute: boolean
+  ): {
+    attr: string;
+    breakPoint: string | undefined;
+  } {
+    // Check if the attribute is a breakpoint attribute
+    if (isBreakpointAttribute) {
+      const [attr, breakPoint] = attribute.split(".");
+      return { attr, breakPoint };
+    }
+    return { attr: attribute, breakPoint: undefined };
   }
 
   public async migrateFolder(

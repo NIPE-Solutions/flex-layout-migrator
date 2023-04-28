@@ -1,8 +1,22 @@
 import { AttributeConverter } from "./attribute.converter";
 import * as cheerio from "cheerio";
+import { BreakPoint } from "./converter.type";
 
 export abstract class Converter {
-  protected abstract converters: Map<string, AttributeConverter>;
+  private converters: Map<string, AttributeConverter> = new Map();
+
+  /**
+   * Creates a new converter instance. You need to add your converters here.
+   *
+   * @example
+   * ```typescript
+   * constructor() {
+   *  super();
+   *  this.addConverter(new MyConverter());
+   * }
+   * ```
+   */
+  constructor() {}
 
   /**
    * Converts the attribute value to the target format
@@ -14,13 +28,14 @@ export abstract class Converter {
   public convert(
     attribute: string,
     value: string,
-    element: cheerio.Cheerio<any>
+    element: cheerio.Cheerio<any>,
+    breakPoint?: BreakPoint
   ): void {
     const converter = this.converters.get(attribute);
     if (!converter) {
       throw new Error(`Unknown attribute: ${attribute}`);
     }
-    converter.convert(value, element);
+    converter.convert(value, element, breakPoint);
   }
 
   /**
@@ -28,9 +43,36 @@ export abstract class Converter {
    * @param attribute attribute name
    * @returns
    */
-  public canConvert(attribute: string): boolean {
+  public canConvert(
+    attribute: string,
+    isBreakpointAttribute: boolean = false
+  ): boolean {
     const normalizedAttribute = this.normalizeAttribute(attribute);
+
+    if (isBreakpointAttribute) {
+      const [attributeName] = attribute.split(".");
+      const normalizedAttributeName = this.normalizeAttribute(attributeName);
+
+      const targetConverter = this.converters.get(normalizedAttributeName);
+      if (!targetConverter) return false;
+
+      return targetConverter.usesBreakpoints();
+    }
+
     return this.converters.has(normalizedAttribute);
+  }
+
+  /**
+   * Adds a converter to the converter list so that it can be used to convert attributes
+   * @param converter
+   * @returns the converter itself so that it can be chained
+   */
+  protected addConverter(converter: AttributeConverter): Converter {
+    this.converters.set(
+      this.normalizeAttribute(converter.getAttributeName()),
+      converter
+    );
+    return this;
   }
 
   /**
@@ -39,7 +81,7 @@ export abstract class Converter {
    */
   public getAllSelectors(): string {
     return Array.from(this.converters.values())
-      .map((converter) => converter.getSelector())
+      .map((converter) => converter.getAttributeName())
       .join(", ");
   }
 
