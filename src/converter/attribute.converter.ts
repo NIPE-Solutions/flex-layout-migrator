@@ -1,27 +1,11 @@
 import * as cheerio from "cheerio";
-
-const BREAKPOINTS = [
-  "", // Without breakpoint
-  "xs",
-  "sm",
-  "md",
-  "lg",
-  "xl",
-  "lt-sm",
-  "lt-md",
-  "lt-lg",
-  "lt-xl",
-  "gt-xs",
-  "gt-sm",
-  "gt-md",
-  "gt-lg",
-];
+import { BreakPoint, breakpoints } from "./converter.type";
 
 export abstract class AttributeConverter {
   public abstract convert(
     value: string,
     element: cheerio.Cheerio<any>,
-    breakPoint?: string
+    breakPoint?: BreakPoint
   ): void;
 
   /**
@@ -59,11 +43,13 @@ export abstract class AttributeConverter {
     }
 
     // If the converter uses breakpoints, we need to create a selector for each breakpoint as well as the default one
-    return BREAKPOINTS.map((breakpoint) => {
-      const attr = breakpoint
-        ? `${this.getAttributeName()}.${breakpoint}`
-        : this.getAttributeName();
-      return `[${attr}]`;
-    }).join(", ");
+    return breakpoints
+      .map((breakpoint) => {
+        const attr = breakpoint
+          ? `${this.getAttributeName()}.${breakpoint}`
+          : this.getAttributeName();
+        return `[${attr}]`;
+      })
+      .join(", ");
   }
 }

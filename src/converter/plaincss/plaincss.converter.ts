@@ -1,6 +1,10 @@
-import { AttributeConverter } from "../attribute.converter";
 import { Converter } from "../converter";
 
 export class PlainCssConverter extends Converter {
-  protected converters: Map<string, AttributeConverter> = new Map([]);
+  constructor() {
+    super();
+
+    // Add your converters here
+    // via this.addConverter(new MyConverter());
+  }
 }

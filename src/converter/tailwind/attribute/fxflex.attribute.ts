@@ -1,4 +1,5 @@
 import { Cheerio } from "cheerio";
+import { BreakPoint } from "src/converter/converter.type";
 import { AttributeConverter } from "../../attribute.converter";
 
 export class FxFlexAttributeConverter extends AttributeConverter {

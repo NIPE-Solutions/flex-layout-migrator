@@ -1,8 +1,22 @@
 import { AttributeConverter } from "./attribute.converter";
 import * as cheerio from "cheerio";
+import { BreakPoint } from "./converter.type";
 
 export abstract class Converter {
   private converters: Map<string, AttributeConverter> = new Map();
+
+  /**
+   * Creates a new converter instance. You need to add your converters here.
+   *
+   * @example
+   * ```typescript
+   * constructor() {
+   *  super();
+   *  this.addConverter(new MyConverter());
+   * }
+   * ```
+   */
+  constructor() {}
 
   /**
    * Converts the attribute value to the target format
@@ -15,7 +29,7 @@ export abstract class Converter {
     attribute: string,
     value: string,
     element: cheerio.Cheerio<any>,
-    breakPoint?: string
+    breakPoint?: BreakPoint
   ): void {
     const converter = this.converters.get(attribute);
     if (!converter) {
