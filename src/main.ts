@@ -1,5 +1,5 @@
 import { Command } from "commander";
-import { Migrator } from "./migrator";
+import { Migrator } from "./migrator/migrator";
 
 import "tsconfig-paths/register";
 import { ConverterFactory } from "./converter/converter.factory";
@@ -29,8 +29,8 @@ program
 
     const target = options.target;
     const converter = ConverterFactory.createConverter(target);
-    const migrator = new Migrator(converter);
-    await migrator.migrate(input, output);
+    const migrator = new Migrator(converter, input, output);
+    await migrator.migrate();
   });
 
 program.parse(process.argv);
