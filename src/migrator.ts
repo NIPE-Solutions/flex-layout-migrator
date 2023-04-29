@@ -1,11 +1,13 @@
 import * as fs from "fs-extra";
 import * as path from "path";
-import * as cheerio from "cheerio";
 import chalk from "chalk";
+import * as cheerio from "cheerio";
+import { Cheerio, CheerioAPI, Element as CheerioElement } from "cheerio";
 import cliProgress from "cli-progress";
 import { Converter } from "./converter";
 import { handleError, logger } from "./logger";
 import { BreakPoint } from "./converter/converter.type";
+import { NodeWithChildren } from "domhandler";
 
 class Migrator {
   private converter: Converter;
@@ -29,9 +31,15 @@ class Migrator {
     );
 
     // Find all elements that have Flex-Layout attributes
-    const selectors = this.converter.getAllSelectors();
-    logger.debug("Selectors: [%s]", selectors);
-    const elements = $(selectors);
+    const attributeNamesToLookFor = this.converter.getAllAttributes();
+    logger.debug("Attributes: [%s]", attributeNamesToLookFor.join(", "));
+
+    // Find all elements that have Flex-Layout attributes and store them in an array
+    // We need to use a custom attribute selector because [fxFlex.sm] is not a valid CSS selector
+    const elements = this.findElementsWithCustomAttributes(
+      $,
+      attributeNamesToLookFor
+    );
 
     logger.debug("Found %i elements", elements.length);
 
@@ -39,7 +47,7 @@ class Migrator {
     fileProgressBar.start(elements.length, 0);
 
     // Iterate through the elements and perform the conversion
-    elements.each((index, element) => {
+    elements.forEach((element, index) => {
       const el = $(element);
       const attrs = el.attr();
 
@@ -54,7 +62,7 @@ class Migrator {
         if (!this.converter.canConvert(attribute, isBreakpointAttribute)) {
           logger.debug("Cannot convert attribute: %s", attribute);
 
-          continue;
+          return;
         }
 
         const { attr, breakPoint } = this.extractAttributeAndBreakpoint(
@@ -64,7 +72,7 @@ class Migrator {
 
         this.converter.convert(attr, value, el, breakPoint);
 
-        el.removeAttr(attribute);
+        element.removeAttr(attribute);
       }
 
       fileProgressBar.update(index + 1);
@@ -81,6 +89,47 @@ class Migrator {
     await fs.promises.writeFile(output, migratedHtml);
 
     logger.info("Migration completed for file: %s", inputFilename);
+  }
+
+  /**
+   * Finds all elements that have Flex-Layout attributes and returns them in an array.
+   *
+   * We need to use a custom attribute selector because [fxFlex.sm] is not a valid CSS selector
+   *
+   * Big O Notation: O(n * m) where n is the number of elements in the document and m is the number of attributes to look for
+   *
+   * @param cheerioRoot The Cheerio root element
+   * @param attributeNames The attribute names to look for
+   * @returns an array of elements that have Flex-Layout attributes
+   */
+  private findElementsWithCustomAttributes(
+    cheerioRoot: CheerioAPI,
+    attributes: string[]
+  ): Cheerio<CheerioElement>[] {
+    const elementsWithAttributes: Cheerio<CheerioElement>[] = [];
+
+    function traverse(node: NodeWithChildren): void {
+      if (!node || !node.children) return;
+
+      node.children.forEach((childElement) => {
+        if (childElement.type === "tag") {
+          const child = cheerioRoot(childElement as CheerioElement);
+          const attrs = Object.keys(childElement.attribs || {});
+
+          for (const attribute of attributes) {
+            if (attrs.includes(attribute)) {
+              elementsWithAttributes.push(child);
+              break;
+            }
+          }
+        }
+
+        traverse(childElement as NodeWithChildren);
+      });
+    }
+
+    traverse(cheerioRoot.root()[0]);
+    return elementsWithAttributes;
   }
 
   private extractAttributeAndBreakpoint(
@@ -178,5 +227,3 @@ function createFileProgressBar(fileName: string): cliProgress.SingleBar {
 }
 
 export { Migrator };
-
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
