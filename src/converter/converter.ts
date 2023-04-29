@@ -1,6 +1,8 @@
 import { AttributeConverter } from "./attribute.converter";
-import * as cheerio from "cheerio";
 import { BreakPoint } from "./converter.type";
+
+import * as cheerio from "cheerio";
+import { Cheerio } from "cheerio";
 
 export abstract class Converter {
   private converters: Map<string, AttributeConverter> = new Map();
@@ -28,7 +30,7 @@ export abstract class Converter {
   public convert(
     attribute: string,
     value: string,
-    element: cheerio.Cheerio<any>,
+    element: Cheerio<cheerio.Element>,
     breakPoint?: BreakPoint
   ): void {
     const converter = this.converters.get(attribute);
@@ -81,8 +83,14 @@ export abstract class Converter {
    */
   public getAllSelectors(): string {
     return Array.from(this.converters.values())
-      .map((converter) => converter.getAttributeName())
+      .map((converter) => converter.getSelectors())
       .join(", ");
+  }
+
+  public getAllAttributes(): string[] {
+    return Array.from(this.converters.values())
+      .map((converter) => converter.getAttributeNames())
+      .flat();
   }
 
   private normalizeAttribute(attribute: string): string {

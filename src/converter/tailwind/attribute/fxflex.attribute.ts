@@ -1,13 +1,17 @@
+import * as cheerio from "cheerio";
 import { Cheerio } from "cheerio";
-import { BreakPoint } from "src/converter/converter.type";
 import { AttributeConverter } from "../../attribute.converter";
 
 export class FxFlexAttributeConverter extends AttributeConverter {
-  public convert(value: string, element: Cheerio<any>): void {
-    element.addClass(`flex-${value}`);
+  public convert(value: string, element: Cheerio<cheerio.Element>): void {
+    element.addClass("flex");
   }
 
   public getAttributeName(): string {
-    return "fxFlex";
+    return "fxTest";
+  }
+
+  public usesBreakpoints(): boolean {
+    return true;
   }
 }
