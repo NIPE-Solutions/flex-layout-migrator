@@ -32,7 +32,6 @@ export class FolderMigrator extends BaseMigrator {
     outputFolder: string,
     currentDir: string
   ): Promise<void> {
-    // progress start
     this.notifyObservers("folderStarted", {
       id: currentDir,
       folderName: path.basename(currentDir),
@@ -40,6 +39,17 @@ export class FolderMigrator extends BaseMigrator {
 
     const filesAndDirectories = await fs.promises.readdir(currentDir);
 
+    const fileCount = (
+      await Promise.all(
+        filesAndDirectories.map(async (item) => {
+          const currentPath = path.join(currentDir, item);
+          const stat = await fs.promises.stat(currentPath);
+          return stat.isFile() ? 1 : 0;
+        })
+      )
+    ).reduce<number>((acc, curr) => acc + curr, 0);
+
+    let processedFiles = 0;
     for (const item of filesAndDirectories) {
       const currentPath = path.join(currentDir, item);
       const stat = await fs.promises.stat(currentPath);
@@ -62,12 +72,21 @@ export class FolderMigrator extends BaseMigrator {
         }
 
         await fileMigrator.migrate();
+
+        processedFiles++;
+
+        const percentage = (processedFiles / fileCount) * 100;
+
+        this.notifyObservers("folderProgress", {
+          id: currentDir,
+          percentage,
+          processedFiles,
+        });
       } else if (stat.isDirectory()) {
         await this.migrateRecursively(inputFolder, outputFolder, currentPath);
       }
     }
 
-    // progress stop
     this.notifyObservers("folderCompleted", {
       id: currentDir,
       folderName: path.basename(currentDir),
