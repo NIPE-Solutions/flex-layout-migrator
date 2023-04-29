@@ -3,22 +3,27 @@ import * as path from "path";
 import chalk from "chalk";
 import * as cheerio from "cheerio";
 import { Cheerio, CheerioAPI, Element as CheerioElement } from "cheerio";
-import cliProgress from "cli-progress";
 import { Converter } from "./converter";
 import { handleError, logger } from "./logger";
 import { BreakPoint } from "./converter/converter.type";
 import { NodeWithChildren } from "domhandler";
+import Spinnies from "spinnies";
 
 class Migrator {
   private converter: Converter;
+  private spinnies: Spinnies;
 
   constructor(converter: Converter) {
     this.converter = converter;
+    this.spinnies = new Spinnies();
   }
 
   public async migrateFile(input: string, output: string): Promise<void> {
     const inputFilename = path.basename(input);
-    logger.info("Starting migration for file: %s", inputFilename);
+
+    this.spinnies.add(inputFilename, {
+      text: `Migrating file: ${chalk.blue(inputFilename)}`,
+    });
 
     const html = await fs.promises.readFile(input, "utf8");
 
@@ -43,11 +48,25 @@ class Migrator {
 
     logger.debug("Found %i elements", elements.length);
 
-    const fileProgressBar = createFileProgressBar(inputFilename);
-    fileProgressBar.start(elements.length, 0);
+    // Add a spinner for the elements progress
+    const totalElements = elements.length;
+    this.spinnies.add("elements", {
+      text: `Migrating ${chalk.blue(inputFilename)}: ${chalk.cyan(
+        "0%"
+      )}, ${chalk.green("0")} / ${chalk.green(totalElements)} Elements`,
+    });
 
     // Iterate through the elements and perform the conversion
     elements.forEach((element, index) => {
+      // Update the elements spinner
+
+      const percentage = Math.round(((index + 1) / totalElements) * 100);
+      this.spinnies.update("elements", {
+        text: `Migrating ${chalk.blue(inputFilename)}: ${chalk.cyan(
+          `${percentage}%`
+        )}, ${chalk.green(index + 1)} / ${chalk.green(totalElements)} Elements`,
+      });
+
       const el = $(element);
       const attrs = el.attr();
 
@@ -62,7 +81,7 @@ class Migrator {
         if (!this.converter.canConvert(attribute, isBreakpointAttribute)) {
           logger.debug("Cannot convert attribute: %s", attribute);
 
-          return;
+          continue;
         }
 
         const { attr, breakPoint } = this.extractAttributeAndBreakpoint(
@@ -74,12 +93,17 @@ class Migrator {
 
         element.removeAttr(attribute);
       }
-
-      fileProgressBar.update(index + 1);
     });
 
-    fileProgressBar.stop();
+    this.spinnies.succeed("elements", {
+      text: `Migrating ${chalk.blue(inputFilename)}: ${chalk.cyan(
+        "100%"
+      )}, ${chalk.green(totalElements)} / ${chalk.green(
+        totalElements
+      )} Elements`,
+    });
 
+    // Serialize the Cheerio document back to HTML
     const migratedHtml = $.html({ xmlMode: false });
 
     // Ensure the output directory exists
@@ -88,7 +112,9 @@ class Migrator {
 
     await fs.promises.writeFile(output, migratedHtml);
 
-    logger.info("Migration completed for file: %s", inputFilename);
+    this.spinnies.succeed(inputFilename, {
+      text: `Migration completed for file: ${chalk.green(inputFilename)}`,
+    });
   }
 
   /**
@@ -159,25 +185,31 @@ class Migrator {
       inputFolder
     );
 
-    // Starten Sie den Fortschrittsbalken
-    this.progressBar.start(totalFiles, 0);
+    this.spinnies.add("folder", {
+      text: `Migrating Files: ${chalk.cyan("0%")}, ${chalk.green(
+        "0"
+      )} / ${chalk.green(totalFiles)} Files`,
+    });
 
     await Promise.all(
       files.map(async (file, index) => {
         const inputFile = path.join(inputFolder, file);
         const outputFile = path.join(outputFolder, file);
-        await this.migrateFile(inputFile, outputFile);
-        logger.info(chalk.green("Migration completed for file: %s"), file);
 
-        // Aktualisieren Sie den Fortschrittsbalken
-        this.progressBar.update(index + 1);
+        await this.migrateFile(inputFile, outputFile);
+
+        const progress = `${index + 1}/${totalFiles}`;
+        this.spinnies.update("folder", {
+          text: `Migrating folder: ${chalk.yellow(inputFolder)}, ${chalk.green(
+            progress
+          )} files`,
+        });
       })
     );
 
-    // Beenden Sie den Fortschrittsbalken
-    this.progressBar.stop();
-
-    logger.info(chalk.green("Migration completed for folder: %s"), inputFolder);
+    this.spinnies.succeed("folder", {
+      text: chalk.green(`Migration completed for folder: ${inputFolder}`),
+    });
   }
 
   public async migrate(input: string, output: string): Promise<void> {
@@ -198,32 +230,6 @@ class Migrator {
       handleError(`Error while processing the input path: ${input}`, error);
     }
   }
-
-  private progressBar = new cliProgress.SingleBar({
-    format:
-      chalk.yellow("Migrating Files") +
-      " |" +
-      chalk.cyan("{bar}") +
-      "| {percentage}% || {value}/{total} Files",
-    barCompleteChar: "\u2588",
-    barIncompleteChar: "\u2591",
-    hideCursor: true,
-  });
-}
-
-function createFileProgressBar(fileName: string): cliProgress.SingleBar {
-  const fileProgressBar = new cliProgress.SingleBar({
-    format:
-      chalk.blue(`Migrating ${fileName}`) +
-      " |" +
-      chalk.cyan("{bar}") +
-      "| {percentage}% || {value}/{total} Elements",
-    barCompleteChar: "\u2588",
-    barIncompleteChar: "\u2591",
-    hideCursor: true,
-  });
-
-  return fileProgressBar;
 }
 
 export { Migrator };
