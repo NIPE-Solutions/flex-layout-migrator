@@ -2,14 +2,11 @@ import { BaseMigrator } from "./base.migrator";
 
 import * as fs from "fs-extra";
 import * as path from "path";
-import chalk from "chalk";
 import * as cheerio from "cheerio";
 import { Cheerio, CheerioAPI, Element as CheerioElement } from "cheerio";
-import { Converter } from "../converter";
-import { handleError, logger } from "../logger";
+import { logger } from "../logger";
 import { BreakPoint } from "../converter/converter.type";
 import { NodeWithChildren } from "domhandler";
-import Spinnies from "spinnies";
 import { IConverter } from "../converter/converter";
 
 export class FileMigrator extends BaseMigrator {
