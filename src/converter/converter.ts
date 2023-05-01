@@ -4,7 +4,19 @@ import { BreakPoint } from "./converter.type";
 import * as cheerio from "cheerio";
 import { Cheerio } from "cheerio";
 
-export abstract class Converter {
+export interface IConverter {
+  canConvert(attribute: string, isBreakpointAttribute?: boolean): boolean;
+  convert(
+    attribute: string,
+    value: string,
+    element: Cheerio<cheerio.Element>,
+    breakPoint?: BreakPoint
+  ): void;
+
+  getAllAttributes(): string[];
+}
+
+export abstract class Converter implements IConverter {
   private converters: Map<string, AttributeConverter> = new Map();
 
   /**

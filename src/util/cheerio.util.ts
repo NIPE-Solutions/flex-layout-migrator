@@ -9,11 +9,16 @@ export function addInlineStyles(
   element: Cheerio<any>,
   styles: { [key: string]: string }
 ): void {
-  const currentStyle = element.attr("style") || "";
+  let currentStyle = element.attr("style") || "";
+
+  if (currentStyle && !currentStyle.endsWith(";")) {
+    currentStyle += ";";
+  }
+
   const stylesToAdd = Object.entries(styles)
     .map(([key, value]) => `${key}: ${value};`)
     .join(" ");
-  const newStyle = `${currentStyle}; ${stylesToAdd}`.trim();
+  const newStyle = `${currentStyle} ${stylesToAdd}`.trim();
 
   element.attr("style", newStyle);
 }
