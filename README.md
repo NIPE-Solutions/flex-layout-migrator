@@ -1,14 +1,16 @@
 ## Table of Contents
 
 - [Angular Flex-Layout Migration Tool](#angular-flex-layout-migration-tool)
-  - [Features](#features)
-  - [Status](#status)
-  - [How to use it localy](#how-to-use-it-localy)
-  - [Installation](#installation)
-  - [Usage](#usage)
-  - [Options](#options)
-  - [Contributing](#contributing)
-  - [License](#license)
+  - [Features ](#features-)
+  - [Status ](#status-)
+    - [Flex-Layout Attributes](#flex-layout-attributes)
+    - [Available Converters](#available-converters)
+  - [How to use it localy ](#how-to-use-it-localy-)
+  - [Installation ](#installation-)
+  - [Usage ](#usage-)
+  - [Options ](#options-)
+  - [Contributing ](#contributing-)
+  - [License ](#license-)
 
 # Angular Flex-Layout Migration Tool
 
@@ -25,7 +27,7 @@ The Idea of this project is to migrate the Angular Flex-Layout attributes to CSS
 
 ## Features <a name="features"></a>
 
-- Scans and processes HTML files or entire directories.
+- Scans and processes HTML files or entire directories (recursive and paralell).
 - Migrates Angular Flex-Layout attributes to CSS classes.
 - Configurable attribute-to-class mapping using a JSON configuration file.
 - Support for handling attribute values.
