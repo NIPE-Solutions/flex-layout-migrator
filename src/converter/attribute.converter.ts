@@ -3,6 +3,8 @@ import { Cheerio } from "cheerio";
 import { BreakPoint, breakpoints } from "./converter.type";
 
 export abstract class AttributeConverter {
+  constructor(protected attributeName: string) {}
+
   public abstract convert(
     value: string,
     element: Cheerio<cheerio.Element>,
@@ -18,7 +20,9 @@ export abstract class AttributeConverter {
    *
    * @returns {string} the name of the attribute
    */
-  public abstract getAttributeName(): string;
+  public getAttributeName(): string {
+    return this.attributeName;
+  }
 
   /**
    * Returns true if the converter uses breakpoints. If true, the converter will be called for each breakpoint.
@@ -53,6 +57,8 @@ export abstract class AttributeConverter {
   }
 
   public getSelectors(): string {
-    return this.getAttributeNames().join(", ");
+    return this.getAttributeNames()
+      .map((attribute) => `[${attribute}]`)
+      .join(", ");
   }
 }

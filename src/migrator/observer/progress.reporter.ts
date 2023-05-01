@@ -2,11 +2,7 @@ import Spinnies from "spinnies";
 import { EventData, Observer } from "./migrator.observer";
 
 class ProgressReporter implements Observer {
-  private spinnies: Spinnies;
-
-  constructor() {
-    this.spinnies = new Spinnies();
-  }
+  constructor(private spinnies: Spinnies = new Spinnies()) {}
 
   public update(event: string, data: EventData): void {
     switch (event) {

@@ -3,12 +3,12 @@ import { Cheerio } from "cheerio";
 import { AttributeConverter } from "../../attribute.converter";
 
 export class FxFlexAttributeConverter extends AttributeConverter {
-  public convert(value: string, element: Cheerio<cheerio.Element>): void {
-    element.addClass("flex");
+  constructor() {
+    super("fxFlex");
   }
 
-  public getAttributeName(): string {
-    return "fxTest";
+  public convert(value: string, element: Cheerio<cheerio.Element>): void {
+    element.addClass("flex");
   }
 
   public usesBreakpoints(): boolean {
