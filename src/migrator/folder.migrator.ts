@@ -1,14 +1,14 @@
-import * as path from "path";
-import * as fs from "fs-extra";
-import { BaseMigrator } from "./base.migrator";
-import { FileMigrator } from "./file.migrator";
-import { IConverter } from "src/converter/converter";
+import * as path from 'path';
+import * as fs from 'fs-extra';
+import { BaseMigrator } from './base.migrator';
+import { FileMigrator } from './file.migrator';
+import { IConverter } from 'src/converter/converter';
 
 export class FolderMigrator extends BaseMigrator {
   constructor(
     protected converter: IConverter,
     private inputFolder: string,
-    private outputFolder: string
+    private outputFolder: string,
   ) {
     super(converter);
   }
@@ -17,7 +17,7 @@ export class FolderMigrator extends BaseMigrator {
     await this.migrateRecursively(
       this.inputFolder,
       this.outputFolder,
-      this.inputFolder
+      this.inputFolder,
     );
   }
 
@@ -30,9 +30,9 @@ export class FolderMigrator extends BaseMigrator {
   private async migrateRecursively(
     inputFolder: string,
     outputFolder: string,
-    currentDir: string
+    currentDir: string,
   ): Promise<void> {
-    this.notifyObservers("folderStarted", {
+    this.notifyObservers('folderStarted', {
       id: currentDir,
       folderName: path.basename(currentDir),
     });
@@ -41,11 +41,11 @@ export class FolderMigrator extends BaseMigrator {
 
     const fileCount = (
       await Promise.all(
-        filesAndDirectories.map(async (item) => {
+        filesAndDirectories.map(async item => {
           const currentPath = path.join(currentDir, item);
           const stat = await fs.promises.stat(currentPath);
           return stat.isFile() ? 1 : 0;
-        })
+        }),
       )
     ).reduce<number>((acc, curr) => acc + curr, 0);
 
@@ -57,13 +57,13 @@ export class FolderMigrator extends BaseMigrator {
       if (stat.isFile()) {
         const outputPath = path.join(
           outputFolder,
-          path.relative(inputFolder, currentPath)
+          path.relative(inputFolder, currentPath),
         );
 
         const fileMigrator = new FileMigrator(
           this.converter,
           currentPath,
-          outputPath
+          outputPath,
         );
 
         // add observers to file migrator
@@ -77,7 +77,7 @@ export class FolderMigrator extends BaseMigrator {
 
         const percentage = (processedFiles / fileCount) * 100;
 
-        this.notifyObservers("folderProgress", {
+        this.notifyObservers('folderProgress', {
           id: currentDir,
           percentage,
           processedFiles,
@@ -87,7 +87,7 @@ export class FolderMigrator extends BaseMigrator {
       }
     }
 
-    this.notifyObservers("folderCompleted", {
+    this.notifyObservers('folderCompleted', {
       id: currentDir,
       folderName: path.basename(currentDir),
     });

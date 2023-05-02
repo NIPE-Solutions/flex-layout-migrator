@@ -1,16 +1,16 @@
-import { AttributeConverter } from "./attribute.converter";
-import { BreakPoint } from "./converter.type";
+import { AttributeConverter } from './attribute.converter';
+import { BreakPoint } from './converter.type';
 
-import * as cheerio from "cheerio";
-import { Cheerio } from "cheerio";
+import * as cheerio from 'cheerio';
+import { Cheerio } from 'cheerio';
 
 export interface IConverter {
   canConvert(attribute: string, isBreakpointAttribute?: boolean): boolean;
   convert(
     attribute: string,
-    value: string,
+    value: string[],
     element: Cheerio<cheerio.Element>,
-    breakPoint?: BreakPoint
+    breakPoint?: BreakPoint,
   ): void;
 
   getAllAttributes(): string[];
@@ -30,7 +30,9 @@ export abstract class Converter implements IConverter {
    * }
    * ```
    */
-  constructor() {}
+  constructor() {
+    // Override this method to add your converters
+  }
 
   /**
    * Converts the attribute value to the target format
@@ -41,9 +43,9 @@ export abstract class Converter implements IConverter {
    */
   public convert(
     attribute: string,
-    value: string,
+    value: string[],
     element: Cheerio<cheerio.Element>,
-    breakPoint?: BreakPoint
+    breakPoint?: BreakPoint,
   ): void {
     const converter = this.converters.get(attribute);
     if (!converter) {
@@ -57,14 +59,11 @@ export abstract class Converter implements IConverter {
    * @param attribute attribute name
    * @returns
    */
-  public canConvert(
-    attribute: string,
-    isBreakpointAttribute: boolean = false
-  ): boolean {
+  public canConvert(attribute: string, isBreakpointAttribute = false): boolean {
     const normalizedAttribute = this.normalizeAttribute(attribute);
 
     if (isBreakpointAttribute) {
-      const [attributeName] = attribute.split(".");
+      const [attributeName] = attribute.split('.');
       const normalizedAttributeName = this.normalizeAttribute(attributeName);
 
       const targetConverter = this.converters.get(normalizedAttributeName);
@@ -84,7 +83,7 @@ export abstract class Converter implements IConverter {
   protected addConverter(converter: AttributeConverter): Converter {
     this.converters.set(
       this.normalizeAttribute(converter.getAttributeName()),
-      converter
+      converter,
     );
     return this;
   }
@@ -95,17 +94,17 @@ export abstract class Converter implements IConverter {
    */
   public getAllSelectors(): string {
     return Array.from(this.converters.values())
-      .map((converter) => converter.getSelectors())
-      .join(", ");
+      .map(converter => converter.getSelectors())
+      .join(', ');
   }
 
   public getAllAttributes(): string[] {
     return Array.from(this.converters.values())
-      .map((converter) => converter.getAttributeNames())
+      .map(converter => converter.getAttributeNames())
       .flat();
   }
 
   private normalizeAttribute(attribute: string): string {
-    return attribute.replace("[", "").replace("]", "").trim();
+    return attribute.replace('[', '').replace(']', '').trim();
   }
 }
