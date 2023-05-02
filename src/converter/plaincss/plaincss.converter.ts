@@ -1,4 +1,4 @@
-import { Converter } from "../converter";
+import { Converter } from '../converter';
 
 export class PlainCssConverter extends Converter {
   constructor() {

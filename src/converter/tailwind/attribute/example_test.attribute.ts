@@ -8,7 +8,7 @@ interface IFxFlexAttributeContext {
   cool: boolean;
 }
 
-export class FxFlexAttributeConverter extends AttributeConverter<IFxFlexAttributeContext> {
+export class FxTestAttributeConverter extends AttributeConverter<IFxFlexAttributeContext> {
   constructor() {
     super('fxTest');
   }
