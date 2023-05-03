@@ -1,10 +1,10 @@
-import { BaseMigrator } from "./base.migrator";
-import { IConverter } from "../converter/converter";
-import { Observer } from "./observer/migrator.observer";
+import { BaseMigrator } from './base.migrator';
+import { IConverter } from '../converter/converter';
+import { Observer } from './observer/migrator.observer';
 
 class TestMigrator extends BaseMigrator {
   async migrate(): Promise<void> {
-    this.notifyObservers("testEvent", { message: "Test message" });
+    this.notifyObservers('testEvent', { id: '1', message: 'Test message' });
   }
 
   getObserverCount(): number {
@@ -12,7 +12,7 @@ class TestMigrator extends BaseMigrator {
   }
 }
 
-describe("BaseMigrator", () => {
+describe('BaseMigrator', () => {
   let converter: IConverter;
   let migrator: TestMigrator;
 
@@ -26,7 +26,7 @@ describe("BaseMigrator", () => {
     migrator = new TestMigrator(converter);
   });
 
-  test("addObserver and removeObserver", () => {
+  test('addObserver and removeObserver', () => {
     const observer: Observer = {
       update: jest.fn(),
     };
@@ -38,15 +38,15 @@ describe("BaseMigrator", () => {
     expect(migrator.getObserverCount()).toBe(0);
   });
 
-  test("notifyObservers", async () => {
+  test('notifyObservers', async () => {
     const observer: Observer = {
       update: jest.fn(),
     };
     migrator.addObserver(observer);
 
     await migrator.migrate();
-    expect(observer.update).toHaveBeenCalledWith("testEvent", {
-      message: "Test message",
+    expect(observer.update).toHaveBeenCalledWith('testEvent', {
+      message: 'Test message',
     });
   });
 });

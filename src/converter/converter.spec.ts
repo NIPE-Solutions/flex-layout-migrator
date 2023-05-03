@@ -3,7 +3,7 @@ import { AttributeConverter } from './attribute.converter';
 import { Cheerio } from 'cheerio';
 import * as cheerio from 'cheerio';
 
-class DummyAttributeConverter extends AttributeConverter {
+class DummyAttributeConverter extends AttributeConverter<unknown> {
   constructor() {
     super('dummy');
   }

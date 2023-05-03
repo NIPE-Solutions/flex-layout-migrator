@@ -1,17 +1,20 @@
-import { format as dateFormat } from "date-fns";
+import { format as dateFormat } from 'date-fns';
 
-import { createLogger, format, transports } from "winston";
+import { createLogger, format, transports } from 'winston';
 
 const { combine, timestamp, printf, colorize, splat } = format;
 
 const myFormat = printf(({ timestamp, level, message, label, lineNumber }) => {
-    const formattedTimestamp = dateFormat(new Date(timestamp), "yyyy-MM-dd HH:mm:ss");
-    const fileLineInfo = label && lineNumber ? `(${label}:${lineNumber})` : "";
-    return `[${formattedTimestamp}] ${level}: ${message} ${fileLineInfo}`;
-  });
+  const formattedTimestamp = dateFormat(
+    new Date(timestamp),
+    'yyyy-MM-dd HH:mm:ss',
+  );
+  const fileLineInfo = label && lineNumber ? `(${label}:${lineNumber})` : '';
+  return `[${formattedTimestamp}] ${level}: ${message} ${fileLineInfo}`;
+});
 
 export const logger = createLogger({
-  level: "info",
+  level: 'info',
   format: combine(splat(), colorize(), timestamp(), myFormat),
   transports: [new transports.Console()],
 });

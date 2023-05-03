@@ -14,7 +14,7 @@ export class Migrator {
   public async migrate(): Promise<void> {
     const stat = await fs.promises.stat(this.inputPath);
 
-    let migrator;
+    let migrator: FileMigrator | FolderMigrator;
     if (stat.isFile()) {
       migrator = new FileMigrator(
         this.converter,

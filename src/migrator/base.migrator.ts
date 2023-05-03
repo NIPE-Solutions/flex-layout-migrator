@@ -1,5 +1,5 @@
-import { IConverter } from "../converter/converter";
-import { Observer } from "./observer/migrator.observer";
+import { IConverter } from '../converter/converter';
+import { EventData, Observer } from './observer/migrator.observer';
 
 export interface IMigrator {
   migrate(): Promise<void>;
@@ -21,7 +21,7 @@ abstract class BaseMigrator implements IMigrator {
     }
   }
 
-  protected notifyObservers(event: string, data: any): void {
+  protected notifyObservers(event: string, data: EventData): void {
     for (const observer of this.observers) {
       observer.update(event, data);
     }

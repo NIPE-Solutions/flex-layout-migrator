@@ -1,4 +1,5 @@
-import { Cheerio } from "cheerio";
+import { Cheerio } from 'cheerio';
+import * as cheerio from 'cheerio';
 
 /**
  * Adds the given styles to the element inline styles
@@ -6,19 +7,19 @@ import { Cheerio } from "cheerio";
  * @param styles key value pairs of styles to add
  */
 export function addInlineStyles(
-  element: Cheerio<any>,
-  styles: { [key: string]: string }
+  element: Cheerio<cheerio.AnyNode>,
+  styles: { [key: string]: string },
 ): void {
-  let currentStyle = element.attr("style") || "";
+  let currentStyle = element.attr('style') || '';
 
-  if (currentStyle && !currentStyle.endsWith(";")) {
-    currentStyle += ";";
+  if (currentStyle && !currentStyle.endsWith(';')) {
+    currentStyle += ';';
   }
 
   const stylesToAdd = Object.entries(styles)
     .map(([key, value]) => `${key}: ${value};`)
-    .join(" ");
+    .join(' ');
   const newStyle = `${currentStyle} ${stylesToAdd}`.trim();
 
-  element.attr("style", newStyle);
+  element.attr('style', newStyle);
 }

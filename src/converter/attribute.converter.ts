@@ -2,13 +2,28 @@ import * as cheerio from 'cheerio';
 import { Cheerio } from 'cheerio';
 import { BreakPoint, breakpoints } from './converter.type';
 
-export abstract class AttributeConverter {
-  constructor(protected attributeName: string) {}
+export interface IAttributeConverter<T> {
+  /**
+   * This method is called before the converter is used. You can use this method to prepare the element.
+   * For exmample, some converters need to check the parent element.
+   *
+   * @param element the element that will be converted
+   */
+  prepare(element: Cheerio<cheerio.Element>): T;
 
-  public abstract convert(
+  /**
+   * Converts the attribute value to the target format and adds it to the element.
+   *
+   * @param value A list of values if present or empty if not
+   * @param element The element that contains the attribute
+   * @param breakPoint The breakpoint if present or undefined if not
+   * @param context The context that was created in the {@link prepare} method or undefined if not
+   */
+  convert(
     value: string[],
     element: Cheerio<cheerio.Element>,
     breakPoint?: BreakPoint,
+    context?: T,
   ): void;
 
   /**
@@ -20,9 +35,7 @@ export abstract class AttributeConverter {
    *
    * @returns {string} the name of the attribute
    */
-  public getAttributeName(): string {
-    return this.attributeName;
-  }
+  getAttributeName(): string;
 
   /**
    * Returns true if the converter uses breakpoints. If true, the converter will be called for each breakpoint.
@@ -38,6 +51,39 @@ export abstract class AttributeConverter {
    *
    * @returns {boolean} true if the converter uses breakpoints
    */
+  usesBreakpoints(): boolean;
+
+  /**
+   * Returns all the attribute names that the converter is responsible for.
+   * If the converter uses breakpoints, the selector will be populated to reflect the breakpoints as well.
+   * For example the selector "attribute" will be:
+   *
+   * [attribute], [attribute.xs], [attribute.sm], [attribute.md], ...
+   *
+   * @returns {string[]} list of attribute names
+   */
+  getAttributeNames(): string[];
+}
+
+export abstract class AttributeConverter<T> implements IAttributeConverter<T> {
+  constructor(protected attributeName: string) {}
+
+  public prepare<T>(element: cheerio.Cheerio<cheerio.Element>): T {
+    // Override this method to prepare the element
+    return {} as T;
+  }
+
+  public abstract convert(
+    value: string[],
+    element: Cheerio<cheerio.Element>,
+    breakPoint?: BreakPoint,
+    context?: T,
+  ): void;
+
+  public getAttributeName(): string {
+    return this.attributeName;
+  }
+
   public usesBreakpoints(): boolean {
     return true;
   }
