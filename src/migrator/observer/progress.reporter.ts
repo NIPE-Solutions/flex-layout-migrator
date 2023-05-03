@@ -1,27 +1,30 @@
-import Spinnies from "spinnies";
-import { EventData, Observer } from "./migrator.observer";
+import Spinnies from 'spinnies';
+import { EventData, Observer } from './migrator.observer';
 
 class ProgressReporter implements Observer {
   constructor(private spinnies: Spinnies = new Spinnies()) {}
 
   public update(event: string, data: EventData): void {
     switch (event) {
-      case "fileStarted":
+      case 'fileStarted':
         this.handleFileStarted(data);
         break;
-      case "fileProgress":
-        this.handleFileProgress(data);
+      case 'filePreparationProgress':
+        this.handleFilePreparationProgress(data);
         break;
-      case "fileCompleted":
+      case 'fileMigrationProgress':
+        this.handleFileMigrationProgress(data);
+        break;
+      case 'fileCompleted':
         this.handleFileCompleted(data);
         break;
-      case "folderStarted":
+      case 'folderStarted':
         this.handleFolderStarted(data);
         break;
-      case "folderProgress":
+      case 'folderProgress':
         this.handleFolderProgress(data);
         break;
-      case "folderCompleted":
+      case 'folderCompleted':
         this.handleFolderCompleted(data);
         break;
       default:
@@ -35,9 +38,15 @@ class ProgressReporter implements Observer {
     });
   }
 
-  private handleFileProgress(data: EventData): void {
+  private handleFilePreparationProgress(data: EventData): void {
     this.spinnies.update(data.id, {
-      text: `File progress: ${data.percentage}% (${data.processedElements} elements)`,
+      text: `Phase 1: File preparation: ${data.percentage}% (${data.processedElements} elements)`,
+    });
+  }
+
+  private handleFileMigrationProgress(data: EventData): void {
+    this.spinnies.update(data.id, {
+      text: `Phase 2: File migration: ${data.percentage}% (${data.processedElements} elements)`,
     });
   }
 

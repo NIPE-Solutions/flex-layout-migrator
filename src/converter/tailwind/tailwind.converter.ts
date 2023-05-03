@@ -1,5 +1,5 @@
-import { Converter } from "../converter";
-import { FxFlexAttributeConverter } from "./attribute/fxflex.attribute";
+import { Converter } from '../converter';
+import { FxFlexAttributeConverter } from './attribute/example_test.attribute';
 
 export class TailwindCssConverter extends Converter {
   constructor() {

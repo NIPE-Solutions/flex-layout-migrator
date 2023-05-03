@@ -3,7 +3,7 @@ import { Cheerio } from 'cheerio';
 import * as cheerio from 'cheerio';
 import { BreakPoint, breakpoints } from './converter.type';
 
-class DummyAttributeConverter extends AttributeConverter {
+class DummyAttributeConverter extends AttributeConverter<unknown> {
   constructor(attributeName: string) {
     super(attributeName);
   }
@@ -47,5 +47,11 @@ describe('AttributeConverter', () => {
       .join(', ');
 
     expect(converter.getSelectors()).toBe(expectedSelectors);
+  });
+
+  test('prepare() should return an empty object', () => {
+    const $ = cheerio.load('<div></div>');
+    const element = $('div');
+    expect(converter.prepare($, element)).toEqual({});
   });
 });

@@ -2,7 +2,7 @@ import * as path from 'path';
 import * as fs from 'fs-extra';
 import { BaseMigrator } from './base.migrator';
 import { FileMigrator } from './file.migrator';
-import { IConverter } from 'src/converter/converter';
+import { IConverter } from '../converter/converter';
 
 export class FolderMigrator extends BaseMigrator {
   constructor(

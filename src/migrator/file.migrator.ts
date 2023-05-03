@@ -7,7 +7,7 @@ import { Cheerio, CheerioAPI, Element as CheerioElement } from 'cheerio';
 import { logger } from '../logger';
 import { BreakPoint } from '../converter/converter.type';
 import { NodeWithChildren } from 'domhandler';
-import { IConverter } from '../converter/converter';
+import { IAttributeContext, IConverter } from '../converter/converter';
 
 export class FileMigrator extends BaseMigrator {
   constructor(
@@ -20,54 +20,124 @@ export class FileMigrator extends BaseMigrator {
 
   public async migrate(): Promise<void> {
     const inputFilename = path.basename(this.input);
-
-    this.notifyObservers('fileStarted', {
-      id: this.input,
-      fileName: inputFilename,
-    });
+    this.notifyFileStarted(inputFilename);
 
     const html = await fs.promises.readFile(this.input, 'utf8');
+    const $ = this.loadCheerio(html);
 
-    // Load the HTML into Cheerio and disable XML encoding
-    // otherwise attributenames will be lowercased
-    const $ = cheerio.load(
-      html,
-      { xml: { decodeEntities: false, lowerCaseAttributeNames: false } },
-      false,
-    );
-
-    // Find all elements that have Flex-Layout attributes
     const attributeNamesToLookFor = this.converter.getAllAttributes();
     logger.debug('Attributes: [%s]', attributeNamesToLookFor.join(', '));
 
-    // Find all elements that have Flex-Layout attributes and store them in an array
-    // We need to use a custom attribute selector because [fxFlex.sm] is not a valid CSS selector
     const elements = this.findElementsWithCustomAttributes(
       $,
       attributeNamesToLookFor,
     );
-
     logger.debug('Found %i elements', elements.length);
 
-    // Add a spinner for the elements progress
     const totalElements = elements.length;
 
-    // Iterate through the elements and perform the conversion
-    elements.forEach((element, index) => {
-      // Update the elements spinner
+    // Phase 1: Prepare the conversion
+    const attributeContexts = this.prepareConversion(
+      elements,
+      $,
+      inputFilename,
+      totalElements,
+    );
 
-      const percentage = Math.round(((index + 1) / totalElements) * 100);
-      this.notifyObservers('fileProgress', {
-        id: this.input,
-        fileName: inputFilename,
-        percentage,
-        processedElements: index + 1,
-      });
+    // Phase 2: Convert the attributes
+    this.performConversion(
+      elements,
+      $,
+      inputFilename,
+      totalElements,
+      attributeContexts,
+    );
+
+    await this.writeOutputFile($);
+  }
+
+  private loadCheerio(html: string): CheerioAPI {
+    return cheerio.load(
+      html,
+      { xml: { decodeEntities: false, lowerCaseAttributeNames: false } },
+      false,
+    );
+  }
+
+  private prepareConversion(
+    elements: Cheerio<CheerioElement>[],
+    $: CheerioAPI,
+    inputFilename: string,
+    totalElements: number,
+  ): Map<string, IAttributeContext<unknown>> {
+    const attributeContexts: Map<
+      string,
+      IAttributeContext<unknown>
+    > = new Map();
+
+    elements.forEach((element, index) => {
+      this.notifyUpdateFilePreparationProgress(
+        inputFilename,
+        totalElements,
+        index,
+      );
 
       const el = $(element);
       const attrs = el.attr();
 
-      // If the element has no attributes, skip it
+      if (!attrs) return;
+
+      for (const [attribute] of Object.entries(attrs)) {
+        const isBreakpointAttribute = !!attribute && attribute.includes('.');
+        logger.debug(
+          'Can convert [%s]: %s',
+          attribute,
+          this.converter.canConvert(attribute, isBreakpointAttribute),
+        );
+
+        if (!this.converter.canConvert(attribute, isBreakpointAttribute)) {
+          logger.debug('Cannot convert attribute: %s', attribute);
+
+          continue;
+        }
+
+        const { attr } = this.extractAttributeAndBreakpoint(
+          attribute,
+          isBreakpointAttribute,
+        );
+
+        // Remove the square brackets from the attribute name
+        // [fxFlex] => fxFlex
+        // Currently needed because we currently dont support property binding syntax
+        // TODO: Support property binding syntax
+        const normalizeAttribute = attr.replace('[', '').replace(']', '');
+
+        const context = this.converter.prepare(normalizeAttribute, $, el);
+        const uniqueKey = `${index}_${attribute}`;
+        attributeContexts.set(uniqueKey, context);
+      }
+    });
+
+    return attributeContexts;
+  }
+
+  private performConversion(
+    elements: Cheerio<CheerioElement>[],
+    $: CheerioAPI,
+    inputFilename: string,
+    totalElements: number,
+    attributeContexts: Map<string, IAttributeContext<unknown>>,
+  ): void {
+    elements.forEach((element, index) => {
+      this.notifyUpdateFileMigrationProgress(
+        inputFilename,
+        totalElements,
+        index,
+      );
+
+      const el = $(element);
+      const attrs = el.attr();
+
       if (!attrs) return;
 
       for (const [attribute, value] of Object.entries(attrs)) {
@@ -100,24 +170,24 @@ export class FileMigrator extends BaseMigrator {
         const values =
           value && value.includes(' ') ? value.split(' ') : [value];
 
-        this.converter.convert(normalizeAttribute, values, el, breakPoint);
+        // Get the context for the attribute, if any or undefined
+        const context = attributeContexts.get(`${index}_${attribute}`);
+
+        // If context is defined, pass the context data, otherwise pass undefined
+        const contextData = context
+          ? (context.data as IAttributeContext<unknown>)
+          : undefined;
+
+        this.converter.convert(
+          normalizeAttribute,
+          values,
+          el,
+          breakPoint,
+          contextData,
+        );
 
         element.removeAttr(attribute);
       }
-    });
-
-    // Serialize the Cheerio document back to HTML
-    const migratedHtml = $.html({ xmlMode: false });
-
-    // Ensure the output directory exists
-    const outputDir = path.dirname(this.output);
-    await fs.promises.mkdir(outputDir, { recursive: true });
-
-    await fs.promises.writeFile(this.output, migratedHtml);
-
-    this.notifyObservers('fileCompleted', {
-      id: this.input,
-      fileName: inputFilename,
     });
   }
 
@@ -175,5 +245,59 @@ export class FileMigrator extends BaseMigrator {
       return { attr, breakPoint: breakPoint as BreakPoint };
     }
     return { attr: attribute, breakPoint: undefined };
+  }
+
+  private async writeOutputFile($: CheerioAPI): Promise<void> {
+    const migratedHtml = $.html({ xmlMode: false });
+
+    const outputDir = path.dirname(this.output);
+    await fs.promises.mkdir(outputDir, { recursive: true });
+
+    await fs.promises.writeFile(this.output, migratedHtml);
+
+    const inputFilename = path.basename(this.input);
+    this.notifyFileCompleted(inputFilename);
+  }
+
+  private notifyFileStarted(inputFilename: string): void {
+    this.notifyObservers('fileStarted', {
+      id: this.input,
+      fileName: inputFilename,
+    });
+  }
+
+  private notifyUpdateFilePreparationProgress(
+    inputFilename: string,
+    totalElements: number,
+    index: number,
+  ): void {
+    const percentage = Math.round(((index + 1) / totalElements) * 100);
+    this.notifyObservers('filePreparationProgress', {
+      id: this.input,
+      fileName: inputFilename,
+      percentage,
+      processedElements: index + 1,
+    });
+  }
+
+  private notifyUpdateFileMigrationProgress(
+    inputFilename: string,
+    totalElements: number,
+    index: number,
+  ): void {
+    const percentage = Math.round(((index + 1) / totalElements) * 100);
+    this.notifyObservers('fileMigrationProgress', {
+      id: this.input,
+      fileName: inputFilename,
+      percentage,
+      processedElements: index + 1,
+    });
+  }
+
+  private notifyFileCompleted(inputFilename: string): void {
+    this.notifyObservers('fileCompleted', {
+      id: this.input,
+      fileName: inputFilename,
+    });
   }
 }
