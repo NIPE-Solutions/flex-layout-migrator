@@ -98,7 +98,7 @@ export abstract class AttributeConverter<T> implements IAttributeConverter<T> {
     }
 
     // If the converter uses breakpoints, we need to create a selector for each breakpoint as well as the default one
-    return breakpoints.map(breakpoint => {
+    return ['', ...breakpoints].map(breakpoint => {
       const attr = breakpoint
         ? `${this.getAttributeName()}.${breakpoint}`
         : this.getAttributeName();

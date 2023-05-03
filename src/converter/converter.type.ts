@@ -1,5 +1,4 @@
 export const breakpoints = [
-  '', // Without breakpoint
   'xs',
   'sm',
   'md',
