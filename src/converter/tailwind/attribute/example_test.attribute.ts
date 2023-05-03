@@ -42,14 +42,10 @@ export class FxTestAttributeConverter extends AttributeConverter<IFxFlexAttribut
 
     // Add a class to the element based on the context
 
-    element.addClass(
-      `flex-hello-hello-dir-${context.rtl ? 'rtl' : 'ltr'}-cool-${
-        context.cool
-      }`,
-    );
+    element.addClass(`flex-test-${value[0]}`);
   }
 
   public usesBreakpoints(): boolean {
-    return false;
+    return true;
   }
 }

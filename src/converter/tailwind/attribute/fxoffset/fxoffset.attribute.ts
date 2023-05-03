@@ -5,6 +5,11 @@ import { BreakPoint } from '../../../converter.type';
 import { mapBreakpoint } from '../../breakpoint.mapper';
 import { logger } from '../../../../logger';
 
+interface IFxFlexOffsetAttributeContext {
+  direction: 'row' | 'column';
+  rtl: boolean;
+}
+
 /**
  * Converter for the fxFlexOffset attribute. Converts the value to the tailwind format.
  *
@@ -50,15 +55,34 @@ import { logger } from '../../../../logger';
  * If the element has no value, the converter does nothing.
  *
  */
-export class FxFlexOffsetConverter extends AttributeConverter {
+export class FxFlexOffsetConverter extends AttributeConverter<IFxFlexOffsetAttributeContext> {
   constructor() {
     super('fxFlexOffset');
+  }
+
+  public prepare(
+    root: cheerio.CheerioAPI,
+    element: Cheerio<cheerio.Element>,
+  ): IFxFlexOffsetAttributeContext {
+    const parent = element.parent();
+
+    const direction = (parent.attr('fxLayout') as 'row' | 'column') || 'row';
+
+    const htmlElement = root('html');
+
+    const rtl = htmlElement.attr('dir') === 'rtl';
+
+    return {
+      direction,
+      rtl,
+    };
   }
 
   public convert(
     value: string[],
     element: Cheerio<cheerio.Element>,
-    breakPoint?: BreakPoint,
+    breakPoint: BreakPoint | undefined,
+    context: IFxFlexOffsetAttributeContext,
   ): void {
     const [offset] = value;
 
@@ -69,10 +93,11 @@ export class FxFlexOffsetConverter extends AttributeConverter {
       return;
     }
 
-    const parent = element.parent();
+    const { direction, rtl } = context;
 
-    const isParentRowLayout = parent.hasClass('flex-row');
-    const isRtl = parent.attr('dir') === 'rtl';
+    const isParentRowLayout = direction === 'row';
+
+    const isRtl = rtl;
 
     const mappedBreakPoint = mapBreakpoint(breakPoint);
 

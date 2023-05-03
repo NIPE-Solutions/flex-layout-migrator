@@ -13,7 +13,10 @@ describe('FxFlexOffsetConverter', () => {
     const $ = load(html);
     const element = $('div');
 
-    converter.convert(['4'], element);
+    converter.convert(['4'], element, undefined, {
+      direction: 'column',
+      rtl: false,
+    });
     expect(element.hasClass('ml-4')).toBe(true);
   });
 
@@ -22,7 +25,10 @@ describe('FxFlexOffsetConverter', () => {
     const $ = load(html);
     const element = $('div');
 
-    converter.convert(['4'], element, 'md');
+    converter.convert(['4'], element, 'md', {
+      direction: 'column',
+      rtl: false,
+    });
     expect(element.hasClass('md:ml-4')).toBe(true);
   });
 
@@ -31,8 +37,14 @@ describe('FxFlexOffsetConverter', () => {
     const $ = load(html);
     const element = $('div');
 
-    converter.convert(['4'], element, 'md');
-    converter.convert(['6'], element, 'lg');
+    converter.convert(['4'], element, 'md', {
+      direction: 'column',
+      rtl: false,
+    });
+    converter.convert(['6'], element, 'lg', {
+      direction: 'column',
+      rtl: false,
+    });
 
     expect(element.hasClass('md:ml-4')).toBe(true);
     expect(element.hasClass('lg:ml-6')).toBe(true);
@@ -43,7 +55,10 @@ describe('FxFlexOffsetConverter', () => {
     const $ = load(html);
     const element = $('div');
 
-    converter.convert([], element);
+    converter.convert([], element, undefined, {
+      direction: 'column',
+      rtl: false,
+    });
 
     expect(element.attr('class')).toBeUndefined();
   });
