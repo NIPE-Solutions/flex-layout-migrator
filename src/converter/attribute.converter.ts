@@ -1,5 +1,5 @@
 import * as cheerio from 'cheerio';
-import { Cheerio } from 'cheerio';
+import { Cheerio, CheerioAPI } from 'cheerio';
 import { BreakPoint, breakpoints } from './converter.type';
 
 export interface IAttributeConverter<T> {
@@ -7,9 +7,10 @@ export interface IAttributeConverter<T> {
    * This method is called before the converter is used. You can use this method to prepare the element.
    * For exmample, some converters need to check the parent element.
    *
+   * @param root the root element of the document
    * @param element the element that will be converted
    */
-  prepare(element: Cheerio<cheerio.Element>): T;
+  prepare(root: CheerioAPI, element: Cheerio<cheerio.Element>): T;
 
   /**
    * Converts the attribute value to the target format and adds it to the element.
@@ -68,7 +69,10 @@ export interface IAttributeConverter<T> {
 export abstract class AttributeConverter<T> implements IAttributeConverter<T> {
   constructor(protected attributeName: string) {}
 
-  public prepare<T>(element: cheerio.Cheerio<cheerio.Element>): T {
+  public prepare(
+    root: CheerioAPI,
+    element: cheerio.Cheerio<cheerio.Element>,
+  ): T {
     // Override this method to prepare the element
     return {} as T;
   }

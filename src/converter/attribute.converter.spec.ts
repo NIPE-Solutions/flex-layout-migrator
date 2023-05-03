@@ -50,7 +50,8 @@ describe('AttributeConverter', () => {
   });
 
   test('prepare() should return an empty object', () => {
-    const element = cheerio.load('<div></div>')('div');
-    expect(converter.prepare(element)).toEqual({});
+    const $ = cheerio.load('<div></div>');
+    const element = $('div');
+    expect(converter.prepare($, element)).toEqual({});
   });
 });

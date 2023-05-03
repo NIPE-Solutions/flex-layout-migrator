@@ -2,7 +2,7 @@ import { AttributeConverter } from './attribute.converter';
 import { BreakPoint } from './converter.type';
 
 import * as cheerio from 'cheerio';
-import { Cheerio } from 'cheerio';
+import { Cheerio, CheerioAPI } from 'cheerio';
 
 export interface IAttributeContext<T> {
   attribute: string;
@@ -18,6 +18,7 @@ export interface IConverter {
    */
   prepare<T>(
     attribute: string,
+    root: CheerioAPI,
     element: Cheerio<cheerio.Element>,
   ): IAttributeContext<T>;
 
@@ -70,13 +71,14 @@ export abstract class Converter implements IConverter {
 
   public prepare<T>(
     attribute: string,
+    root: CheerioAPI,
     element: cheerio.Cheerio<cheerio.Element>,
   ): IAttributeContext<T> {
     const converter = this.converters.get(attribute);
     if (!converter) {
       throw new Error(`Unknown attribute: ${attribute}`);
     }
-    const data = converter.prepare(element);
+    const data = converter.prepare(root, element);
 
     return {
       attribute,

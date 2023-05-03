@@ -44,6 +44,8 @@ export class FileMigrator extends BaseMigrator {
       totalElements,
     );
 
+    console.log('Attributes', attributeContexts);
+
     // Phase 2: Convert the attributes
     this.performConversion(
       elements,
@@ -88,7 +90,31 @@ export class FileMigrator extends BaseMigrator {
       if (!attrs) return;
 
       for (const [attribute] of Object.entries(attrs)) {
-        const context = this.converter.prepare(attribute, el);
+        const isBreakpointAttribute = !!attribute && attribute.includes('.');
+        logger.debug(
+          'Can convert [%s]: %s',
+          attribute,
+          this.converter.canConvert(attribute, isBreakpointAttribute),
+        );
+
+        if (!this.converter.canConvert(attribute, isBreakpointAttribute)) {
+          logger.debug('Cannot convert attribute: %s', attribute);
+
+          continue;
+        }
+
+        const { attr } = this.extractAttributeAndBreakpoint(
+          attribute,
+          isBreakpointAttribute,
+        );
+
+        // Remove the square brackets from the attribute name
+        // [fxFlex] => fxFlex
+        // Currently needed because we currently dont support property binding syntax
+        // TODO: Support property binding syntax
+        const normalizeAttribute = attr.replace('[', '').replace(']', '');
+
+        const context = this.converter.prepare(normalizeAttribute, $, el);
         const uniqueKey = `${index}_${attribute}`;
         attributeContexts.set(uniqueKey, context);
       }
@@ -148,13 +174,22 @@ export class FileMigrator extends BaseMigrator {
 
         // Get the context for the attribute, if any or undefined
         const context = attributeContexts.get(`${index}_${attribute}`);
+        console.log('Attribute', normalizeAttribute);
+        console.log('Context', context);
+
+        // If context is defined, pass the context data, otherwise pass undefined
+        const contextData = context
+          ? (context.data as IAttributeContext<unknown>)
+          : undefined;
+
         this.converter.convert(
           normalizeAttribute,
           values,
           el,
           breakPoint,
-          context,
+          contextData,
         );
+
         element.removeAttr(attribute);
       }
     });
