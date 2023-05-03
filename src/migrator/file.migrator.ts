@@ -44,8 +44,6 @@ export class FileMigrator extends BaseMigrator {
       totalElements,
     );
 
-    console.log('Attributes', attributeContexts);
-
     // Phase 2: Convert the attributes
     this.performConversion(
       elements,
@@ -174,8 +172,6 @@ export class FileMigrator extends BaseMigrator {
 
         // Get the context for the attribute, if any or undefined
         const context = attributeContexts.get(`${index}_${attribute}`);
-        console.log('Attribute', normalizeAttribute);
-        console.log('Context', context);
 
         // If context is defined, pass the context data, otherwise pass undefined
         const contextData = context
