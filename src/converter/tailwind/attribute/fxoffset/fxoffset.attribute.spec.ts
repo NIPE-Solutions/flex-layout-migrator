@@ -15,7 +15,6 @@ describe('FxFlexOffsetConverter', () => {
 
     converter.convert(['4'], element, undefined, {
       direction: 'column',
-      rtl: false,
     });
     expect(element.hasClass('ml-4')).toBe(true);
   });
@@ -27,9 +26,8 @@ describe('FxFlexOffsetConverter', () => {
 
     converter.convert(['4'], element, 'md', {
       direction: 'column',
-      rtl: false,
     });
-    expect(element.hasClass('md:ml-4')).toBe(true);
+    expect(element.hasClass('md:ml-[4]')).toBe(true);
   });
 
   it('should handle multiple breakpoints correctly', () => {
@@ -39,11 +37,9 @@ describe('FxFlexOffsetConverter', () => {
 
     converter.convert(['4'], element, 'md', {
       direction: 'column',
-      rtl: false,
     });
     converter.convert(['6'], element, 'lg', {
       direction: 'column',
-      rtl: false,
     });
 
     expect(element.hasClass('md:ml-4')).toBe(true);
@@ -57,7 +53,6 @@ describe('FxFlexOffsetConverter', () => {
 
     converter.convert([], element, undefined, {
       direction: 'column',
-      rtl: false,
     });
 
     expect(element.attr('class')).toBeUndefined();

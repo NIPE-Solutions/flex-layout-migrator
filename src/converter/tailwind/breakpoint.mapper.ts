@@ -1,3 +1,4 @@
+import { isArbitraryValue } from '@util/value.util';
 import { BreakPoint } from '../converter.type';
 
 /**
@@ -38,4 +39,35 @@ export function mapBreakpoint(breakPoint: BreakPoint | undefined): string {
   }
 
   return BREAKPOINT_MAPPING[breakPoint] || '';
+}
+
+/**
+ * Adds the breakpoint as prefix to the class name. If no breakpoint is given, the class name is returned.
+ * @param breakPoint the breakpoint from flex-layout that is mapped to the TailwindCSS breakpoint and added as prefix
+ * @param className the class name
+ * @returns the class name with the breakpoint as prefix
+ */
+export function prefixValueWithBreakpoint(
+  breakPoint: BreakPoint | undefined,
+  className: string,
+): string {
+  const mappedBreakpoint = mapBreakpoint(breakPoint);
+  return mappedBreakpoint ? `${mappedBreakpoint}:${className}` : className;
+}
+
+/**
+ * Formats the value based on the given TailwindCSS option. If the value is arbitary, it is wrapped in square brackets. If not, it is not wrapped. If no breakpoint is given, the value is returned.
+ * @param value the value to format
+ * @param breakPoint the breakpoint from flex-layout that is mapped to the TailwindCSS breakpoint and added as prefix
+ */
+export function generateTailwindClassName(
+  tailwindOpt: string,
+  value: string,
+  breakPoint?: BreakPoint | undefined,
+) {
+  const isArbitary = isArbitraryValue(value);
+
+  const formattedValue =
+    tailwindOpt + (isArbitary ? `-[${value}]` : `-${value}`);
+  return prefixValueWithBreakpoint(breakPoint, formattedValue);
 }
