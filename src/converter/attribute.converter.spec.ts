@@ -30,7 +30,7 @@ describe('AttributeConverter', () => {
   });
 
   test('getAttributeNames() should return attribute names with breakpoints', () => {
-    const expectedAttributeNames = breakpoints.map(breakpoint => {
+    const expectedAttributeNames = ['', ...breakpoints].map(breakpoint => {
       return breakpoint ? `${attributeName}.${breakpoint}` : attributeName;
     });
 
@@ -38,7 +38,7 @@ describe('AttributeConverter', () => {
   });
 
   test('getSelectors() should return a string of comma-separated selectors', () => {
-    const expectedSelectors = breakpoints
+    const expectedSelectors = ['', ...breakpoints]
       .map(breakpoint => {
         return breakpoint
           ? `[${attributeName}.${breakpoint}]`

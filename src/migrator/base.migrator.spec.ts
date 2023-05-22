@@ -46,6 +46,7 @@ describe('BaseMigrator', () => {
 
     await migrator.migrate();
     expect(observer.update).toHaveBeenCalledWith('testEvent', {
+      id: '1',
       message: 'Test message',
     });
   });

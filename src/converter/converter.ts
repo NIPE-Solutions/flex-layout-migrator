@@ -74,10 +74,7 @@ export abstract class Converter implements IConverter {
     root: CheerioAPI,
     element: cheerio.Cheerio<cheerio.Element>,
   ): IAttributeContext<T> {
-    const converter = this.converters.get(attribute);
-    if (!converter) {
-      throw new Error(`Unknown attribute: ${attribute}`);
-    }
+    const converter = this.receiveConverter(attribute);
     const data = converter.prepare(root, element);
 
     return {
@@ -93,10 +90,7 @@ export abstract class Converter implements IConverter {
     breakPoint?: BreakPoint,
     context?: IAttributeContext<unknown>,
   ): void {
-    const converter = this.converters.get(attribute);
-    if (!converter) {
-      throw new Error(`Unknown attribute: ${attribute}`);
-    }
+    const converter = this.receiveConverter(attribute);
     converter.convert(value, element, breakPoint, context);
   }
 
@@ -127,6 +121,14 @@ export abstract class Converter implements IConverter {
       converter,
     );
     return this;
+  }
+
+  private receiveConverter(attribute: string): AttributeConverter<unknown> {
+    const converter = this.converters.get(attribute);
+    if (!converter) {
+      throw new Error(`Unknown attribute: ${attribute}`);
+    }
+    return converter;
   }
 
   /**

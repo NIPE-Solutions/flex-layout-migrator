@@ -3,14 +3,14 @@
     "target": "ESNext",
     "module": "CommonJS",
     "moduleResolution": "node",
-    "baseUrl": "./",
+    "baseUrl": ".",
     "strict": true,
     "esModuleInterop": true,
     "resolveJsonModule": true,
     "declaration": true,
     "outDir": "./dist",
     "paths": {
-      "@util/*": ["./src/util/*"]
+      "@util/*": ["src/util/*"]
     }
   },
   "include": ["./src/**/*.ts", "src/main.ts"],

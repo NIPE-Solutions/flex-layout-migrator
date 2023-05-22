@@ -23,6 +23,7 @@ describe('FileMigrator', () => {
   beforeEach(() => {
     converter = {
       canConvert: jest.fn().mockReturnValue(true),
+      prepare: jest.fn(),
       convert: jest.fn(),
       getAllAttributes: jest.fn().mockReturnValue(['fxFlex']),
     } as unknown as IConverter;

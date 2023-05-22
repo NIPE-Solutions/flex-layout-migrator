@@ -18,6 +18,9 @@ class ProgressReporter implements Observer {
       case 'fileCompleted':
         this.handleFileCompleted(data);
         break;
+      case 'fileNoElements':
+        this.handleFileNoElements(data);
+        break;
       case 'folderStarted':
         this.handleFolderStarted(data);
         break;
@@ -35,6 +38,12 @@ class ProgressReporter implements Observer {
   private handleFileStarted(data: EventData): void {
     this.spinnies.add(data.id, {
       text: `Migrating file: ${data.fileName}`,
+    });
+  }
+
+  private handleFileNoElements(data: EventData): void {
+    this.spinnies.fail(data.id, {
+      text: `No Elements found to convert: ${data.fileName}`,
     });
   }
 
