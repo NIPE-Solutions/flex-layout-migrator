@@ -1,13 +1,9 @@
 import { Cheerio } from 'cheerio';
 import * as cheerio from 'cheerio';
-import { AttributeConverter } from '../../../attribute.converter';
-import { BreakPoint } from '../../../converter.type';
-import {
-  generateTailwindClassName,
-  mapBreakpoint,
-  prefixValueWithBreakpoint,
-} from '../../breakpoint.mapper';
-import { logger } from '../../../../logger';
+import { AttributeConverter } from '../../attribute.converter';
+import { BreakPoint } from '../../converter.type';
+import { generateTailwindClassName } from '../breakpoint.mapper';
+import { logger } from '../../../logger';
 import classNames from 'classnames';
 
 interface IFxFlexOffsetAttributeContext {
@@ -59,7 +55,7 @@ interface IFxFlexOffsetAttributeContext {
  * If the element has no value, the converter does nothing.
  *
  */
-export class FxFlexOffsetConverter extends AttributeConverter<IFxFlexOffsetAttributeContext> {
+export class FxFlexOffsetAttributeConverter extends AttributeConverter<IFxFlexOffsetAttributeContext> {
   constructor() {
     super('fxFlexOffset');
   }

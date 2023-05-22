@@ -1,11 +1,11 @@
 import { load } from 'cheerio';
-import { FxFlexOffsetConverter } from './fxoffset.attribute';
+import { FxFlexOffsetAttributeConverter } from './fxflexoffset.attribute';
 
 describe('FxFlexOffsetConverter', () => {
-  let converter: FxFlexOffsetConverter;
+  let converter: FxFlexOffsetAttributeConverter;
 
   beforeEach(() => {
-    converter = new FxFlexOffsetConverter();
+    converter = new FxFlexOffsetAttributeConverter();
   });
 
   it('should add correct class for fxFlexOffset without breakpoint', () => {
@@ -16,18 +16,18 @@ describe('FxFlexOffsetConverter', () => {
     converter.convert(['4'], element, undefined, {
       direction: 'column',
     });
-    expect(element.hasClass('ml-4')).toBe(true);
+    expect(element.hasClass('mt-4')).toBe(true);
   });
 
   it('should add correct class for fxFlexOffset with breakpoint', () => {
-    const html = `<div fxFlexOffset="4" fxLayout.md=""></div>`;
+    const html = `<div fxFlexOffset.md="4"></div>`;
     const $ = load(html);
     const element = $('div');
 
     converter.convert(['4'], element, 'md', {
       direction: 'column',
     });
-    expect(element.hasClass('md:ml-[4]')).toBe(true);
+    expect(element.hasClass('md:mt-4')).toBe(true);
   });
 
   it('should handle multiple breakpoints correctly', () => {
@@ -42,8 +42,8 @@ describe('FxFlexOffsetConverter', () => {
       direction: 'column',
     });
 
-    expect(element.hasClass('md:ml-4')).toBe(true);
-    expect(element.hasClass('lg:ml-6')).toBe(true);
+    expect(element.hasClass('md:mt-4')).toBe(true);
+    expect(element.hasClass('lg:mt-6')).toBe(true);
   });
 
   it('should handle no fxFlexOffset value', () => {
@@ -55,6 +55,6 @@ describe('FxFlexOffsetConverter', () => {
       direction: 'column',
     });
 
-    expect(element.attr('class')).toBeUndefined();
+    expect(element.hasClass('mt-0')).toBe(true);
   });
 });
