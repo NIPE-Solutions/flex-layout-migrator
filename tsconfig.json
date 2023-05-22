@@ -10,7 +10,8 @@
     "declaration": true,
     "outDir": "./dist",
     "paths": {
-      "@util/*": ["src/util/*"]
+      "@util/*": ["src/util/*"],
+      "@lib/*": ["src/lib/*"]
     }
   },
   "include": ["./src/**/*.ts", "src/main.ts"],
