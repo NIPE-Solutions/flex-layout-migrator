@@ -8,11 +8,7 @@ class DummyAttributeConverter extends AttributeConverter<unknown> {
     super(attributeName);
   }
 
-  public convert(
-    value: string[],
-    element: Cheerio<cheerio.Element>,
-    breakPoint?: BreakPoint,
-  ): void {
+  public convert(value: string[], element: Cheerio<cheerio.Element>, breakPoint?: BreakPoint): void {
     // Implementierung für den Test
   }
 }
@@ -30,21 +26,19 @@ describe('AttributeConverter', () => {
   });
 
   test('getAttributeNames() should return attribute names with breakpoints', () => {
-    const expectedAttributeNames = breakpoints.map(breakpoint => {
-      return breakpoint ? `${attributeName}.${breakpoint}` : attributeName;
-    });
+    const expectedAttributeNames = [
+      `${attributeName}`,
+      ...breakpoints.map(breakpoint => `${attributeName}.${breakpoint}`),
+    ];
 
     expect(converter.getAttributeNames()).toEqual(expectedAttributeNames);
   });
 
   test('getSelectors() should return a string of comma-separated selectors', () => {
-    const expectedSelectors = breakpoints
-      .map(breakpoint => {
-        return breakpoint
-          ? `[${attributeName}.${breakpoint}]`
-          : `[${attributeName}]`;
-      })
-      .join(', ');
+    const expectedSelectors = [
+      `[${attributeName}]`,
+      ...breakpoints.map(breakpoint => `[${attributeName}.${breakpoint}]`),
+    ].join(', ');
 
     expect(converter.getSelectors()).toBe(expectedSelectors);
   });

@@ -1,4 +1,4 @@
-import { isArbitraryValue } from '@util/value.util';
+import { isArbitraryValue } from '../../util/value.util';
 import { BreakPoint } from '../converter.type';
 
 /**
@@ -47,10 +47,7 @@ export function mapBreakpoint(breakPoint: BreakPoint | undefined): string {
  * @param className the class name
  * @returns the class name with the breakpoint as prefix
  */
-export function prefixValueWithBreakpoint(
-  breakPoint: BreakPoint | undefined,
-  className: string,
-): string {
+export function prefixValueWithBreakpoint(breakPoint: BreakPoint | undefined, className: string): string {
   const mappedBreakpoint = mapBreakpoint(breakPoint);
   return mappedBreakpoint ? `${mappedBreakpoint}:${className}` : className;
 }
@@ -62,12 +59,11 @@ export function prefixValueWithBreakpoint(
  */
 export function generateTailwindClassName(
   tailwindOpt: string,
-  value: string,
+  value?: string | undefined,
   breakPoint?: BreakPoint | undefined,
 ) {
-  const isArbitary = isArbitraryValue(value);
-
-  const formattedValue =
-    tailwindOpt + (isArbitary ? `-[${value}]` : `-${value}`);
+  const isValueDefined = value !== undefined;
+  const isArbitary = isValueDefined ? isArbitraryValue(value) : undefined;
+  const formattedValue = isValueDefined ? tailwindOpt + (isArbitary ? `-[${value}]` : `-${value}`) : tailwindOpt;
   return prefixValueWithBreakpoint(breakPoint, formattedValue);
 }

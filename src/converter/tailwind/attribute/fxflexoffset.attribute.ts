@@ -1,13 +1,9 @@
 import { Cheerio } from 'cheerio';
 import * as cheerio from 'cheerio';
-import { AttributeConverter } from '../../../attribute.converter';
-import { BreakPoint } from '../../../converter.type';
-import {
-  generateTailwindClassName,
-  mapBreakpoint,
-  prefixValueWithBreakpoint,
-} from '../../breakpoint.mapper';
-import { logger } from '../../../../logger';
+import { AttributeConverter } from '../../attribute.converter';
+import { BreakPoint } from '../../converter.type';
+import { generateTailwindClassName, mapBreakpoint, prefixValueWithBreakpoint } from '../breakpoint.mapper';
+import { logger } from '../../../logger';
 import classNames from 'classnames';
 
 interface IFxFlexOffsetAttributeContext {
@@ -59,15 +55,12 @@ interface IFxFlexOffsetAttributeContext {
  * If the element has no value, the converter does nothing.
  *
  */
-export class FxFlexOffsetConverter extends AttributeConverter<IFxFlexOffsetAttributeContext> {
+export class FxFlexOffsetAttributeConverter extends AttributeConverter<IFxFlexOffsetAttributeContext> {
   constructor() {
     super('fxFlexOffset');
   }
 
-  public prepare(
-    root: cheerio.CheerioAPI,
-    element: Cheerio<cheerio.Element>,
-  ): IFxFlexOffsetAttributeContext {
+  public prepare(root: cheerio.CheerioAPI, element: Cheerio<cheerio.Element>): IFxFlexOffsetAttributeContext {
     const parent = element.parent();
 
     const direction = (parent.attr('fxLayout') as 'row' | 'column') || 'row';
@@ -94,12 +87,9 @@ export class FxFlexOffsetConverter extends AttributeConverter<IFxFlexOffsetAttri
     const isParentRowLayout = direction === 'row';
 
     const classes = classNames({
-      [`ltr:${generateTailwindClassName('ml', offset, breakPoint)}`]:
-        isParentRowLayout,
-      [`rtl:${generateTailwindClassName('mr', offset, breakPoint)}`]:
-        isParentRowLayout,
-      [`${generateTailwindClassName('mt', offset, breakPoint)}`]:
-        !isParentRowLayout,
+      [`ltr:${generateTailwindClassName('ml', offset, breakPoint)}`]: isParentRowLayout,
+      [`rtl:${generateTailwindClassName('mr', offset, breakPoint)}`]: isParentRowLayout,
+      [`${generateTailwindClassName('mt', offset, breakPoint)}`]: !isParentRowLayout,
     });
 
     element.addClass(classes.trim());
