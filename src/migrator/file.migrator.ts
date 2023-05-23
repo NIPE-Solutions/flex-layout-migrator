@@ -9,6 +9,7 @@ import { BreakPoint } from '../converter/breakpoint.type';
 import { NodeWithChildren } from 'domhandler';
 import { AttributeContext, IConverter } from '../converter/converter';
 import { formatFile } from '../lib/prettier.formatter';
+import { Stack } from '../lib/stack';
 
 export class FileMigrator extends BaseMigrator {
   constructor(protected converter: IConverter, private input: string, private output: string) {
@@ -66,22 +67,14 @@ export class FileMigrator extends BaseMigrator {
       if (!attrs) return;
 
       for (const [attribute] of Object.entries(attrs)) {
-        const isBreakpointAttribute = !!attribute && attribute.includes('.');
-        logger.debug('Can convert [%s]: %s', attribute, this.converter.canConvert(attribute, isBreakpointAttribute));
+        const { attr, canConvert, normalizedAttribute } = this.extractAttributeData(attribute);
+        logger.debug('Can convert: %s', canConvert);
 
-        if (!this.converter.canConvert(attribute, isBreakpointAttribute)) {
-          logger.debug('Cannot convert attribute: %s', attribute);
-
+        if (!canConvert) {
           continue;
         }
 
-        const { attr } = this.extractAttributeAndBreakpoint(attribute, isBreakpointAttribute);
-
-        // Remove the square brackets from the attribute name
-        // [fxFlex] => fxFlex
-        const normalizeAttribute = attr.replace('[', '').replace(']', '');
-
-        let context = this.converter.prepare(normalizeAttribute, $, el);
+        let context = this.converter.prepare(normalizedAttribute, $, el);
 
         context ??= {
           usesPropertyBinding: false,
@@ -119,20 +112,12 @@ export class FileMigrator extends BaseMigrator {
       for (const [attribute, value] of Object.entries(attrs)) {
         logger.debug('Attribute: %s, value: %s', attribute, value);
 
-        const isBreakpointAttribute = !!attribute && attribute.includes('.');
-        logger.debug('Can convert: %s', this.converter.canConvert(attribute, isBreakpointAttribute));
+        const { canConvert, normalizedAttribute, breakPoint } = this.extractAttributeData(attribute);
+        logger.debug('Can convert: %s', canConvert);
 
-        if (!this.converter.canConvert(attribute, isBreakpointAttribute)) {
-          logger.debug('Cannot convert attribute: %s', attribute);
-
+        if (!canConvert) {
           continue;
         }
-
-        const { attr, breakPoint } = this.extractAttributeAndBreakpoint(attribute, isBreakpointAttribute);
-
-        // Remove the square brackets from the attribute name
-        // [fxFlex] => fxFlex
-        const normalizeAttribute = attr.replace('[', '').replace(']', '');
 
         // Convert and split the attribute value into an array of values
         const values = value && value.includes(' ') ? value.split(' ') : [value];
@@ -143,7 +128,7 @@ export class FileMigrator extends BaseMigrator {
         // If context is defined, pass the context data, otherwise pass undefined
         const contextData = context ? (context as AttributeContext<unknown>) : undefined;
 
-        this.converter.convert(normalizeAttribute, values, el, breakPoint, contextData);
+        this.converter.convert(normalizedAttribute, values, el, breakPoint, contextData);
 
         element.removeAttr(attribute);
       }
@@ -155,7 +140,9 @@ export class FileMigrator extends BaseMigrator {
    *
    * We need to use a custom attribute selector because [fxFlex.sm] is not a valid CSS selector
    *
-   * Big O Notation: O(n * m) where n is the number of elements in the document and m is the number of attributes to look for
+   * Big O notation:
+   * - O(n) where n is the number of elements in the DOM tree (worst case). This is because we need to traverse the entire DOM tree to find the elements.
+   * - By using a stack, we can reduce the space complexity to O(h) where h is the height of the DOM tree.
    *
    * @param cheerioRoot The Cheerio root element
    * @param attributeNames The attribute names to look for
@@ -163,9 +150,13 @@ export class FileMigrator extends BaseMigrator {
    */
   private findElementsWithCustomAttributes(cheerioRoot: CheerioAPI, attributes: string[]): Cheerio<CheerioElement>[] {
     const elementsWithAttributes: Cheerio<CheerioElement>[] = [];
+    const stack = new Stack<NodeWithChildren>();
+    stack.push(cheerioRoot.root()[0]);
 
-    function traverse(node: NodeWithChildren): void {
-      if (!node || !node.children) return;
+    while (!stack.isEmpty()) {
+      const node = stack.pop();
+
+      if (!node || !node.children) continue;
 
       node.children.forEach(childElement => {
         if (childElement.type === 'tag') {
@@ -180,14 +171,19 @@ export class FileMigrator extends BaseMigrator {
           }
         }
 
-        traverse(childElement as NodeWithChildren);
+        stack.push(childElement as NodeWithChildren);
       });
     }
 
-    traverse(cheerioRoot.root()[0]);
     return elementsWithAttributes;
   }
 
+  /**
+   * Extracts the attribute name and breakpoint from the attribute string.
+   * @param attribute The attribute string
+   * @param isBreakpointAttribute Whether the attribute is a breakpoint attribute
+   * @returns an object with the following properties: attr, breakPoint
+   */
   private extractAttributeAndBreakpoint(
     attribute: string,
     isBreakpointAttribute: boolean,
@@ -203,6 +199,25 @@ export class FileMigrator extends BaseMigrator {
     return { attr: attribute, breakPoint: undefined };
   }
 
+  /**
+   * Extracts essential data from the attribute string. This includes the attribute name, breakpoint, whether the attribute is a breakpoint attribute, and whether the attribute can be converted. The attribute name is normalized to remove any breakpoint suffixes.
+   * @param attribute The attribute string
+   * @returns an object with the following properties: attr, normalizedAttribute, breakPoint, canConvert, isBreakpointAttribute
+   */
+  private extractAttributeData(attribute: string): {
+    attr: string;
+    normalizedAttribute: string;
+    breakPoint: BreakPoint | undefined;
+    canConvert: boolean;
+    isBreakpointAttribute: boolean;
+  } {
+    const isBreakpointAttribute = !!attribute && attribute.includes('.');
+    const canConvert = this.converter.canConvert(attribute, isBreakpointAttribute);
+    const { attr, breakPoint } = this.extractAttributeAndBreakpoint(attribute, isBreakpointAttribute);
+    const normalizedAttribute = this.normalizeAttribute(attr);
+    return { attr, normalizedAttribute, breakPoint, canConvert, isBreakpointAttribute };
+  }
+
   private async writeOutputFile($: CheerioAPI): Promise<void> {
     const migratedHtml = $.html({ xmlMode: false });
 
@@ -215,6 +230,15 @@ export class FileMigrator extends BaseMigrator {
 
     const inputFilename = path.basename(this.input);
     this.notifyFileCompleted(inputFilename);
+  }
+
+  /**
+   * Removes the square brackets from the attribute name. For example, [fxFlex] => fxFlex
+   * @param attribute The attribute name
+   * @returns the normalized attribute name
+   */
+  private normalizeAttribute(attribute: string): string {
+    return attribute.replace('[', '').replace(']', '');
   }
 
   private notifyFileStarted(inputFilename: string): void {
