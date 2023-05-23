@@ -1,6 +1,7 @@
 import * as cheerio from 'cheerio';
 import { Cheerio, CheerioAPI } from 'cheerio';
 import { BreakPoint, breakpoints } from './converter.type';
+import { AttributeContext } from './converter';
 
 export interface IAttributeConverter<T> {
   /**
@@ -24,7 +25,7 @@ export interface IAttributeConverter<T> {
     value: string[],
     element: Cheerio<cheerio.Element>,
     breakPoint?: BreakPoint,
-    context?: T,
+    context?: AttributeContext<T>,
   ): void;
 
   /**
@@ -69,10 +70,7 @@ export interface IAttributeConverter<T> {
 export abstract class AttributeConverter<T> implements IAttributeConverter<T> {
   constructor(protected attributeName: string) {}
 
-  public prepare(
-    root: CheerioAPI,
-    element: cheerio.Cheerio<cheerio.Element>,
-  ): T {
+  public prepare(_root: CheerioAPI, _element: cheerio.Cheerio<cheerio.Element>): T {
     // Override this method to prepare the element
     return {} as T;
   }
@@ -99,9 +97,7 @@ export abstract class AttributeConverter<T> implements IAttributeConverter<T> {
 
     // If the converter uses breakpoints, we need to create a selector for each breakpoint as well as the default one
     return ['', ...breakpoints].map(breakpoint => {
-      const attr = breakpoint
-        ? `${this.getAttributeName()}.${breakpoint}`
-        : this.getAttributeName();
+      const attr = breakpoint ? `${this.getAttributeName()}.${breakpoint}` : this.getAttributeName();
       return attr;
     });
   }

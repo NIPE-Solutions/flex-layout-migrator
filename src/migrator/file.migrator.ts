@@ -7,7 +7,7 @@ import { Cheerio, CheerioAPI, Element as CheerioElement } from 'cheerio';
 import { logger } from '../logger';
 import { BreakPoint } from '../converter/converter.type';
 import { NodeWithChildren } from 'domhandler';
-import { IAttributeContext, IConverter } from '../converter/converter';
+import { AttributeContext, IConverter } from '../converter/converter';
 
 export class FileMigrator extends BaseMigrator {
   constructor(protected converter: IConverter, private input: string, private output: string) {
@@ -53,8 +53,8 @@ export class FileMigrator extends BaseMigrator {
     $: CheerioAPI,
     inputFilename: string,
     totalElements: number,
-  ): Map<string, IAttributeContext<unknown>> {
-    const attributeContexts: Map<string, IAttributeContext<unknown>> = new Map();
+  ): Map<string, AttributeContext<unknown>> {
+    const attributeContexts: Map<string, AttributeContext<unknown>> = new Map();
 
     elements.forEach((element, index) => {
       this.notifyUpdateFilePreparationProgress(inputFilename, totalElements, index);
@@ -78,11 +78,20 @@ export class FileMigrator extends BaseMigrator {
 
         // Remove the square brackets from the attribute name
         // [fxFlex] => fxFlex
-        // Currently needed because we currently dont support property binding syntax
-        // TODO: Support property binding syntax
         const normalizeAttribute = attr.replace('[', '').replace(']', '');
 
-        const context = this.converter.prepare(normalizeAttribute, $, el);
+        let context = this.converter.prepare(normalizeAttribute, $, el);
+
+        context ??= {
+          usesPropertyBinding: false,
+        } as AttributeContext<unknown>;
+
+        // Check if the attribute is using property binding syntax
+        // If so, we provide a context to the converter
+        if (attr.startsWith('[') && attr.endsWith(']')) {
+          context.usesPropertyBinding = true;
+        }
+
         const uniqueKey = `${index}_${attribute}`;
         attributeContexts.set(uniqueKey, context);
       }
@@ -96,7 +105,7 @@ export class FileMigrator extends BaseMigrator {
     $: CheerioAPI,
     inputFilename: string,
     totalElements: number,
-    attributeContexts: Map<string, IAttributeContext<unknown>>,
+    attributeContexts: Map<string, AttributeContext<unknown>>,
   ): void {
     elements.forEach((element, index) => {
       this.notifyUpdateFileMigrationProgress(inputFilename, totalElements, index);
@@ -122,8 +131,6 @@ export class FileMigrator extends BaseMigrator {
 
         // Remove the square brackets from the attribute name
         // [fxFlex] => fxFlex
-        // Currently needed because we currently dont support property binding syntax
-        // TODO: Support property binding syntax
         const normalizeAttribute = attr.replace('[', '').replace(']', '');
 
         // Convert and split the attribute value into an array of values
@@ -133,7 +140,7 @@ export class FileMigrator extends BaseMigrator {
         const context = attributeContexts.get(`${index}_${attribute}`);
 
         // If context is defined, pass the context data, otherwise pass undefined
-        const contextData = context ? (context.data as IAttributeContext<unknown>) : undefined;
+        const contextData = context ? (context as AttributeContext<unknown>) : undefined;
 
         this.converter.convert(normalizeAttribute, values, el, breakPoint, contextData);
 

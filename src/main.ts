@@ -13,7 +13,7 @@ async function main() {
     .version('0.0.1')
     .description('Migrate Angular Flex-Layout attributes to CSS classes or inline styles')
     .argument('<input>', 'input HTML file or folder')
-    .option('<output>', 'output HTML file or folder (default: "input path")')
+    .option('--output <output>', 'output HTML file or folder (default: "input path")')
     .option('--target <target>', 'Target CSS technology (default: "plain-css")', 'plain-css')
     .option('-d, --debug', 'display some debugging')
     .option('-v, --verbose', 'display verbose output')

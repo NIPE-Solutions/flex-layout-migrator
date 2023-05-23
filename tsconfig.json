@@ -10,10 +10,7 @@
     "resolveJsonModule": true,
     "declaration": true,
     "outDir": "./dist",
-    "paths": {
-      "@util/*": ["src/util/*"],
-      "@lib/*": ["src/lib/*"]
-    }
+    "paths": {}
   },
   "include": ["./src/**/*.ts", "src/main.ts"],
   "exclude": ["node_modules", "**/*.test.*", "**/__mocks__/*", "**/__tests__/*"]

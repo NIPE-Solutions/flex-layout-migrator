@@ -1,5 +1,5 @@
 import * as cheerio from 'cheerio';
-import { Cheerio, CheerioAPI } from 'cheerio';
+import { Cheerio } from 'cheerio';
 import classNames from 'classnames';
 import { logger } from '../../../logger';
 import { AttributeConverter } from '../../attribute.converter';
@@ -9,6 +9,40 @@ import { generateTailwindClassName } from '../breakpoint.mapper';
 interface IFxFlexLayoutAlignAttributeContext {
   direction: 'row' | 'column';
 }
+
+const mainAxisMapping = {
+  ['start']: 'start',
+  ['flex-start']: 'start',
+  ['center']: 'center',
+  ['end']: 'end',
+  ['flex-end']: 'end',
+  ['space-around']: 'around',
+  ['space-between']: 'between',
+  ['space-evenly']: 'evenly',
+};
+
+const crossAxisItemMapping = {
+  ['start']: 'start',
+  ['flex-start']: 'start',
+  ['center']: 'center',
+  ['end']: 'end',
+  ['flex-end']: 'end',
+  ['stretch']: 'stretch',
+  ['baseline']: 'baseline',
+};
+
+const crossAxisContentMapping = {
+  ['start']: 'start',
+  ['flex-start']: 'start',
+  ['center']: 'center',
+  ['end']: 'end',
+  ['flex-end']: 'end',
+  ['space-around']: 'around',
+  ['space-between']: 'between',
+  ['space-evenly']: 'evenly',
+  ['stretch']: 'stretch',
+  ['baseline']: 'baseline',
+};
 
 export class FxLayoutAlignAttributeConverter extends AttributeConverter<unknown> {
   constructor() {
@@ -31,39 +65,6 @@ export class FxLayoutAlignAttributeConverter extends AttributeConverter<unknown>
     breakPoint: BreakPoint | undefined,
     context: IFxFlexLayoutAlignAttributeContext,
   ): void {
-    const mainAxisMapping: any = {
-      ['start']: 'start',
-      ['flex-start']: 'start',
-      ['center']: 'center',
-      ['end']: 'end',
-      ['flex-end']: 'end',
-      ['space-around']: 'around',
-      ['space-between']: 'between',
-      ['space-evenly']: 'evenly',
-    };
-
-    const crossAxisItemMapping: any = {
-      ['start']: 'start',
-      ['flex-start']: 'start',
-      ['center']: 'center',
-      ['end']: 'end',
-      ['flex-end']: 'end',
-      ['stretch']: 'stretch',
-      ['baseline']: 'baseline',
-    };
-
-    const crossAxisContentMapping: any = {
-      ['start']: 'start',
-      ['flex-start']: 'start',
-      ['center']: 'center',
-      ['end']: 'end',
-      ['flex-end']: 'end',
-      ['space-around']: 'around',
-      ['space-between']: 'between',
-      ['space-evenly']: 'evenly',
-      ['stretch']: 'stretch',
-      ['baseline']: 'baseline',
-    };
     let [mainAxis, crossAxis] = value;
 
     mainAxis ?? logger.warn('No value for main-axis for fxLayoutAlign');

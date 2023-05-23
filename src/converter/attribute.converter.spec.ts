@@ -8,7 +8,7 @@ class DummyAttributeConverter extends AttributeConverter<unknown> {
     super(attributeName);
   }
 
-  public convert(value: string[], element: Cheerio<cheerio.Element>, breakPoint?: BreakPoint): void {
+  public convert(_value: string[], _element: Cheerio<cheerio.Element>, _breakPoint?: BreakPoint): void {
     // Implementierung für den Test
   }
 }
