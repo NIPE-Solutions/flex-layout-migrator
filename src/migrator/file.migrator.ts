@@ -2,14 +2,12 @@ import { BaseMigrator } from './base.migrator';
 
 import * as fs from 'fs-extra';
 import * as path from 'path';
-import * as cheerio from 'cheerio';
 import { Cheerio, CheerioAPI, Element as CheerioElement } from 'cheerio';
 import { logger } from '../logger';
 import { BreakPoint } from '../converter/breakpoint.type';
-import { NodeWithChildren } from 'domhandler';
 import { AttributeContext, IConverter } from '../converter/converter';
 import { formatFile } from '../lib/prettier.formatter';
-import { Stack } from '../lib/stack';
+import { findElementsWithCustomAttributes, loadHtml } from '../util/cheerio.util';
 
 export class FileMigrator extends BaseMigrator {
   constructor(protected converter: IConverter, private input: string, private output: string) {
@@ -21,12 +19,12 @@ export class FileMigrator extends BaseMigrator {
     this.notifyFileStarted(inputFilename);
 
     const html = await fs.promises.readFile(this.input, 'utf8');
-    const $ = this.loadCheerio(html);
+    const $ = loadHtml(html);
 
     const attributeNamesToLookFor = this.converter.getAllAttributes();
     logger.debug('Attributes: [%s]', attributeNamesToLookFor.join(', '));
 
-    const elements = this.findElementsWithCustomAttributes($, attributeNamesToLookFor);
+    const elements = findElementsWithCustomAttributes($, attributeNamesToLookFor);
     logger.debug('Found %i elements', elements.length);
 
     if (!elements.length) {
@@ -44,10 +42,6 @@ export class FileMigrator extends BaseMigrator {
     this.performConversion(elements, $, inputFilename, totalElements, attributeContexts);
 
     await this.writeOutputFile($);
-  }
-
-  private loadCheerio(html: string): CheerioAPI {
-    return cheerio.load(html, { xml: { decodeEntities: false, lowerCaseAttributeNames: false } }, false);
   }
 
   private prepareConversion(
@@ -133,49 +127,6 @@ export class FileMigrator extends BaseMigrator {
         element.removeAttr(attribute);
       }
     });
-  }
-
-  /**
-   * Finds all elements that have Flex-Layout attributes and returns them in an array.
-   *
-   * We need to use a custom attribute selector because [fxFlex.sm] is not a valid CSS selector
-   *
-   * Big O notation:
-   * - O(n) where n is the number of elements in the DOM tree (worst case). This is because we need to traverse the entire DOM tree to find the elements.
-   * - By using a stack, we can reduce the space complexity to O(h) where h is the height of the DOM tree.
-   *
-   * @param cheerioRoot The Cheerio root element
-   * @param attributeNames The attribute names to look for
-   * @returns an array of elements that have Flex-Layout attributes
-   */
-  private findElementsWithCustomAttributes(cheerioRoot: CheerioAPI, attributes: string[]): Cheerio<CheerioElement>[] {
-    const elementsWithAttributes: Cheerio<CheerioElement>[] = [];
-    const stack = new Stack<NodeWithChildren>();
-    stack.push(cheerioRoot.root()[0]);
-
-    while (!stack.isEmpty()) {
-      const node = stack.pop();
-
-      if (!node || !node.children) continue;
-
-      node.children.forEach(childElement => {
-        if (childElement.type === 'tag') {
-          const child = cheerioRoot(childElement as CheerioElement);
-          const attrs = Object.keys(childElement.attribs || {});
-
-          for (const attribute of attributes) {
-            if (attrs.includes(attribute)) {
-              elementsWithAttributes.push(child);
-              break;
-            }
-          }
-        }
-
-        stack.push(childElement as NodeWithChildren);
-      });
-    }
-
-    return elementsWithAttributes;
   }
 
   /**
