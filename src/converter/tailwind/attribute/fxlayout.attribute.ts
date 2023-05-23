@@ -27,8 +27,4 @@ export class FxLayoutAttributeConverter extends AttributeConverter<unknown> {
 
     element.addClass(classes.trim());
   }
-
-  public usesBreakpoints(): boolean {
-    return true;
-  }
 }

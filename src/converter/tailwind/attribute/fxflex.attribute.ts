@@ -46,8 +46,4 @@ export class FxFlexAttributeConverter extends AttributeConverter<unknown> {
 
     element.addClass(classes.trim());
   }
-
-  public usesBreakpoints(): boolean {
-    return true;
-  }
 }

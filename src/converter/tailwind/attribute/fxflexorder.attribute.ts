@@ -23,8 +23,4 @@ export class FxFlexOrderAttributeConverter extends AttributeConverter<unknown> {
 
     element.addClass(classes.trim());
   }
-
-  public usesBreakpoints(): boolean {
-    return true;
-  }
 }

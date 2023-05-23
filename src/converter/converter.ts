@@ -85,7 +85,7 @@ export abstract class Converter implements IConverter {
     const data = converter.prepare(root, element) as T;
 
     return {
-      usesPropertyBinding: attribute.startsWith('[') && attribute.endsWith(']'),
+      usesPropertyBinding: false,
       ...data,
     };
   }

@@ -19,7 +19,7 @@ const mainAxisMapping = {
   ['space-around']: 'around',
   ['space-between']: 'between',
   ['space-evenly']: 'evenly',
-};
+} as const;
 
 const crossAxisItemMapping = {
   ['start']: 'start',
@@ -29,7 +29,7 @@ const crossAxisItemMapping = {
   ['flex-end']: 'end',
   ['stretch']: 'stretch',
   ['baseline']: 'baseline',
-};
+} as const;
 
 const crossAxisContentMapping = {
   ['start']: 'start',
@@ -42,7 +42,7 @@ const crossAxisContentMapping = {
   ['space-evenly']: 'evenly',
   ['stretch']: 'stretch',
   ['baseline']: 'baseline',
-};
+} as const;
 
 export class FxLayoutAlignAttributeConverter extends AttributeConverter<unknown> {
   constructor() {
@@ -76,17 +76,17 @@ export class FxLayoutAlignAttributeConverter extends AttributeConverter<unknown>
     const { direction } = context;
     const isParentRowLayout = direction === 'row';
 
+    const mainAxisClassName = mainAxisMapping[mainAxis as keyof typeof mainAxisMapping];
+    const crossAxisItemClassName = crossAxisItemMapping[crossAxis as keyof typeof crossAxisItemMapping];
+    const crossAxisContentClassName = crossAxisContentMapping[crossAxis as keyof typeof crossAxisContentMapping];
+
     const classes = classNames({
-      [generateTailwindClassName('justify', mainAxisMapping[mainAxis], breakPoint)]: true,
-      [generateTailwindClassName('items', crossAxisItemMapping[crossAxis], breakPoint)]:
-        isParentRowLayout && crossAxisItemMapping[crossAxis],
-      [generateTailwindClassName('content', crossAxisContentMapping[crossAxis], breakPoint)]: !isParentRowLayout,
+      [generateTailwindClassName('justify', mainAxisClassName, breakPoint)]: true,
+      [generateTailwindClassName('items', crossAxisItemClassName, breakPoint)]:
+        isParentRowLayout && crossAxisItemClassName,
+      [generateTailwindClassName('content', crossAxisContentClassName, breakPoint)]: !isParentRowLayout,
     });
 
     element.addClass(classes.trim());
-  }
-
-  public usesBreakpoints(): boolean {
-    return true;
   }
 }
