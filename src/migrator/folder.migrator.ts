@@ -3,6 +3,7 @@ import * as fs from 'fs-extra';
 import { BaseMigrator } from './base.migrator';
 import { FileMigrator } from './file.migrator';
 import { IConverter } from '../converter/converter';
+import { Stack } from '@lib/stack';
 
 export class FolderMigrator extends BaseMigrator {
   constructor(
@@ -14,82 +15,91 @@ export class FolderMigrator extends BaseMigrator {
   }
 
   public async migrate(): Promise<void> {
-    await this.migrateRecursively(
-      this.inputFolder,
-      this.outputFolder,
-      this.inputFolder,
+    await this.processFolder(this.inputFolder, this.outputFolder);
+  }
+
+  private async processFolder(
+    inputFolder: string,
+    outputFolder: string,
+  ): Promise<void> {
+    const stack = new Stack<{ dir: string; relativePath: string }>([
+      { dir: inputFolder, relativePath: '' },
+    ]);
+
+    while (!stack.isEmpty()) {
+      const { dir, relativePath } = stack.pop();
+
+      this.notifyObservers('folderStarted', {
+        id: dir,
+        folderName: path.basename(dir),
+      });
+
+      const filesAndDirectories = await this.readdirWithStats(dir);
+
+      const fileCount = filesAndDirectories.filter(({ stat }) =>
+        stat.isFile(),
+      ).length;
+      let processedFiles = 0;
+
+      for (const { item, stat, currentPath } of filesAndDirectories) {
+        if (stat.isDirectory()) {
+          stack.push({
+            dir: currentPath,
+            relativePath: path.join(relativePath, item),
+          });
+        } else if (stat.isFile()) {
+          const outputPath = path.join(outputFolder, relativePath, item);
+          await this.migrateFile(currentPath, outputPath);
+
+          processedFiles++;
+          const percentage = (processedFiles / fileCount) * 100;
+
+          this.notifyObservers('folderProgress', {
+            id: dir,
+            percentage,
+            processedFiles,
+          });
+        }
+      }
+
+      this.notifyObservers('folderCompleted', {
+        id: dir,
+        folderName: path.basename(dir),
+      });
+    }
+  }
+
+  private async readdirWithStats(
+    dir: string,
+  ): Promise<{ item: string; stat: fs.Stats; currentPath: string }[]> {
+    const filesAndDirectories = await fs.promises.readdir(dir);
+
+    return await Promise.all(
+      filesAndDirectories.map(async item => {
+        const currentPath = path.join(dir, item);
+        const stat = await fs.promises.stat(currentPath);
+        return { item, stat, currentPath };
+      }),
     );
   }
 
-  /**
-   * Migrates a folder recursively and all its subfolders and files to the output folder.
-   * @param inputFolder The input folder to migrate.
-   * @param outputFolder The output folder to migrate to.
-   * @param currentDir The current directory to migrate. This is used for recursion.
-   */
-  private async migrateRecursively(
-    inputFolder: string,
-    outputFolder: string,
-    currentDir: string,
+  private async migrateFile(
+    currentPath: string,
+    outputPath: string,
   ): Promise<void> {
-    this.notifyObservers('folderStarted', {
-      id: currentDir,
-      folderName: path.basename(currentDir),
-    });
+    const fileMigrator = new FileMigrator(
+      this.converter,
+      currentPath,
+      outputPath,
+    );
 
-    const filesAndDirectories = await fs.promises.readdir(currentDir);
-
-    const fileCount = (
-      await Promise.all(
-        filesAndDirectories.map(async item => {
-          const currentPath = path.join(currentDir, item);
-          const stat = await fs.promises.stat(currentPath);
-          return stat.isFile() ? 1 : 0;
-        }),
-      )
-    ).reduce<number>((acc, curr) => acc + curr, 0);
-
-    let processedFiles = 0;
-    for (const item of filesAndDirectories) {
-      const currentPath = path.join(currentDir, item);
-      const stat = await fs.promises.stat(currentPath);
-
-      if (stat.isFile()) {
-        const outputPath = path.join(
-          outputFolder,
-          path.relative(inputFolder, currentPath),
-        );
-
-        const fileMigrator = new FileMigrator(
-          this.converter,
-          currentPath,
-          outputPath,
-        );
-
-        // add observers to file migrator
-        for (const observer of this.observers) {
-          fileMigrator.addObserver(observer);
-        }
-
-        await fileMigrator.migrate();
-
-        processedFiles++;
-
-        const percentage = (processedFiles / fileCount) * 100;
-
-        this.notifyObservers('folderProgress', {
-          id: currentDir,
-          percentage,
-          processedFiles,
-        });
-      } else if (stat.isDirectory()) {
-        await this.migrateRecursively(inputFolder, outputFolder, currentPath);
-      }
+    for (const observer of this.observers) {
+      fileMigrator.addObserver(observer);
     }
 
-    this.notifyObservers('folderCompleted', {
-      id: currentDir,
-      folderName: path.basename(currentDir),
-    });
+    // Ensure the output directory exists
+    await fs.ensureDir(path.dirname(outputPath));
+
+    await fileMigrator.migrate();
   }
 }

@@ -27,12 +27,21 @@ describe('ProgressReporter', () => {
     });
   });
 
-  test('update() should handle fileProgress event', () => {
+  test('update() should handle filePreparationProgress event', () => {
     const eventData = { id: '1', percentage: 50, processedElements: 5 };
-    progressReporter.update('fileProgress', eventData);
+    progressReporter.update('filePreparationProgress', eventData);
 
     expect(spinniesInstance.update).toHaveBeenCalledWith('1', {
-      text: 'File progress: 50% (5 elements)',
+      text: 'Phase 1: File preparation: 50% (5 elements)',
+    });
+  });
+
+  test('update() should handle fileMigrationProgress event', () => {
+    const eventData = { id: '1', percentage: 50, processedElements: 5 };
+    progressReporter.update('fileMigrationProgress', eventData);
+
+    expect(spinniesInstance.update).toHaveBeenCalledWith('1', {
+      text: 'Phase 2: File migration: 50% (5 elements)',
     });
   });
 

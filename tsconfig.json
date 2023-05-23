@@ -10,9 +10,10 @@
     "declaration": true,
     "outDir": "./dist",
     "paths": {
-      "@util/*": ["./src/util/*"]
+      "@util/*": ["src/util/*"],
+      "@lib/*": ["src/lib/*"]
     }
   },
   "include": ["./src/**/*.ts", "src/main.ts"],
-  "exclude": ["node_modules"]
+  "exclude": ["node_modules", "**/*.test.*", "**/__mocks__/*", "**/__tests__/*"]
 }

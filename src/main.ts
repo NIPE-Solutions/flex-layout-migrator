@@ -4,6 +4,7 @@ import { Migrator } from './migrator/migrator';
 import 'tsconfig-paths/register';
 import { ConverterFactory } from './converter/converter.factory';
 import { logger } from './logger';
+import { getErrorMessage } from './util/error.util';
 
 async function main() {
   const program = new Command();
@@ -14,7 +15,7 @@ async function main() {
       'Migrate Angular Flex-Layout attributes to CSS classes or inline styles',
     )
     .argument('<input>', 'input HTML file or folder')
-    .argument('<output>', 'output HTML file or folder')
+    .option('<output>', 'output HTML file or folder (default: "input path")')
     .option(
       '--target <target>',
       'Target CSS technology (default: "plain-css")',
@@ -22,11 +23,13 @@ async function main() {
     )
     .option('-d, --debug', 'display some debugging')
     .option('-v, --verbose', 'display verbose output')
-    .action(async (input, output, options, command) => {
+    .action(async (input, options, command) => {
       if (options.debug || options.verbose) {
         logger.level = options.debug ? 'debug' : 'verbose';
         logger.error('Called %s with options %o', command.name(), options);
       }
+
+      const output = options.output || input;
 
       const target = options.target;
       const converter = ConverterFactory.createConverter(target);
@@ -36,8 +39,8 @@ async function main() {
 
   try {
     await program.parseAsync(process.argv);
-  } catch (error: any) {
-    logger.error('An error occurred: %s', error?.message);
+  } catch (error: unknown) {
+    logger.error('An error occurred: %s', getErrorMessage(error));
     process.exit(1);
   }
 }

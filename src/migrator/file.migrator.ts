@@ -34,6 +34,12 @@ export class FileMigrator extends BaseMigrator {
     );
     logger.debug('Found %i elements', elements.length);
 
+    if (!elements.length) {
+      logger.debug('No elements found. Skipping file.');
+      this.notifyFileNoElementsToConvert(inputFilename);
+      return;
+    }
+
     const totalElements = elements.length;
 
     // Phase 1: Prepare the conversion
@@ -261,6 +267,13 @@ export class FileMigrator extends BaseMigrator {
 
   private notifyFileStarted(inputFilename: string): void {
     this.notifyObservers('fileStarted', {
+      id: this.input,
+      fileName: inputFilename,
+    });
+  }
+
+  private notifyFileNoElementsToConvert(inputFilename: string): void {
+    this.notifyObservers('fileNoElements', {
       id: this.input,
       fileName: inputFilename,
     });
