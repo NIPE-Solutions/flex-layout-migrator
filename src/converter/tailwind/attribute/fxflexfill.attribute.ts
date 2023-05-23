@@ -2,7 +2,7 @@ import * as cheerio from 'cheerio';
 import { Cheerio } from 'cheerio';
 import classNames from 'classnames';
 import { AttributeConverter } from '../../attribute.converter';
-import { BreakPoint } from '../../converter.type';
+import { BreakPoint } from '../../breakpoint.type';
 import { generateTailwindClassName } from '../breakpoint.mapper';
 
 export class FxFlexFillAttributeConverter extends AttributeConverter<unknown> {

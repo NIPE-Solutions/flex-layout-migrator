@@ -1,5 +1,5 @@
 import { isArbitraryValue } from '../../util/value.util';
-import { BreakPoint } from '../converter.type';
+import { BreakPoint } from '../breakpoint.type';
 
 /**
  * Provides a mapping from the BreakPoint type to the corresponding TailwindCSS breakpoint.

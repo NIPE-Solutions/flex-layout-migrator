@@ -5,9 +5,10 @@ import * as path from 'path';
 import * as cheerio from 'cheerio';
 import { Cheerio, CheerioAPI, Element as CheerioElement } from 'cheerio';
 import { logger } from '../logger';
-import { BreakPoint } from '../converter/converter.type';
+import { BreakPoint } from '../converter/breakpoint.type';
 import { NodeWithChildren } from 'domhandler';
 import { AttributeContext, IConverter } from '../converter/converter';
+import { formatFile } from '../lib/prettier.formatter';
 
 export class FileMigrator extends BaseMigrator {
   constructor(protected converter: IConverter, private input: string, private output: string) {
@@ -204,6 +205,8 @@ export class FileMigrator extends BaseMigrator {
 
   private async writeOutputFile($: CheerioAPI): Promise<void> {
     const migratedHtml = $.html({ xmlMode: false });
+
+    formatFile(migratedHtml);
 
     const outputDir = path.dirname(this.output);
     await fs.promises.mkdir(outputDir, { recursive: true });

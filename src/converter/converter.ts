@@ -1,5 +1,5 @@
 import { AttributeConverter } from './attribute.converter';
-import { BreakPoint } from './converter.type';
+import { BreakPoint } from './breakpoint.type';
 
 import * as cheerio from 'cheerio';
 import { Cheerio, CheerioAPI } from 'cheerio';

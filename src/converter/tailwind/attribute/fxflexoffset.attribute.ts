@@ -1,7 +1,7 @@
 import { Cheerio } from 'cheerio';
 import * as cheerio from 'cheerio';
 import { AttributeConverter } from '../../attribute.converter';
-import { BreakPoint } from '../../converter.type';
+import { BreakPoint } from '../../breakpoint.type';
 import { generateTailwindClassName } from '../breakpoint.mapper';
 import { logger } from '../../../logger';
 import classNames from 'classnames';

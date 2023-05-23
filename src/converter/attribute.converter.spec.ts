@@ -1,7 +1,7 @@
 import { AttributeConverter } from './attribute.converter';
 import { Cheerio } from 'cheerio';
 import * as cheerio from 'cheerio';
-import { BreakPoint, breakpoints } from './converter.type';
+import { BreakPoint, breakpoints } from './breakpoint.type';
 
 class DummyAttributeConverter extends AttributeConverter<unknown> {
   constructor(attributeName: string) {

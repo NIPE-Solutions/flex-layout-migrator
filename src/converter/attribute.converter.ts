@@ -1,6 +1,6 @@
 import * as cheerio from 'cheerio';
 import { Cheerio, CheerioAPI } from 'cheerio';
-import { BreakPoint, breakpoints } from './converter.type';
+import { BreakPoint, breakpoints } from './breakpoint.type';
 import { AttributeContext } from './converter';
 
 export interface IAttributeConverter<T> {
