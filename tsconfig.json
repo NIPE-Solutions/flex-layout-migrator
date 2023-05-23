@@ -4,14 +4,15 @@
     "types": ["node", "jest"],
     "module": "CommonJS",
     "moduleResolution": "node",
-    "baseUrl": "./",
+    "baseUrl": ".",
     "strict": true,
     "esModuleInterop": true,
     "resolveJsonModule": true,
     "declaration": true,
     "outDir": "./dist",
     "paths": {
-      "@util/*": ["./src/util/*"]
+      "@util/*": ["src/util/*"],
+      "@lib/*": ["src/lib/*"]
     }
   },
   "include": ["./src/**/*.ts", "src/main.ts"],

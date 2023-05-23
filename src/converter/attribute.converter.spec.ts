@@ -26,10 +26,9 @@ describe('AttributeConverter', () => {
   });
 
   test('getAttributeNames() should return attribute names with breakpoints', () => {
-    const expectedAttributeNames = [
-      `${attributeName}`,
-      ...breakpoints.map(breakpoint => `${attributeName}.${breakpoint}`),
-    ];
+    const expectedAttributeNames = ['', ...breakpoints].map(breakpoint => {
+      return breakpoint ? `${attributeName}.${breakpoint}` : attributeName;
+    });
 
     expect(converter.getAttributeNames()).toEqual(expectedAttributeNames);
   });
