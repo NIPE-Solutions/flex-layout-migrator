@@ -8,6 +8,7 @@ import { BreakPoint } from '../converter/breakpoint.type';
 import { AttributeContext, IConverter } from '../converter/converter';
 import { formatFile } from '../lib/prettier.formatter';
 import { findElementsWithCustomAttributes, loadHtml } from '../util/cheerio.util';
+import Queue from 'p-queue';
 
 export class FileMigrator extends BaseMigrator {
   constructor(protected converter: IConverter, private input: string, private output: string) {
@@ -36,97 +37,149 @@ export class FileMigrator extends BaseMigrator {
     const totalElements = elements.length;
 
     // Phase 1: Prepare the conversion
-    const attributeContexts = this.prepareConversion(elements, $, inputFilename, totalElements);
+    const attributeContexts = await this.prepareConversion(elements, $, inputFilename, totalElements);
 
     // Phase 2: Convert the attributes
-    this.performConversion(elements, $, inputFilename, totalElements, attributeContexts);
+    await this.performConversion(elements, $, inputFilename, totalElements, attributeContexts);
 
     await this.writeOutputFile($);
   }
 
-  private prepareConversion(
+  /**
+   * Prepare the conversion by collecting all attribute contexts. This is done in parallel.
+   * The result is a map of attribute contexts, where the key consists of the attribute and the index of it.
+   * This context is used later on to perform the actual conversion to provide the converter with all the information it needs.
+   */
+  private async prepareConversion(
     elements: Cheerio<CheerioElement>[],
     $: CheerioAPI,
     inputFilename: string,
     totalElements: number,
-  ): Map<string, AttributeContext<unknown>> {
-    const attributeContexts: Map<string, AttributeContext<unknown>> = new Map();
+  ): Promise<Map<string, AttributeContext<unknown>>> {
+    const queue = new Queue({ concurrency: 5 });
 
-    elements.forEach((element, index) => {
-      this.notifyUpdateFilePreparationProgress(inputFilename, totalElements, index);
+    const results = (await Promise.all(
+      elements.map((element, index) =>
+        queue.add(() => this.processPreparationElement(element, index, $, inputFilename, totalElements)),
+      ),
+    )) as Map<string, AttributeContext<unknown>>[];
 
-      const el = $(element);
-      const attrs = el.attr();
-
-      if (!attrs) return;
-
-      for (const [attribute] of Object.entries(attrs)) {
-        const { attr, canConvert, normalizedAttribute } = this.extractAttributeData(attribute);
-        logger.debug('Can convert: %s', canConvert);
-
-        if (!canConvert) {
-          continue;
-        }
-
-        let context = this.converter.prepare(normalizedAttribute, $, el);
-
-        context ??= {
-          usesPropertyBinding: false,
-        } as AttributeContext<unknown>;
-
-        // Check if the attribute is using property binding syntax
-        // If so, we provide a context to the converter
-        if (attr.startsWith('[') && attr.endsWith(']')) {
-          context.usesPropertyBinding = true;
-        }
-
-        const uniqueKey = `${index}_${attribute}`;
-        attributeContexts.set(uniqueKey, context);
+    const attributeContexts: Map<string, AttributeContext<unknown>> = results.reduce((map, result) => {
+      for (const [key, value] of result.entries()) {
+        map.set(key, value);
       }
-    });
+      return map;
+    }, new Map<string, AttributeContext<unknown>>());
 
     return attributeContexts;
   }
 
-  private performConversion(
+  /**
+   * Process the preparation of a single element and returns the attribute contexts for the element.
+   */
+  private async processPreparationElement(
+    element: Cheerio<CheerioElement>,
+    index: number,
+    $: CheerioAPI,
+    inputFilename: string,
+    totalElements: number,
+  ): Promise<Map<string, AttributeContext<unknown>>> {
+    const attributeContexts: Map<string, AttributeContext<unknown>> = new Map();
+    this.notifyUpdateFilePreparationProgress(inputFilename, totalElements, index);
+
+    const el = $(element);
+    const attrs = el.attr();
+
+    if (!attrs) return attributeContexts;
+
+    for (const [attribute] of Object.entries(attrs)) {
+      const { attr, canConvert, normalizedAttribute } = this.extractAttributeData(attribute);
+      logger.debug('Can convert: %s', canConvert);
+
+      if (!canConvert) {
+        continue;
+      }
+
+      let context = this.converter.prepare(normalizedAttribute, $, el);
+
+      context ??= {
+        usesPropertyBinding: false,
+      } as AttributeContext<unknown>;
+
+      // Check if the attribute is using property binding syntax
+      // If so, we provide a context to the converter
+      if (attr.startsWith('[') && attr.endsWith(']')) {
+        context.usesPropertyBinding = true;
+      }
+
+      const uniqueKey = `${index}_${attribute}`;
+      attributeContexts.set(uniqueKey, context);
+    }
+    return attributeContexts;
+  }
+
+  /**
+   * Performs the actual conversion of the attributes and their values in the HTML file.
+   * It uses a queue to limit the number of concurrent operations.
+   */
+  private async performConversion(
     elements: Cheerio<CheerioElement>[],
     $: CheerioAPI,
     inputFilename: string,
     totalElements: number,
     attributeContexts: Map<string, AttributeContext<unknown>>,
-  ): void {
-    elements.forEach((element, index) => {
-      this.notifyUpdateFileMigrationProgress(inputFilename, totalElements, index);
-
-      const el = $(element);
-      const attrs = el.attr();
-
-      if (!attrs) return;
-
-      for (const [attribute, value] of Object.entries(attrs)) {
-        logger.debug('Attribute: %s, value: %s', attribute, value);
-
-        const { canConvert, normalizedAttribute, breakPoint } = this.extractAttributeData(attribute);
-        logger.debug('Can convert: %s', canConvert);
-
-        if (!canConvert) {
-          continue;
-        }
-
-        // Convert and split the attribute value into an array of values
-        const values = value && value.includes(' ') ? value.split(' ') : [value];
-
-        // Get the context for the attribute, if any or undefined
-        const context = attributeContexts.get(`${index}_${attribute}`);
-
-        // If context is defined, pass the context data, otherwise pass undefined
-        const contextData = context ? (context as AttributeContext<unknown>) : undefined;
-
-        this.converter.convert(normalizedAttribute, values, el, breakPoint, contextData);
-
-        element.removeAttr(attribute);
-      }
+  ): Promise<void> {
+    const queue = new Queue({ concurrency: 5 });
+    elements.map(async (element, index) => {
+      queue.add(async () => {
+        await this.processConversionElement(element, index, $, inputFilename, totalElements, attributeContexts);
+      });
     });
+
+    await queue.onIdle();
+  }
+
+  /**
+   * Processes a single element and converts the attributes and their values.
+   */
+  private async processConversionElement(
+    element: Cheerio<CheerioElement>,
+    index: number, // hinzugefügt
+    $: CheerioAPI,
+    inputFilename: string,
+    totalElements: number,
+    attributeContexts: Map<string, AttributeContext<unknown>>,
+  ): Promise<void> {
+    this.notifyUpdateFileMigrationProgress(inputFilename, totalElements, index);
+
+    const el = $(element);
+    const attrs = el.attr();
+
+    if (!attrs) return;
+
+    for (const [attribute, value] of Object.entries(attrs)) {
+      logger.debug('Attribute: %s, value: %s', attribute, value);
+
+      const { canConvert, normalizedAttribute, breakPoint } = this.extractAttributeData(attribute);
+      logger.debug('Can convert: %s', canConvert);
+
+      if (!canConvert) {
+        continue;
+      }
+
+      // Convert and split the attribute value into an array of values
+      const values = value && value.includes(' ') ? value.split(' ') : [value];
+
+      // Get the context for the attribute, if any or undefined
+      const context = attributeContexts.get(`${index}_${attribute}`);
+
+      // If context is defined, pass the context data, otherwise pass undefined
+      const contextData = context ? (context as AttributeContext<unknown>) : undefined;
+
+      this.converter.convert(normalizedAttribute, values, el, breakPoint, contextData);
+
+      element.removeAttr(attribute);
+    }
   }
 
   /**
