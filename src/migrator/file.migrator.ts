@@ -8,7 +8,7 @@ import { BreakPoint } from '../converter/breakpoint.type';
 import { AttributeContext, IConverter } from '../converter/converter';
 import { formatFile } from '../lib/prettier.formatter';
 import { findElementsWithCustomAttributes, loadHtml } from '../util/cheerio.util';
-import Queue from 'p-queue';
+import Queue from '@esm2cjs/p-queue';
 
 export class FileMigrator extends BaseMigrator {
   constructor(protected converter: IConverter, private input: string, private output: string) {
@@ -225,12 +225,12 @@ export class FileMigrator extends BaseMigrator {
   private async writeOutputFile($: CheerioAPI): Promise<void> {
     const migratedHtml = $.html({ xmlMode: false });
 
-    formatFile(migratedHtml);
+    const formatedHtml = formatFile(migratedHtml, this.converter.getPrettierConfig());
 
     const outputDir = path.dirname(this.output);
     await fs.promises.mkdir(outputDir, { recursive: true });
 
-    await fs.promises.writeFile(this.output, migratedHtml);
+    await fs.promises.writeFile(this.output, formatedHtml);
 
     const inputFilename = path.basename(this.input);
     this.notifyFileCompleted(inputFilename);

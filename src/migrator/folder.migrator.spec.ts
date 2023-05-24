@@ -12,6 +12,7 @@ describe('FolderMigrator', () => {
     getAllAttributes: jest.fn().mockReturnValue(['fxFlex']),
     prepare: jest.fn(),
     isSupportedFileExtension: jest.fn().mockReturnValue(true),
+    getPrettierConfig: jest.fn().mockReturnValue({}),
   };
 
   const inputFolder = '/input';

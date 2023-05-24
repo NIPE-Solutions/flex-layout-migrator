@@ -1,3 +1,4 @@
+import { Options } from 'prettier';
 import { AttributeConverter } from './attribute.converter';
 import { BreakPoint } from './breakpoint.type';
 
@@ -56,6 +57,11 @@ export interface IConverter {
    * @param filExtension file extension (without dot)
    */
   isSupportedFileExtension(filExtension: string): boolean;
+
+  /**
+   * Returns a prettier configuration for the converter, if none is provided, the default prettier configuration is used
+   */
+  getPrettierConfig(): Options;
 }
 
 export abstract class Converter implements IConverter {
@@ -157,5 +163,11 @@ export abstract class Converter implements IConverter {
 
   public isSupportedFileExtension(filExtension: string): boolean {
     return filExtension === 'html' || filExtension === 'htm';
+  }
+
+  getPrettierConfig(): Options {
+    return {
+      parser: 'angular',
+    };
   }
 }

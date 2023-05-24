@@ -30,6 +30,7 @@
   },
   "homepage": "https://github.com/NIPE-Solutions/flex-layout-migrator#readme",
   "dependencies": {
+    "@esm2cjs/p-queue": "^7.3.0",
     "chalk": "^4.1.2",
     "cheerio": "^1.0.0-rc.12",
     "classnames": "^2.3.2",
@@ -40,7 +41,6 @@
     "fs-extra": "^11.1.1",
     "jsdom": "^21.1.1",
     "ora": "^6.3.0",
-    "p-queue": "^7.3.4",
     "spinnies": "^0.5.1",
     "winston": "^3.8.2"
   },

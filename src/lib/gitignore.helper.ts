@@ -2,6 +2,7 @@ import fs from 'fs-extra';
 import ignore from 'ignore';
 import { Ignore } from 'ignore';
 import path from 'path';
+import { logger } from '../logger';
 
 let gitignoreCache: Ignore | undefined;
 
@@ -21,6 +22,7 @@ export async function loadGitIgnore(inputFolder: string): Promise<void> {
   if (await fs.pathExists(gitignorePath)) {
     const gitignoreContent = await fs.readFile(gitignorePath, 'utf-8');
     gitignoreCache.add(gitignoreContent);
+    logger.debug(`Loaded .gitignore file from ${gitignorePath}`);
   }
 }
 

@@ -25,8 +25,4 @@ export class FxLayoutGapAttributeConverter extends AttributeConverter<unknown> {
 
     element.addClass(classes.trim());
   }
-
-  public usesBreakpoints(): boolean {
-    return false;
-  }
 }

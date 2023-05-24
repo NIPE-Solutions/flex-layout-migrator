@@ -14,7 +14,7 @@ export class FxFlexAttributeConverter extends AttributeConverter<unknown> {
   public convert(value: string[], element: Cheerio<cheerio.Element>, breakPoint: BreakPoint | undefined): void {
     const flexMap: { [key: string]: string } = {
       ['[0_1_auto]']: 'initial',
-      ['[1_1_0%]']: '1',
+      ['[1_1_0]']: '1',
       ['[1_1_auto]']: 'auto',
     };
     let flex: string | undefined = undefined;

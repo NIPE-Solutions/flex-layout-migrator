@@ -1,4 +1,5 @@
 import { resolveConfig, format, Options } from 'prettier';
+import { logger } from '../logger';
 
 let prettierOptions: Options;
 
@@ -16,6 +17,7 @@ export async function loadPrettierOptions(directory: string): Promise<void> {
   const loadedOptions = await resolveConfig(directory);
 
   prettierOptions = loadedOptions ?? {};
+  logger.debug(`Loaded prettier options from ${directory}`);
 }
 
 /**
@@ -23,6 +25,7 @@ export async function loadPrettierOptions(directory: string): Promise<void> {
  * @param fileContent the file content to format
  * @returns the formatted file content
  */
-export function formatFile(fileContent: string): string {
-  return format(fileContent, prettierOptions);
+export function formatFile(fileContent: string, options?: Options): string {
+  logger.debug('Formatting file content using prettier');
+  return format(fileContent, { parser: 'html', printWidth: 80, ...prettierOptions, ...options });
 }
