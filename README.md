@@ -25,10 +25,14 @@ The Idea of this project is to migrate the Angular Flex-Layout attributes to CSS
 
 ## Features
 
-- Scans and processes HTML files or entire directories (recursive and paralell).
-- Migrates Angular Flex-Layout attributes to CSS classes.
-- Configurable attribute-to-class mapping using a JSON configuration file.
+- Scans and processes file or entire directories in paralell. Each converter can handle different file types if needed.
+- Migrates Angular Flex-Layout attributes according to the implementation of the specific converter (See available converters).
+- Supports breakpoint modifiers for all attributes.
 - Support for handling attribute values.
+- Support for handling property bindings.
+- Converters respect Flex-Layout attributes that depend on parent or other elements in the DOM.
+- Formats the HTML files with Prettier while respecting existing prettier config files.
+- Ignores files and directories that are specified in the `.gitignore` file.
 
 ## Status
 
