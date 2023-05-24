@@ -4,6 +4,8 @@ import { BaseMigrator } from './base.migrator';
 import { FileMigrator } from './file.migrator';
 import { IConverter } from '../converter/converter';
 import { Stack } from '../lib/stack';
+import { shouldIgnore } from '../lib/gitignore.helper';
+import { logger } from '../logger';
 
 export class FolderMigrator extends BaseMigrator {
   constructor(protected converter: IConverter, private inputFolder: string, private outputFolder: string) {
@@ -31,6 +33,10 @@ export class FolderMigrator extends BaseMigrator {
       let processedFiles = 0;
 
       for (const { item, stat, currentPath } of filesAndDirectories) {
+        if (shouldIgnore(this.inputFolder, currentPath)) {
+          logger.debug(`Ignoring ${currentPath}`);
+          continue;
+        }
         if (stat.isDirectory()) {
           stack.push({
             dir: currentPath,
