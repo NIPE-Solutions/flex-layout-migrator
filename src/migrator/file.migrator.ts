@@ -94,7 +94,6 @@ export class FileMigrator extends BaseMigrator {
 
     for (const [attribute] of Object.entries(attrs)) {
       const { attr, canConvert, normalizedAttribute } = this.extractAttributeData(attribute);
-      logger.debug('Can convert: %s', canConvert);
 
       if (!canConvert) {
         continue;
@@ -158,10 +157,8 @@ export class FileMigrator extends BaseMigrator {
     if (!attrs) return;
 
     for (const [attribute, value] of Object.entries(attrs)) {
-      logger.debug('Attribute: %s, value: %s', attribute, value);
-
       const { canConvert, normalizedAttribute, breakPoint } = this.extractAttributeData(attribute);
-      logger.debug('Can convert: %s', canConvert);
+      logger.debug('Attribute: %s, value: %s. Can be converted: %s', attribute, value, canConvert);
 
       if (!canConvert) {
         continue;
