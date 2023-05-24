@@ -1,13 +1,19 @@
+import { Options } from 'prettier';
 import { AttributeConverter } from './attribute.converter';
-import { BreakPoint } from './converter.type';
+import { BreakPoint } from './breakpoint.type';
 
 import * as cheerio from 'cheerio';
 import { Cheerio, CheerioAPI } from 'cheerio';
 
-export interface IAttributeContext<T> {
-  attribute: string;
-  data: T;
+export interface IAttributeStandardContext {
+  /**
+   * Property binding is used if the attribute is enclosed in square brackets.
+   * For example: [fxFlex]="value"
+   */
+  usesPropertyBinding: boolean;
 }
+
+export type AttributeContext<T> = T & IAttributeStandardContext;
 
 export interface IConverter {
   /**
@@ -16,11 +22,7 @@ export interface IConverter {
    * @param element Element that contains the attribute
    * @returns context
    */
-  prepare<T>(
-    attribute: string,
-    root: CheerioAPI,
-    element: Cheerio<cheerio.Element>,
-  ): IAttributeContext<T>;
+  prepare<T>(attribute: string, root: CheerioAPI, element: Cheerio<cheerio.Element>): AttributeContext<T>;
 
   /**
    * Returns true if the converter can convert the attribute
@@ -41,7 +43,7 @@ export interface IConverter {
     value: string[],
     element: Cheerio<cheerio.Element>,
     breakPoint?: BreakPoint,
-    context?: IAttributeContext<unknown>,
+    context?: AttributeContext<unknown>,
   ): void;
 
   /**
@@ -49,6 +51,17 @@ export interface IConverter {
    * @returns list of attributes
    */
   getAllAttributes(): string[];
+
+  /**
+   * Return true if the converter supports the file
+   * @param filExtension file extension (without dot)
+   */
+  isSupportedFileExtension(filExtension: string): boolean;
+
+  /**
+   * Returns a prettier configuration for the converter, if none is provided, the default prettier configuration is used
+   */
+  getPrettierConfig(): Options;
 }
 
 export abstract class Converter implements IConverter {
@@ -73,13 +86,13 @@ export abstract class Converter implements IConverter {
     attribute: string,
     root: CheerioAPI,
     element: cheerio.Cheerio<cheerio.Element>,
-  ): IAttributeContext<T> {
+  ): AttributeContext<T> {
     const converter = this.receiveConverter(attribute);
-    const data = converter.prepare(root, element);
+    const data = converter.prepare(root, element) as T;
 
     return {
-      attribute,
-      data: data as T,
+      usesPropertyBinding: false,
+      ...data,
     };
   }
 
@@ -88,7 +101,7 @@ export abstract class Converter implements IConverter {
     value: string[],
     element: Cheerio<cheerio.Element>,
     breakPoint?: BreakPoint,
-    context?: IAttributeContext<unknown>,
+    context?: AttributeContext<unknown>,
   ): void {
     const converter = this.receiveConverter(attribute);
     converter.convert(value, element, breakPoint, context);
@@ -116,10 +129,7 @@ export abstract class Converter implements IConverter {
    * @returns the converter itself so that it can be chained
    */
   protected addConverter(converter: AttributeConverter<unknown>): Converter {
-    this.converters.set(
-      this.normalizeAttribute(converter.getAttributeName()),
-      converter,
-    );
+    this.converters.set(this.normalizeAttribute(converter.getAttributeName()), converter);
     return this;
   }
 
@@ -149,5 +159,15 @@ export abstract class Converter implements IConverter {
 
   private normalizeAttribute(attribute: string): string {
     return attribute.replace('[', '').replace(']', '').trim();
+  }
+
+  public isSupportedFileExtension(filExtension: string): boolean {
+    return filExtension === 'html' || filExtension === 'htm';
+  }
+
+  getPrettierConfig(): Options {
+    return {
+      parser: 'angular',
+    };
   }
 }

@@ -1,18 +1,14 @@
 import { AttributeConverter } from './attribute.converter';
 import { Cheerio } from 'cheerio';
 import * as cheerio from 'cheerio';
-import { BreakPoint, breakpoints } from './converter.type';
+import { BreakPoint, breakpoints } from './breakpoint.type';
 
 class DummyAttributeConverter extends AttributeConverter<unknown> {
   constructor(attributeName: string) {
     super(attributeName);
   }
 
-  public convert(
-    value: string[],
-    element: Cheerio<cheerio.Element>,
-    breakPoint?: BreakPoint,
-  ): void {
+  public convert(_value: string[], _element: Cheerio<cheerio.Element>, _breakPoint?: BreakPoint): void {
     // Implementierung für den Test
   }
 }
@@ -38,13 +34,10 @@ describe('AttributeConverter', () => {
   });
 
   test('getSelectors() should return a string of comma-separated selectors', () => {
-    const expectedSelectors = ['', ...breakpoints]
-      .map(breakpoint => {
-        return breakpoint
-          ? `[${attributeName}.${breakpoint}]`
-          : `[${attributeName}]`;
-      })
-      .join(', ');
+    const expectedSelectors = [
+      `[${attributeName}]`,
+      ...breakpoints.map(breakpoint => `[${attributeName}.${breakpoint}]`),
+    ].join(', ');
 
     expect(converter.getSelectors()).toBe(expectedSelectors);
   });

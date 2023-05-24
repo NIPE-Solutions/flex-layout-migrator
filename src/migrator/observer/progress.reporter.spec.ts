@@ -86,9 +86,7 @@ describe('ProgressReporter', () => {
     const eventData = { id: '1', someData: 'test' };
     progressReporter.update('unknownEvent', eventData);
 
-    expect(consoleWarnSpy).toHaveBeenCalledWith(
-      'Unknown progress event: unknownEvent',
-    );
+    expect(consoleWarnSpy).toHaveBeenCalledWith('Unknown progress event: unknownEvent');
     consoleWarnSpy.mockRestore();
   });
 });

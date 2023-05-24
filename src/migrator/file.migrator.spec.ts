@@ -26,19 +26,17 @@ describe('FileMigrator', () => {
       prepare: jest.fn(),
       convert: jest.fn(),
       getAllAttributes: jest.fn().mockReturnValue(['fxFlex']),
+      isSupportedFileExtension: jest.fn().mockReturnValue(true),
+      getPrettierConfig: jest.fn().mockReturnValue({}),
     } as unknown as IConverter;
 
     fileMigrator = new FileMigrator(converter, input, output);
 
     jest.spyOn(mockedFs.promises, 'readFile').mockImplementation(readFileMock);
-    jest
-      .spyOn(mockedFs.promises, 'writeFile')
-      .mockImplementation(writeFileMock);
+    jest.spyOn(mockedFs.promises, 'writeFile').mockImplementation(writeFileMock);
     jest.spyOn(mockedFs.promises, 'mkdir').mockImplementation(mkdirMock);
 
-    readFileMock.mockImplementation(() =>
-      Promise.resolve('<div fxFlex="100%"></div>'),
-    );
+    readFileMock.mockImplementation(() => Promise.resolve('<div fxFlex="100%"></div>'));
     writeFileMock.mockImplementation(() => Promise.resolve(undefined));
     mkdirMock.mockImplementation(() => Promise.resolve(undefined));
 

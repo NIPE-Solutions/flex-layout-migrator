@@ -11,6 +11,8 @@ describe('FolderMigrator', () => {
     canConvert: jest.fn().mockReturnValue(true),
     getAllAttributes: jest.fn().mockReturnValue(['fxFlex']),
     prepare: jest.fn(),
+    isSupportedFileExtension: jest.fn().mockReturnValue(true),
+    getPrettierConfig: jest.fn().mockReturnValue({}),
   };
 
   const inputFolder = '/input';
@@ -18,11 +20,7 @@ describe('FolderMigrator', () => {
   let folderMigrator: FolderMigrator;
 
   beforeEach(() => {
-    folderMigrator = new FolderMigrator(
-      mockedConverter,
-      inputFolder,
-      outputFolder,
-    );
+    folderMigrator = new FolderMigrator(mockedConverter, inputFolder, outputFolder);
   });
 
   afterEach(() => {

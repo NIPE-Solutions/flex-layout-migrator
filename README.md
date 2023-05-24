@@ -1,38 +1,40 @@
 ## Table of Contents
 
 - [Angular Flex-Layout Migration Tool](#angular-flex-layout-migration-tool)
-  - [Features ](#features-)
-  - [Status ](#status-)
+  - [Features](#features)
+  - [Status](#status)
     - [Flex-Layout Attributes](#flex-layout-attributes)
     - [Available Converters](#available-converters)
-  - [How to use it localy ](#how-to-use-it-localy-)
-  - [Installation ](#installation-)
-  - [Usage ](#usage-)
-  - [Options ](#options-)
-  - [Contributing ](#contributing-)
-  - [License ](#license-)
+  - [How to use it localy](#how-to-use-it-localy)
+  - [Installation](#installation)
+  - [Usage](#usage)
+  - [Options](#options)
+  - [Contributing](#contributing)
+  - [License](#license)
 
 # Angular Flex-Layout Migration Tool
-
-<a id="angular-flex-layout-migration-tool"></a>
 
 [![Development Status](https://img.shields.io/badge/status-under%20development-critical)](https://github.com/NIPE-Solutions/flex-layout-migrator)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 
 This tool assists in migrating projects that use the deprecated Angular Flex-Layout library to CSS classes. The package is designed to be as flexible and customizable as possible to accommodate different migration scenarios. Contributions are highly welcome!
 
-**Please note that this project is currently under development and not yet stable. Use it at your own risk.**
+**Please note that this project is currently under development. Use it at your own risk.**
 
 The Idea of this project is to migrate the Angular Flex-Layout attributes to CSS classes, CSS styles or whatever is needed. The current plan is to implement the conversion to Tailwind and Plain CSS but it should be possible to implement other converters as well. Right now the focus relies on Tailwind and the most used attributes. If you need a specific attribute, feel free to open an issue or implement it yourself and create a pull request.
 
-## Features <a name="features"></a>
+## Features
 
-- Scans and processes HTML files or entire directories (recursive and paralell).
-- Migrates Angular Flex-Layout attributes to CSS classes.
-- Configurable attribute-to-class mapping using a JSON configuration file.
+- Scans and processes file or entire directories in paralell. Each converter can handle different file types if needed.
+- Migrates Angular Flex-Layout attributes according to the implementation of the specific converter (See available converters).
+- Supports breakpoint modifiers for all attributes.
 - Support for handling attribute values.
+- Support for handling property bindings.
+- Converters respect Flex-Layout attributes that depend on parent or other elements in the DOM.
+- Formats the HTML files with Prettier while respecting existing prettier config files.
+- Ignores files and directories that are specified in the `.gitignore` file.
 
-## Status <a name="status"></a>
+## Status
 
 The following features are currently available:
 
@@ -107,23 +109,23 @@ For more information about the Angular Flex-Layout attributes, please refer to t
 
 | Flex-Layout Attribute | Tailwind Converter | Plain-CSS Converter |
 | --------------------- | ------------------ | ------------------- |
-| fxLayout              | :x:                | :x:                 |
-| fxLayoutAlign         | :x:                | :x:                 |
-| fxLayoutGap           | :x:                | :x:                 |
-| fxFlex                | :x:                | :x:                 |
-| fxFlexOffset          | :x:                | :x:                 |
-| fxFlexOrder           | :x:                | :x:                 |
+| fxLayout              | :white_check_mark: | :x:                 |
+| fxLayoutAlign         | :white_check_mark: | :x:                 |
+| fxLayoutGap           | :white_check_mark: | :x:                 |
+| fxFlex                | :white_check_mark: | :x:                 |
+| fxFlexOffset          | :white_check_mark: | :x:                 |
+| fxFlexOrder           | :white_check_mark: | :x:                 |
 | fxFlexAlign           | :x:                | :x:                 |
-| fxFlexFill            | :x:                | :x:                 |
+| fxFlexFill            | :white_check_mark: | :x:                 |
 
-## How to use it localy <a name="how-to-use-it-localy"></a>
+## How to use it localy
 
 1. Clone the project via `git clone git@github.com:NIPE-Solutions/flex-layout-migrator.git`
 2. Navigate to the project folder via `cd flex-layout-migrator`
 3. Install the dependencies via `npm ci`
-4. Run the project via `npm run start -- ./path/to/your/input/folder ./path/to/your/output/folder --target <tailwind|plain-css>`
+4. Run the project via `npm run start -- ./path/to/your/input/folder --output ./path/to/your/output/folder --target <tailwind|plain-css>`
 
-## Installation <a name="installation"></a>
+## Installation
 
 Install the package globally using npm:
 
@@ -131,29 +133,28 @@ Install the package globally using npm:
 npm install -g @ng-flex/layout-migrator
 ```
 
-## Usage <a name="usage"></a>
+## Usage
 
 After installing the package, you can use the fxMigrate command to start the migration process. Here is a basic example:
 
 ```bash
-fxMigrate --input ./path/to/your/input/folder --output ./path/to/your/output/folder
+fxMigrate ./path/to/your/input/folder --output ./path/to/your/output/folder
 ```
 
 You can also migrate individual files:
 
 ```bash
-fxMigrate --input ./path/to/your/input/file.html --output ./path/to/your/output/file.html
+fxMigrate ./path/to/your/input/file.html --output ./path/to/your/output/file.html
 ```
 
-## Options <a name="options"></a>
+## Options
 
 You can customize the migration process using the following options:
 
-- --input: The path to the input folder or file.
-- --output: The path to the output folder or file.
+- --output: The path to the output folder or file. If no output is specified, the output will be the same as the input.
 - --target <target>: Which converter should be used (tailwind|plain-css)
 
-## Contributing <a name="contributing"></a>
+## Contributing
 
 We appreciate any contributions to improve the Angular Flex-Layout Migrator and make it more useful for the community. If you would like to contribute to this project, please follow the steps below:
 
@@ -195,6 +196,6 @@ We will review your pull request and provide feedback as necessary. Once your ch
 
 Thank you for considering contributing to the Angular Flex-Layout Migrator!
 
-## License <a name="license"></a>
+## License
 
 This project is licensed under the MIT License.

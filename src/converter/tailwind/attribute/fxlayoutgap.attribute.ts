@@ -1,9 +1,9 @@
 import * as cheerio from 'cheerio';
-import { Cheerio, CheerioAPI } from 'cheerio';
+import { Cheerio } from 'cheerio';
 import classNames from 'classnames';
 import { logger } from '../../../logger';
 import { AttributeConverter } from '../../attribute.converter';
-import { BreakPoint } from '../../converter.type';
+import { BreakPoint } from '../../breakpoint.type';
 import { generateTailwindClassName } from '../breakpoint.mapper';
 
 export class FxLayoutGapAttributeConverter extends AttributeConverter<unknown> {
@@ -11,11 +11,7 @@ export class FxLayoutGapAttributeConverter extends AttributeConverter<unknown> {
     super('fxLayoutGap');
   }
 
-  public convert(
-    value: string[],
-    element: Cheerio<cheerio.Element>,
-    breakPoint: BreakPoint | undefined,
-  ): void {
+  public convert(value: string[], element: Cheerio<cheerio.Element>, breakPoint: BreakPoint | undefined): void {
     let [gap, grid] = value;
 
     gap ?? logger.warn('No value for fxLayoutGap');
@@ -28,9 +24,5 @@ export class FxLayoutGapAttributeConverter extends AttributeConverter<unknown> {
     });
 
     element.addClass(classes.trim());
-  }
-
-  public usesBreakpoints(): boolean {
-    return false;
   }
 }

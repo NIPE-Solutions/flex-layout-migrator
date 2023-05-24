@@ -1,9 +1,9 @@
 import * as cheerio from 'cheerio';
-import { Cheerio, CheerioAPI } from 'cheerio';
+import { Cheerio } from 'cheerio';
 import classNames from 'classnames';
 import { logger } from '../../../logger';
 import { AttributeConverter } from '../../attribute.converter';
-import { BreakPoint } from '../../converter.type';
+import { BreakPoint } from '../../breakpoint.type';
 import { generateTailwindClassName } from '../breakpoint.mapper';
 
 export class FxLayoutAttributeConverter extends AttributeConverter<unknown> {
@@ -11,11 +11,7 @@ export class FxLayoutAttributeConverter extends AttributeConverter<unknown> {
     super('fxLayout');
   }
 
-  public convert(
-    value: string[],
-    element: Cheerio<cheerio.Element>,
-    breakPoint: BreakPoint | undefined,
-  ): void {
+  public convert(value: string[], element: Cheerio<cheerio.Element>, breakPoint: BreakPoint | undefined): void {
     let [direction, wrap] = value;
 
     direction ?? logger.warn('No value for fxLayout');
@@ -30,9 +26,5 @@ export class FxLayoutAttributeConverter extends AttributeConverter<unknown> {
     });
 
     element.addClass(classes.trim());
-  }
-
-  public usesBreakpoints(): boolean {
-    return true;
   }
 }

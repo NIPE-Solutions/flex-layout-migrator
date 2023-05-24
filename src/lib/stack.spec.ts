@@ -54,8 +54,6 @@ describe('Stack', () => {
     stack.push(1);
     stack.push(2);
 
-    expect(() => stack.push(3)).toThrowError(
-      'Stack has reached max capacity, you cannot add more items',
-    );
+    expect(() => stack.push(3)).toThrowError('Stack has reached max capacity, you cannot add more items');
   });
 });
