@@ -15,6 +15,7 @@ export class FxFlexAttributeConverter extends AttributeConverter<unknown> {
     const flexMap: { [key: string]: string } = {
       ['[0_1_auto]']: 'initial',
       ['[1_1_0]']: '1',
+      ['[1_1_0%]']: '1',
       ['[1_1_auto]']: 'auto',
     };
     let flex: string | undefined = undefined;

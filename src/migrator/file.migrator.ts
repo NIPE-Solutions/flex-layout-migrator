@@ -164,14 +164,21 @@ export class FileMigrator extends BaseMigrator {
         continue;
       }
 
-      // Convert and split the attribute value into an array of values
-      const values = value && value.includes(' ') ? value.split(' ') : [value];
-
       // Get the context for the attribute, if any or undefined
       const context = attributeContexts.get(`${index}_${attribute}`);
 
       // If context is defined, pass the context data, otherwise pass undefined
       const contextData = context ? (context as AttributeContext<unknown>) : undefined;
+
+      let values: string[] = [];
+      if (context?.usesPropertyBinding) {
+        // If the attribute uses property binding syntax, we don't want to split the values
+        // Instead, we pass the whole value to the converter value array at index 0
+        values = value ? [value] : [];
+      } else {
+        // Convert and split the attribute value into an array of values
+        values = value && value.includes(' ') ? value.split(' ') : [value];
+      }
 
       this.converter.convert(normalizedAttribute, values, el, breakPoint, contextData);
 
