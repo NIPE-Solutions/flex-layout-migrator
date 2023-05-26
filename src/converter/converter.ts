@@ -162,7 +162,7 @@ export abstract class Converter implements IConverter {
   }
 
   public isSupportedFileExtension(filExtension: string): boolean {
-    return filExtension === 'html' || filExtension === 'htm';
+    return filExtension === '.html' || filExtension === '.htm';
   }
 
   getPrettierConfig(): Options {

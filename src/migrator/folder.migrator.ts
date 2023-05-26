@@ -33,6 +33,7 @@ export class FolderMigrator extends BaseMigrator {
       let processedFiles = 0;
 
       for (const { item, stat, currentPath } of filesAndDirectories) {
+        logger.debug(`Processing ${currentPath}`);
         if (shouldIgnore(this.inputFolder, currentPath)) {
           logger.debug(`Ignoring ${currentPath}`);
           continue;
