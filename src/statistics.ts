@@ -1,3 +1,5 @@
+import Table from 'cli-table3';
+
 export class Statistics {
   private folderProcessed = 0;
   private filesProcessed = 0;
@@ -23,10 +25,22 @@ export class Statistics {
 
   public print() {
     const duration = this.endTime ? (this.endTime.getTime() - this.startTime.getTime()) / 1000 : 0;
-    console.log(`Migration Statistics:
-      Files Processed: ${this.filesProcessed}
-      Folders Processed: ${this.folderProcessed}
-      Attributes Converted: ${this.attributesProcessed}
-      Duration: ${duration} seconds`);
+
+    const table = new Table({
+      head: ['Metric', 'Value'],
+    });
+
+    const data = [
+      ['Files Processed', this.filesProcessed],
+      ['Folders Processed', this.folderProcessed],
+      ['Attributes Converted', this.attributesProcessed],
+    ];
+
+    table.push(...data);
+
+    console.log('\n');
+    console.log('Thank you for using the migration tool! 🎉');
+    console.log(`\nStatistics (Migration duration: ${duration}s)`);
+    console.log(table.toString());
   }
 }
