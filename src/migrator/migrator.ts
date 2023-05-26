@@ -1,4 +1,5 @@
 import * as fs from 'fs-extra';
+import * as path from 'path';
 import { IConverter } from '../converter/converter';
 import { FileMigrator } from './file.migrator';
 import { FolderMigrator } from './folder.migrator';
@@ -17,6 +18,9 @@ export class Migrator {
 
     let migrator: FileMigrator | FolderMigrator;
     if (stat.isFile()) {
+      if (!this.converter.isSupportedFileExtension(path.extname(this.inputPath))) {
+        throw new Error(`Unsupported file type: ${this.inputPath}`);
+      }
       migrator = new FileMigrator(this.converter, this.inputPath, this.outputPath);
     } else if (stat.isDirectory()) {
       migrator = new FolderMigrator(this.converter, this.inputPath, this.outputPath);
