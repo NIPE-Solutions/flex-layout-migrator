@@ -31,7 +31,7 @@ class ProgressReporter implements Observer {
         this.handleFolderCompleted(data);
         break;
       default:
-        console.warn(`Unknown progress event: ${event}`);
+      // Do nothing
     }
   }
 
