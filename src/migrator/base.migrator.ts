@@ -10,8 +10,8 @@ abstract class BaseMigrator implements IMigrator {
 
   constructor(protected converter: IConverter) {}
 
-  public addObserver(observer: Observer): void {
-    this.observers.push(observer);
+  public addObserver(...observers: Observer[]): void {
+    for (const observer of observers) this.observers.push(observer);
   }
 
   public removeObserver(observer: Observer): void {

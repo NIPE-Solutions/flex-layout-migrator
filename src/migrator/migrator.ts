@@ -5,6 +5,8 @@ import { FolderMigrator } from './folder.migrator';
 import { ProgressReporter } from './observer/progress.reporter';
 import { loadPrettierOptions } from '../lib/prettier.formatter';
 import { loadGitIgnore } from '../lib/gitignore.helper';
+import { Statistics } from '../statistics';
+import { StatisticsReporter } from './observer/statistics.reporter';
 
 export class Migrator {
   constructor(private converter: IConverter, private inputPath: string, private outputPath: string) {}
@@ -24,9 +26,16 @@ export class Migrator {
       throw new Error(`Unsupported input type: ${this.inputPath}`);
     }
 
-    const observer = new ProgressReporter();
-    migrator.addObserver(observer);
+    const statistics = new Statistics();
+
+    const progressReporter = new ProgressReporter();
+    const statisticsReporter = new StatisticsReporter(statistics);
+
+    migrator.addObserver(progressReporter, statisticsReporter);
 
     await migrator.migrate();
+
+    statistics.end();
+    statistics.print();
   }
 }
