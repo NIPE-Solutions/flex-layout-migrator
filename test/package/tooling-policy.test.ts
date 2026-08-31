@@ -10,5 +10,6 @@ describe('local quality tooling', () => {
       '*.{json,md,yml,yaml}': ['prettier --write'],
     });
     expect(JSON.stringify(pkg['lint-staged'])).not.toContain('git add');
+    expect(pkg.scripts).not.toHaveProperty('postinstall');
   });
 });
