@@ -1,16 +1,13 @@
 import { logger } from '../logger';
-import { Converter } from './converter';
-import { PlainCssConverter } from './plaincss/plaincss.converter';
-import { TailwindCssConverter } from './tailwind/tailwind.converter';
+import type { ConversionAdapter } from '../adapter/conversion-adapter';
+import { TailwindAdapter } from '../adapter/tailwind/tailwind.adapter';
 
 class ConverterFactory {
-  public static createConverter(type: string): Converter {
-    logger.info(`Creating converter [${type}]`);
+  public static createConverter(type: string): ConversionAdapter {
+    logger.info(`Creating adapter [${type}]`);
     switch (type) {
       case 'tailwind':
-        return new TailwindCssConverter();
-      case 'plain-css':
-        return new PlainCssConverter();
+        return new TailwindAdapter();
       default:
         throw new Error(`Converter [${type}] not found`);
     }

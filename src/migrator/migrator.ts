@@ -1,6 +1,6 @@
 import * as fs from 'fs-extra';
 import * as path from 'path';
-import { IConverter } from '../converter/converter';
+import type { ConversionAdapter } from '../adapter/conversion-adapter';
 import { FileMigrator } from './file.migrator';
 import { FolderMigrator } from './folder.migrator';
 import { ProgressReporter } from './observer/progress.reporter';
@@ -11,7 +11,7 @@ import { StatisticsReporter } from './observer/statistics.reporter';
 
 export class Migrator {
   constructor(
-    private converter: IConverter,
+    private adapter: ConversionAdapter,
     private inputPath: string,
     private outputPath: string,
   ) {}
@@ -24,12 +24,12 @@ export class Migrator {
 
     let migrator: FileMigrator | FolderMigrator;
     if (stat.isFile()) {
-      if (!this.converter.isSupportedFileExtension(path.extname(this.inputPath))) {
+      if (path.extname(this.inputPath).toLowerCase() !== '.html') {
         throw new Error(`Unsupported file type: ${this.inputPath}`);
       }
-      migrator = new FileMigrator(this.converter, this.inputPath, this.outputPath);
+      migrator = new FileMigrator(this.adapter, this.inputPath, this.outputPath);
     } else if (stat.isDirectory()) {
-      migrator = new FolderMigrator(this.converter, this.inputPath, this.outputPath);
+      migrator = new FolderMigrator(this.adapter, this.inputPath, this.outputPath);
     } else {
       throw new Error(`Unsupported input type: ${this.inputPath}`);
     }

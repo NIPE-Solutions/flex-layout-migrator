@@ -1,26 +1,19 @@
 import * as fs from 'fs-extra';
-import { IConverter } from '../converter/converter';
+import { TailwindAdapter } from '../adapter/tailwind/tailwind.adapter';
 import { FolderMigrator } from './folder.migrator';
 import { FileMigrator } from './file.migrator';
 import path from 'path';
 import mockFs from 'mock-fs';
 
 describe('FolderMigrator', () => {
-  const mockedConverter: IConverter = {
-    convert: vi.fn(),
-    canConvert: vi.fn().mockReturnValue(true),
-    getAllAttributes: vi.fn().mockReturnValue(['fxFlex']),
-    prepare: vi.fn(),
-    isSupportedFileExtension: vi.fn().mockReturnValue(true),
-    getPrettierConfig: vi.fn().mockReturnValue({}),
-  };
+  const adapter = new TailwindAdapter();
 
   const inputFolder = '/input';
   const outputFolder = '/output';
   let folderMigrator: FolderMigrator;
 
   beforeEach(() => {
-    folderMigrator = new FolderMigrator(mockedConverter, inputFolder, outputFolder);
+    folderMigrator = new FolderMigrator(adapter, inputFolder, outputFolder);
   });
 
   afterEach(() => {
@@ -100,5 +93,23 @@ describe('FolderMigrator', () => {
     await folderMigrator.migrate();
 
     expect(spy).toHaveBeenCalled();
+  });
+
+  it('returns results in normalized path order', async () => {
+    mockFs({
+      '/input': {
+        'z-last.html': '<div fxLayout="row"></div>',
+        'a-first.html': '<div fxLayout="column"></div>',
+      },
+      '/output': {},
+    });
+
+    const results = await folderMigrator.migrate();
+
+    expect(
+      results.map(result =>
+        result.status === 'parse-error' ? result.fileName : 'fileName' in result.input ? result.input.fileName : '',
+      ),
+    ).toEqual(['/input/a-first.html', '/input/z-last.html']);
   });
 });

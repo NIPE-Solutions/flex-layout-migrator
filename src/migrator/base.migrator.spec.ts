@@ -1,10 +1,11 @@
 import { BaseMigrator } from './base.migrator';
-import { IConverter } from '../converter/converter';
 import { Observer } from './observer/migrator.observer';
+import { TailwindAdapter } from '../adapter/tailwind/tailwind.adapter';
 
 class TestMigrator extends BaseMigrator {
-  async migrate(): Promise<void> {
+  async migrate(): Promise<readonly []> {
     this.notifyObservers('testEvent', { id: '1', message: 'Test message' });
+    return [];
   }
 
   getObserverCount(): number {
@@ -13,17 +14,10 @@ class TestMigrator extends BaseMigrator {
 }
 
 describe('BaseMigrator', () => {
-  let converter: IConverter;
   let migrator: TestMigrator;
 
   beforeEach(() => {
-    converter = {
-      canConvert: vi.fn().mockReturnValue(false),
-      convert: vi.fn(),
-      getAllAttributes: vi.fn().mockReturnValue([]),
-    } as unknown as IConverter;
-
-    migrator = new TestMigrator(converter);
+    migrator = new TestMigrator(new TailwindAdapter());
   });
 
   test('addObserver and removeObserver', () => {

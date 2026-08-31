@@ -34,9 +34,7 @@ const handleArguments = async (input: string, options: ProgramOptions) => {
 async function main() {
   const program = new Command();
 
-  program
-    .version(packageJson.version)
-    .description('Migrate Angular Flex-Layout attributes to CSS classes or inline styles');
+  program.version(packageJson.version).description('Migrate Angular Flex-Layout attributes to Tailwind CSS utilities');
 
   program.argument('<input>', 'input HTML file or folder', value => {
     if (!fs.existsSync(value)) {
@@ -60,9 +58,9 @@ async function main() {
 
   program.option(
     '-t, --target <target>',
-    'Target CSS technology (options: "tailwind", "plain-css")',
+    'Target CSS technology (option: "tailwind")',
     value => {
-      const validTargets = ['tailwind', 'plain-css'];
+      const validTargets = ['tailwind'];
       if (!validTargets.includes(value)) {
         logger.error(chalk.red(`Error: Invalid target ${value}. Valid targets are: ${validTargets.join(', ')}`));
         process.exit(1);
