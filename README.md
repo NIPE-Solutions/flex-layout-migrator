@@ -10,13 +10,39 @@ The v2 engine parses templates with the Angular compiler and applies validated s
 
 The current prerelease converts a documented set of static Flex-Layout inputs to Tailwind CSS. Dynamic bindings, responsive inputs, custom breakpoints, bound class values, and unsupported directives remain unchanged and receive structured review results. Ambiguous behavior is never approximated silently.
 
-Run it for one Angular template or a directory:
+## CLI workflow
+
+Run the codemod for one Angular template or a directory:
 
 ```bash
 flex-layout-codemod ./src --target tailwind --output ./migrated-src
 ```
 
-Only changed `.html` files are written. Use version control and review the generated diff before replacing application templates. Native CSS output, dry-run mode, JSON reports, strict exit codes, and a richer CLI summary remain planned.
+Preview the same migration plan without writing templates, while also creating a JSON report:
+
+```bash
+flex-layout-codemod ./src --target tailwind --output ./migrated-src --dry-run --report ./reports/flex-layout.json
+```
+
+Only changed `.html` files are written during a real migration. `--dry-run` applies and validates edits in memory but does not write template output or create its missing parent directories. A requested `--report <path>` is an explicit reporting side effect and is still written atomically during a dry-run.
+
+Unresolved `review`, `unsupported`, or `invalid` results are strict by default. To preserve the same diagnostics and migration output while accepting unresolved work in automation, use:
+
+```bash
+flex-layout-codemod ./src --dry-run --allow-unresolved
+```
+
+The CLI uses these exit codes:
+
+| Code | Meaning                                                                                |
+| ---: | -------------------------------------------------------------------------------------- |
+|  `0` | Migration completed with no unresolved results, or `--allow-unresolved` accepted them. |
+|  `1` | Configuration, parsing, template I/O, report writing, or an internal invariant failed. |
+|  `2` | Migration completed safely, but unresolved results remain in strict mode.              |
+
+JSON reports use schema version `1`. Report paths use forward slashes and are relative to the input root; a single-file input is represented by its basename, never an absolute checkout path. Files are path-sorted, results retain source order, and the summary is derived from those file results.
+
+Use version control and review the generated diff before replacing application templates. Native CSS output remains outside the current scope.
 
 The TypeScript extension API changed in v2: mutable Cheerio converters were replaced by immutable `ConversionAdapter` plans and structured `ConversionResult` values. These prerelease APIs may continue to evolve before v2 is stable.
 

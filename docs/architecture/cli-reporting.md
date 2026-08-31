@@ -2,7 +2,7 @@
 
 ## Decision
 
-The CLI will treat migration as a result-producing operation. Migration services return a complete, immutable report; terminal and JSON presenters render that report without participating in parsing, conversion, or file mutation.
+The CLI treats migration as a result-producing operation. Migration services return a complete, immutable report; terminal and JSON presenters render that report without participating in parsing, conversion, or file mutation.
 
 This replaces observer-derived statistics and phase-oriented spinner output. The command remains concise for interactive use, deterministic in CI, and explicit about unresolved work.
 
@@ -141,7 +141,7 @@ The terminal presenter receives a report and writes through an injected text str
 - one concise line per unresolved result with relative path, source offset, diagnostic code, and reason;
 - a dry-run label when no template writes occurred.
 
-Normal output contains no emoji, thank-you text, or multi-phase implementation details. Colors are enabled only when the destination is a TTY and the environment permits them. CI and redirected output are stable plain text. Debug logging remains separate from the report.
+Normal output contains no emoji, thank-you text, color, or multi-phase implementation details. TTY, CI, and redirected output use the same stable plain text. Debug logging remains separate from the report.
 
 ### JSON presenter
 
@@ -158,7 +158,7 @@ The JSON presenter serializes the report with two-space indentation and a traili
 
 ## Testing strategy
 
-Development follows red-green-refactor cycles.
+The implementation is covered by red-green-refactor tests.
 
 - Report aggregation tests cover file and folder inputs, portable paths, source ordering, changed counts, mixed outcomes, and duration.
 - File migration tests prove dry-run and real runs produce identical results while only the real run writes templates.
@@ -168,13 +168,13 @@ Development follows red-green-refactor cycles.
 - CLI integration tests execute the built binary for exit codes `0`, `1`, and `2`, missing output paths, dry-run, and JSON reporting.
 - Package smoke tests continue to install the tarball and execute its binary.
 
-## Delivery
+## Implementation
 
-The work is delivered on `feat/cli-reporting` through reviewable commits:
+The reporting workflow was implemented in reviewable increments:
 
-1. Add immutable migration report aggregation and portable path handling.
-2. Add dry-run write policy and changed-file accounting.
-3. Add exit policy and terminal presenter.
-4. Add atomic JSON reporting.
-5. Rebuild the Commander boundary and remove observer statistics/spinner dependencies.
-6. Update CLI documentation, verify the package, and open a pull request.
+1. Added immutable migration report aggregation and portable path handling.
+2. Added dry-run write policy and changed-file accounting.
+3. Added exit policy and terminal presenter.
+4. Added atomic JSON reporting.
+5. Rebuilt the Commander boundary and removed observer statistics/spinner dependencies.
+6. Updated CLI documentation and verified the packaged command through help, version, and dry-run execution.
