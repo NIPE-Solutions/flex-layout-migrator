@@ -4,18 +4,39 @@ import type { ConversionAdapter, ConversionContext, PlannedConversion } from '..
 import { TailwindClassPlanner } from './tailwind-class.planner';
 import { planLayoutGap } from './directives/layout-gap.strategy';
 import { planFlexItem } from './directives/flex-item.strategy';
+import { planFlexAlign } from './directives/flex-align.strategy';
+import { planFlexFill } from './directives/flex-fill.strategy';
+import { planFlexOffset } from './directives/flex-offset.strategy';
+import { planFlexOrder } from './directives/flex-order.strategy';
+import type { TailwindStrategyResult } from './tailwind-semantic.model';
 
 const flexItemDirectives = new Set<LocatedFlexLayoutInput['directive']>(['fxFlex', 'fxGrow', 'fxShrink']);
 
 const supportedDirectives = new Set<LocatedFlexLayoutInput['directive']>([
   'fxFlex',
+  'fxFlexAlign',
   'fxFlexFill',
+  'fxFill',
   'fxFlexOffset',
   'fxFlexOrder',
   'fxLayout',
   'fxLayoutAlign',
   'fxLayoutGap',
 ]);
+
+function toPlannedConversion(input: LocatedFlexLayoutInput, result: TailwindStrategyResult): PlannedConversion {
+  if (result.status === 'converted') return { status: 'converted', input, classNames: result.classNames };
+  if (result.status === 'invalid') {
+    return {
+      status: 'invalid',
+      input,
+      code: result.code,
+      reason: `${input.value} is not a supported ${input.directive} value.`,
+      suggestion: 'Correct the value or migrate this directive manually.',
+    };
+  }
+  return { ...result, input };
+}
 
 export class TailwindAdapter implements ConversionAdapter {
   readonly name = 'tailwind' as const;
@@ -186,6 +207,23 @@ export class TailwindAdapter implements ConversionAdapter {
         };
       }
       return { ...flex, input };
+    }
+
+    if (input.directive === 'fxFlexAlign') return toPlannedConversion(input, planFlexAlign(input.value));
+    if (input.directive === 'fxFlexFill' || input.directive === 'fxFill') {
+      return toPlannedConversion(input, planFlexFill());
+    }
+    if (input.directive === 'fxFlexOrder') return toPlannedConversion(input, planFlexOrder(input.value));
+    if (input.directive === 'fxFlexOffset') {
+      const parentLayouts =
+        context.parent?.attributes.filter(
+          attribute => attribute.name === 'fxLayout' || attribute.name.startsWith('fxLayout.'),
+        ) ?? [];
+      const staticParentLayout = parentLayouts.find(
+        attribute => attribute.name === 'fxLayout' && attribute.binding === 'literal',
+      );
+      const layout = parentLayouts.length === 0 ? 'row' : staticParentLayout?.value;
+      return toPlannedConversion(input, planFlexOffset(input.value, layout));
     }
 
     const classNames = this.classPlanner.plan(input, context);

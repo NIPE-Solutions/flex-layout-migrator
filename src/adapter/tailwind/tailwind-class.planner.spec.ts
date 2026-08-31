@@ -46,8 +46,6 @@ describe('TailwindClassPlanner', () => {
     ['fxLayout', 'row', ['flex', 'flex-row', 'box-border']],
     ['fxLayout', 'column wrap', ['flex', 'flex-col', 'flex-wrap', 'box-border']],
     ['fxLayout', 'row inline', ['inline-flex', 'flex-row', 'box-border']],
-    ['fxFlexFill', '', ['w-full', 'min-w-full', 'h-full', 'min-h-full']],
-    ['fxFlexOrder', '2', ['order-2']],
   ] as const)('plans %s="%s" as classes', (directive, value, expected) => {
     expect(new TailwindClassPlanner().plan(input(directive, value), { element })).toEqual(expected);
   });
@@ -60,17 +58,5 @@ describe('TailwindClassPlanner', () => {
         element: column,
       }),
     ).toEqual(['justify-center', 'items-end', 'content-end', 'flex', 'flex-col', 'box-border']);
-  });
-
-  test.each([
-    ['row', ['ltr:ml-4', 'rtl:mr-4']],
-    ['column', ['mt-4']],
-  ] as const)('plans flex offset for a %s parent', (direction, expected) => {
-    expect(
-      new TailwindClassPlanner().plan(input('fxFlexOffset', '4'), {
-        element,
-        parent: layoutElement('parent', direction),
-      }),
-    ).toEqual(expected);
   });
 });

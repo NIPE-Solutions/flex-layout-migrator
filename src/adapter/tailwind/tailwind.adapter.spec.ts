@@ -63,4 +63,17 @@ describe('TailwindAdapter', () => {
       classNames: ['[flex:1_1_100%]', '[max-width:25%]', 'box-border'],
     });
   });
+
+  test.each([
+    ['fxFlexAlign', 'end', ['self-end']],
+    ['fxFlexFill', '', ['m-0', 'w-full', 'h-full', 'min-w-full', 'min-h-full']],
+    ['fxFill', '', ['m-0', 'w-full', 'h-full', 'min-w-full', 'min-h-full']],
+    ['fxFlexOffset', '4', ['ms-[4%]']],
+    ['fxFlexOrder', '2', ['[order:2]']],
+  ] as const)('plans exact independent %s semantics', (directive, value, classNames) => {
+    expect(new TailwindAdapter().plan(input({ directive, value }), { element })).toMatchObject({
+      status: 'converted',
+      classNames,
+    });
+  });
 });
