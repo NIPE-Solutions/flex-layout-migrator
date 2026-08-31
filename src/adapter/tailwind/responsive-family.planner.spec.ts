@@ -15,7 +15,7 @@ function input(
   overrides: Partial<LocatedFlexLayoutInput> = {},
 ): LocatedFlexLayoutInput {
   const breakpoint = sourceName.includes('.')
-    ? sourceName.slice(sourceName.indexOf('.') + 1).replace(']', '')
+    ? sourceName.slice(sourceName.indexOf('.') + 1).replaceAll(']', '')
     : undefined;
   return {
     id: `fixture:${sourceName}`,
