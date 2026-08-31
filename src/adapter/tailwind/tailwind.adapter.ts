@@ -1,7 +1,6 @@
 import type { LocatedFlexLayoutInput } from '../../analyzer/flex-layout-attribute.analyzer';
 import { isKnownBreakpoint } from '../../analyzer/flex-layout.catalog';
 import type { ConversionAdapter, ConversionContext, PlannedConversion } from '../conversion-adapter';
-import { TailwindClassPlanner } from './tailwind-class.planner';
 import { planLayoutGap } from './directives/layout-gap.strategy';
 import { planFlexItem } from './directives/flex-item.strategy';
 import { planFlexOffset } from './directives/flex-offset.strategy';
@@ -9,6 +8,7 @@ import type { TailwindStrategyResult } from './tailwind-semantic.model';
 import { planLayoutAlign } from './directives/layout-align.strategy';
 import { planIndependentDirective } from './independent-directive.registry';
 import type { TemplateAttribute } from '../../template/template.model';
+import { planLayout } from './directives/layout.strategy';
 
 const flexItemDirectives = new Set<LocatedFlexLayoutInput['directive']>(['fxFlex', 'fxGrow', 'fxShrink']);
 
@@ -70,7 +70,6 @@ function staticLayoutContext(attributes: readonly TemplateAttribute[]): string |
 
 export class TailwindAdapter implements ConversionAdapter {
   readonly name = 'tailwind' as const;
-  private readonly classPlanner = new TailwindClassPlanner();
 
   planElement(inputs: readonly LocatedFlexLayoutInput[], context: ConversionContext): readonly PlannedConversion[] {
     const flexInputs = inputs.filter(input => flexItemDirectives.has(input.directive));
@@ -249,17 +248,16 @@ export class TailwindAdapter implements ConversionAdapter {
       };
     }
 
-    const classNames = this.classPlanner.plan(input, context);
-    if (!classNames) {
-      return {
-        status: 'invalid',
-        input,
-        code: 'invalid-value',
-        reason: `${input.value} is not a supported ${input.directive} value.`,
-        suggestion: 'Correct the value or migrate this directive manually.',
-      };
+    if (input.directive === 'fxLayout') {
+      const layout = planLayout(input.value);
+      if (layout.ok) return { status: 'converted', input, classNames: layout.value.classNames };
     }
-
-    return { status: 'converted', input, classNames };
+    return {
+      status: 'invalid',
+      input,
+      code: 'invalid-value',
+      reason: `${input.value} is not a supported ${input.directive} value.`,
+      suggestion: 'Correct the value or migrate this directive manually.',
+    };
   }
 }
