@@ -1,47 +1,58 @@
 import * as fs from 'fs-extra';
-import * as path from 'path';
+import * as path from 'node:path';
 import type { ConversionAdapter } from '../adapter/conversion-adapter';
+import { loadGitIgnore } from '../lib/gitignore.helper';
+import { MigrationReportBuilder } from '../report/migration-report.builder';
+import type { MigrationReport } from '../report/migration-report';
+import type { FileMigrationResult } from './file-migration-result';
 import { FileMigrator } from './file.migrator';
 import { FolderMigrator } from './folder.migrator';
-import { ProgressReporter } from './observer/progress.reporter';
-import { loadGitIgnore } from '../lib/gitignore.helper';
-import { Statistics } from '../statistics';
-import { StatisticsReporter } from './observer/statistics.reporter';
+
+export interface MigrationOptions {
+  readonly dryRun: boolean;
+}
 
 export class Migrator {
   constructor(
-    private adapter: ConversionAdapter,
-    private inputPath: string,
-    private outputPath: string,
+    private readonly adapter: ConversionAdapter,
+    private readonly inputPath: string,
+    private readonly outputPath: string,
+    private readonly now: () => number = Date.now,
   ) {}
 
-  public async migrate(): Promise<void> {
+  public async migrate(options: MigrationOptions = { dryRun: false }): Promise<MigrationReport> {
+    const startedAt = this.now();
     const stat = await fs.promises.stat(this.inputPath);
 
     await loadGitIgnore(this.inputPath);
 
-    let migrator: FileMigrator | FolderMigrator;
+    let files: readonly FileMigrationResult[];
     if (stat.isFile()) {
       if (path.extname(this.inputPath).toLowerCase() !== '.html') {
         throw new Error(`Unsupported file type: ${this.inputPath}`);
       }
-      migrator = new FileMigrator(this.adapter, this.inputPath, this.outputPath);
+      files = [
+        await new FileMigrator(this.adapter, this.inputPath, this.outputPath).migrate({ write: !options.dryRun }),
+      ];
     } else if (stat.isDirectory()) {
-      migrator = new FolderMigrator(this.adapter, this.inputPath, this.outputPath);
+      files = await new FolderMigrator(this.adapter, this.inputPath, this.outputPath).migrate({
+        write: !options.dryRun,
+      });
     } else {
       throw new Error(`Unsupported input type: ${this.inputPath}`);
     }
 
-    const statistics = new Statistics();
+    if (this.adapter.name !== 'tailwind') {
+      throw new Error(`Unsupported migration target: ${this.adapter.name}`);
+    }
 
-    const progressReporter = new ProgressReporter();
-    const statisticsReporter = new StatisticsReporter(statistics);
-
-    migrator.addObserver(progressReporter, statisticsReporter);
-
-    await migrator.migrate();
-
-    statistics.end();
-    statistics.print();
+    return new MigrationReportBuilder().build(
+      this.inputPath,
+      this.outputPath,
+      this.adapter.name,
+      options.dryRun,
+      this.now() - startedAt,
+      files,
+    );
   }
 }

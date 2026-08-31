@@ -1,10 +1,10 @@
 import * as fs from 'fs-extra';
 import * as path from 'node:path';
 import type { ConversionAdapter } from '../adapter/conversion-adapter';
-import type { ConversionResult } from '../analyzer/conversion-result';
 import { shouldIgnore } from '../lib/gitignore.helper';
 import { logger } from '../logger';
 import { BaseMigrator } from './base.migrator';
+import type { FileMigrationOptions, FileMigrationResult } from './file-migration-result';
 import { FileMigrator } from './file.migrator';
 
 interface FileEntry {
@@ -12,7 +12,7 @@ interface FileEntry {
   readonly relativePath: string;
 }
 
-export class FolderMigrator extends BaseMigrator {
+export class FolderMigrator extends BaseMigrator<readonly FileMigrationResult[]> {
   constructor(
     protected override adapter: ConversionAdapter,
     private readonly inputFolder: string,
@@ -21,16 +21,16 @@ export class FolderMigrator extends BaseMigrator {
     super(adapter);
   }
 
-  public async migrate(): Promise<readonly ConversionResult[]> {
+  public async migrate(options: FileMigrationOptions = { write: true }): Promise<readonly FileMigrationResult[]> {
     const files = await this.collectFiles(this.inputFolder, '');
     files.sort((left, right) => path.normalize(left.input).localeCompare(path.normalize(right.input)));
 
-    const results: ConversionResult[] = [];
+    const results: FileMigrationResult[] = [];
     for (const [index, file] of files.entries()) {
       const output = path.join(this.outputFolder, file.relativePath);
       const fileMigrator = new FileMigrator(this.adapter, file.input, output);
       fileMigrator.addObserver(...this.observers);
-      results.push(...(await fileMigrator.migrate()).results);
+      results.push(await fileMigrator.migrate(options));
       this.notifyObservers('folderProgress', {
         id: this.inputFolder,
         percentage: Math.round(((index + 1) / files.length) * 100),
