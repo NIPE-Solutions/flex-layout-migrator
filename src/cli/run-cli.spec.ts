@@ -114,6 +114,71 @@ describe('runCli', () => {
     await expect(access(output)).rejects.toThrow();
   });
 
+  test('rejects a JSON single-file output before it can collide with the report', async () => {
+    const input = join(temporaryDirectory, 'input.html');
+    const outputAndReport = join(temporaryDirectory, 'result.json');
+    const source = '<div fxLayout="row"></div>';
+    await writeFile(input, source, 'utf8');
+
+    const result = await run([input, '--output', outputAndReport, '--report', outputAndReport]);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).toContain('Single-file output path must have a .html extension');
+    expect(await readFile(input, 'utf8')).toBe(source);
+    await expect(access(outputAndReport)).rejects.toThrow();
+  });
+
+  test.each([
+    ['an extensionless output', 'result'],
+    ['a non-HTML output', 'result.css'],
+  ])('rejects %s before writing', async (_name, outputName) => {
+    const input = join(temporaryDirectory, 'input.html');
+    const output = join(temporaryDirectory, outputName);
+    const source = '<div fxLayout="row"></div>';
+    await writeFile(input, source, 'utf8');
+
+    const result = await run([input, '--output', output]);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain('Single-file output path must have a .html extension');
+    expect(await readFile(input, 'utf8')).toBe(source);
+    await expect(access(output)).rejects.toThrow();
+  });
+
+  test('accepts a mixed-case HTML single-file output', async () => {
+    const input = join(temporaryDirectory, 'input.html');
+    const output = join(temporaryDirectory, 'result.HTML');
+    await writeFile(input, '<div fxLayout="row"></div>', 'utf8');
+
+    const result = await run([input, '--output', output]);
+
+    expect(result.exitCode).toBe(0);
+    expect(await readFile(output, 'utf8')).toBe('<div class="flex flex-row"></div>');
+  });
+
+  test('retains default in-place output for a single file', async () => {
+    const input = join(temporaryDirectory, 'input.html');
+    await writeFile(input, '<div fxLayout="row"></div>', 'utf8');
+
+    const result = await run([input]);
+
+    expect(result.exitCode).toBe(0);
+    expect(await readFile(input, 'utf8')).toBe('<div class="flex flex-row"></div>');
+  });
+
+  test('treats a folder output as a directory regardless of its suffix', async () => {
+    const input = join(temporaryDirectory, 'input');
+    const output = join(temporaryDirectory, 'generated.json');
+    await mkdir(input);
+    await writeFile(join(input, 'card.html'), '<div fxLayout="row"></div>', 'utf8');
+
+    const result = await run([input, '--output', output]);
+
+    expect(result.exitCode).toBe(0);
+    expect(await readFile(join(output, 'card.html'), 'utf8')).toBe('<div class="flex flex-row"></div>');
+  });
+
   test.each([
     ['an extensionless path', 'report'],
     ['an HTML path', 'report.html'],
@@ -199,6 +264,7 @@ describe('runCli', () => {
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain('--report <path>');
     expect(result.stdout).toContain('path must end in .json');
+    expect(result.stdout.replace(/\s+/g, ' ')).toContain('single-file output must end in .html');
     expect(result.stderr).toBe('');
   });
 

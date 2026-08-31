@@ -43,7 +43,10 @@ export async function runCli(argv: readonly string[], output: CliOutput = proces
       writeErr: text => output.stderr.write(text),
     })
     .argument('<input>', 'input HTML file or folder')
-    .option('-o, --output <path>', 'output HTML file or folder; defaults to input')
+    .option(
+      '-o, --output <path>',
+      'output HTML file or folder; single-file output must end in .html; defaults to input',
+    )
     .addOption(
       new Option('-t, --target <target>', 'conversion target; currently tailwind')
         .choices(['tailwind'])

@@ -35,6 +35,9 @@ export class Migrator {
       if (path.extname(this.inputPath).toLowerCase() !== '.html') {
         throw new Error(`Unsupported file type: ${this.inputPath}`);
       }
+      if (path.extname(this.outputPath).toLowerCase() !== '.html') {
+        throw new Error('Single-file output path must have a .html extension.');
+      }
       files = [
         await new FileMigrator(this.adapter, this.inputPath, this.outputPath).migrate({ write: !options.dryRun }),
       ];

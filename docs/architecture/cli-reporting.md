@@ -29,7 +29,7 @@ This replaces observer-derived statistics and phase-oriented spinner output. The
 flex-layout-codemod <input> [options]
 
 Options:
-  -o, --output <path>       output file or directory; defaults to input
+  -o, --output <path>       output file or directory; single-file output must end in .html
   -t, --target <target>     conversion target; currently tailwind
       --dry-run             analyze and plan without writing templates
       --report <path>       atomically write a JSON report; path must end in .json
@@ -37,7 +37,7 @@ Options:
   -d, --debug               enable debug logging
 ```
 
-An output path does not need to exist. Its parent directory is created only when a changed template is written. In dry-run mode, neither the template output nor missing output directories are created. A requested JSON report is still written during dry-run because it is an explicit reporting side effect.
+An output path does not need to exist. After identifying a file input, the application boundary requires its planned output path to have a case-insensitive `.html` extension before constructing `FileMigrator`; omitting `--output` retains the input path for in-place migration. A folder output remains a directory, and its derived template outputs retain their input-relative `.html` paths. An output parent directory is created only when a changed template is written. In dry-run mode, neither the template output nor missing output directories are created. A requested JSON report is still written during dry-run because it is an explicit reporting side effect.
 
 The report path must be nonblank and have a case-insensitive `.json` extension. Migratable single-file and folder inputs and all planned template outputs exclusively use `.html`; the disjoint extensions make report/template collisions structurally impossible without guessing filesystem identity for paths that may not exist. Validation runs before parsing or writing templates and does not create output or report parents. A valid JSON report may be placed anywhere, including inside an input or output tree.
 
