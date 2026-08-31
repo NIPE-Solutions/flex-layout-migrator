@@ -49,7 +49,7 @@ describe('runCli', () => {
       stdout: '1 files scanned, 1 changed\nConverted 2 | Review 0 | Unsupported 0 | Invalid 0 | Parse errors 0\n',
       stderr: '',
     });
-    expect(await readFile(output, 'utf8')).toBe('<div class="flex flex-col gap-4"></div>');
+    expect(await readFile(output, 'utf8')).toBe('<div class="flex flex-col box-border gap-4"></div>');
   });
 
   test('returns two and reports unresolved input in strict mode', async () => {
@@ -154,7 +154,7 @@ describe('runCli', () => {
     const result = await run([input, '--output', output]);
 
     expect(result.exitCode).toBe(0);
-    expect(await readFile(output, 'utf8')).toBe('<div class="flex flex-row"></div>');
+    expect(await readFile(output, 'utf8')).toBe('<div class="flex flex-row box-border"></div>');
   });
 
   test('retains default in-place output for a single file', async () => {
@@ -164,7 +164,7 @@ describe('runCli', () => {
     const result = await run([input]);
 
     expect(result.exitCode).toBe(0);
-    expect(await readFile(input, 'utf8')).toBe('<div class="flex flex-row"></div>');
+    expect(await readFile(input, 'utf8')).toBe('<div class="flex flex-row box-border"></div>');
   });
 
   test('treats a folder output as a directory regardless of its suffix', async () => {
@@ -176,7 +176,7 @@ describe('runCli', () => {
     const result = await run([input, '--output', output]);
 
     expect(result.exitCode).toBe(0);
-    expect(await readFile(join(output, 'card.html'), 'utf8')).toBe('<div class="flex flex-row"></div>');
+    expect(await readFile(join(output, 'card.html'), 'utf8')).toBe('<div class="flex flex-row box-border"></div>');
   });
 
   test.each([
@@ -276,7 +276,7 @@ describe('runCli', () => {
     const result = await run([input, '--output', output]);
 
     expect(result.exitCode).toBe(0);
-    expect(await readFile(output, 'utf8')).toBe('<div class="flex flex-row"></div>');
+    expect(await readFile(output, 'utf8')).toBe('<div class="flex flex-row box-border"></div>');
   });
 
   test.each([

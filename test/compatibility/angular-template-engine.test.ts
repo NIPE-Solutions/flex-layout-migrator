@@ -39,7 +39,7 @@ describe('Angular template engine compatibility', () => {
     const input = '<div data-label="a &amp; b" fxLayout="row">\r\n  {{ value | async }}\r\n</div>\r\n';
 
     expect(migrate(input).output).toBe(
-      '<div data-label="a &amp; b" class="flex flex-row">\r\n  {{ value | async }}\r\n</div>\r\n',
+      '<div data-label="a &amp; b" class="flex flex-row box-border">\r\n  {{ value | async }}\r\n</div>\r\n',
     );
   });
 

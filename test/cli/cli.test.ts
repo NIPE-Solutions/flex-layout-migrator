@@ -65,7 +65,7 @@ describe('packaged CLI execution', () => {
 
     expect(result).toMatchObject({ status: 0, stderr: '' });
     expect(result.stdout).toContain('1 files scanned, 1 changed');
-    expect(await readFile(output, 'utf8')).toBe('<div class="flex flex-row"></div>');
+    expect(await readFile(output, 'utf8')).toBe('<div class="flex flex-row box-border"></div>');
   });
 
   test('exits one and preserves output after a parse failure', async () => {

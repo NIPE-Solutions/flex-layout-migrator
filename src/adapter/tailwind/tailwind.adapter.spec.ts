@@ -30,7 +30,7 @@ describe('TailwindAdapter', () => {
     expect(new TailwindAdapter().plan(input(), { element })).toEqual({
       status: 'converted',
       input: input(),
-      classNames: ['flex', 'flex-row'],
+      classNames: ['flex', 'flex-row', 'box-border'],
     });
   });
 

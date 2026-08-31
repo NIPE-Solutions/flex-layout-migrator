@@ -43,8 +43,9 @@ function input(directive: LocatedFlexLayoutInput['directive'], value: string): L
 
 describe('TailwindClassPlanner', () => {
   test.each([
-    ['fxLayout', 'row', ['flex', 'flex-row']],
-    ['fxLayout', 'column wrap', ['flex', 'flex-col', 'flex-wrap']],
+    ['fxLayout', 'row', ['flex', 'flex-row', 'box-border']],
+    ['fxLayout', 'column wrap', ['flex', 'flex-col', 'flex-wrap', 'box-border']],
+    ['fxLayout', 'row inline', ['inline-flex', 'flex-row', 'box-border']],
     ['fxLayoutGap', '10px', ['gap-[10px]']],
     ['fxLayoutGap', '4 grid', ['gap-4', 'grid']],
     ['fxFlexFill', '', ['w-full', 'min-w-full', 'h-full', 'min-h-full']],
@@ -69,7 +70,7 @@ describe('TailwindClassPlanner', () => {
       new TailwindClassPlanner().plan(input('fxLayoutAlign', 'center end'), {
         element: column,
       }),
-    ).toEqual(['justify-center', 'items-end']);
+    ).toEqual(['justify-center', 'items-end', 'content-end', 'flex', 'flex-col', 'box-border']);
   });
 
   test.each([

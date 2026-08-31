@@ -1,6 +1,8 @@
 import type { LocatedFlexLayoutInput } from '../../analyzer/flex-layout-attribute.analyzer';
 import type { ConversionContext } from '../conversion-adapter';
 import { isArbitraryValue } from '../../util/value.util';
+import { planLayoutAlign } from './directives/layout-align.strategy';
+import { planLayout } from './directives/layout.strategy';
 
 function utility(prefix: string, value: string): string {
   return `${prefix}-${isArbitraryValue(value) ? `[${value}]` : value}`;
@@ -12,18 +14,8 @@ export class TailwindClassPlanner {
 
     switch (input.directive) {
       case 'fxLayout': {
-        const [direction = 'row', wrap] = values;
-        if (!['row', 'row-reverse', 'column', 'column-reverse'].includes(direction)) return undefined;
-        if (wrap && !['nowrap', 'wrap', 'wrap-reverse'].includes(wrap)) return undefined;
-        const directionUtility = (
-          {
-            row: 'row',
-            'row-reverse': 'row-reverse',
-            column: 'col',
-            'column-reverse': 'col-reverse',
-          } as const
-        )[direction as 'row' | 'row-reverse' | 'column' | 'column-reverse'];
-        return ['flex', utility('flex', directionUtility), ...(wrap ? [utility('flex', wrap)] : [])];
+        const planned = planLayout(input.value);
+        return planned.ok ? planned.value.classNames : undefined;
       }
       case 'fxLayoutGap': {
         const [gap = '0', grid] = values;
@@ -49,28 +41,11 @@ export class TailwindClassPlanner {
         return [utility('flex', mapped ?? `[${shorthand}]`)];
       }
       case 'fxLayoutAlign': {
-        const [mainAxis = 'start', crossAxis = 'stretch'] = values;
-        const mainAxisValue = {
-          start: 'start',
-          'flex-start': 'start',
-          center: 'center',
-          end: 'end',
-          'flex-end': 'end',
-          'space-around': 'around',
-          'space-between': 'between',
-          'space-evenly': 'evenly',
-        }[mainAxis];
-        const crossAxisValue = {
-          start: 'start',
-          'flex-start': 'start',
-          center: 'center',
-          end: 'end',
-          'flex-end': 'end',
-          stretch: 'stretch',
-          baseline: 'baseline',
-        }[crossAxis];
-        if (!mainAxisValue || !crossAxisValue) return undefined;
-        return [utility('justify', mainAxisValue), utility('items', crossAxisValue)];
+        const layout = context.element.attributes.find(
+          attribute => attribute.name === 'fxLayout' && attribute.binding === 'literal',
+        );
+        const planned = planLayoutAlign(input.value, layout?.value ?? 'row');
+        return planned.ok ? planned.value.classNames : undefined;
       }
       case 'fxFlexOffset': {
         const [offset = '0'] = values;

@@ -18,7 +18,7 @@ describe('ConversionPlanner', () => {
   test('removes a converted input and merges classes into a literal class attribute', () => {
     const result = migrate('<div class="card" fxLayout="row"></div>');
 
-    expect(result.output).toBe('<div class="card flex flex-row"></div>');
+    expect(result.output).toBe('<div class="card flex flex-row box-border"></div>');
     expect(result.results).toEqual([
       expect.objectContaining({
         status: 'converted',
@@ -30,20 +30,20 @@ describe('ConversionPlanner', () => {
   test('inserts one deterministic class attribute for multiple conversions', () => {
     const result = migrate('<div fxLayout="row" fxLayoutGap="4"></div>');
 
-    expect(result.output).toBe('<div class="flex flex-row gap-4"></div>');
+    expect(result.output).toBe('<div class="flex flex-row box-border gap-4"></div>');
     expect(result.results.map(item => item.status)).toEqual(['converted', 'converted']);
   });
 
   test('inserts classes before the slash in a self-closing custom element', () => {
     const result = migrate('<app-card fxLayout="column"/>');
 
-    expect(result.output).toBe('<app-card class="flex flex-col"/>');
+    expect(result.output).toBe('<app-card class="flex flex-col box-border"/>');
   });
 
   test('deduplicates classes while preserving their first occurrence', () => {
     const result = migrate('<div class="flex card flex" fxLayout="row"></div>');
 
-    expect(result.output).toBe('<div class="flex card flex-row"></div>');
+    expect(result.output).toBe('<div class="flex card flex-row box-border"></div>');
   });
 
   test('preserves the directive when a bound class cannot be merged safely', () => {
