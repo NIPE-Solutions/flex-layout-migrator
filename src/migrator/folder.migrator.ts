@@ -30,7 +30,7 @@ export class FolderMigrator extends BaseMigrator {
       const output = path.join(this.outputFolder, file.relativePath);
       const fileMigrator = new FileMigrator(this.adapter, file.input, output);
       fileMigrator.addObserver(...this.observers);
-      results.push(...(await fileMigrator.migrate()));
+      results.push(...(await fileMigrator.migrate()).results);
       this.notifyObservers('folderProgress', {
         id: this.inputFolder,
         percentage: Math.round(((index + 1) / files.length) * 100),

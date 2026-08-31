@@ -38,7 +38,7 @@ describe('Migrator', () => {
     statMock.mockResolvedValueOnce(createStatsMock(true, false));
 
     const fileMigratorSpy = vi.spyOn(FileMigrator.prototype, 'migrate');
-    fileMigratorSpy.mockResolvedValue([]);
+    fileMigratorSpy.mockResolvedValue({ inputPath, outputPath, changed: false, results: [] });
 
     await migrator.migrate();
 

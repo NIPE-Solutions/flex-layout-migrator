@@ -2,11 +2,11 @@ import type { ConversionAdapter } from '../adapter/conversion-adapter';
 import type { ConversionResult } from '../analyzer/conversion-result';
 import { EventData, Observer } from './observer/migrator.observer';
 
-export interface IMigrator {
-  migrate(): Promise<readonly ConversionResult[]>;
+export interface IMigrator<TResult = readonly ConversionResult[]> {
+  migrate(): Promise<TResult>;
 }
 
-abstract class BaseMigrator implements IMigrator {
+abstract class BaseMigrator<TResult = readonly ConversionResult[]> implements IMigrator<TResult> {
   protected observers: Observer[] = [];
 
   constructor(protected adapter: ConversionAdapter) {}
@@ -31,7 +31,7 @@ abstract class BaseMigrator implements IMigrator {
   /**
    * Migrates the file. This method should be implemented by the subclass.
    */
-  public abstract migrate(): Promise<readonly ConversionResult[]>;
+  public abstract migrate(): Promise<TResult>;
 }
 
 export { BaseMigrator };

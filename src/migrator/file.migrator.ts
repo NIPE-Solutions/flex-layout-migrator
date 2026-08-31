@@ -8,10 +8,9 @@ import { AtomicFileWriter } from '../lib/atomic-file.writer';
 import { ConversionPlanner } from '../planner/conversion-planner';
 import { AngularTemplateParser } from '../template/angular-template.parser';
 import { BaseMigrator } from './base.migrator';
+import type { FileMigrationOptions, FileMigrationResult } from './file-migration-result';
 
-export class FileMigrator extends BaseMigrator {
-  private results: readonly ConversionResult[] = [];
-
+export class FileMigrator extends BaseMigrator<FileMigrationResult> {
   constructor(
     protected override adapter: ConversionAdapter,
     private readonly input: string,
@@ -21,28 +20,27 @@ export class FileMigrator extends BaseMigrator {
     super(adapter);
   }
 
-  public async migrate(): Promise<readonly ConversionResult[]> {
+  public async migrate(options: FileMigrationOptions = { write: true }): Promise<FileMigrationResult> {
     const fileName = basename(this.input);
     this.notifyObservers('fileStarted', { id: this.input, fileName });
 
     const source = await readFile(this.input, 'utf8');
     const parsed = new AngularTemplateParser().parse(source, this.input);
     if (parsed.status === 'parse-error') {
-      this.results = parsed.diagnostics.map(diagnostic => ({
+      const results: readonly ConversionResult[] = parsed.diagnostics.map(diagnostic => ({
         status: 'parse-error',
         fileName: this.input,
         code: 'template-parse-error',
         reason: diagnostic.message,
         source: diagnostic.source,
       }));
-      return this.getResults();
+      return this.result(false, results);
     }
 
     const inputs = new TemplateAnalyzer().analyze(this.input, parsed.elements);
     if (!inputs.length) {
-      this.results = [];
       this.notifyObservers('fileNoElements', { id: this.input, fileName });
-      return this.getResults();
+      return this.result(false, []);
     }
 
     const plan = new ConversionPlanner().plan(source, parsed.elements, inputs, this.adapter);
@@ -53,7 +51,6 @@ export class FileMigrator extends BaseMigrator {
       );
     }
 
-    this.results = plan.results;
     for (const [index] of inputs.entries()) {
       this.notifyObservers('fileMigrationProgress', {
         id: this.input,
@@ -63,15 +60,21 @@ export class FileMigrator extends BaseMigrator {
       });
     }
 
-    if (edited.output !== source) {
+    const changed = edited.output !== source;
+    if (changed && options.write) {
       await this.writer.write(this.output, edited.output);
       this.notifyObservers('fileCompleted', { id: this.input, fileName });
     }
 
-    return this.getResults();
+    return this.result(changed, plan.results);
   }
 
-  public getResults(): readonly ConversionResult[] {
-    return [...this.results];
+  private result(changed: boolean, results: readonly ConversionResult[]): FileMigrationResult {
+    return {
+      inputPath: this.input,
+      outputPath: this.output,
+      changed,
+      results: [...results],
+    };
   }
 }
