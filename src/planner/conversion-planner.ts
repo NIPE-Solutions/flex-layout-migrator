@@ -105,13 +105,10 @@ export class ConversionPlanner {
         continue;
       }
 
-      const hasLiteralClass = element.attributes.some(
-        attribute => attribute.name === 'class' && attribute.binding === 'literal',
-      );
       const hasBoundClass = element.attributes.some(
         attribute => attribute.name === 'class' && attribute.binding === 'property',
       );
-      if (hasBoundClass && !hasLiteralClass) {
+      if (hasBoundClass) {
         results.push({
           status: 'review',
           input,

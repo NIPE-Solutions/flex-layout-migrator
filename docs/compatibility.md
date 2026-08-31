@@ -14,25 +14,27 @@ No native CSS conversions are available yet. The CLI currently accepts only the 
 
 ## Flex directives
 
-| Directive       | Tailwind | Notes                                                                                           |
-| --------------- | -------- | ----------------------------------------------------------------------------------------------- |
-| `fxLayout`      | Limited  | Static directions plus wrap and inline modifiers; coupled unresolved gaps preserve the layout.  |
-| `fxLayoutAlign` | Limited  | Static main/cross axes with layout, content alignment, sizing, and border-box semantics.        |
-| `fxLayoutGap`   | Limited  | Static non-wrapping gaps; unitless values remain pixels. Grid mode and wrapped gaps are review. |
-| `fxFlex`        | Limited  | Static basis, keyword, and three-part forms with parent-axis min/max sizing.                    |
-| `fxGrow`        | Limited  | Converted atomically with a static `fxFlex`; standalone use is invalid.                         |
-| `fxShrink`      | Limited  | Converted atomically with a static `fxFlex`; standalone use is invalid.                         |
-| `fxFlexAlign`   | Limited  | Static `align-self` keywords.                                                                   |
-| `fxFlexFill`    | Limited  | Static full-size rule including its zero-margin behavior.                                       |
-| `fxFill`        | Limited  | Non-responsive alias of `fxFlexFill`.                                                           |
-| `fxFlexOffset`  | Limited  | Static values with a statically known parent axis; unitless values remain percentages.          |
-| `fxFlexOrder`   | Limited  | Static integer values emitted independently of the Tailwind theme.                              |
-| `fxShow`        | Planned  | Recognized and preserved.                                                                       |
-| `fxHide`        | Planned  | Recognized and preserved.                                                                       |
+| Directive       | Tailwind | Notes                                                                                                                       |
+| --------------- | -------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `fxLayout`      | Limited  | Static directions plus wrap and inline modifiers; coupled unresolved gaps preserve the layout.                              |
+| `fxLayoutAlign` | Limited  | Static main/cross axes with layout, content alignment, sizing, and border-box semantics.                                    |
+| `fxLayoutGap`   | Limited  | Static nonnegative non-wrapping gaps; unitless values remain pixels. Grid, computed, negative, and wrapped gaps are review. |
+| `fxFlex`        | Limited  | Static basis, keyword, and three-part forms with parent-axis min/max sizing.                                                |
+| `fxGrow`        | Limited  | Converted atomically with a static `fxFlex`; standalone use is invalid.                                                     |
+| `fxShrink`      | Limited  | Converted atomically with a static `fxFlex`; standalone use is invalid.                                                     |
+| `fxFlexAlign`   | Limited  | Static `align-self` keywords.                                                                                               |
+| `fxFlexFill`    | Limited  | Static full-size rule including its zero-margin behavior.                                                                   |
+| `fxFill`        | Limited  | Non-responsive alias of `fxFlexFill`.                                                                                       |
+| `fxFlexOffset`  | Limited  | Static values with a statically known parent axis; unitless values remain percentages.                                      |
+| `fxFlexOrder`   | Limited  | Static integer values emitted independently of the Tailwind theme.                                                          |
+| `fxShow`        | Planned  | Recognized and preserved.                                                                                                   |
+| `fxHide`        | Planned  | Recognized and preserved.                                                                                                   |
 
 All generated lengths that originate in the template use Tailwind arbitrary values. This prevents a project spacing scale from changing `fxLayoutGap="4"` from Angular Flex-Layout's `4px`, or `fxFlexOffset="4"` from its `4%` meaning.
 
 The complete static semantic and diagnostic contract is documented in [Tailwind CSS v4 static conversion semantics](architecture/tailwind-v4-static-semantics.md).
+
+If an existing recognized Tailwind utility controls the same CSS property as a generated class, the directive remains unchanged with a `class-conflict` review result. This avoids relying on HTML class order, which does not determine Tailwind's cascade order.
 
 ## Grid directives
 

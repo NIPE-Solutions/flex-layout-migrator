@@ -87,6 +87,14 @@ describe('ConversionPlanner', () => {
     );
   });
 
+  test('preserves the directive when literal and bound classes coexist', () => {
+    const source = '<div class="card" [class]="classes" fxLayout="row"></div>';
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.results).toContainEqual(expect.objectContaining({ status: 'review', code: 'bound-class' }));
+  });
+
   test('preserves inputs the adapter does not support', () => {
     const source = '<div fxShow="false"></div>';
 

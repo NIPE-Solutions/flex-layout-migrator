@@ -39,7 +39,7 @@ Because the upstream directive also establishes flex display, direction, border-
 
 ### `fxLayoutGap`
 
-Plain gaps use Tailwind v4 `gap-*` only when the element is statically known not to wrap. Angular's non-grid implementation uses directional margins and differs from CSS `gap` across wrapped lines. A wrapping or dynamically directed container is preserved for review.
+Plain nonnegative gaps use Tailwind v4 `gap-*` only when the element is statically known not to wrap. Angular's non-grid implementation uses directional margins and differs from CSS `gap` across wrapped lines. A wrapping or dynamically directed container is preserved for review. Negative and computed values are also preserved because their non-negativity cannot be proven and CSS gap rejects negative results.
 
 The `grid` suffix is not CSS Grid display. Upstream applies padding to children and compensating negative margins to the host. It is preserved for review until a multi-element edit model can reproduce that algorithm exactly.
 
@@ -67,7 +67,7 @@ The emitter uses the parent layout to select block-start or inline-start margin.
 
 ### `fxFlexOrder`
 
-The parser reproduces the upstream integer parsing contract and emits a deterministic arbitrary order value. Invalid non-numeric input remains unchanged.
+The parser reproduces the upstream `parseInt` contract and emits a deterministic arbitrary order value. Empty, zero, and non-numeric values emit no class because the upstream directive clears its inline order declaration.
 
 ## Tailwind v4 output rules
 
@@ -77,10 +77,11 @@ The parser reproduces the upstream integer parsing contract and emits a determin
 - Spaces inside arbitrary values use underscores, as required by Tailwind v4.
 - Arbitrary CSS properties are allowed when no named utility expresses an upstream rule exactly.
 - Output class order is stable and defined by semantic category, not object or locale iteration.
+- A recognized existing Tailwind utility for the same CSS property produces `class-conflict`; both the directive and existing class are preserved for review.
 
 ## Diagnostics
 
-Syntax outside an upstream directive's value grammar produces `invalid-value`. A valid value that depends on unresolved element or parent context produces `context-unverified`. A recognized upstream behavior that Tailwind v4 cannot reproduce within the current edit model produces `semantic-unsupported`.
+Syntax outside an upstream directive's value grammar produces `invalid-value`. A valid value that depends on unresolved element or parent context produces `context-unverified`. A recognized upstream behavior that Tailwind v4 cannot reproduce within the current edit model produces `semantic-unsupported`. An existing Tailwind utility that controls the same CSS property produces `class-conflict`.
 
 Diagnostics explain the missing proof or behavior and leave every affected directive untouched.
 
