@@ -1,0 +1,17 @@
+name: Migration case or enhancement
+description: Propose a specific directive case or workflow improvement.
+title: 'feat: '
+labels: [enhancement]
+body:
+  - type: textarea
+    id: case
+    attributes: { label: Migration case, description: Include the source and behavior that must be preserved. }
+    validations: { required: true }
+  - type: dropdown
+    id: target
+    attributes: { label: Target, options: [Native CSS, Tailwind CSS, Both, CLI or reporting] }
+    validations: { required: true }
+  - type: textarea
+    id: semantics
+    attributes: { label: Expected target semantics }
+    validations: { required: true }

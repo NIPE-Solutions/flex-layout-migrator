@@ -1,0 +1,29 @@
+name: Bug report
+description: Report an incorrect conversion, crash, or diagnostic.
+title: 'fix: '
+labels: [bug]
+body:
+  - type: input
+    id: version
+    attributes: { label: Codemod version }
+    validations: { required: true }
+  - type: input
+    id: environment
+    attributes: { label: Node.js and Angular versions }
+    validations: { required: true }
+  - type: dropdown
+    id: target
+    attributes: { label: Target, options: [Native CSS, Tailwind CSS, Analysis only] }
+    validations: { required: true }
+  - type: textarea
+    id: input
+    attributes: { label: Minimal redacted source template, render: html }
+    validations: { required: true }
+  - type: textarea
+    id: expected
+    attributes: { label: Expected result }
+    validations: { required: true }
+  - type: textarea
+    id: actual
+    attributes: { label: Actual result and redacted diagnostics }
+    validations: { required: true }

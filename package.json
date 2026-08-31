@@ -32,6 +32,9 @@
     "format:write": "prettier --write .",
     "verify": "npm run format && npm run lint && npm run typecheck && npm run test:coverage && npm run build && npm run package:check",
     "package:check": "node scripts/verify-package.mjs",
+    "changeset": "changeset",
+    "version-packages": "changeset version",
+    "release": "changeset publish",
     "prepare": "husky"
   },
   "repository": {
@@ -66,6 +69,7 @@
     "flex-layout-codemod": "./dist/cli.js"
   },
   "devDependencies": {
+    "@changesets/cli": "^3.0.1",
     "@eslint/js": "^10.0.1",
     "@types/fs-extra": "^11.0.4",
     "@types/node": "^26.4.0",

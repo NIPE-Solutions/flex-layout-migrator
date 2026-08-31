@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/NIPE-Solutions/flex-layout-migrator/security/advisories/new
+    about: Report vulnerabilities privately.
+  - name: Support policy
+    url: https://github.com/NIPE-Solutions/flex-layout-migrator/blob/main/docs/SUPPORT.md
+    about: Check where to ask migration and usage questions.
