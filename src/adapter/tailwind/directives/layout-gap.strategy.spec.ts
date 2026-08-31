@@ -5,7 +5,6 @@ describe('planLayoutGap', () => {
     ['4', 'row', ['gap-[4px]']],
     ['1.5rem', 'column', ['gap-[1.5rem]']],
     ['0', '', ['gap-[0px]']],
-    ['var(--space)', 'row inline', ['gap-[var(--space)]']],
   ] as const)('emits a theme-independent gap for %j', (value, layout, expected) => {
     expect(planLayoutGap(value, layout)).toEqual({ status: 'converted', classNames: expected });
   });
@@ -30,6 +29,16 @@ describe('planLayoutGap', () => {
       code: 'semantic-unsupported',
     });
   });
+
+  test.each(['calc(1px - 2px)', 'var(--gap)', 'min(4px, 2vw)', 'clamp(0px, 1vw, 8px)'])(
+    'preserves computed gap %j when non-negativity cannot be proven',
+    value => {
+      expect(planLayoutGap(value, 'row')).toMatchObject({
+        status: 'review',
+        code: 'context-unverified',
+      });
+    },
+  );
 
   test.each(['', 'wide', '1;display:none', '10 px'])('rejects invalid gaps %j', value => {
     expect(planLayoutGap(value, 'row')).toEqual({ status: 'invalid', code: 'invalid-value' });

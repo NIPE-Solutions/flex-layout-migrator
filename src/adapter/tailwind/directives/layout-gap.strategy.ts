@@ -25,6 +25,14 @@ export function planLayoutGap(value: string, layoutValue: string | undefined): T
       suggestion: 'Preserve the margin-based spacing or migrate the child margins manually.',
     };
   }
+  if (gap.value.includes('(')) {
+    return {
+      status: 'review',
+      code: 'context-unverified',
+      reason: 'The computed gap may resolve to a negative value that CSS gap cannot represent.',
+      suggestion: 'Prove the value is nonnegative or migrate the margin-based spacing manually.',
+    };
+  }
   if (layoutValue === undefined) {
     return {
       status: 'review',
