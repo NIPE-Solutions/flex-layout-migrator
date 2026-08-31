@@ -56,24 +56,26 @@ The initial `tailwind` adapter emits utilities only when current Tailwind syntax
 3. Normalize aliases and parse directive values according to the upstream contract.
 4. Ask the selected adapter to classify each input and propose edits.
 5. Validate that edits do not conflict and that every removed input has a `converted` result.
-6. Apply edits from the end of the source toward the beginning and atomically write only changed files.
+6. Apply edits from the end of the source toward the beginning and atomically write only changed files in real mode; dry-run applies the same edits in memory without writing templates.
 7. Re-analyze the output in tests to prove that a second run produces no additional edits.
 
-Analysis and mutation are separate operations. Dry-run and machine-readable reporting are planned CLI features.
+Analysis and mutation are separate operations. Both real and dry-run execution return the same immutable migration-report shape; reporting does not participate in parsing, conversion, or template mutation.
 
-## Planned CLI contract
+## CLI contract
 
-The planned default summary reports files scanned, files changed, converted inputs, review items, unsupported inputs, and invalid inputs. Normal output will be concise; `--report <path>` will write a machine-readable JSON report.
+The default summary reports files scanned, files changed, converted inputs, review items, unsupported inputs, invalid inputs, and parse errors. Normal output is concise and deterministic. `--report <path>` atomically writes a schema-version `1` JSON report, including during `--dry-run` because the requested report is an explicit side effect.
 
-The planned exit codes are:
+Paths in application and JSON reports use forward slashes and are relative to the input root. Single-file reports use the input basename. Files are sorted by normalized path, while results within each file retain source order.
 
-| Code | Meaning                                                                                   |
-| ---- | ----------------------------------------------------------------------------------------- |
-| `0`  | The command completed and no unresolved inputs remain.                                    |
-| `1`  | The command failed because of configuration, parsing, I/O, or an internal error.          |
-| `2`  | The migration completed but review, unsupported, or invalid inputs remain in strict mode. |
+The exit codes are:
 
-Strict mode will be enabled by default. `--allow-unresolved` will permit exit code `0` while still reporting and preserving unresolved inputs.
+| Code | Meaning                                                                                        |
+| ---: | ---------------------------------------------------------------------------------------------- |
+|  `0` | Migration completed with no unresolved results, or `--allow-unresolved` accepted them.         |
+|  `1` | Configuration, parsing, template I/O, report writing, or an internal invariant failed.         |
+|  `2` | Migration completed safely, but review, unsupported, or invalid results remain in strict mode. |
+
+Strict unresolved handling is enabled by default. `--allow-unresolved` changes only the final exit code to `0`; it still reports and preserves every unresolved input and does not change which templates are written.
 
 ## Compatibility verification
 

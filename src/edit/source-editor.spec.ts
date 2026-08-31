@@ -19,6 +19,16 @@ describe('SourceEditor', () => {
     expect(result).toEqual({ status: 'applied', output: 'aABb' });
   });
 
+  test('orders same-offset input ids by UTF-16 code units instead of the host locale', () => {
+    const result = new SourceEditor().apply('ab', [
+      { range: { start: 1, end: 1 }, text: 'ä', inputId: 'ä' },
+      { range: { start: 1, end: 1 }, text: 'a', inputId: 'a' },
+      { range: { start: 1, end: 1 }, text: 'Z', inputId: 'Z' },
+    ]);
+
+    expect(result).toEqual({ status: 'applied', output: 'aZaäb' });
+  });
+
   test.each([
     [{ start: -1, end: 1 }, 'negative'],
     [{ start: 0.5, end: 1 }, 'fractional'],

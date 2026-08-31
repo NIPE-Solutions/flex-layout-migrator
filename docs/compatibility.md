@@ -66,6 +66,10 @@ This is intentional. Angular Flex-Layout's `sm`, `md`, and other bounded aliases
 
 ## Reporting API
 
-`FileMigrator#migrate()` and `FileMigrator#getResults()` return one structured result per recognized input processed in a file. Results use the statuses `converted`, `review`, `unsupported`, `invalid`, and `parse-error`. Review and unsupported results include a stable diagnostic code, reason, and suggested action.
+`Migrator#migrate()` returns one immutable migration report for file and directory inputs. The report uses schema version `1`, contains path-sorted file results and a derived summary, and uses the statuses `converted`, `review`, `unsupported`, `invalid`, and `parse-error`. Unresolved results include a stable diagnostic code, reason, and suggested action.
 
-The public CLI summary, strict exit codes, and JSON report described in the architecture document are planned and are not implemented in this increment.
+Report paths use forward slashes and are relative to the input root. A single-file input uses its basename. Reports do not expose absolute checkout paths or internal analyzer fields.
+
+The CLI prints a concise deterministic summary and one line per unresolved result. `--report <path>` atomically writes the same result as JSON, including during `--dry-run`; dry-run validates the complete edit plan in memory without writing templates or creating missing template-output directories.
+
+Unresolved results are strict by default. Exit code `0` means the migration completed cleanly or unresolved work was accepted with `--allow-unresolved`; code `1` means configuration, parsing, template I/O, report writing, or an internal invariant failed; code `2` means the migration completed safely with unresolved `review`, `unsupported`, or `invalid` results in strict mode. `--allow-unresolved` changes only the final exit code and does not hide diagnostics or change migration output.
