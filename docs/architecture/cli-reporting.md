@@ -49,7 +49,7 @@ Strict unresolved handling is the default. `--allow-unresolved` changes only the
 |  `1` | Configuration, parsing, report writing, template I/O, or an internal invariant failed.                                 |
 |  `2` | Migration completed, templates were safely handled, and review, unsupported, or invalid results remain in strict mode. |
 
-Angular parse diagnostics are structured results and return code `1`; a malformed file is never written. When folder migration finishes, the CLI renders the completed report and writes it to `--report <path>` when requested. If folder traversal or file migration instead throws, templates written earlier in the sequential run are not rolled back. `Migrator#migrate()` returns no report in that case, and because `runCli` writes the JSON report only after migration resolves, it produces no new report for the failed run and leaves any existing report path untouched. The CLI writes one concise error to stderr and returns code `1`.
+Angular parse diagnostics are structured results and return code `1`; a malformed file is never written. When folder migration finishes, the CLI renders the completed report and writes it to `--report <path>` when requested. If folder traversal or file migration instead throws, templates written earlier in the sequential run are not rolled back. `Migrator#migrate()` returns no report in that case, and because `runCli` writes the JSON report only after migration resolves, it produces no new report for the failed run and leaves any existing report path untouched. In normal mode, the CLI writes one concise error to stderr; with `--debug`, it additionally writes available stack information. Both modes return code `1`.
 
 ## Migration report
 
