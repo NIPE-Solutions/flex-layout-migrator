@@ -15,7 +15,15 @@ export class TailwindClassPlanner {
         const [direction = 'row', wrap] = values;
         if (!['row', 'row-reverse', 'column', 'column-reverse'].includes(direction)) return undefined;
         if (wrap && !['nowrap', 'wrap', 'wrap-reverse'].includes(wrap)) return undefined;
-        return ['flex', utility('flex', direction), ...(wrap ? [utility('flex', wrap)] : [])];
+        const directionUtility = (
+          {
+            row: 'row',
+            'row-reverse': 'row-reverse',
+            column: 'col',
+            'column-reverse': 'col-reverse',
+          } as const
+        )[direction as 'row' | 'row-reverse' | 'column' | 'column-reverse'];
+        return ['flex', utility('flex', directionUtility), ...(wrap ? [utility('flex', wrap)] : [])];
       }
       case 'fxLayoutGap': {
         const [gap = '0', grid] = values;

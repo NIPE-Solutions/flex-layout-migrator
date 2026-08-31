@@ -4,7 +4,12 @@ import type { SourceRange } from '../template/template.model';
 export type ConversionStatus = 'converted' | 'review' | 'unsupported' | 'invalid' | 'parse-error';
 
 export type DiagnosticCode =
-  'breakpoint-unverified' | 'custom-breakpoint' | 'dynamic-binding' | 'invalid-value' | 'target-unsupported';
+  | 'bound-class'
+  | 'breakpoint-unverified'
+  | 'custom-breakpoint'
+  | 'dynamic-binding'
+  | 'invalid-value'
+  | 'target-unsupported';
 
 export interface ConvertedResult {
   readonly status: 'converted';

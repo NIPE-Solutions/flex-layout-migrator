@@ -44,7 +44,7 @@ function input(directive: LocatedFlexLayoutInput['directive'], value: string): L
 describe('TailwindClassPlanner', () => {
   test.each([
     ['fxLayout', 'row', ['flex', 'flex-row']],
-    ['fxLayout', 'column wrap', ['flex', 'flex-column', 'flex-wrap']],
+    ['fxLayout', 'column wrap', ['flex', 'flex-col', 'flex-wrap']],
     ['fxLayoutGap', '10px', ['gap-[10px]']],
     ['fxLayoutGap', '4 grid', ['gap-4', 'grid']],
     ['fxFlexFill', '', ['w-full', 'min-w-full', 'h-full', 'min-h-full']],
