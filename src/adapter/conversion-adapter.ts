@@ -25,4 +25,8 @@ export interface ConversionAdapter {
   readonly name: 'css' | 'tailwind';
   plan(input: LocatedFlexLayoutInput, context: ConversionContext): PlannedConversion;
   planElement?(inputs: readonly LocatedFlexLayoutInput[], context: ConversionContext): readonly PlannedConversion[];
+  resolveClassConflicts?(
+    plans: readonly PlannedConversion[],
+    existingClassNames: readonly string[],
+  ): readonly PlannedConversion[];
 }

@@ -1,8 +1,12 @@
 function baseUtility(className: string): string {
   const arbitraryVariant = className.lastIndexOf(':[');
-  if (arbitraryVariant >= 0) return className.slice(arbitraryVariant + 1);
-  if (className.startsWith('[')) return className;
-  return className.slice(className.lastIndexOf(':') + 1);
+  const base =
+    arbitraryVariant >= 0
+      ? className.slice(arbitraryVariant + 1)
+      : className.startsWith('[')
+        ? className
+        : className.slice(className.lastIndexOf(':') + 1);
+  return base.replace(/^!/u, '').replace(/!$/u, '');
 }
 
 function propertyGroup(className: string): string | undefined {
