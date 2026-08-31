@@ -9,6 +9,8 @@ export type DiagnosticCode =
   | 'custom-breakpoint'
   | 'dynamic-binding'
   | 'invalid-value'
+  | 'context-unverified'
+  | 'semantic-unsupported'
   | 'target-unsupported';
 
 export interface ConvertedResult {

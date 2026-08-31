@@ -2,6 +2,7 @@ import type { LocatedFlexLayoutInput } from '../../analyzer/flex-layout-attribut
 import { isKnownBreakpoint } from '../../analyzer/flex-layout.catalog';
 import type { ConversionAdapter, ConversionContext, PlannedConversion } from '../conversion-adapter';
 import { TailwindClassPlanner } from './tailwind-class.planner';
+import { planLayoutGap } from './directives/layout-gap.strategy';
 
 const supportedDirectives = new Set<LocatedFlexLayoutInput['directive']>([
   'fxFlex',
@@ -56,6 +57,28 @@ export class TailwindAdapter implements ConversionAdapter {
         reason: `The Tailwind target does not support ${input.directive}.`,
         suggestion: 'Keep the directive and migrate it manually.',
       };
+    }
+
+    if (input.directive === 'fxLayoutGap') {
+      const layoutAttributes = context.element.attributes.filter(
+        attribute => attribute.name === 'fxLayout' || attribute.name.startsWith('fxLayout.'),
+      );
+      const staticLayout = layoutAttributes.find(
+        attribute => attribute.name === 'fxLayout' && attribute.binding === 'literal',
+      );
+      const layoutValue = layoutAttributes.length === 0 ? 'row' : staticLayout?.value;
+      const gap = planLayoutGap(input.value, layoutValue);
+      if (gap.status === 'converted') return { status: 'converted', input, classNames: gap.classNames };
+      if (gap.status === 'invalid') {
+        return {
+          status: 'invalid',
+          input,
+          code: gap.code,
+          reason: `${input.value} is not a supported ${input.directive} value.`,
+          suggestion: 'Correct the value or migrate this directive manually.',
+        };
+      }
+      return { ...gap, input };
     }
 
     const classNames = this.classPlanner.plan(input, context);

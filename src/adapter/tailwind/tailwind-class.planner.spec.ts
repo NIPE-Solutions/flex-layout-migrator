@@ -46,8 +46,6 @@ describe('TailwindClassPlanner', () => {
     ['fxLayout', 'row', ['flex', 'flex-row', 'box-border']],
     ['fxLayout', 'column wrap', ['flex', 'flex-col', 'flex-wrap', 'box-border']],
     ['fxLayout', 'row inline', ['inline-flex', 'flex-row', 'box-border']],
-    ['fxLayoutGap', '10px', ['gap-[10px]']],
-    ['fxLayoutGap', '4 grid', ['gap-4', 'grid']],
     ['fxFlexFill', '', ['w-full', 'min-w-full', 'h-full', 'min-h-full']],
     ['fxFlexOrder', '2', ['order-2']],
   ] as const)('plans %s="%s" as classes', (directive, value, expected) => {

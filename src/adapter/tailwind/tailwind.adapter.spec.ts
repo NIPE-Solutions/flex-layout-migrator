@@ -43,4 +43,17 @@ describe('TailwindAdapter', () => {
   ] as const)('classifies unresolved input %o', (overrides, status, code) => {
     expect(new TailwindAdapter().plan(input(overrides), { element })).toMatchObject({ status, code });
   });
+
+  test('uses upstream px units instead of the Tailwind spacing scale for gaps', () => {
+    expect(new TailwindAdapter().plan(input({ directive: 'fxLayoutGap', value: '4' }), { element })).toMatchObject({
+      status: 'converted',
+      classNames: ['gap-[4px]'],
+    });
+  });
+
+  test('preserves the Flex-Layout grid gap algorithm for review', () => {
+    expect(new TailwindAdapter().plan(input({ directive: 'fxLayoutGap', value: '4 grid' }), { element })).toMatchObject(
+      { status: 'review', code: 'semantic-unsupported' },
+    );
+  });
 });

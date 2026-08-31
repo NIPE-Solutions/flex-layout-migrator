@@ -49,7 +49,7 @@ describe('runCli', () => {
       stdout: '1 files scanned, 1 changed\nConverted 2 | Review 0 | Unsupported 0 | Invalid 0 | Parse errors 0\n',
       stderr: '',
     });
-    expect(await readFile(output, 'utf8')).toBe('<div class="flex flex-col box-border gap-4"></div>');
+    expect(await readFile(output, 'utf8')).toBe('<div class="flex flex-col box-border gap-[4px]"></div>');
   });
 
   test('returns two and reports unresolved input in strict mode', async () => {

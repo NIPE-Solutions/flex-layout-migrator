@@ -30,7 +30,7 @@ describe('ConversionPlanner', () => {
   test('inserts one deterministic class attribute for multiple conversions', () => {
     const result = migrate('<div fxLayout="row" fxLayoutGap="4"></div>');
 
-    expect(result.output).toBe('<div class="flex flex-row box-border gap-4"></div>');
+    expect(result.output).toBe('<div class="flex flex-row box-border gap-[4px]"></div>');
     expect(result.results.map(item => item.status)).toEqual(['converted', 'converted']);
   });
 

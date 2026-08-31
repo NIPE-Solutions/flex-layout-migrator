@@ -17,10 +17,6 @@ export class TailwindClassPlanner {
         const planned = planLayout(input.value);
         return planned.ok ? planned.value.classNames : undefined;
       }
-      case 'fxLayoutGap': {
-        const [gap = '0', grid] = values;
-        return [utility('gap', gap), ...(grid ? ['grid'] : [])];
-      }
       case 'fxFlexFill':
         return ['w-full', 'min-w-full', 'h-full', 'min-h-full'];
       case 'fxFlexOrder': {
