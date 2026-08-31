@@ -1,5 +1,4 @@
 import type { LocatedFlexLayoutInput } from '../../analyzer/flex-layout-attribute.analyzer';
-import { isKnownBreakpoint } from '../../analyzer/flex-layout.catalog';
 import type { ConversionAdapter, ConversionContext, PlannedConversion } from '../conversion-adapter';
 import { planLayoutGap } from './directives/layout-gap.strategy';
 import { planFlexItem } from './directives/flex-item.strategy';
@@ -10,6 +9,9 @@ import { planIndependentDirective } from './independent-directive.registry';
 import type { TemplateAttribute } from '../../template/template.model';
 import { planLayout } from './directives/layout.strategy';
 import { hasTailwindClassConflict } from './tailwind-class-conflict';
+import { BreakpointCatalog } from '../../breakpoint/breakpoint-catalog';
+import { ResponsiveVariantEmitter } from './responsive-variant.emitter';
+import { planResponsiveClasses } from './responsive-plan';
 
 const flexItemDirectives = new Set<LocatedFlexLayoutInput['directive']>(['fxFlex', 'fxGrow', 'fxShrink']);
 
@@ -37,6 +39,18 @@ function toPlannedConversion(input: LocatedFlexLayoutInput, result: TailwindStra
     };
   }
   return { ...result, input };
+}
+
+function toResponsivePlannedConversion(
+  input: LocatedFlexLayoutInput,
+  result: TailwindStrategyResult,
+  catalog: BreakpointCatalog,
+  emitter: ResponsiveVariantEmitter,
+): PlannedConversion {
+  return toPlannedConversion(
+    input,
+    result.status === 'converted' ? planResponsiveClasses(input, result.classNames, catalog, emitter) : result,
+  );
 }
 
 function preserveRequiredLayoutContext(plans: readonly PlannedConversion[]): readonly PlannedConversion[] {
@@ -71,6 +85,8 @@ function staticLayoutContext(attributes: readonly TemplateAttribute[]): string |
 
 export class TailwindAdapter implements ConversionAdapter {
   readonly name = 'tailwind' as const;
+  private readonly breakpointCatalog = new BreakpointCatalog();
+  private readonly responsiveEmitter = new ResponsiveVariantEmitter();
 
   resolveClassConflicts(
     plans: readonly PlannedConversion[],
@@ -163,34 +179,13 @@ export class TailwindAdapter implements ConversionAdapter {
   }
 
   plan(input: LocatedFlexLayoutInput, context: ConversionContext): PlannedConversion {
-    if (input.breakpoint && !isKnownBreakpoint(input.breakpoint)) {
-      return {
-        status: 'review',
-        input,
-        code: 'custom-breakpoint',
-        reason: `The breakpoint alias ${input.breakpoint} may be registered by the project.`,
-        suggestion: 'Provide its media query or migrate this responsive input manually.',
-      };
-    }
-
     if (input.binding === 'property') {
-      return {
-        status: 'review',
+      return toResponsivePlannedConversion(
         input,
-        code: 'dynamic-binding',
-        reason: 'Angular property bindings may depend on runtime state.',
-        suggestion: 'Replace the binding manually or make it a literal before migration.',
-      };
-    }
-
-    if (input.breakpoint) {
-      return {
-        status: 'review',
-        input,
-        code: 'breakpoint-unverified',
-        reason: `Exact media-query output for ${input.breakpoint} is not implemented.`,
-        suggestion: 'Keep the responsive directive until exact breakpoint support is available.',
-      };
+        { status: 'converted', classNames: [] },
+        this.breakpointCatalog,
+        this.responsiveEmitter,
+      );
     }
 
     if (input.directive === 'fxGrow' || input.directive === 'fxShrink') {
@@ -216,17 +211,7 @@ export class TailwindAdapter implements ConversionAdapter {
     if (input.directive === 'fxLayoutGap') {
       const layoutValue = staticLayoutContext(context.element.attributes);
       const gap = planLayoutGap(input.value, layoutValue);
-      if (gap.status === 'converted') return { status: 'converted', input, classNames: gap.classNames };
-      if (gap.status === 'invalid') {
-        return {
-          status: 'invalid',
-          input,
-          code: gap.code,
-          reason: `${input.value} is not a supported ${input.directive} value.`,
-          suggestion: 'Correct the value or migrate this directive manually.',
-        };
-      }
-      return { ...gap, input };
+      return toResponsivePlannedConversion(input, gap, this.breakpointCatalog, this.responsiveEmitter);
     }
 
     if (input.directive === 'fxFlex') {
@@ -234,7 +219,9 @@ export class TailwindAdapter implements ConversionAdapter {
         basis: input.value,
         layout: staticLayoutContext(context.parent?.attributes ?? []),
       });
-      if (flex.status === 'converted') return { status: 'converted', input, classNames: flex.classNames };
+      if (flex.status === 'converted') {
+        return toResponsivePlannedConversion(input, flex, this.breakpointCatalog, this.responsiveEmitter);
+      }
       if (flex.status === 'invalid') {
         return {
           status: 'invalid',
@@ -248,10 +235,16 @@ export class TailwindAdapter implements ConversionAdapter {
     }
 
     const independent = planIndependentDirective(input);
-    if (independent) return toPlannedConversion(input, independent);
+    if (independent)
+      return toResponsivePlannedConversion(input, independent, this.breakpointCatalog, this.responsiveEmitter);
     if (input.directive === 'fxFlexOffset') {
       const layout = staticLayoutContext(context.parent?.attributes ?? []);
-      return toPlannedConversion(input, planFlexOffset(input.value, layout));
+      return toResponsivePlannedConversion(
+        input,
+        planFlexOffset(input.value, layout),
+        this.breakpointCatalog,
+        this.responsiveEmitter,
+      );
     }
     if (input.directive === 'fxLayoutAlign') {
       const layout = staticLayoutContext(context.element.attributes);
@@ -265,7 +258,14 @@ export class TailwindAdapter implements ConversionAdapter {
         };
       }
       const alignment = planLayoutAlign(input.value, layout);
-      if (alignment.ok) return { status: 'converted', input, classNames: alignment.value.classNames };
+      if (alignment.ok) {
+        return toResponsivePlannedConversion(
+          input,
+          { status: 'converted', classNames: alignment.value.classNames },
+          this.breakpointCatalog,
+          this.responsiveEmitter,
+        );
+      }
       return {
         status: 'invalid',
         input,
@@ -277,7 +277,14 @@ export class TailwindAdapter implements ConversionAdapter {
 
     if (input.directive === 'fxLayout') {
       const layout = planLayout(input.value);
-      if (layout.ok) return { status: 'converted', input, classNames: layout.value.classNames };
+      if (layout.ok) {
+        return toResponsivePlannedConversion(
+          input,
+          { status: 'converted', classNames: layout.value.classNames },
+          this.breakpointCatalog,
+          this.responsiveEmitter,
+        );
+      }
     }
     return {
       status: 'invalid',

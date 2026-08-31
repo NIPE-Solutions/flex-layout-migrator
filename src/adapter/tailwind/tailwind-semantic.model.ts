@@ -6,7 +6,12 @@ export type TailwindStrategyResult =
   | { readonly status: 'converted'; readonly classNames: readonly string[] }
   | {
       readonly status: 'review';
-      readonly code: 'context-unverified' | 'semantic-unsupported';
+      readonly code:
+        | 'breakpoint-unverified'
+        | 'context-unverified'
+        | 'custom-breakpoint'
+        | 'dynamic-binding'
+        | 'semantic-unsupported';
       readonly reason: string;
       readonly suggestion: string;
     }
