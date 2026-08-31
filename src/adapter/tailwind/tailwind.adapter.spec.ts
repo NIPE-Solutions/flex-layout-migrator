@@ -92,6 +92,54 @@ describe('TailwindAdapter', () => {
     });
   });
 
+  test('preserves every responsive family member when one generated token conflicts', () => {
+    const adapter = new TailwindAdapter();
+    const inputs = [
+      input({
+        id: 'fixture:xs',
+        sourceName: 'fxFlexAlign.xs',
+        directive: 'fxFlexAlign',
+        breakpoint: 'xs',
+        value: 'start',
+      }),
+      input({
+        id: 'fixture:sm',
+        sourceName: 'fxFlexAlign.sm',
+        directive: 'fxFlexAlign',
+        breakpoint: 'sm',
+        value: 'end',
+      }),
+    ];
+    const plans = adapter.planElement(inputs, { element, inputs });
+
+    expect(
+      adapter.resolveClassConflicts(plans, [
+        '[@media_screen_and_(min-width:_0px)_and_(max-width:_599.98px)]:self-center',
+      ]),
+    ).toEqual([
+      expect.objectContaining({ status: 'review', code: 'class-conflict' }),
+      expect.objectContaining({ status: 'review', code: 'class-conflict' }),
+    ]);
+  });
+
+  test('keeps a responsive family converted when an existing bounded utility is disjoint', () => {
+    const adapter = new TailwindAdapter();
+    const responsive = input({
+      id: 'fixture:sm',
+      sourceName: 'fxFlexAlign.sm',
+      directive: 'fxFlexAlign',
+      breakpoint: 'sm',
+      value: 'end',
+    });
+    const plans = adapter.planElement([responsive], { element, inputs: [responsive] });
+
+    expect(
+      adapter.resolveClassConflicts(plans, [
+        '[@media_screen_and_(min-width:_0px)_and_(max-width:_599.98px)]:self-center',
+      ]),
+    ).toEqual([expect.objectContaining({ status: 'converted' })]);
+  });
+
   test.each([
     ['fxFlexAlign', 'end', ['self-end']],
     ['fxFlexFill', '', ['m-0', 'w-full', 'h-full', 'min-w-full', 'min-h-full']],

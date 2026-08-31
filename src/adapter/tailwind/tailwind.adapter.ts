@@ -8,7 +8,7 @@ import { planLayoutAlign } from './directives/layout-align.strategy';
 import { planIndependentDirective } from './independent-directive.registry';
 import type { TemplateAttribute } from '../../template/template.model';
 import { planLayout } from './directives/layout.strategy';
-import { hasTailwindClassConflict } from './tailwind-class-conflict';
+import { findTailwindClassConflicts } from './tailwind-class-conflict';
 import { BreakpointCatalog } from '../../breakpoint/breakpoint-catalog';
 import { ResponsiveVariantEmitter } from './responsive-variant.emitter';
 import { planResponsiveClasses } from './responsive-plan';
@@ -79,17 +79,20 @@ export class TailwindAdapter implements ConversionAdapter {
     plans: readonly PlannedConversion[],
     existingClassNames: readonly string[],
   ): readonly PlannedConversion[] {
-    const conflictingIds = new Set(
-      plans
-        .filter(plan => plan.status === 'converted' && hasTailwindClassConflict(existingClassNames, plan.classNames))
-        .map(plan => plan.input.id),
+    const convertedPlans = plans.filter(
+      (plan): plan is Extract<PlannedConversion, { readonly status: 'converted' }> => plan.status === 'converted',
     );
-    const flexConflict = plans.some(
-      plan => conflictingIds.has(plan.input.id) && flexItemDirectives.has(plan.input.directive),
+    const conflictingTokens = findTailwindClassConflicts(
+      existingClassNames,
+      convertedPlans.flatMap(plan => plan.classNames),
+    );
+    const conflictingFamilies = new Set(
+      convertedPlans
+        .filter(plan => plan.classNames.some(className => conflictingTokens.has(className)))
+        .map(plan => this.directiveFamily(plan.input.directive)),
     );
     return plans.map(plan =>
-      plan.status === 'converted' &&
-      (conflictingIds.has(plan.input.id) || (flexConflict && flexItemDirectives.has(plan.input.directive)))
+      plan.status === 'converted' && conflictingFamilies.has(this.directiveFamily(plan.input.directive))
         ? {
             status: 'review',
             input: plan.input,
@@ -99,6 +102,12 @@ export class TailwindAdapter implements ConversionAdapter {
           }
         : plan,
     );
+  }
+
+  private directiveFamily(directive: LocatedFlexLayoutInput['directive']): string {
+    if (flexItemDirectives.has(directive)) return 'flex-item';
+    if (directive === 'fxFlexFill' || directive === 'fxFill') return 'flex-fill';
+    return directive;
   }
 
   planElement(inputs: readonly LocatedFlexLayoutInput[], context: ConversionContext): readonly PlannedConversion[] {
