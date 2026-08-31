@@ -86,6 +86,17 @@ describe('ConversionPlanner', () => {
     expect(result.results.map(item => item.status)).toEqual(['review', 'review']);
   });
 
+  test('classifies static flex modifiers as context-dependent when fxFlex is dynamic', () => {
+    const source = '<div [fxFlex]="basis" fxGrow="2"></div>';
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.results).toEqual([
+      expect.objectContaining({ status: 'review', code: 'dynamic-binding' }),
+      expect.objectContaining({ status: 'review', code: 'context-unverified' }),
+    ]);
+  });
+
   test('rejects fxGrow without the fxFlex directive that owns the input', () => {
     const source = '<div fxGrow="2"></div>';
     const result = migrate(source);

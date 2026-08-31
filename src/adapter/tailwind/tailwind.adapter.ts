@@ -78,7 +78,7 @@ export class TailwindAdapter implements ConversionAdapter {
     } else if (flexInputs.some(input => input.binding !== 'literal' || input.breakpoint)) {
       flexPlans = flexInputs.map(input => {
         const ownPlan = this.plan(input, context);
-        return ownPlan.status !== 'converted'
+        return input.binding !== 'literal' || input.breakpoint
           ? ownPlan
           : {
               status: 'review',
