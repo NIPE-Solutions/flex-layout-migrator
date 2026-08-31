@@ -57,6 +57,8 @@ The analyzer continues to discover and normalize suffixes. It does not decide wh
 
 The emitter owns escaping and canonical formatting. Its output is validated by compiling representative generated classes with Tailwind CSS v4 during the test suite. This keeps the published package independent of Tailwind while ensuring the codemod does not emit syntax based only on string snapshots.
 
+The compiler-proven token form is a self-contained arbitrary media variant, for example `[@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:flex-row` for the `sm` range. The underscores encode Tailwind's arbitrary-variant whitespace, so generated tokens retain the exact Angular Flex-Layout media conditions without relying on a project's named Tailwind breakpoint configuration.
+
 Named `@custom-variant` declarations are intentionally deferred. They would require stylesheet discovery, mutation policy, duplicate handling, and a new CLI configuration surface.
 
 ### Element conversion context
@@ -124,7 +126,7 @@ Development follows test-driven delivery. Each behavior is represented by a fail
 ### Integration contracts
 
 - Planner tests cover atomic directive families and cross-directive context dependencies.
-- Compatibility fixtures cover all supported aliases, mixed elements, dynamic values, optional and custom aliases, source-order independence, preservation, and idempotence.
+- Compatibility fixtures cover all supported aliases, base-plus-responsive values, disjoint values, identical and conflicting overlaps, dynamic values, orientation, print, custom aliases, existing classes, coupled layout/flex cases, preservation, and idempotence.
 - A Tailwind CSS v4 compilation smoke test proves that representative generated variants produce the expected media rules and utilities.
 - CLI and JSON report tests prove stable diagnostics and strict unresolved exit behavior.
 
