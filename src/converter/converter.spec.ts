@@ -2,17 +2,14 @@ import { Converter } from './converter';
 import { AttributeConverter } from './attribute.converter';
 import { Cheerio } from 'cheerio';
 import * as cheerio from 'cheerio';
+import type { Element } from 'domhandler';
 
 class DummyAttributeConverter extends AttributeConverter<unknown> {
   constructor() {
     super('dummy');
   }
 
-  convert(
-    value: string[],
-    element: Cheerio<cheerio.Element>,
-    breakPoint?: string,
-  ): void {
+  convert(_value: string[], _element: Cheerio<Element>, _breakPoint?: string): void {
     // Dummy converter, does nothing
   }
 }
@@ -46,9 +43,7 @@ describe('Converter', () => {
 
   test('convert() should throw an error for unsupported attribute', () => {
     const element = cheerio.load("<div unsupported='value'></div>")('div');
-    expect(() => converter.convert('unsupported', ['value'], element)).toThrow(
-      'Unknown attribute: unsupported',
-    );
+    expect(() => converter.convert('unsupported', ['value'], element)).toThrow('Unknown attribute: unsupported');
   });
 
   test('getAllAttributes() should return a list of supported attributes', () => {

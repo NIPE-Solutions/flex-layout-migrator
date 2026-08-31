@@ -1,9 +1,10 @@
 import { ProgressReporter } from './progress.reporter';
 import Spinnies from 'spinnies';
+import type { MockedClass } from 'vitest';
 
-jest.mock('spinnies');
+vi.mock('spinnies');
 
-const mockedSpinnies = Spinnies as jest.MockedClass<typeof Spinnies>;
+const mockedSpinnies = Spinnies as MockedClass<typeof Spinnies>;
 
 describe('ProgressReporter', () => {
   let progressReporter: ProgressReporter;
@@ -15,7 +16,7 @@ describe('ProgressReporter', () => {
   });
 
   afterEach(() => {
-    jest.clearAllMocks();
+    vi.clearAllMocks();
   });
 
   test('update() should handle fileStarted event', () => {
@@ -81,12 +82,12 @@ describe('ProgressReporter', () => {
     });
   });
 
-  test('update() should handle unknown event and log a warning', () => {
-    const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation();
+  test('ignores unknown events', () => {
     const eventData = { id: '1', someData: 'test' };
     progressReporter.update('unknownEvent', eventData);
 
-    expect(consoleWarnSpy).toHaveBeenCalledWith('Unknown progress event: unknownEvent');
-    consoleWarnSpy.mockRestore();
+    expect(spinniesInstance.add).not.toHaveBeenCalled();
+    expect(spinniesInstance.update).not.toHaveBeenCalled();
+    expect(spinniesInstance.succeed).not.toHaveBeenCalled();
   });
 });

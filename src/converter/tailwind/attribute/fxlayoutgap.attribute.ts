@@ -1,5 +1,5 @@
-import * as cheerio from 'cheerio';
 import { Cheerio } from 'cheerio';
+import type { Element } from 'domhandler';
 import classNames from 'classnames';
 import { logger } from '../../../logger';
 import { AttributeConverter } from '../../attribute.converter';
@@ -11,7 +11,7 @@ export class FxLayoutGapAttributeConverter extends AttributeConverter<unknown> {
     super('fxLayoutGap');
   }
 
-  public convert(value: string[], element: Cheerio<cheerio.Element>, breakPoint: BreakPoint | undefined): void {
+  public convert(value: string[], element: Cheerio<Element>, breakPoint: BreakPoint | undefined): void {
     let [gap, grid] = value;
 
     gap ?? logger.warn('No value for fxLayoutGap');

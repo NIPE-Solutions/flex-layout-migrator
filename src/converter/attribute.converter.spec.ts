@@ -1,6 +1,7 @@
 import { AttributeConverter } from './attribute.converter';
 import { Cheerio } from 'cheerio';
 import * as cheerio from 'cheerio';
+import type { Element } from 'domhandler';
 import { BreakPoint, breakpoints } from './breakpoint.type';
 
 class DummyAttributeConverter extends AttributeConverter<unknown> {
@@ -8,7 +9,7 @@ class DummyAttributeConverter extends AttributeConverter<unknown> {
     super(attributeName);
   }
 
-  public convert(_value: string[], _element: Cheerio<cheerio.Element>, _breakPoint?: BreakPoint): void {
+  public convert(_value: string[], _element: Cheerio<Element>, _breakPoint?: BreakPoint): void {
     // Implementierung für den Test
   }
 }

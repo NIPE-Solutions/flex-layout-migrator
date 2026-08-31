@@ -1,5 +1,6 @@
 import { Cheerio } from 'cheerio';
 import * as cheerio from 'cheerio';
+import type { Element } from 'domhandler';
 import { AttributeConverter } from '../../attribute.converter';
 import { BreakPoint } from '../../breakpoint.type';
 import { generateTailwindClassName } from '../breakpoint.mapper';
@@ -60,7 +61,7 @@ export class FxFlexOffsetAttributeConverter extends AttributeConverter<IFxFlexOf
     super('fxFlexOffset');
   }
 
-  public prepare(root: cheerio.CheerioAPI, element: Cheerio<cheerio.Element>): IFxFlexOffsetAttributeContext {
+  public override prepare(root: cheerio.CheerioAPI, element: Cheerio<Element>): IFxFlexOffsetAttributeContext {
     const parent = element.parent();
 
     const direction = (parent.attr('fxLayout') as 'row' | 'column') || 'row';
@@ -72,7 +73,7 @@ export class FxFlexOffsetAttributeConverter extends AttributeConverter<IFxFlexOf
 
   public convert(
     value: string[],
-    element: Cheerio<cheerio.Element>,
+    element: Cheerio<Element>,
     breakPoint: BreakPoint | undefined,
     context: IFxFlexOffsetAttributeContext,
   ): void {

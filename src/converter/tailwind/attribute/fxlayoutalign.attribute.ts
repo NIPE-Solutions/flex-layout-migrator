@@ -1,5 +1,6 @@
 import * as cheerio from 'cheerio';
 import { Cheerio } from 'cheerio';
+import type { Element } from 'domhandler';
 import classNames from 'classnames';
 import { logger } from '../../../logger';
 import { AttributeConverter } from '../../attribute.converter';
@@ -49,7 +50,7 @@ export class FxLayoutAlignAttributeConverter extends AttributeConverter<unknown>
     super('fxLayoutAlign');
   }
 
-  public prepare(root: cheerio.CheerioAPI, element: Cheerio<cheerio.Element>): IFxFlexLayoutAlignAttributeContext {
+  public override prepare(root: cheerio.CheerioAPI, element: Cheerio<Element>): IFxFlexLayoutAlignAttributeContext {
     const parent = element.parent();
 
     const direction = (parent.attr('fxLayout') as 'row' | 'column') || 'row';
@@ -61,7 +62,7 @@ export class FxLayoutAlignAttributeConverter extends AttributeConverter<unknown>
 
   public convert(
     value: string[],
-    element: Cheerio<cheerio.Element>,
+    element: Cheerio<Element>,
     breakPoint: BreakPoint | undefined,
     context: IFxFlexLayoutAlignAttributeContext,
   ): void {

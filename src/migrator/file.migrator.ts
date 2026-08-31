@@ -2,16 +2,21 @@ import { BaseMigrator } from './base.migrator';
 
 import * as fs from 'fs-extra';
 import * as path from 'path';
-import { Cheerio, CheerioAPI, Element as CheerioElement } from 'cheerio';
+import { Cheerio, CheerioAPI } from 'cheerio';
+import type { Element } from 'domhandler';
 import { logger } from '../logger';
 import { BreakPoint } from '../converter/breakpoint.type';
 import { AttributeContext, IConverter } from '../converter/converter';
 import { formatFile } from '../lib/prettier.formatter';
 import { findElementsWithCustomAttributes, loadHtml } from '../util/cheerio.util';
-import Queue from '@esm2cjs/p-queue';
+import PQueue from 'p-queue';
 
 export class FileMigrator extends BaseMigrator {
-  constructor(protected converter: IConverter, private input: string, private output: string) {
+  constructor(
+    protected override converter: IConverter,
+    private input: string,
+    private output: string,
+  ) {
     super(converter);
   }
 
@@ -51,12 +56,12 @@ export class FileMigrator extends BaseMigrator {
    * This context is used later on to perform the actual conversion to provide the converter with all the information it needs.
    */
   private async prepareConversion(
-    elements: Cheerio<CheerioElement>[],
+    elements: Cheerio<Element>[],
     $: CheerioAPI,
     inputFilename: string,
     totalElements: number,
   ): Promise<Map<string, AttributeContext<unknown>>> {
-    const queue = new Queue({ concurrency: 5 });
+    const queue = new PQueue({ concurrency: 5 });
 
     const results = (await Promise.all(
       elements.map((element, index) =>
@@ -78,7 +83,7 @@ export class FileMigrator extends BaseMigrator {
    * Process the preparation of a single element and returns the attribute contexts for the element.
    */
   private async processPreparationElement(
-    element: Cheerio<CheerioElement>,
+    element: Cheerio<Element>,
     index: number,
     $: CheerioAPI,
     inputFilename: string,
@@ -122,13 +127,13 @@ export class FileMigrator extends BaseMigrator {
    * It uses a queue to limit the number of concurrent operations.
    */
   private async performConversion(
-    elements: Cheerio<CheerioElement>[],
+    elements: Cheerio<Element>[],
     $: CheerioAPI,
     inputFilename: string,
     totalElements: number,
     attributeContexts: Map<string, AttributeContext<unknown>>,
   ): Promise<void> {
-    const queue = new Queue({ concurrency: 5 });
+    const queue = new PQueue({ concurrency: 5 });
     elements.map(async (element, index) => {
       queue.add(async () => {
         await this.processConversionElement(element, index, $, inputFilename, totalElements, attributeContexts);
@@ -142,7 +147,7 @@ export class FileMigrator extends BaseMigrator {
    * Processes a single element and converts the attributes and their values.
    */
   private async processConversionElement(
-    element: Cheerio<CheerioElement>,
+    element: Cheerio<Element>,
     index: number, // hinzugefügt
     $: CheerioAPI,
     inputFilename: string,
@@ -202,7 +207,7 @@ export class FileMigrator extends BaseMigrator {
     // Check if the attribute is a breakpoint attribute
     if (isBreakpointAttribute) {
       const [attr, breakPoint] = attribute.split('.');
-      return { attr, breakPoint: breakPoint as BreakPoint };
+      return { attr: attr ?? attribute, breakPoint: breakPoint as BreakPoint };
     }
     return { attr: attribute, breakPoint: undefined };
   }
@@ -229,7 +234,7 @@ export class FileMigrator extends BaseMigrator {
   private async writeOutputFile($: CheerioAPI): Promise<void> {
     const migratedHtml = $.html({ xmlMode: false });
 
-    const formatedHtml = formatFile(migratedHtml, this.converter.getPrettierConfig());
+    const formatedHtml = await formatFile(migratedHtml, this.converter.getPrettierConfig());
 
     const outputDir = path.dirname(this.output);
     await fs.promises.mkdir(outputDir, { recursive: true });

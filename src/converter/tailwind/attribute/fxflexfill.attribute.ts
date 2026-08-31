@@ -1,5 +1,5 @@
-import * as cheerio from 'cheerio';
 import { Cheerio } from 'cheerio';
+import type { Element } from 'domhandler';
 import classNames from 'classnames';
 import { AttributeConverter } from '../../attribute.converter';
 import { BreakPoint } from '../../breakpoint.type';
@@ -10,7 +10,7 @@ export class FxFlexFillAttributeConverter extends AttributeConverter<unknown> {
     super('fxFlexFill');
   }
 
-  public convert(value: string[], element: Cheerio<cheerio.Element>, breakPoint: BreakPoint | undefined): void {
+  public convert(value: string[], element: Cheerio<Element>, breakPoint: BreakPoint | undefined): void {
     const classes = classNames({
       [generateTailwindClassName('w-full', undefined, breakPoint)]: true,
       [generateTailwindClassName('min-w-full', undefined, breakPoint)]: true,

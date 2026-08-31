@@ -8,7 +8,11 @@ import { shouldIgnore } from '../lib/gitignore.helper';
 import { logger } from '../logger';
 
 export class FolderMigrator extends BaseMigrator {
-  constructor(protected converter: IConverter, private inputFolder: string, private outputFolder: string) {
+  constructor(
+    protected override converter: IConverter,
+    private inputFolder: string,
+    private outputFolder: string,
+  ) {
     super(converter);
   }
 

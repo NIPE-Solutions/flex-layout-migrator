@@ -4,6 +4,7 @@ import { BreakPoint } from './breakpoint.type';
 
 import * as cheerio from 'cheerio';
 import { Cheerio, CheerioAPI } from 'cheerio';
+import type { Element } from 'domhandler';
 
 export interface IAttributeStandardContext {
   /**
@@ -22,7 +23,7 @@ export interface IConverter {
    * @param element Element that contains the attribute
    * @returns context
    */
-  prepare<T>(attribute: string, root: CheerioAPI, element: Cheerio<cheerio.Element>): AttributeContext<T>;
+  prepare<T>(attribute: string, root: CheerioAPI, element: Cheerio<Element>): AttributeContext<T>;
 
   /**
    * Returns true if the converter can convert the attribute
@@ -41,7 +42,7 @@ export interface IConverter {
   convert(
     attribute: string,
     value: string[],
-    element: Cheerio<cheerio.Element>,
+    element: Cheerio<Element>,
     breakPoint?: BreakPoint,
     context?: AttributeContext<unknown>,
   ): void;
@@ -82,11 +83,7 @@ export abstract class Converter implements IConverter {
     // Override this method to add your converters
   }
 
-  public prepare<T>(
-    attribute: string,
-    root: CheerioAPI,
-    element: cheerio.Cheerio<cheerio.Element>,
-  ): AttributeContext<T> {
+  public prepare<T>(attribute: string, root: CheerioAPI, element: cheerio.Cheerio<Element>): AttributeContext<T> {
     const converter = this.receiveConverter(attribute);
     const data = converter.prepare(root, element) as T;
 
@@ -99,7 +96,7 @@ export abstract class Converter implements IConverter {
   public convert(
     attribute: string,
     value: string[],
-    element: Cheerio<cheerio.Element>,
+    element: Cheerio<Element>,
     breakPoint?: BreakPoint,
     context?: AttributeContext<unknown>,
   ): void {
@@ -112,7 +109,7 @@ export abstract class Converter implements IConverter {
 
     if (isBreakpointAttribute) {
       const [attributeName] = attribute.split('.');
-      const normalizedAttributeName = this.normalizeAttribute(attributeName);
+      const normalizedAttributeName = this.normalizeAttribute(attributeName ?? attribute);
 
       const targetConverter = this.converters.get(normalizedAttributeName);
       if (!targetConverter) return false;
