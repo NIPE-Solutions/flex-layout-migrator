@@ -17,6 +17,14 @@ export function planLayoutGap(value: string, layoutValue: string | undefined): T
 
   const gap = parseCssLength(normalized, { fallbackUnit: 'px' });
   if (!gap.ok) return { status: 'invalid', code: 'invalid-value' };
+  if (gap.value.startsWith('-')) {
+    return {
+      status: 'review',
+      code: 'semantic-unsupported',
+      reason: 'Flex-Layout accepts a negative margin gap, but CSS gap does not accept negative values.',
+      suggestion: 'Preserve the margin-based spacing or migrate the child margins manually.',
+    };
+  }
   if (layoutValue === undefined) {
     return {
       status: 'review',

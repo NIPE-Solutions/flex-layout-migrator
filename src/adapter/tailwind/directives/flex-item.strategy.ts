@@ -29,10 +29,12 @@ export function planFlexItem(input: FlexItemInput): TailwindStrategyResult {
   let grow = input.grow?.trim() || '1';
   let shrink = input.shrink?.trim() || '1';
   let basis = input.basis.trim();
-  const parts = basis.split(/\s+/);
-  if (parts.length === 3) {
-    [grow, shrink, basis] = parts as [string, string, string];
-  } else if (parts.length > 1 && !basis.startsWith('calc(')) {
+  const shorthand = basis.startsWith('calc(') ? undefined : basis.match(/^(\S+)\s+(\S+)\s+(.+)$/);
+  if (shorthand) {
+    grow = shorthand[1] ?? grow;
+    shrink = shorthand[2] ?? shrink;
+    basis = shorthand[3] ?? basis;
+  } else if (basis.split(/\s+/).length > 1 && !basis.startsWith('calc(')) {
     return { status: 'invalid', code: 'invalid-value' };
   }
   if (!FACTOR.test(grow) || !FACTOR.test(shrink)) return { status: 'invalid', code: 'invalid-value' };

@@ -16,6 +16,19 @@ describe('planFlexItem', () => {
       'column',
       ['[flex:1_1_10rem]', '[min-height:10rem]', '[max-height:10rem]', 'box-border'],
     ],
+    [
+      '3 2 calc(100% - 2rem)',
+      undefined,
+      undefined,
+      'row',
+      [
+        '[flex-grow:3]',
+        '[flex-shrink:2]',
+        '[flex-basis:calc(100%_-_2rem)]',
+        '[min-width:calc(100%_-_2rem)]',
+        'box-border',
+      ],
+    ],
   ] as const)('reproduces fxFlex=%j grow=%j shrink=%j in %j', (basis, grow, shrink, layout, expected) => {
     expect(planFlexItem({ basis, grow, shrink, layout })).toEqual({
       status: 'converted',

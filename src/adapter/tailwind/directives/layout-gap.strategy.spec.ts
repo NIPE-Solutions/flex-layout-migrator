@@ -24,6 +24,13 @@ describe('planLayoutGap', () => {
     });
   });
 
+  test('preserves a negative margin gap that CSS gap cannot represent', () => {
+    expect(planLayoutGap('-4', 'row')).toMatchObject({
+      status: 'review',
+      code: 'semantic-unsupported',
+    });
+  });
+
   test.each(['', 'wide', '1;display:none', '10 px'])('rejects invalid gaps %j', value => {
     expect(planLayoutGap(value, 'row')).toEqual({ status: 'invalid', code: 'invalid-value' });
   });
