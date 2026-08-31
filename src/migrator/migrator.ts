@@ -1,4 +1,4 @@
-import * as fs from 'fs-extra';
+import { stat } from 'node:fs/promises';
 import * as path from 'node:path';
 import type { ConversionAdapter } from '../adapter/conversion-adapter';
 import { loadGitIgnore } from '../lib/gitignore.helper';
@@ -26,19 +26,19 @@ export class Migrator {
     }
 
     const startedAt = this.now();
-    const stat = await fs.promises.stat(this.inputPath);
+    const inputStat = await stat(this.inputPath);
 
     await loadGitIgnore(this.inputPath);
 
     let files: readonly FileMigrationResult[];
-    if (stat.isFile()) {
+    if (inputStat.isFile()) {
       if (path.extname(this.inputPath).toLowerCase() !== '.html') {
         throw new Error(`Unsupported file type: ${this.inputPath}`);
       }
       files = [
         await new FileMigrator(this.adapter, this.inputPath, this.outputPath).migrate({ write: !options.dryRun }),
       ];
-    } else if (stat.isDirectory()) {
+    } else if (inputStat.isDirectory()) {
       files = await new FolderMigrator(this.adapter, this.inputPath, this.outputPath).migrate({
         write: !options.dryRun,
       });

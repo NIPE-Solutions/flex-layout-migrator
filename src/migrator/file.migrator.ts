@@ -1,5 +1,4 @@
 import { readFile } from 'node:fs/promises';
-import { basename } from 'node:path';
 import type { ConversionAdapter } from '../adapter/conversion-adapter';
 import type { ConversionResult } from '../analyzer/conversion-result';
 import { TemplateAnalyzer } from '../analyzer/template.analyzer';
@@ -12,18 +11,15 @@ import type { FileMigrationOptions, FileMigrationResult } from './file-migration
 
 export class FileMigrator extends BaseMigrator<FileMigrationResult> {
   constructor(
-    protected override adapter: ConversionAdapter,
+    private readonly adapter: ConversionAdapter,
     private readonly input: string,
     private readonly output: string,
     private readonly writer: AtomicFileWriter = new AtomicFileWriter(),
   ) {
-    super(adapter);
+    super();
   }
 
   public async migrate(options: FileMigrationOptions = { write: true }): Promise<FileMigrationResult> {
-    const fileName = basename(this.input);
-    this.notifyObservers('fileStarted', { id: this.input, fileName });
-
     const source = await readFile(this.input, 'utf8');
     const parsed = new AngularTemplateParser().parse(source, this.input);
     if (parsed.status === 'parse-error') {
@@ -39,7 +35,6 @@ export class FileMigrator extends BaseMigrator<FileMigrationResult> {
 
     const inputs = new TemplateAnalyzer().analyze(this.input, parsed.elements);
     if (!inputs.length) {
-      this.notifyObservers('fileNoElements', { id: this.input, fileName });
       return this.result(false, []);
     }
 
@@ -51,19 +46,9 @@ export class FileMigrator extends BaseMigrator<FileMigrationResult> {
       );
     }
 
-    for (const [index] of inputs.entries()) {
-      this.notifyObservers('fileMigrationProgress', {
-        id: this.input,
-        fileName,
-        percentage: Math.round(((index + 1) / inputs.length) * 100),
-        processedElements: index + 1,
-      });
-    }
-
     const changed = edited.output !== source;
     if (changed && options.write) {
       await this.writer.write(this.output, edited.output);
-      this.notifyObservers('fileCompleted', { id: this.input, fileName });
     }
 
     return this.result(changed, plan.results);

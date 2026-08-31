@@ -55,11 +55,8 @@
   "dependencies": {
     "@angular/compiler": "21.2.22",
     "chalk": "^6.0.0",
-    "cli-table3": "^0.6.5",
     "commander": "^15.0.0",
-    "date-fns": "^4.4.0",
     "fs-extra": "^11.4.0",
-    "spinnies": "^0.5.1",
     "winston": "^3.19.0"
   },
   "bin": {
@@ -71,7 +68,6 @@
     "@types/fs-extra": "^11.0.4",
     "@types/mock-fs": "^4.13.4",
     "@types/node": "^26.4.0",
-    "@types/spinnies": "^0.5.3",
     "@vitest/coverage-v8": "^4.1.11",
     "eslint": "^10.9.1",
     "eslint-config-prettier": "^10.1.8",
