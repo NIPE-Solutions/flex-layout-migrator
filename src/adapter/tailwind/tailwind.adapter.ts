@@ -8,6 +8,7 @@ import { planFlexOffset } from './directives/flex-offset.strategy';
 import type { TailwindStrategyResult } from './tailwind-semantic.model';
 import { planLayoutAlign } from './directives/layout-align.strategy';
 import { planIndependentDirective } from './independent-directive.registry';
+import type { TemplateAttribute } from '../../template/template.model';
 
 const flexItemDirectives = new Set<LocatedFlexLayoutInput['directive']>(['fxFlex', 'fxGrow', 'fxShrink']);
 
@@ -38,19 +39,33 @@ function toPlannedConversion(input: LocatedFlexLayoutInput, result: TailwindStra
 }
 
 function preserveRequiredLayoutContext(plans: readonly PlannedConversion[]): readonly PlannedConversion[] {
-  const unresolvedGap = plans.some(plan => plan.input.directive === 'fxLayoutGap' && plan.status !== 'converted');
-  if (!unresolvedGap) return plans;
+  const unresolvedDependent = plans.some(
+    plan =>
+      (plan.input.directive === 'fxLayoutGap' || plan.input.directive === 'fxLayoutAlign') &&
+      plan.status !== 'converted',
+  );
+  if (!unresolvedDependent) return plans;
   return plans.map(plan =>
     plan.input.directive === 'fxLayout' && plan.status === 'converted'
       ? {
           status: 'review',
           input: plan.input,
           code: 'context-unverified',
-          reason: 'This layout is required to preserve an unresolved gap directive on the same element.',
-          suggestion: 'Migrate the layout and gap together after resolving the gap behavior.',
+          reason: 'This layout is required to preserve an unresolved context-dependent directive.',
+          suggestion: 'Migrate the layout and its dependent directives together after resolving their behavior.',
         }
       : plan,
   );
+}
+
+function staticLayoutContext(attributes: readonly TemplateAttribute[]): string | undefined {
+  const layouts = attributes.filter(
+    attribute => attribute.name === 'fxLayout' || attribute.name.startsWith('fxLayout.'),
+  );
+  if (!layouts.length) return 'row';
+  if (layouts.length !== 1) return undefined;
+  const layout = layouts[0];
+  return layout?.name === 'fxLayout' && layout.binding === 'literal' ? layout.value : undefined;
 }
 
 export class TailwindAdapter implements ConversionAdapter {
@@ -89,14 +104,7 @@ export class TailwindAdapter implements ConversionAdapter {
             };
       });
     } else {
-      const parentLayouts =
-        context.parent?.attributes.filter(
-          attribute => attribute.name === 'fxLayout' || attribute.name.startsWith('fxLayout.'),
-        ) ?? [];
-      const staticParentLayout = parentLayouts.find(
-        attribute => attribute.name === 'fxLayout' && attribute.binding === 'literal',
-      );
-      const layout = parentLayouts.length === 0 ? 'row' : staticParentLayout?.value;
+      const layout = staticLayoutContext(context.parent?.attributes ?? []);
       const planned = planFlexItem({
         basis: flex[0]?.value ?? '',
         grow: flexInputs.find(input => input.directive === 'fxGrow')?.value,
@@ -180,13 +188,7 @@ export class TailwindAdapter implements ConversionAdapter {
     }
 
     if (input.directive === 'fxLayoutGap') {
-      const layoutAttributes = context.element.attributes.filter(
-        attribute => attribute.name === 'fxLayout' || attribute.name.startsWith('fxLayout.'),
-      );
-      const staticLayout = layoutAttributes.find(
-        attribute => attribute.name === 'fxLayout' && attribute.binding === 'literal',
-      );
-      const layoutValue = layoutAttributes.length === 0 ? 'row' : staticLayout?.value;
+      const layoutValue = staticLayoutContext(context.element.attributes);
       const gap = planLayoutGap(input.value, layoutValue);
       if (gap.status === 'converted') return { status: 'converted', input, classNames: gap.classNames };
       if (gap.status === 'invalid') {
@@ -202,16 +204,9 @@ export class TailwindAdapter implements ConversionAdapter {
     }
 
     if (input.directive === 'fxFlex') {
-      const parentLayouts =
-        context.parent?.attributes.filter(
-          attribute => attribute.name === 'fxLayout' || attribute.name.startsWith('fxLayout.'),
-        ) ?? [];
-      const staticParentLayout = parentLayouts.find(
-        attribute => attribute.name === 'fxLayout' && attribute.binding === 'literal',
-      );
       const flex = planFlexItem({
         basis: input.value,
-        layout: parentLayouts.length === 0 ? 'row' : staticParentLayout?.value,
+        layout: staticLayoutContext(context.parent?.attributes ?? []),
       });
       if (flex.status === 'converted') return { status: 'converted', input, classNames: flex.classNames };
       if (flex.status === 'invalid') {
@@ -229,22 +224,12 @@ export class TailwindAdapter implements ConversionAdapter {
     const independent = planIndependentDirective(input);
     if (independent) return toPlannedConversion(input, independent);
     if (input.directive === 'fxFlexOffset') {
-      const parentLayouts =
-        context.parent?.attributes.filter(
-          attribute => attribute.name === 'fxLayout' || attribute.name.startsWith('fxLayout.'),
-        ) ?? [];
-      const staticParentLayout = parentLayouts.find(
-        attribute => attribute.name === 'fxLayout' && attribute.binding === 'literal',
-      );
-      const layout = parentLayouts.length === 0 ? 'row' : staticParentLayout?.value;
+      const layout = staticLayoutContext(context.parent?.attributes ?? []);
       return toPlannedConversion(input, planFlexOffset(input.value, layout));
     }
     if (input.directive === 'fxLayoutAlign') {
-      const layouts = context.element.attributes.filter(
-        attribute => attribute.name === 'fxLayout' || attribute.name.startsWith('fxLayout.'),
-      );
-      const staticLayout = layouts.find(attribute => attribute.name === 'fxLayout' && attribute.binding === 'literal');
-      if (layouts.length && !staticLayout) {
+      const layout = staticLayoutContext(context.element.attributes);
+      if (layout === undefined) {
         return {
           status: 'review',
           input,
@@ -253,7 +238,7 @@ export class TailwindAdapter implements ConversionAdapter {
           suggestion: 'Make the layout static or migrate layout and alignment together manually.',
         };
       }
-      const alignment = planLayoutAlign(input.value, staticLayout?.value ?? 'row');
+      const alignment = planLayoutAlign(input.value, layout);
       if (alignment.ok) return { status: 'converted', input, classNames: alignment.value.classNames };
       return {
         status: 'invalid',

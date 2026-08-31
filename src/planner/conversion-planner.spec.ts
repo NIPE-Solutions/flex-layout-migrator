@@ -115,4 +115,23 @@ describe('ConversionPlanner', () => {
       expect.objectContaining({ status: 'review', code: 'context-unverified' }),
     ]);
   });
+
+  test('preserves layout and gap when a responsive layout can wrap', () => {
+    const source = '<div fxLayout="row" fxLayout.sm="row wrap" fxLayoutGap="4"></div>';
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.results.map(item => item.status)).toEqual(['review', 'review', 'review']);
+  });
+
+  test('preserves a base layout required by unresolved responsive alignment', () => {
+    const source = '<div fxLayout="column" fxLayoutAlign.sm="center end"></div>';
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.results).toEqual([
+      expect.objectContaining({ status: 'review', code: 'context-unverified' }),
+      expect.objectContaining({ status: 'review', code: 'breakpoint-unverified' }),
+    ]);
+  });
 });
