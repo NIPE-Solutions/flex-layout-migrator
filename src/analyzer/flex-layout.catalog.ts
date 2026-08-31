@@ -48,6 +48,8 @@ export const DEFAULT_BREAKPOINTS = [
   'gt-lg',
 ] as const;
 
+export type DefaultBreakpoint = (typeof DEFAULT_BREAKPOINTS)[number];
+
 export const ORIENTATION_BREAKPOINTS = [
   'handset',
   'handset.portrait',
@@ -63,9 +65,7 @@ export const ORIENTATION_BREAKPOINTS = [
 export const SPECIAL_BREAKPOINTS = ['print'] as const;
 
 export type KnownBreakpoint =
-  | (typeof DEFAULT_BREAKPOINTS)[number]
-  | (typeof ORIENTATION_BREAKPOINTS)[number]
-  | (typeof SPECIAL_BREAKPOINTS)[number];
+  DefaultBreakpoint | (typeof ORIENTATION_BREAKPOINTS)[number] | (typeof SPECIAL_BREAKPOINTS)[number];
 
 const directiveNames = new Set<string>(FLEX_LAYOUT_DIRECTIVES);
 const breakpointNames = new Set<string>([...DEFAULT_BREAKPOINTS, ...ORIENTATION_BREAKPOINTS, ...SPECIAL_BREAKPOINTS]);
