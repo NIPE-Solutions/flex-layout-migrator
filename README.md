@@ -4,21 +4,21 @@ A safety-first codemod for migrating projects away from the archived Angular Fle
 
 Version 2 is under active development and is not published to npm yet. It does not claim production-ready conversion coverage. See the [compatibility reference](docs/compatibility.md) for the current directive-by-directive status and safety limitations.
 
-## Direction
+## Current scope
 
-The v2 CLI will analyze Angular templates before changing them and classify each directive as converted, requiring manual review, or unsupported. Native CSS will be the primary target, with Tailwind CSS provided by a separate adapter. Ambiguous responsive and dynamic behavior will not be approximated silently.
+The v2 engine parses templates with the Angular compiler and applies validated source-range edits. It preserves comments, control-flow syntax, interpolation, line endings, and all unrelated source text instead of serializing the template as generic HTML.
 
-The current prerelease preserves dynamic bindings, responsive inputs, custom breakpoints, and unsupported directives for review instead of removing them. The CLI reporting interface described below is still being implemented.
+The current prerelease converts a documented set of static Flex-Layout inputs to Tailwind CSS. Dynamic bindings, responsive inputs, custom breakpoints, bound class values, and unsupported directives remain unchanged and receive structured review results. Ambiguous behavior is never approximated silently.
 
-Planned commands:
+Run it for one Angular template or a directory:
 
-```text
-flex-layout-codemod analyze ./src
-flex-layout-codemod migrate ./src --target css
-flex-layout-codemod migrate ./src --target tailwind
+```bash
+flex-layout-codemod ./src --target tailwind --output ./migrated-src
 ```
 
-These commands describe the v2 interface and are not all implemented yet.
+Only changed `.html` files are written. Use version control and review the generated diff before replacing application templates. Native CSS output, dry-run mode, JSON reports, strict exit codes, and a richer CLI summary remain planned.
+
+The TypeScript extension API changed in v2: mutable Cheerio converters were replaced by immutable `ConversionAdapter` plans and structured `ConversionResult` values. These prerelease APIs may continue to evolve before v2 is stable.
 
 ## Development
 

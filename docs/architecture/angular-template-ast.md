@@ -14,7 +14,7 @@ The engine uses `@angular/compiler` 21.2.22, the newest Angular LTS compiler ava
 
 The parser wrapper is the only module allowed to depend directly on Angular compiler AST classes. This isolates compiler-version changes from analyzers and target adapters.
 
-Cheerio and `p-queue` are removed when the AST implementation reaches behavioral parity. Intra-file conversion is deterministic and synchronous; parallel mutation of one syntax tree is not permitted.
+Cheerio and `p-queue` were removed after the AST implementation reached behavioral parity. Intra-file conversion is deterministic and synchronous; parallel mutation of one syntax tree is not permitted.
 
 ## Goals
 

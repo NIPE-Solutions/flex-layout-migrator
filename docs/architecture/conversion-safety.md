@@ -25,8 +25,9 @@ Every recognized input receives one outcome before a file is changed.
 | `review`      | Conversion depends on runtime data, configuration, or surrounding layout that cannot be proven statically. | No               |
 | `unsupported` | The selected target has no equivalent implemented by this version.                                         | No               |
 | `invalid`     | The directive or value does not match the upstream input contract.                                         | No               |
+| `parse-error` | Angular rejected the template and no edit plan could be created.                                           | No               |
 
-An attribute is removed only when its outcome is `converted`. A file may contain converted and unresolved inputs; unresolved inputs remain byte-for-byte equivalent apart from formatter behavior.
+An attribute is removed only when its outcome is `converted`. A file may contain converted and unresolved inputs; unresolved inputs and every byte outside explicit edit ranges remain unchanged.
 
 Each unresolved result includes a stable diagnostic code, file location, directive, reason, and suggested next action. Stable codes allow CI systems to distinguish known migration debt from new findings.
 
@@ -46,12 +47,7 @@ Adapters must use the exact upstream media query, a verified project configurati
 
 The analyzer produces a normalized directive, parsed value, binding kind, breakpoint, source location, and relevant element context. It does not generate CSS classes.
 
-Each target adapter declares the cases it supports and returns either a complete edit set or an unresolved outcome. The initial adapters are:
-
-- `css`: emits deterministic, reusable CSS rules and template classes. Generated names are stable so repeated runs are idempotent.
-- `tailwind`: emits utilities only when current Tailwind syntax represents the full source behavior. Arbitrary properties and variants are allowed when they are deterministic and valid for content scanning.
-
-The `plain-css` CLI spelling is retained as a deprecated alias for `css` during the v2 prerelease period. Selecting an adapter that cannot convert any discovered directive is an error, not a successful no-op.
+The initial `tailwind` adapter emits utilities only when current Tailwind syntax represents the supported static source behavior. Arbitrary values are used when they are deterministic and valid for content scanning. A future native CSS adapter is outside the current implementation.
 
 ## Processing pipeline
 
@@ -60,16 +56,16 @@ The `plain-css` CLI spelling is retained as a deprecated alias for `css` during 
 3. Normalize aliases and parse directive values according to the upstream contract.
 4. Ask the selected adapter to classify each input and propose edits.
 5. Validate that edits do not conflict and that every removed input has a `converted` result.
-6. Apply edits, format changed files, and write a migration report.
+6. Apply edits from the end of the source toward the beginning and atomically write only changed files.
 7. Re-analyze the output in tests to prove that a second run produces no additional edits.
 
-Analysis and mutation are separate operations. `--dry-run` executes all analysis and reporting without writing files.
+Analysis and mutation are separate operations. Dry-run and machine-readable reporting are planned CLI features.
 
-## CLI contract
+## Planned CLI contract
 
-The default summary reports files scanned, files changed, converted inputs, review items, unsupported inputs, and invalid inputs. Normal output is concise; `--report <path>` writes a machine-readable JSON report.
+The planned default summary reports files scanned, files changed, converted inputs, review items, unsupported inputs, and invalid inputs. Normal output will be concise; `--report <path>` will write a machine-readable JSON report.
 
-Exit codes are stable:
+The planned exit codes are:
 
 | Code | Meaning                                                                                   |
 | ---- | ----------------------------------------------------------------------------------------- |
@@ -77,7 +73,7 @@ Exit codes are stable:
 | `1`  | The command failed because of configuration, parsing, I/O, or an internal error.          |
 | `2`  | The migration completed but review, unsupported, or invalid inputs remain in strict mode. |
 
-Strict mode is enabled by default. `--allow-unresolved` permits exit code `0` while still reporting and preserving unresolved inputs.
+Strict mode will be enabled by default. `--allow-unresolved` will permit exit code `0` while still reporting and preserving unresolved inputs.
 
 ## Compatibility verification
 
