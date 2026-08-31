@@ -50,7 +50,7 @@ export async function runCli(argv: readonly string[], output: CliOutput = proces
         .default('tailwind'),
     )
     .option('--dry-run', 'analyze and plan without writing templates', false)
-    .option('--report <path>', 'atomically write a JSON report')
+    .option('--report <path>', 'atomically write a JSON report; path must end in .json')
     .option('--allow-unresolved', 'return success when unresolved inputs remain', false)
     .option('-d, --debug', 'enable debug logging', false)
     .action(async (input: string, options: ProgramOptions) => {
@@ -60,7 +60,7 @@ export async function runCli(argv: readonly string[], output: CliOutput = proces
       const destination = options.output ?? input;
       const adapter = AdapterFactory.create(options.target);
       if (options.report !== undefined) {
-        await validateReportPath({ reportPath: options.report, inputPath: input, outputPath: destination });
+        validateReportPath(options.report);
       }
       const report = await new Migrator(adapter, input, destination).migrate({ dryRun: options.dryRun });
       const reportOutput = report.summary.parseErrors > 0 ? output.stderr : output.stdout;

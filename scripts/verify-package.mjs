@@ -40,6 +40,9 @@ try {
       throw new Error(`Packaged CLI help is missing ${option}`);
     }
   }
+  if (!help.stdout.includes('path must end in .json')) {
+    throw new Error('Packaged CLI help is missing the JSON report extension requirement');
+  }
 
   const version = await execFileAsync(executable, ['--version'], { cwd: temporaryDirectory });
   if (version.stdout.trim() !== '2.0.0-beta.0') {

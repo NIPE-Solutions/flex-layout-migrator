@@ -32,14 +32,14 @@ Options:
   -o, --output <path>       output file or directory; defaults to input
   -t, --target <target>     conversion target; currently tailwind
       --dry-run             analyze and plan without writing templates
-      --report <path>       atomically write a JSON report
+      --report <path>       atomically write a JSON report; path must end in .json
       --allow-unresolved    return success when unresolved inputs remain
   -d, --debug               enable debug logging
 ```
 
 An output path does not need to exist. Its parent directory is created only when a changed template is written. In dry-run mode, neither the template output nor missing output directories are created. A requested JSON report is still written during dry-run because it is an explicit reporting side effect.
 
-The report path must be nonblank. Before parsing or writing any template, the CLI resolves relative components and existing symlinks and rejects a report path that aliases the single-file input, any discovered folder template, or any planned template output. This validation does not create output or report parents.
+The report path must be nonblank and have a case-insensitive `.json` extension. Migratable single-file and folder inputs and all planned template outputs exclusively use `.html`; the disjoint extensions make report/template collisions structurally impossible without guessing filesystem identity for paths that may not exist. Validation runs before parsing or writing templates and does not create output or report parents. A valid JSON report may be placed anywhere, including inside an input or output tree.
 
 Strict unresolved handling is the default. `--allow-unresolved` changes only the final exit code; it does not hide diagnostics or change which templates are written.
 
