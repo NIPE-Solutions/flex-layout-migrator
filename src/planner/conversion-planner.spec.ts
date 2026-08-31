@@ -93,4 +93,15 @@ describe('ConversionPlanner', () => {
     expect(result.output).toBe(source);
     expect(result.results).toContainEqual(expect.objectContaining({ status: 'invalid', code: 'invalid-value' }));
   });
+
+  test('preserves alignment when its layout direction is dynamic', () => {
+    const source = '<div [fxLayout]="direction" fxLayoutAlign="center end"></div>';
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.results).toEqual([
+      expect.objectContaining({ status: 'review', code: 'dynamic-binding' }),
+      expect.objectContaining({ status: 'review', code: 'context-unverified' }),
+    ]);
+  });
 });

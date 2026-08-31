@@ -4,11 +4,10 @@ import type { ConversionAdapter, ConversionContext, PlannedConversion } from '..
 import { TailwindClassPlanner } from './tailwind-class.planner';
 import { planLayoutGap } from './directives/layout-gap.strategy';
 import { planFlexItem } from './directives/flex-item.strategy';
-import { planFlexAlign } from './directives/flex-align.strategy';
-import { planFlexFill } from './directives/flex-fill.strategy';
 import { planFlexOffset } from './directives/flex-offset.strategy';
-import { planFlexOrder } from './directives/flex-order.strategy';
 import type { TailwindStrategyResult } from './tailwind-semantic.model';
+import { planLayoutAlign } from './directives/layout-align.strategy';
+import { planIndependentDirective } from './independent-directive.registry';
 
 const flexItemDirectives = new Set<LocatedFlexLayoutInput['directive']>(['fxFlex', 'fxGrow', 'fxShrink']);
 
@@ -38,13 +37,31 @@ function toPlannedConversion(input: LocatedFlexLayoutInput, result: TailwindStra
   return { ...result, input };
 }
 
+function preserveRequiredLayoutContext(plans: readonly PlannedConversion[]): readonly PlannedConversion[] {
+  const unresolvedGap = plans.some(plan => plan.input.directive === 'fxLayoutGap' && plan.status !== 'converted');
+  if (!unresolvedGap) return plans;
+  return plans.map(plan =>
+    plan.input.directive === 'fxLayout' && plan.status === 'converted'
+      ? {
+          status: 'review',
+          input: plan.input,
+          code: 'context-unverified',
+          reason: 'This layout is required to preserve an unresolved gap directive on the same element.',
+          suggestion: 'Migrate the layout and gap together after resolving the gap behavior.',
+        }
+      : plan,
+  );
+}
+
 export class TailwindAdapter implements ConversionAdapter {
   readonly name = 'tailwind' as const;
   private readonly classPlanner = new TailwindClassPlanner();
 
   planElement(inputs: readonly LocatedFlexLayoutInput[], context: ConversionContext): readonly PlannedConversion[] {
     const flexInputs = inputs.filter(input => flexItemDirectives.has(input.directive));
-    if (!flexInputs.length) return inputs.map(input => this.plan(input, context));
+    if (!flexInputs.length) {
+      return preserveRequiredLayoutContext(inputs.map(input => this.plan(input, context)));
+    }
 
     const flex = flexInputs.filter(input => input.directive === 'fxFlex');
     let flexPlans: readonly PlannedConversion[];
@@ -108,7 +125,7 @@ export class TailwindAdapter implements ConversionAdapter {
     }
 
     const flexPlanById = new Map(flexPlans.map(plan => [plan.input.id, plan]));
-    return inputs.map(input => flexPlanById.get(input.id) ?? this.plan(input, context));
+    return preserveRequiredLayoutContext(inputs.map(input => flexPlanById.get(input.id) ?? this.plan(input, context)));
   }
 
   plan(input: LocatedFlexLayoutInput, context: ConversionContext): PlannedConversion {
@@ -209,11 +226,8 @@ export class TailwindAdapter implements ConversionAdapter {
       return { ...flex, input };
     }
 
-    if (input.directive === 'fxFlexAlign') return toPlannedConversion(input, planFlexAlign(input.value));
-    if (input.directive === 'fxFlexFill' || input.directive === 'fxFill') {
-      return toPlannedConversion(input, planFlexFill());
-    }
-    if (input.directive === 'fxFlexOrder') return toPlannedConversion(input, planFlexOrder(input.value));
+    const independent = planIndependentDirective(input);
+    if (independent) return toPlannedConversion(input, independent);
     if (input.directive === 'fxFlexOffset') {
       const parentLayouts =
         context.parent?.attributes.filter(
@@ -224,6 +238,30 @@ export class TailwindAdapter implements ConversionAdapter {
       );
       const layout = parentLayouts.length === 0 ? 'row' : staticParentLayout?.value;
       return toPlannedConversion(input, planFlexOffset(input.value, layout));
+    }
+    if (input.directive === 'fxLayoutAlign') {
+      const layouts = context.element.attributes.filter(
+        attribute => attribute.name === 'fxLayout' || attribute.name.startsWith('fxLayout.'),
+      );
+      const staticLayout = layouts.find(attribute => attribute.name === 'fxLayout' && attribute.binding === 'literal');
+      if (layouts.length && !staticLayout) {
+        return {
+          status: 'review',
+          input,
+          code: 'context-unverified',
+          reason: 'Alignment sizing and direction depend on a dynamic or responsive layout.',
+          suggestion: 'Make the layout static or migrate layout and alignment together manually.',
+        };
+      }
+      const alignment = planLayoutAlign(input.value, staticLayout?.value ?? 'row');
+      if (alignment.ok) return { status: 'converted', input, classNames: alignment.value.classNames };
+      return {
+        status: 'invalid',
+        input,
+        code: 'invalid-value',
+        reason: `${input.value} is not a supported fxLayoutAlign value.`,
+        suggestion: 'Correct the value or migrate this directive manually.',
+      };
     }
 
     const classNames = this.classPlanner.plan(input, context);

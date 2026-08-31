@@ -10,25 +10,29 @@ The source contract and classification rules are documented in [Conversion safet
 - **Planned**: the analyzer recognizes the input, but no target adapter converts it yet.
 - **Preserved**: the input is intentionally left unchanged and reported for review.
 
-No native CSS conversions are available yet. The CLI currently accepts only the `tailwind` target.
+No native CSS conversions are available yet. The CLI currently accepts only the `tailwind` target, and generated classes target Tailwind CSS v4.
 
 ## Flex directives
 
-| Directive       | Tailwind | Notes                                                                         |
-| --------------- | -------- | ----------------------------------------------------------------------------- |
-| `fxLayout`      | Limited  | Static row/column direction and wrap keywords without a breakpoint.           |
-| `fxLayoutAlign` | Limited  | Static main-axis and cross-axis keywords without a breakpoint.                |
-| `fxLayoutGap`   | Limited  | Static values without a breakpoint only.                                      |
-| `fxFlex`        | Limited  | Static one-to-three-part values; unknown shorthands use an arbitrary utility. |
-| `fxGrow`        | Planned  | Recognized and preserved.                                                     |
-| `fxShrink`      | Planned  | Recognized and preserved.                                                     |
-| `fxFlexAlign`   | Planned  | Recognized and preserved.                                                     |
-| `fxFlexFill`    | Limited  | Static use without a breakpoint only.                                         |
-| `fxFill`        | Planned  | Alias recognized and preserved.                                               |
-| `fxFlexOffset`  | Limited  | Static values without a breakpoint only; parent direction affects semantics.  |
-| `fxFlexOrder`   | Limited  | Static values without a breakpoint only.                                      |
-| `fxShow`        | Planned  | Recognized and preserved.                                                     |
-| `fxHide`        | Planned  | Recognized and preserved.                                                     |
+| Directive       | Tailwind | Notes                                                                                           |
+| --------------- | -------- | ----------------------------------------------------------------------------------------------- |
+| `fxLayout`      | Limited  | Static directions plus wrap and inline modifiers; coupled unresolved gaps preserve the layout.  |
+| `fxLayoutAlign` | Limited  | Static main/cross axes with layout, content alignment, sizing, and border-box semantics.        |
+| `fxLayoutGap`   | Limited  | Static non-wrapping gaps; unitless values remain pixels. Grid mode and wrapped gaps are review. |
+| `fxFlex`        | Limited  | Static basis, keyword, and three-part forms with parent-axis min/max sizing.                    |
+| `fxGrow`        | Limited  | Converted atomically with a static `fxFlex`; standalone use is invalid.                         |
+| `fxShrink`      | Limited  | Converted atomically with a static `fxFlex`; standalone use is invalid.                         |
+| `fxFlexAlign`   | Limited  | Static `align-self` keywords.                                                                   |
+| `fxFlexFill`    | Limited  | Static full-size rule including its zero-margin behavior.                                       |
+| `fxFill`        | Limited  | Non-responsive alias of `fxFlexFill`.                                                           |
+| `fxFlexOffset`  | Limited  | Static values with a statically known parent axis; unitless values remain percentages.          |
+| `fxFlexOrder`   | Limited  | Static integer values emitted independently of the Tailwind theme.                              |
+| `fxShow`        | Planned  | Recognized and preserved.                                                                       |
+| `fxHide`        | Planned  | Recognized and preserved.                                                                       |
+
+All generated lengths that originate in the template use Tailwind arbitrary values. This prevents a project spacing scale from changing `fxLayoutGap="4"` from Angular Flex-Layout's `4px`, or `fxFlexOffset="4"` from its `4%` meaning.
+
+The complete static semantic and diagnostic contract is documented in [Tailwind CSS v4 static conversion semantics](architecture/tailwind-v4-static-semantics.md).
 
 ## Grid directives
 

@@ -47,6 +47,17 @@ describe('Angular template engine compatibility', () => {
     const input = await fixture('unresolved', 'input');
     const result = migrate(input);
 
-    expect(result.results.map(item => item.status)).toEqual(['review', 'review', 'review', 'unsupported', 'review']);
+    expect(result.results.map(item => item.status)).toEqual([
+      'review',
+      'review',
+      'review',
+      'unsupported',
+      'review',
+      'review',
+      'review',
+      'review',
+      'review',
+      'review',
+    ]);
   });
 });
