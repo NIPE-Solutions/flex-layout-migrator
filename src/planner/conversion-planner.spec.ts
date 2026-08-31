@@ -143,15 +143,12 @@ describe('ConversionPlanner', () => {
     ]);
   });
 
-  test('preserves base and responsive fxFlex inputs as one unresolved group', () => {
+  test('preserves every coupled flex sizing member when the family is responsive', () => {
     const source = '<div fxFlex="50" fxFlex.sm="100"></div>';
     const result = migrate(source);
 
     expect(result.output).toBe(source);
-    expect(result.results).toEqual([
-      expect.objectContaining({ status: 'review', code: 'context-unverified' }),
-      expect.objectContaining({ status: 'review', code: 'breakpoint-unverified' }),
-    ]);
+    expect(result.results.map(item => item.status)).toEqual(['review', 'review']);
   });
 
   test('rejects fxGrow without the fxFlex directive that owns the input', () => {

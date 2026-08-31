@@ -121,6 +121,7 @@ export class TailwindAdapter implements ConversionAdapter {
     }
 
     const flex = flexInputs.filter(input => input.directive === 'fxFlex');
+    const hasResponsiveFlexMember = flexInputs.some(input => input.breakpoint !== undefined);
     let flexPlans: readonly PlannedConversion[];
     if (flexInputs.some(input => input.binding !== 'literal' || input.breakpoint)) {
       flexPlans = flexInputs.map(input => {
@@ -135,6 +136,20 @@ export class TailwindAdapter implements ConversionAdapter {
               suggestion: 'Make fxFlex, fxGrow, and fxShrink static or migrate them together manually.',
             };
       });
+      if (hasResponsiveFlexMember) {
+        flexPlans = flexPlans.map(plan =>
+          plan.status === 'converted'
+            ? {
+                status: 'review',
+                input: plan.input,
+                code: 'context-unverified',
+                reason: 'The flex sizing group contains a responsive member.',
+                suggestion:
+                  'Migrate fxFlex, fxGrow, and fxShrink together after responsive sizing support is available.',
+              }
+            : plan,
+        );
+      }
     } else if (flex.length !== 1) {
       flexPlans = flexInputs.map(input => ({
         status: 'invalid',
