@@ -1,6 +1,6 @@
 import { Command } from 'commander';
 import { Migrator } from './migrator/migrator';
-import { ConverterFactory } from './converter/converter.factory';
+import { AdapterFactory } from './adapter/adapter.factory';
 import { logger } from './logger';
 import { getErrorMessage } from './util/error.util';
 import fs from 'fs';
@@ -23,8 +23,8 @@ const handleArguments = async (input: string, options: ProgramOptions) => {
     const output = options.output || input;
 
     const target = options.target;
-    const converter = ConverterFactory.createConverter(target);
-    const migrator = new Migrator(converter, input, output);
+    const adapter = AdapterFactory.create(target);
+    const migrator = new Migrator(adapter, input, output);
     await migrator.migrate();
   } catch (error) {
     logger.error(chalk.red('Failed to execute the command. Error: '), error);

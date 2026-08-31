@@ -4,7 +4,6 @@ import type { ConversionAdapter } from '../adapter/conversion-adapter';
 import { FileMigrator } from './file.migrator';
 import { FolderMigrator } from './folder.migrator';
 import { ProgressReporter } from './observer/progress.reporter';
-import { loadPrettierOptions } from '../lib/prettier.formatter';
 import { loadGitIgnore } from '../lib/gitignore.helper';
 import { Statistics } from '../statistics';
 import { StatisticsReporter } from './observer/statistics.reporter';
@@ -20,7 +19,6 @@ export class Migrator {
     const stat = await fs.promises.stat(this.inputPath);
 
     await loadGitIgnore(this.inputPath);
-    await loadPrettierOptions(this.inputPath);
 
     let migrator: FileMigrator | FolderMigrator;
     if (stat.isFile()) {

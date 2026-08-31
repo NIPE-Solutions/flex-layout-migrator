@@ -97,10 +97,13 @@ export class ConversionPlanner {
         });
       } else {
         const startTag = source.slice(conversion.element.startTag.start, conversion.element.startTag.end);
-        const insertionOffset = conversion.element.startTag.end - (startTag.endsWith('/>') ? 2 : 1);
+        const selfClosing = startTag.endsWith('/>');
+        const insertionOffset = conversion.element.startTag.end - (selfClosing ? 2 : 1);
+        const hasClosingWhitespace = /\s/.test(source[insertionOffset - 1] ?? '');
+        const classAttributeText = `class="${[...new Set(conversion.classNames)].join(' ')}"`;
         edits.push({
           range: { start: insertionOffset, end: insertionOffset },
-          text: ` class="${[...new Set(conversion.classNames)].join(' ')}"`,
+          text: selfClosing && hasClosingWhitespace ? `${classAttributeText} ` : ` ${classAttributeText}`,
           inputId: `${conversion.element.id}:classes`,
         });
       }

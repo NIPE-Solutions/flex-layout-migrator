@@ -1,0 +1,6 @@
+<!-- account layout -->
+@if (account(); as current) {
+  <app-card fxLayout="row" title="Hello {{ current.name }}" />
+} @else {
+  <div class="empty" fxLayoutGap="1rem">No account</div>
+}
