@@ -4,8 +4,8 @@ import { ConverterFactory } from './converter/converter.factory';
 import { logger } from './logger';
 import { getErrorMessage } from './util/error.util';
 import fs from 'fs';
-import figlet from 'figlet';
 import chalk from 'chalk';
+import packageJson from '../package.json' with { type: 'json' };
 
 interface ProgramOptions {
   output: string;
@@ -34,7 +34,9 @@ const handleArguments = async (input: string, options: ProgramOptions) => {
 async function main() {
   const program = new Command();
 
-  program.version('0.0.1').description('Migrate Angular Flex-Layout attributes to CSS classes or inline styles');
+  program
+    .version(packageJson.version)
+    .description('Migrate Angular Flex-Layout attributes to CSS classes or inline styles');
 
   program.argument('<input>', 'input HTML file or folder', value => {
     if (!fs.existsSync(value)) {
@@ -82,31 +84,4 @@ async function main() {
   }
 }
 
-const theme = {
-  title: chalk.cyan.bold,
-  border: chalk.gray.dim,
-  subtitle: chalk.yellow,
-  text: chalk.whiteBright,
-};
-
-const title = figlet.textSync('Flex-Layout Migrator', { font: 'Big', horizontalLayout: 'full' });
-
-const titleLines = title.split('\n');
-
-const borderWidth = Math.max(...titleLines.map(line => line.length));
-
-const border = theme.border('+' + '-'.repeat(borderWidth + 2) + '+');
-
-console.log(border);
-titleLines.forEach(line =>
-  console.log(
-    theme.border('| ') + theme.title(chalk.cyan(line)) + ' '.repeat(borderWidth - line.length) + theme.border(' |'),
-  ),
-);
-console.log(border);
-console.log(theme.subtitle('\nWelcome to the Flex-Layout Migrator!\n'));
-console.log(
-  theme.text('This tool will help you migrate your Angular Flex-Layout attributes to CSS classes or inline styles.\n'),
-);
-
-main();
+void main();

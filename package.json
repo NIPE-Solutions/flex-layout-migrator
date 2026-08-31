@@ -30,7 +30,8 @@
     "lint:fix": "eslint . --fix",
     "format": "prettier --check .",
     "format:write": "prettier --write .",
-    "verify": "npm run format && npm run lint && npm run typecheck && npm run test:coverage && npm run build",
+    "verify": "npm run format && npm run lint && npm run typecheck && npm run test:coverage && npm run build && npm run package:check",
+    "package:check": "node scripts/verify-package.mjs",
     "prepare": "husky"
   },
   "repository": {
@@ -56,7 +57,6 @@
     "cli-table3": "^0.6.5",
     "commander": "^15.0.0",
     "date-fns": "^4.4.0",
-    "figlet": "^1.11.4",
     "fs-extra": "^11.4.0",
     "p-queue": "^9.3.3",
     "spinnies": "^0.5.1",
@@ -67,7 +67,6 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "@types/figlet": "^1.7.0",
     "@types/fs-extra": "^11.0.4",
     "@types/node": "^26.4.0",
     "@types/spinnies": "^0.5.3",
