@@ -52,15 +52,6 @@ describe('TailwindClassPlanner', () => {
     expect(new TailwindClassPlanner().plan(input(directive, value), { element })).toEqual(expected);
   });
 
-  test.each([
-    ['30%', ['flex-[30%]']],
-    ['0 1 30%', ['flex-[0_1_30%]']],
-    ['1 1 0%', ['flex-1']],
-    ['', ['flex']],
-  ] as const)('plans fxFlex="%s"', (value, expected) => {
-    expect(new TailwindClassPlanner().plan(input('fxFlex', value), { element })).toEqual(expected);
-  });
-
   test('maps layout alignment to the main and cross axes', () => {
     const column = layoutElement('0', 'column');
 

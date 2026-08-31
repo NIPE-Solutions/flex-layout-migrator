@@ -33,12 +33,23 @@ export class ConversionPlanner {
     const elementById = new Map(elements.map(element => [element.id, element]));
     const conversionsByElement = new Map<string, ElementConversions>();
     const results: ConversionResult[] = [];
+    const plansByInputId = new Map<string, ReturnType<ConversionAdapter['plan']>>();
+
+    for (const element of elements) {
+      const elementInputs = inputs.filter(input => input.elementId === element.id);
+      if (!elementInputs.length) continue;
+      const parent = element.parentId ? elementById.get(element.parentId) : undefined;
+      const context = { element, ...(parent ? { parent } : {}) };
+      const plans =
+        adapter.planElement?.(elementInputs, context) ?? elementInputs.map(input => adapter.plan(input, context));
+      for (const planned of plans) plansByInputId.set(planned.input.id, planned);
+    }
 
     for (const input of inputs) {
       const element = elementById.get(input.elementId);
       if (!element) continue;
-      const parent = element.parentId ? elementById.get(element.parentId) : undefined;
-      const planned = adapter.plan(input, { element, ...(parent ? { parent } : {}) });
+      const planned = plansByInputId.get(input.id);
+      if (!planned) continue;
 
       if (planned.status !== 'converted') {
         results.push(planned);

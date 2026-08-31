@@ -23,19 +23,6 @@ export class TailwindClassPlanner {
         const [order = 'first'] = values;
         return [utility('order', order)];
       }
-      case 'fxFlex': {
-        if (!values.length) return ['flex'];
-        if (values.length === 1) return [utility('flex', values[0] ?? 'initial')];
-
-        const shorthand = values.slice(0, 3).join('_');
-        const mapped = {
-          '0_1_auto': 'initial',
-          '1_1_0': '1',
-          '1_1_0%': '1',
-          '1_1_auto': 'auto',
-        }[shorthand];
-        return [utility('flex', mapped ?? `[${shorthand}]`)];
-      }
       case 'fxLayoutAlign': {
         const layout = context.element.attributes.find(
           attribute => attribute.name === 'fxLayout' && attribute.binding === 'literal',

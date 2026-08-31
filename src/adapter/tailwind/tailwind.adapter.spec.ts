@@ -56,4 +56,11 @@ describe('TailwindAdapter', () => {
       { status: 'review', code: 'semantic-unsupported' },
     );
   });
+
+  test('uses exact upstream flex sizing when planning a standalone fxFlex input', () => {
+    expect(new TailwindAdapter().plan(input({ directive: 'fxFlex', value: '25' }), { element })).toMatchObject({
+      status: 'converted',
+      classNames: ['[flex:1_1_100%]', '[max-width:25%]', 'box-border'],
+    });
+  });
 });

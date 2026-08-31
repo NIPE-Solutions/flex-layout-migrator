@@ -70,4 +70,27 @@ describe('ConversionPlanner', () => {
       expect.objectContaining({ status: 'unsupported', code: 'target-unsupported' }),
     );
   });
+
+  test('plans fxFlex, fxGrow, and fxShrink as one atomic semantic group', () => {
+    const result = migrate('<div fxShrink="0" fxFlex="25" fxGrow="2"></div>');
+
+    expect(result.output).toBe('<div class="[flex:2_0_25%] box-border"></div>');
+    expect(result.results.map(item => item.status)).toEqual(['converted', 'converted', 'converted']);
+  });
+
+  test('preserves the complete flex group when one member is dynamic', () => {
+    const source = '<div fxFlex="25" [fxGrow]="factor"></div>';
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.results.map(item => item.status)).toEqual(['review', 'review']);
+  });
+
+  test('rejects fxGrow without the fxFlex directive that owns the input', () => {
+    const source = '<div fxGrow="2"></div>';
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.results).toContainEqual(expect.objectContaining({ status: 'invalid', code: 'invalid-value' }));
+  });
 });

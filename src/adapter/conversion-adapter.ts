@@ -1,4 +1,4 @@
-import type { ConversionResult } from '../analyzer/conversion-result';
+import type { DiagnosticCode } from '../analyzer/conversion-result';
 import type { LocatedFlexLayoutInput } from '../analyzer/flex-layout-attribute.analyzer';
 import type { TemplateElement } from '../template/template.model';
 
@@ -13,9 +13,16 @@ export type PlannedConversion =
       readonly input: LocatedFlexLayoutInput;
       readonly classNames: readonly string[];
     }
-  | Exclude<ConversionResult, { status: 'converted' | 'parse-error' }>;
+  | {
+      readonly status: 'review' | 'unsupported' | 'invalid';
+      readonly input: LocatedFlexLayoutInput;
+      readonly code: DiagnosticCode;
+      readonly reason: string;
+      readonly suggestion: string;
+    };
 
 export interface ConversionAdapter {
   readonly name: 'css' | 'tailwind';
   plan(input: LocatedFlexLayoutInput, context: ConversionContext): PlannedConversion;
+  planElement?(inputs: readonly LocatedFlexLayoutInput[], context: ConversionContext): readonly PlannedConversion[];
 }
