@@ -1,4 +1,14 @@
 import { compile } from 'tailwindcss';
+import { BreakpointCatalog, type BreakpointDefinition } from '../../src/breakpoint/breakpoint-catalog';
+import { ResponsiveVariantEmitter } from '../../src/adapter/tailwind/responsive-variant.emitter';
+
+function definition(alias: string): BreakpointDefinition {
+  const classification = new BreakpointCatalog().classify(alias);
+  if (classification.kind !== 'verified') {
+    throw new Error(`Expected ${alias} to be a verified viewport breakpoint`);
+  }
+  return classification.definition;
+}
 
 async function compileCandidates(candidates: readonly string[]): Promise<string> {
   const compiler = await compile('@tailwind utilities;');
@@ -7,10 +17,11 @@ async function compileCandidates(candidates: readonly string[]): Promise<string>
 
 describe('Tailwind CSS v4 arbitrary media variants', () => {
   test('compiles representative exact viewport ranges', async () => {
+    const emitter = new ResponsiveVariantEmitter();
     const css = await compileCandidates([
-      '[@media_screen_and_(min-width:_600px)]:flex-col',
-      '[@media_screen_and_(max-width:_599.98px)]:flex-col',
-      '[@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:flex-col',
+      emitter.emit(definition('gt-xs'), 'flex-col'),
+      emitter.emit(definition('lt-sm'), 'flex-col'),
+      emitter.emit(definition('sm'), 'flex-col'),
     ]);
 
     expect(css).toContain('@media screen and (min-width: 600px)');

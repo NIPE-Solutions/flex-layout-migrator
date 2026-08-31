@@ -2,8 +2,8 @@ import type { BreakpointDefinition, MediaRange } from '../../breakpoint/breakpoi
 
 export class ResponsiveVariantEmitter {
   emit(definition: BreakpointDefinition, utility: string): string {
-    if (utility.includes('[@media')) {
-      throw new Error('Cannot nest a responsive media variant');
+    if (this.hasVariant(utility)) {
+      throw new Error('Cannot decorate an already-variant utility');
     }
 
     return `[${this.mediaQuery(definition.range)}]:${utility}`;
@@ -16,5 +16,21 @@ export class ResponsiveVariantEmitter {
     ].filter((condition): condition is string => condition !== undefined);
 
     return `@media_screen_and_${conditions.join('_and_')}`;
+  }
+
+  private hasVariant(utility: string): boolean {
+    let bracketDepth = 0;
+
+    for (const character of utility) {
+      if (character === '[') {
+        bracketDepth += 1;
+      } else if (character === ']') {
+        bracketDepth -= 1;
+      } else if (character === ':' && bracketDepth === 0) {
+        return true;
+      }
+    }
+
+    return false;
   }
 }

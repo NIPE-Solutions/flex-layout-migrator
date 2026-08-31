@@ -18,9 +18,12 @@ describe('ResponsiveVariantEmitter', () => {
     expect(new ResponsiveVariantEmitter().emit(definition(alias), utility)).toBe(expected);
   });
 
-  test('rejects a utility already decorated with an arbitrary media variant', () => {
-    expect(() =>
-      new ResponsiveVariantEmitter().emit(definition('sm'), '[@media_screen_and_(min-width:_600px)]:flex-col'),
-    ).toThrow('Cannot nest a responsive media variant');
-  });
+  test.each(['sm:flex-col', '[@media_screen_and_(min-width:_600px)]:flex-col'])(
+    'rejects a utility already decorated with the responsive variant %s',
+    utility => {
+      expect(() => new ResponsiveVariantEmitter().emit(definition('sm'), utility)).toThrow(
+        'Cannot decorate an already-variant utility',
+      );
+    },
+  );
 });
