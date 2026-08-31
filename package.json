@@ -1,17 +1,37 @@
 {
-  "name": "@ng-flex/layout-migrator",
-  "version": "1.0.0",
-  "description": "This tool assists in migrating projects that use the deprecated Angular Flex-Layout library to CSS classes. The package is designed to be as flexible and customizable as possible to accommodate different migration scenarios. Contributions are highly welcome!",
-  "main": "./dist/main.js",
+  "name": "@nipe-solutions/flex-layout-codemod",
+  "version": "2.0.0-beta.0",
+  "description": "A safety-first codemod for migrating Angular Flex-Layout templates to native CSS or Tailwind CSS.",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "packageManager": "npm@11",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
   "scripts": {
-    "build": "tsc",
+    "clean": "rimraf dist coverage",
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
     "start": "ts-node ./src/main.ts",
-    "test": "jest",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
     "postinstall": "if-env -n NODE_ENV=production || husky install",
     "lint": "eslint 'src/**/*.{js,ts}'",
     "lint:fix": "eslint 'src/**/*.{js,ts}' --fix",
     "prettier": "prettier --check 'src/**/*.{js,ts,json}'",
-    "prettier:write": "prettier --write 'src/**/*.{js,ts,json}'"
+    "prettier:write": "prettier --write 'src/**/*.{js,ts,json}'",
+    "verify": "npm run prettier && npm run lint && npm run typecheck && npm run test:coverage && npm run build",
+    "prepare": "husky"
   },
   "repository": {
     "type": "git",
@@ -47,7 +67,7 @@
     "winston": "^3.8.2"
   },
   "bin": {
-    "fxMigrate": "./dist/main.js"
+    "flex-layout-codemod": "./dist/cli.js"
   },
   "devDependencies": {
     "@types/cli-progress": "^3.11.0",
@@ -56,6 +76,7 @@
     "@types/jest": "^29.5.1",
     "@types/jsdom": "^21.1.1",
     "@types/mock-fs": "^4.13.1",
+    "@types/node": "^26.4.0",
     "@types/spinnies": "^0.5.0",
     "@typescript-eslint/eslint-plugin": "^5.59.2",
     "@typescript-eslint/parser": "^5.59.2",
@@ -68,10 +89,13 @@
     "lint-staged": "^13.2.2",
     "mock-fs": "^5.2.0",
     "prettier": "^2.8.8",
+    "rimraf": "^6.1.3",
     "ts-jest": "^29.1.0",
     "ts-node": "^10.9.1",
     "tsconfig-paths": "^4.2.0",
-    "typescript": "^5.0.4"
+    "tsup": "^8.5.1",
+    "typescript": "^5.0.4",
+    "vitest": "^4.1.11"
   },
   "husky": {
     "hooks": {
