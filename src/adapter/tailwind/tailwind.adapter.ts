@@ -80,17 +80,7 @@ export class TailwindAdapter implements ConversionAdapter {
 
     const flex = flexInputs.filter(input => input.directive === 'fxFlex');
     let flexPlans: readonly PlannedConversion[];
-    if (flex.length !== 1) {
-      flexPlans = flexInputs.map(input => ({
-        status: 'invalid',
-        input,
-        code: 'invalid-value',
-        reason: flex.length
-          ? 'Multiple fxFlex inputs cannot form one static flex item.'
-          : `${input.directive} requires fxFlex.`,
-        suggestion: 'Keep one static fxFlex directive or migrate this flex item manually.',
-      }));
-    } else if (flexInputs.some(input => input.binding !== 'literal' || input.breakpoint)) {
+    if (flexInputs.some(input => input.binding !== 'literal' || input.breakpoint)) {
       flexPlans = flexInputs.map(input => {
         const ownPlan = this.plan(input, context);
         return input.binding !== 'literal' || input.breakpoint
@@ -103,6 +93,16 @@ export class TailwindAdapter implements ConversionAdapter {
               suggestion: 'Make fxFlex, fxGrow, and fxShrink static or migrate them together manually.',
             };
       });
+    } else if (flex.length !== 1) {
+      flexPlans = flexInputs.map(input => ({
+        status: 'invalid',
+        input,
+        code: 'invalid-value',
+        reason: flex.length
+          ? 'Multiple fxFlex inputs cannot form one static flex item.'
+          : `${input.directive} requires fxFlex.`,
+        suggestion: 'Keep one static fxFlex directive or migrate this flex item manually.',
+      }));
     } else {
       const layout = staticLayoutContext(context.parent?.attributes ?? []);
       const planned = planFlexItem({

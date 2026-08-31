@@ -97,6 +97,17 @@ describe('ConversionPlanner', () => {
     ]);
   });
 
+  test('preserves base and responsive fxFlex inputs as one unresolved group', () => {
+    const source = '<div fxFlex="50" fxFlex.sm="100"></div>';
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.results).toEqual([
+      expect.objectContaining({ status: 'review', code: 'context-unverified' }),
+      expect.objectContaining({ status: 'review', code: 'breakpoint-unverified' }),
+    ]);
+  });
+
   test('rejects fxGrow without the fxFlex directive that owns the input', () => {
     const source = '<div fxGrow="2"></div>';
     const result = migrate(source);
