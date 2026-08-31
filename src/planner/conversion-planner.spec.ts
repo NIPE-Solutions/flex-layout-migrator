@@ -46,6 +46,14 @@ describe('ConversionPlanner', () => {
     expect(result.output).toBe('<div class="flex card flex-row box-border"></div>');
   });
 
+  test('preserves a directive when an existing Tailwind utility controls the same property', () => {
+    const source = '<div class="card flex-col" fxLayout="row"></div>';
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.results).toContainEqual(expect.objectContaining({ status: 'review', code: 'class-conflict' }));
+  });
+
   test('preserves the directive when a bound class cannot be merged safely', () => {
     const source = '<div [class]="classes" fxLayout="row"></div>';
 

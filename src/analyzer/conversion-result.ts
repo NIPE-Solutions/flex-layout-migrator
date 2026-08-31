@@ -5,6 +5,7 @@ export type ConversionStatus = 'converted' | 'review' | 'unsupported' | 'invalid
 
 export type DiagnosticCode =
   | 'bound-class'
+  | 'class-conflict'
   | 'breakpoint-unverified'
   | 'custom-breakpoint'
   | 'dynamic-binding'
