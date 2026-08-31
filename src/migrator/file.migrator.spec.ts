@@ -1,8 +1,8 @@
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { access, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { IConverter } from '../converter/converter';
-import { TailwindCssConverter } from '../converter/tailwind/tailwind.converter';
+import { TailwindAdapter } from '../adapter/tailwind/tailwind.adapter';
+import type { AtomicFileWriter } from '../lib/atomic-file.writer';
 import { FileMigrator } from './file.migrator';
 
 describe('FileMigrator', () => {
@@ -20,91 +20,55 @@ describe('FileMigrator', () => {
     await rm(temporaryDirectory, { recursive: true, force: true });
   });
 
-  test('migrates a template through the converter and writes the result', async () => {
-    await writeFile(input, '<div fxFlex="100%"></div>', 'utf8');
+  test('migrates a static template and returns source-ordered results', async () => {
+    await writeFile(input, '<div fxLayout="column" fxLayoutGap="4"></div>', 'utf8');
 
-    const converter = {
-      canConvert: vi.fn(() => true),
-      prepare: vi.fn(() => ({ usesPropertyBinding: false })),
-      convert: vi.fn((_attribute, _values, element) => element.addClass('flex-full')),
-      getAllAttributes: vi.fn(() => ['fxFlex']),
-      isSupportedFileExtension: vi.fn(() => true),
-      getPrettierConfig: vi.fn(() => ({ parser: 'angular' as const })),
-    } as unknown as IConverter;
+    const results = await new FileMigrator(new TailwindAdapter(), input, output).migrate();
 
-    const migrator = new FileMigrator(converter, input, output);
-    await migrator.migrate();
-
-    expect(converter.canConvert).toHaveBeenCalledWith('fxFlex', false);
-    expect(converter.convert).toHaveBeenCalledOnce();
-    const migrated = await readFile(output, 'utf8');
-    expect(migrated).toContain('class="flex-full"');
-    expect(migrated).not.toContain('fxFlex');
-    expect(migrator.getResults()).toEqual([
-      expect.objectContaining({
-        status: 'converted',
-        input: expect.objectContaining({ directive: 'fxFlex', value: '100%' }),
-      }),
-    ]);
+    expect(await readFile(output, 'utf8')).toBe('<div class="flex flex-col gap-4"></div>');
+    expect(results.map(result => result.status)).toEqual(['converted', 'converted']);
   });
 
-  test('preserves dynamic bindings instead of approximating them', async () => {
-    await writeFile(input, '<div [fxFlex]="basis"></div>', 'utf8');
-    const migrator = new FileMigrator(new TailwindCssConverter(), input, output);
+  test.each([
+    ['<div [fxFlex]="basis"></div>', 'dynamic-binding'],
+    ['<div fxLayout.sm="row"></div>', 'breakpoint-unverified'],
+    ['<div fxLayout.cinema="row"></div>', 'custom-breakpoint'],
+  ])('preserves unresolved input %s', async (source, code) => {
+    await writeFile(input, source, 'utf8');
+    const writer = { write: vi.fn() } as unknown as AtomicFileWriter;
 
-    await migrator.migrate();
+    const results = await new FileMigrator(new TailwindAdapter(), input, output, writer).migrate();
 
-    expect(await readFile(output, 'utf8')).toContain('[fxFlex]="basis"');
-    expect(migrator.getResults()).toContainEqual(
-      expect.objectContaining({
-        status: 'review',
-        code: 'dynamic-binding',
-      }),
-    );
+    expect(writer.write).not.toHaveBeenCalled();
+    expect(results).toContainEqual(expect.objectContaining({ status: 'review', code }));
   });
 
-  test('preserves recognized inputs unsupported by the adapter', async () => {
-    await writeFile(input, '<div fxShow="false"></div>', 'utf8');
-    const migrator = new FileMigrator(new TailwindCssConverter(), input, output);
+  test('returns parse diagnostics and does not write malformed templates', async () => {
+    await writeFile(input, '<span fxLayout="row" />', 'utf8');
+    const writer = { write: vi.fn() } as unknown as AtomicFileWriter;
 
-    await migrator.migrate();
+    const results = await new FileMigrator(new TailwindAdapter(), input, output, writer).migrate();
 
-    expect(await readFile(output, 'utf8')).toContain('fxShow="false"');
-    expect(migrator.getResults()).toContainEqual(
-      expect.objectContaining({
-        status: 'unsupported',
-        code: 'target-unsupported',
-      }),
-    );
+    expect(writer.write).not.toHaveBeenCalled();
+    expect(results).toContainEqual(expect.objectContaining({ status: 'parse-error', code: 'template-parse-error' }));
   });
 
-  test('preserves responsive inputs until exact media queries are implemented', async () => {
-    await writeFile(input, '<div fxLayout.sm="row"></div>', 'utf8');
-    const migrator = new FileMigrator(new TailwindCssConverter(), input, output);
+  test('does not create output when a valid template needs no edits', async () => {
+    await writeFile(input, '<div class="card"></div>', 'utf8');
 
-    await migrator.migrate();
+    const results = await new FileMigrator(new TailwindAdapter(), input, output).migrate();
 
-    expect(await readFile(output, 'utf8')).toContain('fxLayout.sm="row"');
-    expect(migrator.getResults()).toContainEqual(
-      expect.objectContaining({
-        status: 'review',
-        code: 'breakpoint-unverified',
-      }),
-    );
+    expect(results).toEqual([]);
+    await expect(access(output)).rejects.toThrow();
   });
 
-  test('preserves custom breakpoints for review', async () => {
-    await writeFile(input, '<div fxLayout.cinema="row"></div>', 'utf8');
-    const migrator = new FileMigrator(new TailwindCssConverter(), input, output);
+  test('is idempotent when rerun in place', async () => {
+    await writeFile(input, '<div fxLayout="row"></div>', 'utf8');
+    const migrator = new FileMigrator(new TailwindAdapter(), input, input);
 
-    await migrator.migrate();
-
-    expect(await readFile(output, 'utf8')).toContain('fxLayout.cinema="row"');
-    expect(migrator.getResults()).toContainEqual(
-      expect.objectContaining({
-        status: 'review',
-        code: 'custom-breakpoint',
-      }),
-    );
+    expect((await migrator.migrate()).map(result => result.status)).toEqual(['converted']);
+    const once = await readFile(input, 'utf8');
+    expect(await migrator.migrate()).toEqual([]);
+    expect(await readFile(input, 'utf8')).toBe(once);
   });
 });

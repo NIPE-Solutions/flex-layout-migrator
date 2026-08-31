@@ -1,6 +1,6 @@
 import { Command } from 'commander';
 import { Migrator } from './migrator/migrator';
-import { ConverterFactory } from './converter/converter.factory';
+import { AdapterFactory } from './adapter/adapter.factory';
 import { logger } from './logger';
 import { getErrorMessage } from './util/error.util';
 import fs from 'fs';
@@ -23,8 +23,8 @@ const handleArguments = async (input: string, options: ProgramOptions) => {
     const output = options.output || input;
 
     const target = options.target;
-    const converter = ConverterFactory.createConverter(target);
-    const migrator = new Migrator(converter, input, output);
+    const adapter = AdapterFactory.create(target);
+    const migrator = new Migrator(adapter, input, output);
     await migrator.migrate();
   } catch (error) {
     logger.error(chalk.red('Failed to execute the command. Error: '), error);
@@ -34,9 +34,7 @@ const handleArguments = async (input: string, options: ProgramOptions) => {
 async function main() {
   const program = new Command();
 
-  program
-    .version(packageJson.version)
-    .description('Migrate Angular Flex-Layout attributes to CSS classes or inline styles');
+  program.version(packageJson.version).description('Migrate Angular Flex-Layout attributes to Tailwind CSS utilities');
 
   program.argument('<input>', 'input HTML file or folder', value => {
     if (!fs.existsSync(value)) {
@@ -60,9 +58,9 @@ async function main() {
 
   program.option(
     '-t, --target <target>',
-    'Target CSS technology (options: "tailwind", "plain-css")',
+    'Target CSS technology (option: "tailwind")',
     value => {
-      const validTargets = ['tailwind', 'plain-css'];
+      const validTargets = ['tailwind'];
       if (!validTargets.includes(value)) {
         logger.error(chalk.red(`Error: Invalid target ${value}. Valid targets are: ${validTargets.join(', ')}`));
         process.exit(1);

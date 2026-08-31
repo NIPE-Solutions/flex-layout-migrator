@@ -6,29 +6,29 @@ The source contract and classification rules are documented in [Conversion safet
 
 ## Status definitions
 
-- **Limited**: unbound, non-responsive literal values have an existing Tailwind converter. Its complete value matrix is still being audited.
+- **Limited**: unbound, non-responsive literal values are converted for the cases described below and covered by the compatibility corpus.
 - **Planned**: the analyzer recognizes the input, but no target adapter converts it yet.
 - **Preserved**: the input is intentionally left unchanged and reported for review.
 
-No native CSS conversions are available yet. The `plain-css` target currently performs no conversions and will become the `css` adapter during the v2 prerelease cycle.
+No native CSS conversions are available yet. The CLI currently accepts only the `tailwind` target.
 
 ## Flex directives
 
-| Directive       | Tailwind | Notes                                                                        |
-| --------------- | -------- | ---------------------------------------------------------------------------- |
-| `fxLayout`      | Limited  | Static values without a breakpoint only.                                     |
-| `fxLayoutAlign` | Limited  | Static values without a breakpoint only; parent direction affects semantics. |
-| `fxLayoutGap`   | Limited  | Static values without a breakpoint only.                                     |
-| `fxFlex`        | Limited  | Static values without a breakpoint only; the value matrix is incomplete.     |
-| `fxGrow`        | Planned  | Recognized and preserved.                                                    |
-| `fxShrink`      | Planned  | Recognized and preserved.                                                    |
-| `fxFlexAlign`   | Planned  | Recognized and preserved.                                                    |
-| `fxFlexFill`    | Limited  | Static use without a breakpoint only.                                        |
-| `fxFill`        | Planned  | Alias recognized and preserved.                                              |
-| `fxFlexOffset`  | Limited  | Static values without a breakpoint only; parent direction affects semantics. |
-| `fxFlexOrder`   | Limited  | Static values without a breakpoint only.                                     |
-| `fxShow`        | Planned  | Recognized and preserved.                                                    |
-| `fxHide`        | Planned  | Recognized and preserved.                                                    |
+| Directive       | Tailwind | Notes                                                                         |
+| --------------- | -------- | ----------------------------------------------------------------------------- |
+| `fxLayout`      | Limited  | Static row/column direction and wrap keywords without a breakpoint.           |
+| `fxLayoutAlign` | Limited  | Static main-axis and cross-axis keywords without a breakpoint.                |
+| `fxLayoutGap`   | Limited  | Static values without a breakpoint only.                                      |
+| `fxFlex`        | Limited  | Static one-to-three-part values; unknown shorthands use an arbitrary utility. |
+| `fxGrow`        | Planned  | Recognized and preserved.                                                     |
+| `fxShrink`      | Planned  | Recognized and preserved.                                                     |
+| `fxFlexAlign`   | Planned  | Recognized and preserved.                                                     |
+| `fxFlexFill`    | Limited  | Static use without a breakpoint only.                                         |
+| `fxFill`        | Planned  | Alias recognized and preserved.                                               |
+| `fxFlexOffset`  | Limited  | Static values without a breakpoint only; parent direction affects semantics.  |
+| `fxFlexOrder`   | Limited  | Static values without a breakpoint only.                                      |
+| `fxShow`        | Planned  | Recognized and preserved.                                                     |
+| `fxHide`        | Planned  | Recognized and preserved.                                                     |
 
 ## Grid directives
 
@@ -66,6 +66,6 @@ This is intentional. Angular Flex-Layout's `sm`, `md`, and other bounded aliases
 
 ## Reporting API
 
-`FileMigrator#getResults()` returns one structured result per recognized input processed in a file. Results use the statuses `converted`, `review`, `unsupported`, and `invalid`. Review and unsupported results include a stable diagnostic code, reason, and suggested action.
+`FileMigrator#migrate()` and `FileMigrator#getResults()` return one structured result per recognized input processed in a file. Results use the statuses `converted`, `review`, `unsupported`, `invalid`, and `parse-error`. Review and unsupported results include a stable diagnostic code, reason, and suggested action.
 
 The public CLI summary, strict exit codes, and JSON report described in the architecture document are planned and are not implemented in this increment.

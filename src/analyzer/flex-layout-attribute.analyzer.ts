@@ -1,4 +1,5 @@
 import { FLEX_LAYOUT_DIRECTIVES, FlexLayoutDirective, isFlexLayoutDirective } from './flex-layout.catalog';
+import type { SourceRange } from '../template/template.model';
 
 export type BindingKind = 'literal' | 'property';
 
@@ -8,6 +9,15 @@ export interface FlexLayoutInput {
   value: string;
   binding: BindingKind;
   breakpoint: string | undefined;
+}
+
+export interface LocatedFlexLayoutInput extends FlexLayoutInput {
+  readonly id: string;
+  readonly fileName: string;
+  readonly elementId: string;
+  readonly source: SourceRange;
+  readonly nameSource: SourceRange;
+  readonly valueSource?: SourceRange;
 }
 
 const responsiveOnlyDirectives = new Set<FlexLayoutDirective>(['class', 'ngClass', 'style', 'ngStyle']);

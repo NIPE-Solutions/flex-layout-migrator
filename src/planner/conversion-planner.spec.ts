@@ -1,0 +1,73 @@
+import { TailwindAdapter } from '../adapter/tailwind/tailwind.adapter';
+import { TemplateAnalyzer } from '../analyzer/template.analyzer';
+import { SourceEditor } from '../edit/source-editor';
+import { AngularTemplateParser } from '../template/angular-template.parser';
+import { ConversionPlanner } from './conversion-planner';
+
+function migrate(source: string) {
+  const parsed = new AngularTemplateParser().parse(source, 'fixture.html');
+  if (parsed.status !== 'parsed') throw new Error('Expected fixture to parse');
+  const inputs = new TemplateAnalyzer().analyze('fixture.html', parsed.elements);
+  const plan = new ConversionPlanner().plan(source, parsed.elements, inputs, new TailwindAdapter());
+  const edited = new SourceEditor().apply(source, plan.edits);
+  if (edited.status !== 'applied') throw new Error('Expected edits to be valid');
+  return { ...plan, output: edited.output };
+}
+
+describe('ConversionPlanner', () => {
+  test('removes a converted input and merges classes into a literal class attribute', () => {
+    const result = migrate('<div class="card" fxLayout="row"></div>');
+
+    expect(result.output).toBe('<div class="card flex flex-row"></div>');
+    expect(result.results).toEqual([
+      expect.objectContaining({
+        status: 'converted',
+        input: expect.objectContaining({ directive: 'fxLayout' }),
+      }),
+    ]);
+  });
+
+  test('inserts one deterministic class attribute for multiple conversions', () => {
+    const result = migrate('<div fxLayout="row" fxLayoutGap="4"></div>');
+
+    expect(result.output).toBe('<div class="flex flex-row gap-4"></div>');
+    expect(result.results.map(item => item.status)).toEqual(['converted', 'converted']);
+  });
+
+  test('inserts classes before the slash in a self-closing custom element', () => {
+    const result = migrate('<app-card fxLayout="column"/>');
+
+    expect(result.output).toBe('<app-card class="flex flex-col"/>');
+  });
+
+  test('deduplicates classes while preserving their first occurrence', () => {
+    const result = migrate('<div class="flex card flex" fxLayout="row"></div>');
+
+    expect(result.output).toBe('<div class="flex card flex-row"></div>');
+  });
+
+  test('preserves the directive when a bound class cannot be merged safely', () => {
+    const source = '<div [class]="classes" fxLayout="row"></div>';
+
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.results).toContainEqual(
+      expect.objectContaining({
+        status: 'review',
+        code: 'bound-class',
+      }),
+    );
+  });
+
+  test('preserves inputs the adapter does not support', () => {
+    const source = '<div fxShow="false"></div>';
+
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.results).toContainEqual(
+      expect.objectContaining({ status: 'unsupported', code: 'target-unsupported' }),
+    );
+  });
+});

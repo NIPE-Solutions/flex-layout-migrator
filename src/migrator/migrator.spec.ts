@@ -1,5 +1,5 @@
 import { Migrator } from './migrator';
-import { IConverter } from '../converter/converter';
+import { TailwindAdapter } from '../adapter/tailwind/tailwind.adapter';
 import { FileMigrator } from './file.migrator';
 import { FolderMigrator } from './folder.migrator';
 import * as fsStats from 'fs';
@@ -19,23 +19,15 @@ function createStatsMock(isFile: boolean, isDirectory: boolean): fsStats.Stats {
 }
 
 describe('Migrator', () => {
-  let converter: IConverter;
   let inputPath: string;
   let outputPath: string;
   let migrator: Migrator;
 
   beforeEach(() => {
-    converter = {
-      canConvert: vi.fn().mockReturnValue(true),
-      convert: vi.fn(),
-      getAllAttributes: vi.fn().mockReturnValue(['fxFlex']),
-      isSupportedFileExtension: vi.fn().mockReturnValue(true),
-    } as unknown as IConverter;
-
-    inputPath = 'inputPath';
+    inputPath = 'input.html';
     outputPath = 'outputPath';
 
-    migrator = new Migrator(converter, inputPath, outputPath);
+    migrator = new Migrator(new TailwindAdapter(), inputPath, outputPath);
   });
 
   afterEach(() => {
@@ -46,7 +38,7 @@ describe('Migrator', () => {
     statMock.mockResolvedValueOnce(createStatsMock(true, false));
 
     const fileMigratorSpy = vi.spyOn(FileMigrator.prototype, 'migrate');
-    fileMigratorSpy.mockImplementation(() => Promise.resolve());
+    fileMigratorSpy.mockResolvedValue([]);
 
     await migrator.migrate();
 
@@ -57,7 +49,7 @@ describe('Migrator', () => {
     statMock.mockResolvedValueOnce(createStatsMock(false, true));
 
     const folderMigratorSpy = vi.spyOn(FolderMigrator.prototype, 'migrate');
-    folderMigratorSpy.mockImplementation(() => Promise.resolve());
+    folderMigratorSpy.mockResolvedValue([]);
 
     await migrator.migrate();
 

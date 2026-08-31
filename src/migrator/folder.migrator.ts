@@ -1,104 +1,69 @@
-import * as path from 'path';
 import * as fs from 'fs-extra';
-import { BaseMigrator } from './base.migrator';
-import { FileMigrator } from './file.migrator';
-import { IConverter } from '../converter/converter';
-import { Stack } from '../lib/stack';
+import * as path from 'node:path';
+import type { ConversionAdapter } from '../adapter/conversion-adapter';
+import type { ConversionResult } from '../analyzer/conversion-result';
 import { shouldIgnore } from '../lib/gitignore.helper';
 import { logger } from '../logger';
+import { BaseMigrator } from './base.migrator';
+import { FileMigrator } from './file.migrator';
+
+interface FileEntry {
+  readonly input: string;
+  readonly relativePath: string;
+}
 
 export class FolderMigrator extends BaseMigrator {
   constructor(
-    protected override converter: IConverter,
-    private inputFolder: string,
-    private outputFolder: string,
+    protected override adapter: ConversionAdapter,
+    private readonly inputFolder: string,
+    private readonly outputFolder: string,
   ) {
-    super(converter);
+    super(adapter);
   }
 
-  public async migrate(): Promise<void> {
-    await this.processFolder(this.inputFolder, this.outputFolder);
-  }
+  public async migrate(): Promise<readonly ConversionResult[]> {
+    const files = await this.collectFiles(this.inputFolder, '');
+    files.sort((left, right) => path.normalize(left.input).localeCompare(path.normalize(right.input)));
 
-  private async processFolder(inputFolder: string, outputFolder: string): Promise<void> {
-    const stack = new Stack<{ dir: string; relativePath: string }>([{ dir: inputFolder, relativePath: '' }]);
-
-    while (!stack.isEmpty()) {
-      const { dir, relativePath } = stack.pop();
-
-      this.notifyObservers('folderStarted', {
-        id: dir,
-        folderName: path.basename(dir),
+    const results: ConversionResult[] = [];
+    for (const [index, file] of files.entries()) {
+      const output = path.join(this.outputFolder, file.relativePath);
+      const fileMigrator = new FileMigrator(this.adapter, file.input, output);
+      fileMigrator.addObserver(...this.observers);
+      results.push(...(await fileMigrator.migrate()));
+      this.notifyObservers('folderProgress', {
+        id: this.inputFolder,
+        percentage: Math.round(((index + 1) / files.length) * 100),
+        processedFiles: index + 1,
       });
+    }
 
-      const filesAndDirectories = await this.readdirWithStats(dir);
+    this.notifyObservers('folderCompleted', {
+      id: this.inputFolder,
+      folderName: path.basename(this.inputFolder),
+    });
+    return results;
+  }
 
-      const fileCount = filesAndDirectories.filter(({ stat }) => stat.isFile()).length;
-      let processedFiles = 0;
+  private async collectFiles(directory: string, relativeDirectory: string): Promise<FileEntry[]> {
+    this.notifyObservers('folderStarted', { id: directory, folderName: path.basename(directory) });
+    const names = await fs.promises.readdir(directory);
+    names.sort();
+    const files: FileEntry[] = [];
 
-      for (const { item, stat, currentPath } of filesAndDirectories) {
-        logger.debug(`Processing ${currentPath}`);
-        if (shouldIgnore(this.inputFolder, currentPath)) {
-          logger.debug(`Ignoring ${currentPath}`);
-          continue;
-        }
-        if (stat.isDirectory()) {
-          stack.push({
-            dir: currentPath,
-            relativePath: path.join(relativePath, item),
-          });
-        } else if (stat.isFile()) {
-          // Only process files that are supported by the converter
-          if (this.converter.isSupportedFileExtension(path.extname(item))) {
-            const outputPath = path.join(outputFolder, relativePath, item);
-            await this.migrateFile(currentPath, outputPath);
-          }
+    for (const name of names) {
+      const input = path.join(directory, name);
+      logger.debug(`Processing ${input}`);
+      if (shouldIgnore(this.inputFolder, input)) continue;
 
-          processedFiles++;
-          const percentage = (processedFiles / fileCount) * 100;
-
-          this.notifyObservers('folderProgress', {
-            id: dir,
-            percentage,
-            processedFiles,
-          });
-        }
+      const stat = await fs.promises.stat(input);
+      if (stat.isDirectory()) {
+        files.push(...(await this.collectFiles(input, path.join(relativeDirectory, name))));
+      } else if (stat.isFile() && path.extname(name).toLowerCase() === '.html') {
+        files.push({ input, relativePath: path.join(relativeDirectory, name) });
       }
-
-      this.notifyObservers('folderCompleted', {
-        id: dir,
-        folderName: path.basename(dir),
-      });
-    }
-  }
-
-  /**
-   * Reads the directory and returns an array of items with their stats and full path
-   * @param dir path to the directory
-   * @returns an array of items with their stats and full path
-   */
-  private async readdirWithStats(dir: string): Promise<{ item: string; stat: fs.Stats; currentPath: string }[]> {
-    const filesAndDirectories = await fs.promises.readdir(dir);
-
-    return await Promise.all(
-      filesAndDirectories.map(async item => {
-        const currentPath = path.join(dir, item);
-        const stat = await fs.promises.stat(currentPath);
-        return { item, stat, currentPath };
-      }),
-    );
-  }
-
-  private async migrateFile(currentPath: string, outputPath: string): Promise<void> {
-    const fileMigrator = new FileMigrator(this.converter, currentPath, outputPath);
-
-    for (const observer of this.observers) {
-      fileMigrator.addObserver(observer);
     }
 
-    // Ensure the output directory exists
-    await fs.ensureDir(path.dirname(outputPath));
-
-    await fileMigrator.migrate();
+    return files;
   }
 }

@@ -53,14 +53,12 @@
   },
   "homepage": "https://github.com/NIPE-Solutions/flex-layout-migrator#readme",
   "dependencies": {
+    "@angular/compiler": "21.2.22",
     "chalk": "^6.0.0",
-    "cheerio": "^1.2.0",
-    "classnames": "^2.5.1",
     "cli-table3": "^0.6.5",
     "commander": "^15.0.0",
     "date-fns": "^4.4.0",
     "fs-extra": "^11.4.0",
-    "p-queue": "^9.3.3",
     "spinnies": "^0.5.1",
     "winston": "^3.19.0"
   },
