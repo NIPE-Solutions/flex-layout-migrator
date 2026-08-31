@@ -13,8 +13,27 @@ export interface FilePlan {
 interface ElementConversions {
   readonly element: TemplateElement;
   readonly inputs: LocatedFlexLayoutInput[];
-  readonly classNames: string[];
+  readonly classPlans: Array<{
+    readonly input: LocatedFlexLayoutInput;
+    readonly classNames: readonly string[];
+  }>;
 }
+
+const directiveOrder = new Map(
+  [
+    'fxLayout',
+    'fxLayoutGap',
+    'fxLayoutAlign',
+    'fxFlex',
+    'fxGrow',
+    'fxShrink',
+    'fxFlexAlign',
+    'fxFlexFill',
+    'fxFill',
+    'fxFlexOffset',
+    'fxFlexOrder',
+  ].map((directive, index) => [directive, index]),
+);
 
 function removalRange(source: string, input: LocatedFlexLayoutInput): SourceRange {
   const start =
@@ -92,16 +111,24 @@ export class ConversionPlanner {
       const conversion = conversionsByElement.get(element.id) ?? {
         element,
         inputs: [],
-        classNames: [],
+        classPlans: [],
       };
       conversion.inputs.push(input);
-      conversion.classNames.push(...planned.classNames);
+      conversion.classPlans.push({ input, classNames: planned.classNames });
       conversionsByElement.set(element.id, conversion);
       results.push({ status: 'converted', input });
     }
 
     const edits: SourceEdit[] = [];
     for (const conversion of conversionsByElement.values()) {
+      const generatedClassNames = [...conversion.classPlans]
+        .sort(
+          (left, right) =>
+            (directiveOrder.get(left.input.directive) ?? Number.MAX_SAFE_INTEGER) -
+              (directiveOrder.get(right.input.directive) ?? Number.MAX_SAFE_INTEGER) ||
+            left.input.source.start - right.input.source.start,
+        )
+        .flatMap(plan => plan.classNames);
       edits.push(
         ...conversion.inputs.map(input => ({
           range: removalRange(source, input),
@@ -114,9 +141,7 @@ export class ConversionPlanner {
         attribute => attribute.name === 'class' && attribute.binding === 'literal',
       );
       if (classAttribute?.valueSource) {
-        const classNames = [
-          ...new Set([...classAttribute.value.split(/\s+/).filter(Boolean), ...conversion.classNames]),
-        ];
+        const classNames = [...new Set([...classAttribute.value.split(/\s+/).filter(Boolean), ...generatedClassNames])];
         edits.push({
           range: classAttribute.valueSource,
           text: classNames.join(' '),
@@ -127,7 +152,7 @@ export class ConversionPlanner {
         const selfClosing = startTag.endsWith('/>');
         const insertionOffset = conversion.element.startTag.end - (selfClosing ? 2 : 1);
         const hasClosingWhitespace = /\s/.test(source[insertionOffset - 1] ?? '');
-        const classAttributeText = `class="${[...new Set(conversion.classNames)].join(' ')}"`;
+        const classAttributeText = `class="${[...new Set(generatedClassNames)].join(' ')}"`;
         edits.push({
           range: { start: insertionOffset, end: insertionOffset },
           text: selfClosing && hasClosingWhitespace ? `${classAttributeText} ` : ` ${classAttributeText}`,

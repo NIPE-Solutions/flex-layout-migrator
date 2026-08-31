@@ -34,6 +34,14 @@ describe('ConversionPlanner', () => {
     expect(result.results.map(item => item.status)).toEqual(['converted', 'converted']);
   });
 
+  test('orders generated classes independently of directive source order', () => {
+    const forward = migrate('<div fxLayout="row" fxLayoutGap="4"></div>');
+    const reversed = migrate('<div fxLayoutGap="4" fxLayout="row"></div>');
+
+    expect(forward.output).toBe('<div class="flex flex-row box-border gap-[4px]"></div>');
+    expect(reversed.output).toBe(forward.output);
+  });
+
   test('inserts classes before the slash in a self-closing custom element', () => {
     const result = migrate('<app-card fxLayout="column"/>');
 
