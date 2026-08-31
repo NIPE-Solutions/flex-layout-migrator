@@ -3,6 +3,7 @@ import { planFlexItem } from './flex-item.strategy';
 describe('planFlexItem', () => {
   test.each([
     ['', undefined, undefined, 'row', ['[flex:1_1_0%]', 'box-border']],
+    ['0px', undefined, undefined, 'row', ['[flex:1_1_0%]', 'box-border']],
     ['25', undefined, undefined, 'row', ['[flex:1_1_100%]', '[max-width:25%]', 'box-border']],
     ['25px', undefined, undefined, 'row', ['[flex:1_1_25px]', '[min-width:25px]', '[max-width:25px]', 'box-border']],
     ['25', '2', '0', 'row', ['[flex:2_0_25%]', 'box-border']],
@@ -29,6 +30,7 @@ describe('planFlexItem', () => {
         'box-border',
       ],
     ],
+    ['25', undefined, undefined, 'row wrap-reverse', ['[flex:1_1_100%]', '[max-width:25%]', 'box-border']],
   ] as const)('reproduces fxFlex=%j grow=%j shrink=%j in %j', (basis, grow, shrink, layout, expected) => {
     expect(planFlexItem({ basis, grow, shrink, layout })).toEqual({
       status: 'converted',

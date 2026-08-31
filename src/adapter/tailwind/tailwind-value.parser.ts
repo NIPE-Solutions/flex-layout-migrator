@@ -21,5 +21,5 @@ export function parseCssLength(source: string, options: CssLengthOptions): Parse
 }
 
 export function arbitraryValue(value: string): string {
-  return `[${value.replaceAll(' ', '_')}]`;
+  return `[${value.replaceAll(/\s+/g, '_')}]`;
 }

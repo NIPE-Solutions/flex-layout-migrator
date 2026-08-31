@@ -11,7 +11,7 @@ export interface FlexItemInput {
 
 const FACTOR = /^\d+(?:\.\d+)?$/;
 function property(name: string, value: string): string {
-  return `[${name}:${value.replaceAll(' ', '_')}]`;
+  return `[${name}:${value.replaceAll(/\s+/g, '_')}]`;
 }
 
 export function planFlexItem(input: FlexItemInput): TailwindStrategyResult {
@@ -63,6 +63,7 @@ export function planFlexItem(input: FlexItemInput): TailwindStrategyResult {
     basis = parsed.value;
     usingCalc = basis.startsWith('calc(');
     isValue = usingCalc || !basis.endsWith('%');
+    if (basis === '0px') basis = '0%';
   }
 
   const fixed = grow === '0' && shrink === '0';
@@ -74,7 +75,7 @@ export function planFlexItem(input: FlexItemInput): TailwindStrategyResult {
       : undefined;
 
   const effectiveBasis =
-    min || max ? (layout.value.wrap !== 'nowrap' ? (max ?? min ?? basis) : isValue ? basis : '100%') : basis;
+    min || max ? (layout.value.wrap === 'wrap' ? (max ?? min ?? basis) : isValue ? basis : '100%') : basis;
   const flexClasses = usingCalc
     ? [property('flex-grow', grow), property('flex-shrink', shrink), property('flex-basis', effectiveBasis)]
     : [property('flex', `${grow} ${shrink} ${effectiveBasis}`)];
