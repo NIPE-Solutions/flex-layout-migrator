@@ -21,6 +21,10 @@ export class Migrator {
   ) {}
 
   public async migrate(options: MigrationOptions = { dryRun: false }): Promise<MigrationReport> {
+    if (this.adapter.name !== 'tailwind') {
+      throw new Error(`Unsupported migration target: ${this.adapter.name}`);
+    }
+
     const startedAt = this.now();
     const stat = await fs.promises.stat(this.inputPath);
 
@@ -40,10 +44,6 @@ export class Migrator {
       });
     } else {
       throw new Error(`Unsupported input type: ${this.inputPath}`);
-    }
-
-    if (this.adapter.name !== 'tailwind') {
-      throw new Error(`Unsupported migration target: ${this.adapter.name}`);
     }
 
     return new MigrationReportBuilder().build(

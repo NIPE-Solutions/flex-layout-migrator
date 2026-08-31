@@ -15,7 +15,7 @@ export class MigrationReportBuilder {
     durationMs: number,
     files: readonly FileMigrationResult[],
   ): MigrationReport {
-    const pathApi = this.pathApi(inputRoot);
+    const pathApi = this.pathApi(inputRoot, ...files.map(file => file.inputPath));
     const singleFile = files.length === 1 && this.samePath(pathApi, inputRoot, files[0]?.inputPath ?? '');
     const fileReports = files
       .map(file => this.fileReport(pathApi, inputRoot, singleFile, file))
@@ -34,8 +34,10 @@ export class MigrationReportBuilder {
     };
   }
 
-  private pathApi(value: string): PathApi {
-    return /^[A-Za-z]:[\\/]/.test(value) || value.includes('\\') ? path.win32 : path.posix;
+  private pathApi(...values: readonly string[]): PathApi {
+    if (values.some(value => /^[A-Za-z]:[\\/]/.test(value) || value.includes('\\'))) return path.win32;
+    if (values.some(value => value.includes('/'))) return path.posix;
+    return path;
   }
 
   private samePath(pathApi: PathApi, left: string, right: string): boolean {

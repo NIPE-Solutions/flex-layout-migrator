@@ -1,6 +1,7 @@
-import { access, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { ConversionAdapter } from '../adapter/conversion-adapter';
 import { TailwindAdapter } from '../adapter/tailwind/tailwind.adapter';
 import { Migrator } from './migrator';
 
@@ -73,5 +74,27 @@ describe('Migrator', () => {
     await expect(
       new Migrator(new TailwindAdapter(), inputPath, inputPath, () => 0).migrate({ dryRun: false }),
     ).rejects.toThrow(`Unsupported file type: ${inputPath}`);
+  });
+
+  test('rejects unsupported targets before creating or changing output', async () => {
+    const inputPath = join(temporaryDirectory, 'input.html');
+    const missingOutputPath = join(temporaryDirectory, 'new', 'output.html');
+    const existingOutputPath = join(temporaryDirectory, 'existing.html');
+    await writeFile(inputPath, '<div fxLayout="row"></div>', 'utf8');
+    await writeFile(existingOutputPath, 'preserve me', 'utf8');
+    const cssAdapter: ConversionAdapter = {
+      name: 'css',
+      plan: input => ({ status: 'converted', input, classNames: ['must-not-be-written'] }),
+    };
+
+    await expect(new Migrator(cssAdapter, inputPath, missingOutputPath, () => 0).migrate()).rejects.toThrow(
+      'Unsupported migration target: css',
+    );
+    await expect(access(missingOutputPath)).rejects.toThrow();
+
+    await expect(new Migrator(cssAdapter, inputPath, existingOutputPath, () => 0).migrate()).rejects.toThrow(
+      'Unsupported migration target: css',
+    );
+    expect(await readFile(existingOutputPath, 'utf8')).toBe('preserve me');
   });
 });

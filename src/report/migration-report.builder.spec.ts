@@ -137,6 +137,14 @@ describe('MigrationReportBuilder', () => {
     expect(JSON.stringify(report)).not.toContain(outputRoot);
   });
 
+  test('normalizes files under a relative Windows folder root', () => {
+    const report = new MigrationReportBuilder().build('templates', 'generated', 'tailwind', false, 0, [
+      file(String.raw`templates\nested\a.html`, String.raw`generated\nested\a.html`, false, []),
+    ]);
+
+    expect(report.files.map(item => item.path)).toEqual(['nested/a.html']);
+  });
+
   test('uses a basename for single-file input', () => {
     const inputPath = '/private/checkout/card.component.html';
     const report = new MigrationReportBuilder().build(
