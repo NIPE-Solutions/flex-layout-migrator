@@ -211,4 +211,49 @@ describe('ConversionPlanner', () => {
     expect(result.output).toContain('[@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:mt-[8%]');
     expect(result.results.every(item => item.status === 'converted')).toBe(true);
   });
+
+  test('preserves a responsive child offset when the parent layout cluster has an unresolved gap', () => {
+    const source = '<div fxLayout="row" fxLayout.sm="row wrap" fxLayoutGap="4"><span fxFlexOffset.sm="8"></span></div>';
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.results).toContainEqual(
+      expect.objectContaining({
+        status: 'review',
+        code: 'context-unverified',
+        input: expect.objectContaining({ directive: 'fxFlexOffset' }),
+      }),
+    );
+  });
+
+  test('preserves responsive child flex sizing when the parent layout cluster has unresolved alignment', () => {
+    const source = '<div fxLayout="row" [fxLayoutAlign.sm]="alignment"><span fxFlex.sm="50"></span></div>';
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.results).toContainEqual(
+      expect.objectContaining({
+        status: 'review',
+        code: 'context-unverified',
+        input: expect.objectContaining({ directive: 'fxFlex' }),
+      }),
+    );
+  });
+
+  test.each([
+    ['print gap', '<div fxLayoutGap.print="4"></div>', 'fxLayoutGap', 'breakpoint-unverified'],
+    ['optional alignment', '<div fxLayoutAlign.handset="center"></div>', 'fxLayoutAlign', 'breakpoint-unverified'],
+    ['custom offset', '<div><span fxFlexOffset.cinema="4"></span></div>', 'fxFlexOffset', 'custom-breakpoint'],
+  ] as const)('retains the intrinsic breakpoint diagnostic for contextual %s', (_case, source, directive, code) => {
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.results).toContainEqual(
+      expect.objectContaining({
+        status: 'review',
+        code,
+        input: expect.objectContaining({ directive }),
+      }),
+    );
+  });
 });

@@ -174,8 +174,8 @@ export class ResponsiveFamilyPlanner {
     const parentLayoutInputs = context.parentInputs?.filter(input => input.directive === 'fxLayout');
     const parentLayoutSafe =
       parentLayoutInputs === undefined ||
-      this.planFamily(
-        parentLayoutInputs,
+      this.isLayoutContextSafe(
+        context.parentInputs ?? [],
         {
           ...context,
           element: context.parent ?? context.element,
@@ -184,7 +184,7 @@ export class ResponsiveFamilyPlanner {
           parentInputs: undefined,
         },
         planOne,
-      ).every(plan => plan.status === 'converted');
+      );
     const localLayoutSafe = layoutPlans.every(plan => plan.status === 'converted');
 
     for (const [family, familyInputs] of groups) {
@@ -262,6 +262,8 @@ export class ResponsiveFamilyPlanner {
   ): readonly PlannedConversion[] {
     const semanticPlans = inputs.map(input => {
       if (input.binding !== 'literal') return planOne(input, context);
+      const breakpointPlan = this.validateBreakpoint(converted(input, []));
+      if (breakpointPlan.status !== 'converted') return breakpointPlan;
       const layoutValues = this.layoutValuesFor(input, inputs, layoutInputs);
       if (!layoutValues.length) {
         return contextUnverified(input, 'The active responsive layout cannot be resolved for this input.');
@@ -279,6 +281,22 @@ export class ResponsiveFamilyPlanner {
       return first;
     });
     return this.validateFamily(inputs, semanticPlans);
+  }
+
+  private isLayoutContextSafe(
+    inputs: readonly LocatedFlexLayoutInput[],
+    context: ConversionContext,
+    planOne: PlanOne,
+  ): boolean {
+    const layoutInputs = inputs.filter(input => input.directive === 'fxLayout');
+    if (this.planFamily(layoutInputs, context, planOne).some(plan => plan.status !== 'converted')) return false;
+
+    return (['fxLayoutGap', 'fxLayoutAlign'] as const).every(directive => {
+      const familyInputs = inputs.filter(input => input.directive === directive);
+      return this.planContextualFamily(familyInputs, context, layoutInputs, 'activeLayout', planOne).every(
+        plan => plan.status === 'converted',
+      );
+    });
   }
 
   private planBlockedContextFamily(
