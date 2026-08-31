@@ -1,4 +1,4 @@
-import { addInlineStyles } from './cheerio.util';
+import { addInlineStyles, findElementsWithFlexLayoutAttributes, loadHtml } from './cheerio.util';
 import * as cheerio from 'cheerio';
 
 describe('addInlineStyles', () => {
@@ -31,5 +31,25 @@ describe('addInlineStyles', () => {
 
     const expectedStyle = `${existingStyle} background-color: blue; font-weight: bold;`;
     expect(testElement.attr('style')).toBe(expectedStyle);
+  });
+});
+
+describe('findElementsWithFlexLayoutAttributes', () => {
+  test('discovers supported, unsupported, and bound Flex-Layout inputs', () => {
+    const $ = loadHtml(`
+      <main>
+        <div fxLayout="row"></div>
+        <div [fxShow.gt-md]="visible" gdColumns="1fr 1fr"></div>
+        <div class="card" aria-label="Card"></div>
+      </main>
+    `);
+
+    const elements = findElementsWithFlexLayoutAttributes($);
+
+    expect(elements).toHaveLength(2);
+    expect(elements.map(element => Object.keys(element.attr() ?? {}))).toEqual([
+      ['fxLayout'],
+      ['[fxShow.gt-md]', 'gdColumns'],
+    ]);
   });
 });
