@@ -62,6 +62,17 @@ describe('ConversionPlanner', () => {
     expect(result.results).toContainEqual(expect.objectContaining({ status: 'review', code: 'class-conflict' }));
   });
 
+  test('preserves the complete flex group when an existing utility conflicts', () => {
+    const source = '<div class="flex-none" fxFlex="25" fxGrow="2"></div>';
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.results).toEqual([
+      expect.objectContaining({ status: 'review', code: 'class-conflict' }),
+      expect.objectContaining({ status: 'review', code: 'class-conflict' }),
+    ]);
+  });
+
   test('preserves the directive when a bound class cannot be merged safely', () => {
     const source = '<div [class]="classes" fxLayout="row"></div>';
 
