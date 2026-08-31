@@ -42,6 +42,13 @@ describe('ConversionPlanner', () => {
     expect(reversed.output).toBe(forward.output);
   });
 
+  test('orders responsive family classes independently of attribute source order', () => {
+    const forward = migrate('<div fxFlexAlign.sm="end" fxFlexAlign.xs="start"></div>');
+    const reversed = migrate('<div fxFlexAlign.xs="start" fxFlexAlign.sm="end"></div>');
+
+    expect(reversed.output).toBe(forward.output);
+  });
+
   test('inserts classes before the slash in a self-closing custom element', () => {
     const result = migrate('<app-card fxLayout="column"/>');
 
@@ -143,12 +150,16 @@ describe('ConversionPlanner', () => {
     ]);
   });
 
-  test('preserves every coupled flex sizing member when the family is responsive', () => {
-    const source = '<div fxFlex="50" fxFlex.sm="100"></div>';
+  test('converts responsive flex sizing members as one atomic semantic group', () => {
+    const source = '<div fxFlex="50" fxGrow="2" fxFlex.sm="100" fxShrink.sm="0"></div>';
     const result = migrate(source);
 
-    expect(result.output).toBe(source);
-    expect(result.results.map(item => item.status)).toEqual(['review', 'review']);
+    expect(result.output).not.toContain('fxFlex');
+    expect(result.output).not.toContain('fxGrow');
+    expect(result.output).not.toContain('fxShrink');
+    expect(result.output).toContain('[flex:2_1_100%]');
+    expect(result.output).toContain('[@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:[flex:2_0_100%]');
+    expect(result.results.map(item => item.status)).toEqual(['converted', 'converted', 'converted', 'converted']);
   });
 
   test('rejects fxGrow without the fxFlex directive that owns the input', () => {
@@ -178,14 +189,26 @@ describe('ConversionPlanner', () => {
     expect(result.results.map(item => item.status)).toEqual(['review', 'review', 'review']);
   });
 
-  test('preserves a base layout required by unresolved responsive alignment', () => {
-    const source = '<div fxLayout="column" fxLayoutAlign.sm="center end"></div>';
+  test('converts responsive layout, gap, and alignment with matching layout context', () => {
+    const source =
+      '<div fxLayout="row" fxLayout.sm="column" fxLayoutGap="4" fxLayoutGap.sm="8" fxLayoutAlign="start stretch" fxLayoutAlign.sm="end stretch"></div>';
     const result = migrate(source);
 
-    expect(result.output).toBe(source);
-    expect(result.results).toEqual([
-      expect.objectContaining({ status: 'review', code: 'context-unverified' }),
-      expect.objectContaining({ status: 'review', code: 'breakpoint-unverified' }),
-    ]);
+    expect(result.output).not.toContain('fxLayout');
+    expect(result.output).toContain('gap-[4px]');
+    expect(result.output).toContain('[@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:gap-[8px]');
+    expect(result.output).toContain('[@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:max-w-full');
+    expect(result.results.every(item => item.status === 'converted')).toBe(true);
+  });
+
+  test('uses responsive parent layout context for child offsets', () => {
+    const source = '<div fxLayout="row" fxLayout.sm="column"><span fxFlexOffset="4" fxFlexOffset.sm="8"></span></div>';
+    const result = migrate(source);
+
+    expect(result.output).not.toContain('fxLayout');
+    expect(result.output).not.toContain('fxFlexOffset');
+    expect(result.output).toContain('ms-[4%]');
+    expect(result.output).toContain('[@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:mt-[8%]');
+    expect(result.results.every(item => item.status === 'converted')).toBe(true);
   });
 });

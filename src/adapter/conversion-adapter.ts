@@ -5,6 +5,10 @@ import type { TemplateElement } from '../template/template.model';
 export interface ConversionContext {
   readonly element: TemplateElement;
   readonly parent?: TemplateElement;
+  readonly inputs?: readonly LocatedFlexLayoutInput[];
+  readonly parentInputs?: readonly LocatedFlexLayoutInput[];
+  readonly activeLayout?: string;
+  readonly activeParentLayout?: string;
 }
 
 export type PlannedConversion =

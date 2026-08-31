@@ -50,15 +50,27 @@ export class ConversionPlanner {
     adapter: ConversionAdapter,
   ): FilePlan {
     const elementById = new Map(elements.map(element => [element.id, element]));
+    const inputsByElementId = new Map<string, LocatedFlexLayoutInput[]>();
+    for (const input of inputs) {
+      const elementInputs = inputsByElementId.get(input.elementId) ?? [];
+      elementInputs.push(input);
+      inputsByElementId.set(input.elementId, elementInputs);
+    }
     const conversionsByElement = new Map<string, ElementConversions>();
     const results: ConversionResult[] = [];
     const plansByInputId = new Map<string, ReturnType<ConversionAdapter['plan']>>();
 
     for (const element of elements) {
-      const elementInputs = inputs.filter(input => input.elementId === element.id);
+      const elementInputs = inputsByElementId.get(element.id) ?? [];
       if (!elementInputs.length) continue;
       const parent = element.parentId ? elementById.get(element.parentId) : undefined;
-      const context = { element, ...(parent ? { parent } : {}) };
+      const context = {
+        element,
+        inputs: elementInputs,
+        ...(parent
+          ? { parent, parentInputs: inputsByElementId.get(parent.id) ?? [] }
+          : { parentInputs: [] as readonly LocatedFlexLayoutInput[] }),
+      };
       let plans =
         adapter.planElement?.(elementInputs, context) ?? elementInputs.map(input => adapter.plan(input, context));
       const literalClass = element.attributes.find(
@@ -112,6 +124,7 @@ export class ConversionPlanner {
           (left, right) =>
             (directiveOrder.get(left.input.directive) ?? Number.MAX_SAFE_INTEGER) -
               (directiveOrder.get(right.input.directive) ?? Number.MAX_SAFE_INTEGER) ||
+            (left.input.breakpoint ?? '').localeCompare(right.input.breakpoint ?? '') ||
             left.input.source.start - right.input.source.start,
         )
         .flatMap(plan => plan.classNames);
