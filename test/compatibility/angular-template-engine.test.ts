@@ -23,6 +23,20 @@ function unresolvedCodes(results: readonly ConversionResult[]): readonly string[
   return results.flatMap(result => (result.status === 'converted' ? [] : [result.code]));
 }
 
+function equivalentResults(results: readonly ConversionResult[]) {
+  return results
+    .map(result =>
+      result.status === 'parse-error'
+        ? { status: result.status, code: result.code }
+        : {
+            status: result.status,
+            sourceName: result.input.sourceName,
+            code: result.status === 'converted' ? undefined : result.code,
+          },
+    )
+    .sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)));
+}
+
 async function fixture(name: string, kind: 'input' | 'expected'): Promise<string> {
   const url = new URL(`${name}.${kind}.html`, fixtureDirectory);
   return readFile(fileURLToPath(url), 'utf8');
@@ -77,6 +91,14 @@ describe('Angular template engine compatibility', () => {
     expect(migrate(input).output).toBe(
       '<div data-label="a &amp; b" class="flex flex-row box-border">\r\n  {{ value | async }}\r\n</div>\r\n',
     );
+  });
+
+  test('emits the same canonical responsive family for equivalent attribute orders', () => {
+    const baseFirst = migrate('<div fxLayout="row" fxLayout.sm="column" fxLayout.md="row"></div>');
+    const responsiveFirst = migrate('<div fxLayout.md="row" fxLayout="row" fxLayout.sm="column"></div>');
+
+    expect(baseFirst.output).toBe(responsiveFirst.output);
+    expect(equivalentResults(baseFirst.results)).toEqual(equivalentResults(responsiveFirst.results));
   });
 
   test('classifies every unresolved syntax family without modifying it', async () => {
