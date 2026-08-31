@@ -3,6 +3,7 @@ import * as cheerio from 'cheerio';
 import type { AnyNode, Element as CheerioElement } from 'domhandler';
 import { Stack } from '../lib/stack';
 import { NodeWithChildren } from 'domhandler';
+import { analyzeFlexLayoutAttribute } from '../analyzer/flex-layout-attribute.analyzer';
 
 /**
  * Loads the given html into cheerio and returns the result
@@ -59,6 +60,33 @@ export function findElementsWithCustomAttributes(
   }
 
   return elementsWithAttributes;
+}
+
+export function findElementsWithFlexLayoutAttributes(cheerioRoot: CheerioAPI): Cheerio<CheerioElement>[] {
+  const matchingElements: Cheerio<CheerioElement>[] = [];
+  const stack = new Stack<NodeWithChildren>();
+  const root = cheerioRoot.root()[0];
+  if (!root) return matchingElements;
+  stack.push(root);
+
+  while (!stack.isEmpty()) {
+    const node = stack.pop();
+    if (!node?.children) continue;
+
+    for (const child of node.children) {
+      if (child.type === 'tag') {
+        const element = cheerioRoot(child as CheerioElement);
+        const hasFlexLayoutInput = Object.entries(child.attribs ?? {}).some(([name, value]) =>
+          analyzeFlexLayoutAttribute(name, value),
+        );
+        if (hasFlexLayoutInput) matchingElements.push(element);
+      }
+
+      stack.push(child as NodeWithChildren);
+    }
+  }
+
+  return matchingElements;
 }
 
 /**

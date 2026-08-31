@@ -4,14 +4,18 @@ import * as fs from 'fs-extra';
 import * as path from 'path';
 import { Cheerio, CheerioAPI } from 'cheerio';
 import type { Element } from 'domhandler';
+import { ConversionResult } from '../analyzer/conversion-result';
+import { analyzeFlexLayoutAttribute, FlexLayoutInput } from '../analyzer/flex-layout-attribute.analyzer';
+import { isKnownBreakpoint } from '../analyzer/flex-layout.catalog';
 import { logger } from '../logger';
-import { BreakPoint } from '../converter/breakpoint.type';
 import { AttributeContext, IConverter } from '../converter/converter';
 import { formatFile } from '../lib/prettier.formatter';
-import { findElementsWithCustomAttributes, loadHtml } from '../util/cheerio.util';
+import { findElementsWithFlexLayoutAttributes, loadHtml } from '../util/cheerio.util';
 import PQueue from 'p-queue';
 
 export class FileMigrator extends BaseMigrator {
+  private results: ConversionResult[] = [];
+
   constructor(
     protected override converter: IConverter,
     private input: string,
@@ -21,16 +25,14 @@ export class FileMigrator extends BaseMigrator {
   }
 
   public async migrate(): Promise<void> {
+    this.results = [];
     const inputFilename = path.basename(this.input);
     this.notifyFileStarted(inputFilename);
 
     const html = await fs.promises.readFile(this.input, 'utf8');
     const $ = loadHtml(html);
 
-    const attributeNamesToLookFor = this.converter.getAllAttributes();
-    logger.debug('Attributes: [%s]', attributeNamesToLookFor.join(', '));
-
-    const elements = findElementsWithCustomAttributes($, attributeNamesToLookFor);
+    const elements = findElementsWithFlexLayoutAttributes($);
     logger.debug('Found %i elements', elements.length);
 
     if (!elements.length) {
@@ -48,6 +50,10 @@ export class FileMigrator extends BaseMigrator {
     await this.performConversion(elements, $, inputFilename, totalElements, attributeContexts);
 
     await this.writeOutputFile($);
+  }
+
+  public getResults(): readonly ConversionResult[] {
+    return [...this.results];
   }
 
   /**
@@ -97,24 +103,15 @@ export class FileMigrator extends BaseMigrator {
 
     if (!attrs) return attributeContexts;
 
-    for (const [attribute] of Object.entries(attrs)) {
-      const { attr, canConvert, normalizedAttribute } = this.extractAttributeData(attribute);
+    for (const [attribute, value] of Object.entries(attrs)) {
+      const input = analyzeFlexLayoutAttribute(attribute, value);
+      if (!input || this.getUnresolvedResult(input) || !this.converter.canConvert(input.directive, false)) continue;
 
-      if (!canConvert) {
-        continue;
-      }
-
-      let context = this.converter.prepare(normalizedAttribute, $, el);
+      let context = this.converter.prepare(input.directive, $, el);
 
       context ??= {
         usesPropertyBinding: false,
       } as AttributeContext<unknown>;
-
-      // Check if the attribute is using property binding syntax
-      // If so, we provide a context to the converter
-      if (attr.startsWith('[') && attr.endsWith(']')) {
-        context.usesPropertyBinding = true;
-      }
 
       const uniqueKey = `${index}_${attribute}`;
       attributeContexts.set(uniqueKey, context);
@@ -162,10 +159,25 @@ export class FileMigrator extends BaseMigrator {
     if (!attrs) return;
 
     for (const [attribute, value] of Object.entries(attrs)) {
-      const { canConvert, normalizedAttribute, breakPoint } = this.extractAttributeData(attribute);
-      logger.debug('Attribute: %s, value: %s. Can be converted: %s', attribute, value, canConvert);
+      const input = analyzeFlexLayoutAttribute(attribute, value);
+      if (!input) continue;
 
+      const unresolvedResult = this.getUnresolvedResult(input);
+      if (unresolvedResult) {
+        this.results.push(unresolvedResult);
+        continue;
+      }
+
+      const canConvert = this.converter.canConvert(input.directive, false);
+      logger.debug('Attribute: %s, value: %s. Can be converted: %s', attribute, value, canConvert);
       if (!canConvert) {
+        this.results.push({
+          status: 'unsupported',
+          input,
+          code: 'target-unsupported',
+          reason: `The selected target does not support ${input.directive}.`,
+          suggestion: 'Keep the directive and migrate it manually.',
+        });
         continue;
       }
 
@@ -185,50 +197,45 @@ export class FileMigrator extends BaseMigrator {
         values = value && value.includes(' ') ? value.split(' ') : [value];
       }
 
-      this.converter.convert(normalizedAttribute, values, el, breakPoint, contextData);
+      this.converter.convert(input.directive, values, el, undefined, contextData);
 
       element.removeAttr(attribute);
+      this.results.push({ status: 'converted', input });
     }
   }
 
-  /**
-   * Extracts the attribute name and breakpoint from the attribute string.
-   * @param attribute The attribute string
-   * @param isBreakpointAttribute Whether the attribute is a breakpoint attribute
-   * @returns an object with the following properties: attr, breakPoint
-   */
-  private extractAttributeAndBreakpoint(
-    attribute: string,
-    isBreakpointAttribute: boolean,
-  ): {
-    attr: string;
-    breakPoint: BreakPoint | undefined;
-  } {
-    // Check if the attribute is a breakpoint attribute
-    if (isBreakpointAttribute) {
-      const [attr, breakPoint] = attribute.split('.');
-      return { attr: attr ?? attribute, breakPoint: breakPoint as BreakPoint };
+  private getUnresolvedResult(input: FlexLayoutInput): ConversionResult | undefined {
+    if (input.breakpoint && !isKnownBreakpoint(input.breakpoint)) {
+      return {
+        status: 'review',
+        input,
+        code: 'custom-breakpoint',
+        reason: `The breakpoint alias ${input.breakpoint} may be registered by the project.`,
+        suggestion: 'Provide its media query or migrate this responsive input manually.',
+      };
     }
-    return { attr: attribute, breakPoint: undefined };
-  }
 
-  /**
-   * Extracts essential data from the attribute string. This includes the attribute name, breakpoint, whether the attribute is a breakpoint attribute, and whether the attribute can be converted. The attribute name is normalized to remove any breakpoint suffixes.
-   * @param attribute The attribute string
-   * @returns an object with the following properties: attr, normalizedAttribute, breakPoint, canConvert, isBreakpointAttribute
-   */
-  private extractAttributeData(attribute: string): {
-    attr: string;
-    normalizedAttribute: string;
-    breakPoint: BreakPoint | undefined;
-    canConvert: boolean;
-    isBreakpointAttribute: boolean;
-  } {
-    const isBreakpointAttribute = !!attribute && attribute.includes('.');
-    const canConvert = this.converter.canConvert(attribute, isBreakpointAttribute);
-    const { attr, breakPoint } = this.extractAttributeAndBreakpoint(attribute, isBreakpointAttribute);
-    const normalizedAttribute = this.normalizeAttribute(attr);
-    return { attr, normalizedAttribute, breakPoint, canConvert, isBreakpointAttribute };
+    if (input.binding === 'property') {
+      return {
+        status: 'review',
+        input,
+        code: 'dynamic-binding',
+        reason: 'Angular property bindings may depend on runtime state.',
+        suggestion: 'Replace the binding manually or make it a literal before migration.',
+      };
+    }
+
+    if (input.breakpoint) {
+      return {
+        status: 'review',
+        input,
+        code: 'breakpoint-unverified',
+        reason: `Exact media-query output for ${input.breakpoint} is not implemented.`,
+        suggestion: 'Keep the responsive directive until exact breakpoint support is available.',
+      };
+    }
+
+    return undefined;
   }
 
   private async writeOutputFile($: CheerioAPI): Promise<void> {
@@ -243,15 +250,6 @@ export class FileMigrator extends BaseMigrator {
 
     const inputFilename = path.basename(this.input);
     this.notifyFileCompleted(inputFilename);
-  }
-
-  /**
-   * Removes the square brackets from the attribute name. For example, [fxFlex] => fxFlex
-   * @param attribute The attribute name
-   * @returns the normalized attribute name
-   */
-  private normalizeAttribute(attribute: string): string {
-    return attribute.replace('[', '').replace(']', '');
   }
 
   private notifyFileStarted(inputFilename: string): void {
