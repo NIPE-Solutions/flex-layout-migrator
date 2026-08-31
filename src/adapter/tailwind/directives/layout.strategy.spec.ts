@@ -5,7 +5,7 @@ describe('planLayout', () => {
     ['', ['flex', 'flex-row', 'box-border']],
     ['row', ['flex', 'flex-row', 'box-border']],
     ['row-reverse wrap', ['flex', 'flex-row-reverse', 'flex-wrap', 'box-border']],
-    ['column nowrap', ['flex', 'flex-col', 'box-border']],
+    ['column nowrap', ['flex', 'flex-col', 'flex-nowrap', 'box-border']],
     ['column-reverse wrap-reverse inline', ['inline-flex', 'flex-col-reverse', 'flex-wrap-reverse', 'box-border']],
     ['row inline wrap', ['inline-flex', 'flex-row', 'flex-wrap', 'box-border']],
   ] as const)('emits complete layout semantics for %j', (value, expected) => {

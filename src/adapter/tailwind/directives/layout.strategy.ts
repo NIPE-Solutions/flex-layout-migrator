@@ -6,6 +6,7 @@ export type LayoutWrap = 'nowrap' | 'wrap' | 'wrap-reverse';
 export interface LayoutValue {
   readonly direction: LayoutDirection;
   readonly wrap: LayoutWrap;
+  readonly explicitWrap: boolean;
   readonly inline: boolean;
 }
 
@@ -21,16 +22,12 @@ export function parseLayout(value: string): ParsedValue<LayoutValue> {
   const direction = (tokens.shift() ?? 'row') as LayoutDirection;
   if (!directions.has(direction)) return { ok: false };
 
+  const wrapTokens = tokens.filter(token => wraps.has(token as LayoutWrap));
+  if (wrapTokens.length > 1) return { ok: false };
   let wrap: LayoutWrap = 'nowrap';
   let inline = false;
   for (const token of tokens) {
     if (wraps.has(token as LayoutWrap)) {
-      if (
-        wrap !== 'nowrap' ||
-        (token === 'nowrap' && tokens.filter(candidate => wraps.has(candidate as LayoutWrap)).length > 1)
-      ) {
-        return { ok: false };
-      }
       wrap = token as LayoutWrap;
     } else if (token === 'inline' && !inline) {
       inline = true;
@@ -39,7 +36,7 @@ export function parseLayout(value: string): ParsedValue<LayoutValue> {
     }
   }
 
-  return { ok: true, value: { direction, wrap, inline } };
+  return { ok: true, value: { direction, wrap, explicitWrap: wrapTokens.length === 1, inline } };
 }
 
 export function layoutClassNames(layout: LayoutValue): readonly string[] {
@@ -49,7 +46,7 @@ export function layoutClassNames(layout: LayoutValue): readonly string[] {
     column: 'flex-col',
     'column-reverse': 'flex-col-reverse',
   }[layout.direction];
-  const wrap = layout.wrap === 'nowrap' ? [] : [`flex-${layout.wrap}`];
+  const wrap = layout.explicitWrap ? [`flex-${layout.wrap}`] : [];
   return [layout.inline ? 'inline-flex' : 'flex', direction, ...wrap, 'box-border'];
 }
 
