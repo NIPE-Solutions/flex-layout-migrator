@@ -1,4 +1,4 @@
-import type { ConversionAdapter } from '../adapter/conversion-adapter';
+import type { ConversionAdapter, ConversionContext, PlannedConversion } from '../adapter/conversion-adapter';
 import type { ConversionResult } from '../analyzer/conversion-result';
 import type { LocatedFlexLayoutInput } from '../analyzer/flex-layout-attribute.analyzer';
 import type { SourceEdit } from '../edit/source-edit';
@@ -58,13 +58,15 @@ export class ConversionPlanner {
     }
     const conversionsByElement = new Map<string, ElementConversions>();
     const results: ConversionResult[] = [];
-    const plansByInputId = new Map<string, ReturnType<ConversionAdapter['plan']>>();
+    const plansByInputId = new Map<string, PlannedConversion>();
+    const plansByElementId = new Map<string, readonly PlannedConversion[]>();
+    const contextsByElementId = new Map<string, ConversionContext>();
 
     for (const element of elements) {
       const elementInputs = inputsByElementId.get(element.id) ?? [];
       if (!elementInputs.length) continue;
       const parent = element.parentId ? elementById.get(element.parentId) : undefined;
-      const context = {
+      const context: ConversionContext = {
         element,
         inputs: elementInputs,
         ...(parent
@@ -78,7 +80,19 @@ export class ConversionPlanner {
       );
       const existingClassNames = literalClass?.value.split(/\s+/).filter(Boolean) ?? [];
       plans = adapter.resolveClassConflicts?.(plans, existingClassNames) ?? plans;
+      contextsByElementId.set(element.id, context);
+      plansByElementId.set(element.id, plans);
       for (const planned of plans) plansByInputId.set(planned.input.id, planned);
+    }
+
+    if (adapter.closePlanDependencies) {
+      for (const element of elements) {
+        const plans = plansByElementId.get(element.id);
+        const context = contextsByElementId.get(element.id);
+        if (!plans || !context) continue;
+        const closedPlans = adapter.closePlanDependencies(plans, context, plansByInputId);
+        for (const planned of closedPlans) plansByInputId.set(planned.input.id, planned);
+      }
     }
 
     for (const input of inputs) {

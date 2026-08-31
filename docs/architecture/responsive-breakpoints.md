@@ -44,10 +44,9 @@ Only literal responsive values are converted. Property bindings and interpolated
 
 - the alias;
 - exact minimum and maximum widths;
-- the upstream priority; and
-- whether the definition belongs to an overlapping range family.
+- the upstream priority.
 
-Bounds are numeric domain values rather than media-query strings. This permits exact intersection tests without parsing emitted Tailwind syntax. Catalog lookup returns an exhaustive classification: verified viewport alias, optional alias, print alias, or custom alias.
+Bounds are numeric domain values rather than media-query strings. Overlapping-family relationships are derived from numeric range intersections rather than stored on each definition. This permits exact intersection tests without parsing emitted Tailwind syntax. Catalog lookup returns an exhaustive classification: verified viewport alias, optional alias, print alias, or custom alias.
 
 The analyzer continues to discover and normalize suffixes. It does not decide whether a breakpoint is safe for a target.
 

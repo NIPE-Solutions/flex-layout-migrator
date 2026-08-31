@@ -91,6 +91,68 @@ describe('ConversionPlanner', () => {
     ]);
   });
 
+  test('preserves the complete layout cluster when an existing utility conflicts with its gap', () => {
+    const source = '<div class="gap-2" fxLayout="row" fxLayoutGap="4"></div>';
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.results).toEqual([
+      expect.objectContaining({
+        status: 'review',
+        code: 'context-unverified',
+        input: expect.objectContaining({ directive: 'fxLayout' }),
+      }),
+      expect.objectContaining({
+        status: 'review',
+        code: 'class-conflict',
+        input: expect.objectContaining({ directive: 'fxLayoutGap' }),
+      }),
+    ]);
+  });
+
+  test('preserves layout and alignment together after an alignment class conflict', () => {
+    const source = '<div class="justify-center" fxLayout="row" fxLayoutAlign="end start"></div>';
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.results).toEqual([
+      expect.objectContaining({
+        status: 'review',
+        code: 'context-unverified',
+        input: expect.objectContaining({ directive: 'fxLayout' }),
+      }),
+      expect.objectContaining({
+        status: 'review',
+        code: 'class-conflict',
+        input: expect.objectContaining({ directive: 'fxLayoutAlign' }),
+      }),
+    ]);
+  });
+
+  test('preserves parent-context consumers after a parent layout class conflict', () => {
+    const source = '<div class="flex-col" fxLayout="row"><span fxFlex="50"></span><span fxFlexOffset="4"></span></div>';
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.results).toEqual([
+      expect.objectContaining({
+        status: 'review',
+        code: 'class-conflict',
+        input: expect.objectContaining({ directive: 'fxLayout' }),
+      }),
+      expect.objectContaining({
+        status: 'review',
+        code: 'context-unverified',
+        input: expect.objectContaining({ directive: 'fxFlex' }),
+      }),
+      expect.objectContaining({
+        status: 'review',
+        code: 'context-unverified',
+        input: expect.objectContaining({ directive: 'fxFlexOffset' }),
+      }),
+    ]);
+  });
+
   test('preserves the directive when a bound class cannot be merged safely', () => {
     const source = '<div [class]="classes" fxLayout="row"></div>';
 
@@ -256,4 +318,30 @@ describe('ConversionPlanner', () => {
       }),
     );
   });
+
+  test.each([
+    [
+      'print gap',
+      '<div [fxLayout]="direction" fxLayoutGap.print="4"></div>',
+      ['dynamic-binding', 'breakpoint-unverified'],
+    ],
+    [
+      'orientation alignment',
+      '<div [fxLayout]="direction" fxLayoutAlign.handset="center"></div>',
+      ['dynamic-binding', 'breakpoint-unverified'],
+    ],
+    [
+      'custom child offset',
+      '<div [fxLayout]="direction"><span fxFlexOffset.cinema="4"></span></div>',
+      ['dynamic-binding', 'custom-breakpoint'],
+    ],
+  ] as const)(
+    'retains exact intrinsic diagnostics for contextual %s under a dynamic layout',
+    (_case, source, expectedCodes) => {
+      const result = migrate(source);
+
+      expect(result.output).toBe(source);
+      expect(result.results.map(item => (item.status === 'converted' ? undefined : item.code))).toEqual(expectedCodes);
+    },
+  );
 });

@@ -152,6 +152,24 @@ export class ResponsiveFamilyPlanner {
     context: ConversionContext,
     planOne: PlanOne,
   ): readonly PlannedConversion[] {
+    return this.planWithDependencies(inputs, context, planOne, true, true);
+  }
+
+  closeDependencies(
+    inputs: readonly LocatedFlexLayoutInput[],
+    context: ConversionContext,
+    planOne: PlanOne,
+  ): readonly PlannedConversion[] {
+    return this.planWithDependencies(inputs, context, planOne, false, false);
+  }
+
+  private planWithDependencies(
+    inputs: readonly LocatedFlexLayoutInput[],
+    context: ConversionContext,
+    planOne: PlanOne,
+    decorate: boolean,
+    validateResponsivePrecedence: boolean,
+  ): readonly PlannedConversion[] {
     const groups = new Map<DirectiveFamily, LocatedFlexLayoutInput[]>();
     const ungrouped: LocatedFlexLayoutInput[] = [];
     for (const input of inputs) {
@@ -168,7 +186,7 @@ export class ResponsiveFamilyPlanner {
     const completeContext: ConversionContext = { ...context, inputs };
     const rawPlansByFamily = new Map<DirectiveFamily, readonly PlannedConversion[]>();
     const layoutInputs = groups.get('layout') ?? [];
-    const layoutPlans = this.planFamily(layoutInputs, completeContext, planOne);
+    const layoutPlans = this.planFamily(layoutInputs, completeContext, planOne, validateResponsivePrecedence);
     if (layoutInputs.length) rawPlansByFamily.set('layout', layoutPlans);
 
     const parentLayoutInputs = context.parentInputs?.filter(input => input.directive === 'fxLayout');
@@ -184,6 +202,7 @@ export class ResponsiveFamilyPlanner {
           parentInputs: undefined,
         },
         planOne,
+        validateResponsivePrecedence,
       );
     const localLayoutSafe = layoutPlans.every(plan => plan.status === 'converted');
 
@@ -193,12 +212,20 @@ export class ResponsiveFamilyPlanner {
       let plans: readonly PlannedConversion[];
       if (localLayoutDependents.has(family)) {
         plans = localLayoutSafe
-          ? this.planContextualFamily(familyInputs, completeContext, layoutInputs, 'activeLayout', planOne)
+          ? this.planContextualFamily(
+              familyInputs,
+              completeContext,
+              layoutInputs,
+              'activeLayout',
+              planOne,
+              validateResponsivePrecedence,
+            )
           : this.planBlockedContextFamily(
               familyInputs,
               completeContext,
               planOne,
               'The responsive layout family contains an unresolved member.',
+              !validateResponsivePrecedence,
             );
       } else if (parentLayoutDependents.has(family)) {
         plans = parentLayoutSafe
@@ -208,15 +235,17 @@ export class ResponsiveFamilyPlanner {
               parentLayoutInputs ?? [],
               'activeParentLayout',
               planOne,
+              validateResponsivePrecedence,
             )
           : this.planBlockedContextFamily(
               familyInputs,
               completeContext,
               planOne,
               'The responsive parent layout family contains an unresolved member.',
+              !validateResponsivePrecedence,
             );
       } else {
-        plans = this.planFamily(familyInputs, completeContext, planOne);
+        plans = this.planFamily(familyInputs, completeContext, planOne, validateResponsivePrecedence);
       }
       rawPlansByFamily.set(family, plans);
     }
@@ -245,12 +274,18 @@ export class ResponsiveFamilyPlanner {
 
     const plansById = new Map<string, PlannedConversion>();
     for (const plans of rawPlansByFamily.values()) {
-      for (const plan of plans) plansById.set(plan.input.id, this.decorate(plan));
+      for (const plan of plans) plansById.set(plan.input.id, decorate ? this.decorate(plan) : plan);
     }
     for (const input of ungrouped) {
-      plansById.set(input.id, this.decorate(planOne(input, completeContext)));
+      const plan = planOne(input, completeContext);
+      plansById.set(input.id, decorate ? this.decorate(plan) : plan);
     }
-    return inputs.map(input => plansById.get(input.id) ?? planOne(input, completeContext));
+    return inputs.map(input => {
+      const planned = plansById.get(input.id);
+      if (planned) return planned;
+      const plan = planOne(input, completeContext);
+      return decorate ? this.decorate(plan) : plan;
+    });
   }
 
   private planContextualFamily(
@@ -259,10 +294,10 @@ export class ResponsiveFamilyPlanner {
     layoutInputs: readonly LocatedFlexLayoutInput[],
     contextKey: 'activeLayout' | 'activeParentLayout',
     planOne: PlanOne,
+    validateResponsivePrecedence: boolean,
   ): readonly PlannedConversion[] {
     const semanticPlans = inputs.map(input => {
-      if (input.binding !== 'literal') return planOne(input, context);
-      const breakpointPlan = this.validateBreakpoint(converted(input, []));
+      const breakpointPlan = this.planBreakpoint(input, context, planOne);
       if (breakpointPlan.status !== 'converted') return breakpointPlan;
       const layoutValues = this.layoutValuesFor(input, inputs, layoutInputs);
       if (!layoutValues.length) {
@@ -280,22 +315,34 @@ export class ResponsiveFamilyPlanner {
       }
       return first;
     });
-    return this.validateFamily(inputs, semanticPlans);
+    return this.validateFamily(inputs, semanticPlans, validateResponsivePrecedence);
   }
 
   private isLayoutContextSafe(
     inputs: readonly LocatedFlexLayoutInput[],
     context: ConversionContext,
     planOne: PlanOne,
+    validateResponsivePrecedence: boolean,
   ): boolean {
     const layoutInputs = inputs.filter(input => input.directive === 'fxLayout');
-    if (this.planFamily(layoutInputs, context, planOne).some(plan => plan.status !== 'converted')) return false;
+    if (
+      this.planFamily(layoutInputs, context, planOne, validateResponsivePrecedence).some(
+        plan => plan.status !== 'converted',
+      )
+    ) {
+      return false;
+    }
 
     return (['fxLayoutGap', 'fxLayoutAlign'] as const).every(directive => {
       const familyInputs = inputs.filter(input => input.directive === directive);
-      return this.planContextualFamily(familyInputs, context, layoutInputs, 'activeLayout', planOne).every(
-        plan => plan.status === 'converted',
-      );
+      return this.planContextualFamily(
+        familyInputs,
+        context,
+        layoutInputs,
+        'activeLayout',
+        planOne,
+        validateResponsivePrecedence,
+      ).every(plan => plan.status === 'converted');
     });
   }
 
@@ -304,10 +351,22 @@ export class ResponsiveFamilyPlanner {
     context: ConversionContext,
     planOne: PlanOne,
     reason: string,
+    preserveExistingDiagnostics = false,
   ): readonly PlannedConversion[] {
-    return inputs.map(input =>
-      input.binding === 'literal' ? contextUnverified(input, reason) : planOne(input, context),
-    );
+    return inputs.map(input => {
+      const breakpointPlan = this.planBreakpoint(input, context, planOne);
+      if (breakpointPlan.status !== 'converted') return breakpointPlan;
+      const existingPlan = preserveExistingDiagnostics ? planOne(input, context) : breakpointPlan;
+      return existingPlan.status === 'converted' ? contextUnverified(input, reason) : existingPlan;
+    });
+  }
+
+  private planBreakpoint(
+    input: LocatedFlexLayoutInput,
+    context: ConversionContext,
+    planOne: PlanOne,
+  ): PlannedConversion {
+    return input.binding === 'literal' ? this.validateBreakpoint(converted(input, [])) : planOne(input, context);
   }
 
   private layoutValuesFor(
@@ -350,16 +409,19 @@ export class ResponsiveFamilyPlanner {
     inputs: readonly LocatedFlexLayoutInput[],
     context: ConversionContext,
     planOne: PlanOne,
+    validateResponsivePrecedence: boolean,
   ): readonly PlannedConversion[] {
     return this.validateFamily(
       inputs,
       inputs.map(input => planOne(input, context)),
+      validateResponsivePrecedence,
     );
   }
 
   private validateFamily(
     inputs: readonly LocatedFlexLayoutInput[],
     semanticPlans: readonly PlannedConversion[],
+    validateResponsivePrecedence: boolean,
   ): readonly PlannedConversion[] {
     if (inputs.some(input => input.binding !== 'literal')) {
       return inputs.map((input, index) =>
@@ -377,6 +439,8 @@ export class ResponsiveFamilyPlanner {
           : plan,
       );
     }
+
+    if (!validateResponsivePrecedence) return supportedPlans;
 
     for (let leftIndex = 0; leftIndex < inputs.length; leftIndex += 1) {
       const leftInput = inputs[leftIndex];

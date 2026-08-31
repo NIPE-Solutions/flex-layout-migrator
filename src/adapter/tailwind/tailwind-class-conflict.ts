@@ -8,6 +8,30 @@ interface TailwindUtilityDescriptor {
   readonly activation: TailwindActivation;
 }
 
+const displayUtilities = new Set([
+  'inline',
+  'block',
+  'inline-block',
+  'flow-root',
+  'flex',
+  'inline-flex',
+  'grid',
+  'inline-grid',
+  'contents',
+  'table',
+  'inline-table',
+  'table-caption',
+  'table-cell',
+  'table-column',
+  'table-column-group',
+  'table-footer-group',
+  'table-header-group',
+  'table-row-group',
+  'table-row',
+  'list-item',
+  'hidden',
+]);
+
 const generatedMediaVariant =
   /^\[@media_screen_and_(?:(?:\(min-width:_(\d+(?:\.\d+)?)px\))(?:_and_\(max-width:_(\d+(?:\.\d+)?)px\))?|\(max-width:_(\d+(?:\.\d+)?)px\))\]$/u;
 
@@ -60,7 +84,7 @@ function propertyGroup(utility: string): string | undefined {
     if (['flex', 'flex-grow', 'flex-shrink', 'flex-basis'].includes(arbitraryProperty)) return 'flex-sizing';
     return arbitraryProperty;
   }
-  if (/^(?:flex|inline-flex|grid|inline-grid|block|inline-block|hidden)$/u.test(value)) return 'display';
+  if (displayUtilities.has(value)) return 'display';
   if (/^flex-(?:row|row-reverse|col|col-reverse)$/u.test(value)) return 'flex-direction';
   if (/^flex-(?:wrap|wrap-reverse|nowrap)$/u.test(value)) return 'flex-wrap';
   if (/^(?:flex-.+|grow(?:-.+)?|shrink(?:-.+)?|basis-.+)$/u.test(value)) return 'flex-sizing';

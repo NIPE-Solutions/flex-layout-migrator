@@ -33,4 +33,9 @@ export interface ConversionAdapter {
     plans: readonly PlannedConversion[],
     existingClassNames: readonly string[],
   ): readonly PlannedConversion[];
+  closePlanDependencies?(
+    plans: readonly PlannedConversion[],
+    context: ConversionContext,
+    plansByInputId: ReadonlyMap<string, PlannedConversion>,
+  ): readonly PlannedConversion[];
 }

@@ -104,6 +104,18 @@ export class TailwindAdapter implements ConversionAdapter {
     );
   }
 
+  closePlanDependencies(
+    plans: readonly PlannedConversion[],
+    context: ConversionContext,
+    plansByInputId: ReadonlyMap<string, PlannedConversion>,
+  ): readonly PlannedConversion[] {
+    const inputs = plans.map(plan => plan.input);
+    const currentPlans = new Map(plans.map(plan => [plan.input.id, plan]));
+    return this.responsiveFamilyPlanner.closeDependencies(inputs, { ...context, inputs }, (input, itemContext) => {
+      return plansByInputId.get(input.id) ?? currentPlans.get(input.id) ?? this.planSemantic(input, itemContext);
+    });
+  }
+
   private directiveFamily(directive: LocatedFlexLayoutInput['directive']): string {
     if (flexItemDirectives.has(directive)) return 'flex-item';
     if (directive === 'fxFlexFill' || directive === 'fxFill') return 'flex-fill';
