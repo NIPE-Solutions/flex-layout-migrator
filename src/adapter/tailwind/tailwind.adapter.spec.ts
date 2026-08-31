@@ -30,7 +30,7 @@ describe('TailwindAdapter', () => {
     expect(new TailwindAdapter().plan(input(), { element })).toEqual({
       status: 'converted',
       input: input(),
-      classNames: ['flex', 'flex-row'],
+      classNames: ['flex', 'flex-row', 'box-border'],
     });
   });
 
@@ -42,5 +42,38 @@ describe('TailwindAdapter', () => {
     [{ value: 'diagonal' }, 'invalid', 'invalid-value'],
   ] as const)('classifies unresolved input %o', (overrides, status, code) => {
     expect(new TailwindAdapter().plan(input(overrides), { element })).toMatchObject({ status, code });
+  });
+
+  test('uses upstream px units instead of the Tailwind spacing scale for gaps', () => {
+    expect(new TailwindAdapter().plan(input({ directive: 'fxLayoutGap', value: '4' }), { element })).toMatchObject({
+      status: 'converted',
+      classNames: ['gap-[4px]'],
+    });
+  });
+
+  test('preserves the Flex-Layout grid gap algorithm for review', () => {
+    expect(new TailwindAdapter().plan(input({ directive: 'fxLayoutGap', value: '4 grid' }), { element })).toMatchObject(
+      { status: 'review', code: 'semantic-unsupported' },
+    );
+  });
+
+  test('uses exact upstream flex sizing when planning a standalone fxFlex input', () => {
+    expect(new TailwindAdapter().plan(input({ directive: 'fxFlex', value: '25' }), { element })).toMatchObject({
+      status: 'converted',
+      classNames: ['[flex:1_1_100%]', '[max-width:25%]', 'box-border'],
+    });
+  });
+
+  test.each([
+    ['fxFlexAlign', 'end', ['self-end']],
+    ['fxFlexFill', '', ['m-0', 'w-full', 'h-full', 'min-w-full', 'min-h-full']],
+    ['fxFill', '', ['m-0', 'w-full', 'h-full', 'min-w-full', 'min-h-full']],
+    ['fxFlexOffset', '4', ['ms-[4%]']],
+    ['fxFlexOrder', '2', ['[order:2]']],
+  ] as const)('plans exact independent %s semantics', (directive, value, classNames) => {
+    expect(new TailwindAdapter().plan(input({ directive, value }), { element })).toMatchObject({
+      status: 'converted',
+      classNames,
+    });
   });
 });

@@ -5,10 +5,13 @@ export type ConversionStatus = 'converted' | 'review' | 'unsupported' | 'invalid
 
 export type DiagnosticCode =
   | 'bound-class'
+  | 'class-conflict'
   | 'breakpoint-unverified'
   | 'custom-breakpoint'
   | 'dynamic-binding'
   | 'invalid-value'
+  | 'context-unverified'
+  | 'semantic-unsupported'
   | 'target-unsupported';
 
 export interface ConvertedResult {

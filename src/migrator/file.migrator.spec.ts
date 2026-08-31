@@ -24,7 +24,7 @@ describe('FileMigrator', () => {
 
     const result = await new FileMigrator(new TailwindAdapter(), input, output).migrate();
 
-    expect(await readFile(output, 'utf8')).toBe('<div class="flex flex-col gap-4"></div>');
+    expect(await readFile(output, 'utf8')).toBe('<div class="flex flex-col box-border gap-[4px]"></div>');
     expect(result).toMatchObject({ inputPath: input, outputPath: output, changed: true });
     expect(result.results.map(item => item.status)).toEqual(['converted', 'converted']);
   });
