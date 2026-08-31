@@ -7,6 +7,7 @@ import { JsonReportWriter } from '../report/json-report.writer';
 import { TerminalPresenter, type TextOutput } from '../report/terminal.presenter';
 import { getErrorMessage } from '../util/error.util';
 import { resolveExitCode } from './exit-policy';
+import { validateReportPath } from './report-path.validator';
 
 interface ProgramOptions {
   readonly output?: string;
@@ -58,11 +59,14 @@ export async function runCli(argv: readonly string[], output: CliOutput = proces
 
       const destination = options.output ?? input;
       const adapter = AdapterFactory.create(options.target);
+      if (options.report !== undefined) {
+        await validateReportPath({ reportPath: options.report, inputPath: input, outputPath: destination });
+      }
       const report = await new Migrator(adapter, input, destination).migrate({ dryRun: options.dryRun });
       const reportOutput = report.summary.parseErrors > 0 ? output.stderr : output.stdout;
 
       new TerminalPresenter().present(report, reportOutput);
-      if (options.report) {
+      if (options.report !== undefined) {
         await new JsonReportWriter().write(options.report, report);
       }
 

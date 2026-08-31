@@ -3,6 +3,7 @@ import * as path from 'node:path';
 import type { ConversionAdapter } from '../adapter/conversion-adapter';
 import { shouldIgnore } from '../lib/gitignore.helper';
 import { logger } from '../logger';
+import { compareCodeUnits } from '../util/compare-code-units';
 import { BaseMigrator } from './base.migrator';
 import type { FileMigrationOptions, FileMigrationResult } from './file-migration-result';
 import { FileMigrator } from './file.migrator';
@@ -23,7 +24,7 @@ export class FolderMigrator extends BaseMigrator<readonly FileMigrationResult[]>
 
   public async migrate(options: FileMigrationOptions = { write: true }): Promise<readonly FileMigrationResult[]> {
     const files = await this.collectFiles(this.inputFolder, '');
-    files.sort((left, right) => path.normalize(left.input).localeCompare(path.normalize(right.input)));
+    files.sort((left, right) => compareCodeUnits(path.normalize(left.input), path.normalize(right.input)));
 
     const results: FileMigrationResult[] = [];
     for (const file of files) {
@@ -37,7 +38,7 @@ export class FolderMigrator extends BaseMigrator<readonly FileMigrationResult[]>
 
   private async collectFiles(directory: string, relativeDirectory: string): Promise<FileEntry[]> {
     const names = await readdir(directory);
-    names.sort();
+    names.sort(compareCodeUnits);
     const files: FileEntry[] = [];
 
     for (const name of names) {

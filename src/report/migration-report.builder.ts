@@ -2,6 +2,7 @@ import path from 'node:path';
 import type { ConversionResult } from '../analyzer/conversion-result';
 import type { LocatedFlexLayoutInput } from '../analyzer/flex-layout-attribute.analyzer';
 import type { FileMigrationResult } from '../migrator/file-migration-result';
+import { compareCodeUnits } from '../util/compare-code-units';
 import type { FileReport, MigrationReport, MigrationSummary, ReportResult } from './migration-report';
 
 type PathApi = typeof path.posix;
@@ -19,7 +20,7 @@ export class MigrationReportBuilder {
     const singleFile = files.length === 1 && this.samePath(pathApi, inputRoot, files[0]?.inputPath ?? '');
     const fileReports = files
       .map(file => this.fileReport(pathApi, inputRoot, singleFile, file))
-      .sort((left, right) => left.path.localeCompare(right.path));
+      .sort((left, right) => compareCodeUnits(left.path, right.path));
     const reportPaths = this.reportPaths(pathApi, inputRoot, outputRoot, singleFile);
 
     return {

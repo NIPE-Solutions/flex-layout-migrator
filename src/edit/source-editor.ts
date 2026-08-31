@@ -1,4 +1,5 @@
 import type { EditDiagnostic, EditResult, SourceEdit } from './source-edit';
+import { compareCodeUnits } from '../util/compare-code-units';
 
 export class SourceEditor {
   apply(source: string, edits: readonly SourceEdit[]): EditResult {
@@ -6,7 +7,7 @@ export class SourceEditor {
     if (diagnostics.length) return { status: 'invalid', diagnostics };
 
     const orderedEdits = [...edits].sort(
-      (left, right) => right.range.start - left.range.start || right.inputId.localeCompare(left.inputId),
+      (left, right) => right.range.start - left.range.start || compareCodeUnits(right.inputId, left.inputId),
     );
 
     let output = source;

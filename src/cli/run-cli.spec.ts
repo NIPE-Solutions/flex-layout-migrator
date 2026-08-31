@@ -1,6 +1,6 @@
-import { access, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, readFile, readlink, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 import type { TextOutput } from '../report/terminal.presenter';
 import { runCli, type CliOutput } from './run-cli';
 
@@ -111,6 +111,85 @@ describe('runCli', () => {
 
     expect(result.exitCode).toBe(0);
     expect(JSON.parse(await readFile(reportPath, 'utf8'))).toMatchObject({ schemaVersion: 1, dryRun: true });
+    await expect(access(output)).rejects.toThrow();
+  });
+
+  test('rejects a blank report path instead of silently ignoring it', async () => {
+    const input = join(temporaryDirectory, 'input.html');
+    const source = '<div fxLayout="row"></div>';
+    await writeFile(input, source, 'utf8');
+
+    const result = await run([input, '--dry-run', '--report', '']);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain('Report path must not be empty');
+    expect(await readFile(input, 'utf8')).toBe(source);
+  });
+
+  test('rejects a relative report alias of the input before a dry-run', async () => {
+    const input = join(temporaryDirectory, 'input.html');
+    const source = '<div fxLayout="row"></div>';
+    await writeFile(input, source, 'utf8');
+
+    const result = await run([input, '--dry-run', '--report', relative(process.cwd(), input)]);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain('Report path conflicts with a template path');
+    expect(await readFile(input, 'utf8')).toBe(source);
+  });
+
+  test('rejects an input report collision before parsing malformed Angular', async () => {
+    const input = join(temporaryDirectory, 'input.html');
+    const source = '<span fxLayout="row" />';
+    await writeFile(input, source, 'utf8');
+
+    const result = await run([input, '--report', input]);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain('Report path conflicts with a template path');
+    expect(await readFile(input, 'utf8')).toBe(source);
+  });
+
+  test('rejects a symlink report alias of an input template', async () => {
+    const input = join(temporaryDirectory, 'input.html');
+    const reportAlias = join(temporaryDirectory, 'report.json');
+    const source = '<div fxLayout="row"></div>';
+    await writeFile(input, source, 'utf8');
+    await symlink(input, reportAlias);
+
+    const result = await run([input, '--dry-run', '--report', reportAlias]);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain('Report path conflicts with a template path');
+    expect(await readFile(input, 'utf8')).toBe(source);
+    expect(await readlink(reportAlias)).toBe(input);
+  });
+
+  test('rejects a report collision with a discovered folder template', async () => {
+    const input = join(temporaryDirectory, 'input');
+    const nestedInput = join(input, 'nested', 'card.html');
+    const source = '<div fxLayout="row"></div>';
+    await mkdir(join(input, 'nested'), { recursive: true });
+    await writeFile(nestedInput, source, 'utf8');
+
+    const result = await run([input, '--dry-run', '--report', nestedInput]);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain('Report path conflicts with a template path');
+    expect(await readFile(nestedInput, 'utf8')).toBe(source);
+  });
+
+  test('rejects a planned output collision before writing any folder template', async () => {
+    const input = join(temporaryDirectory, 'input');
+    const output = join(temporaryDirectory, 'output');
+    await mkdir(input);
+    await writeFile(join(input, 'a.html'), '<div fxLayout="row"></div>', 'utf8');
+    await writeFile(join(input, 'z.html'), '<div fxLayout="column"></div>', 'utf8');
+
+    const result = await run([input, '--output', output, '--report', join(output, 'z.html')]);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain('Report path conflicts with a template path');
     await expect(access(output)).rejects.toThrow();
   });
 

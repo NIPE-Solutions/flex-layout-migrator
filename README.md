@@ -24,7 +24,7 @@ Preview the same migration plan without writing templates, while also creating a
 flex-layout-codemod ./src --target tailwind --output ./migrated-src --dry-run --report ./reports/flex-layout.json
 ```
 
-Only changed `.html` files are written during a real migration. `--dry-run` applies and validates edits in memory but does not write template output or create its missing parent directories. A requested `--report <path>` is an explicit reporting side effect and is still written atomically during a dry-run.
+Only changed `.html` files are written during a real migration. `--dry-run` applies and validates edits in memory but does not write template output or create its missing parent directories. A requested `--report <path>` is an explicit reporting side effect and is still written atomically during a dry-run. The report path must be nonblank and must not resolve to an input template or any planned template output; collisions are rejected before migration without creating output or report directories.
 
 Unresolved `review`, `unsupported`, or `invalid` results are strict by default. To preserve the same diagnostics and migration output while accepting unresolved work in automation, use:
 

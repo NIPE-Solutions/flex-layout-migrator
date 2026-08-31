@@ -145,6 +145,16 @@ describe('MigrationReportBuilder', () => {
     expect(report.files.map(item => item.path)).toEqual(['nested/a.html']);
   });
 
+  test('sorts report paths by UTF-16 code units instead of the host locale', () => {
+    const report = new MigrationReportBuilder().build('/templates', '/generated', 'tailwind', false, 0, [
+      file('/templates/ä.html', '/generated/ä.html', false, []),
+      file('/templates/a.html', '/generated/a.html', false, []),
+      file('/templates/Z.html', '/generated/Z.html', false, []),
+    ]);
+
+    expect(report.files.map(item => item.path)).toEqual(['Z.html', 'a.html', 'ä.html']);
+  });
+
   test('uses a basename for single-file input', () => {
     const inputPath = '/private/checkout/card.component.html';
     const report = new MigrationReportBuilder().build(

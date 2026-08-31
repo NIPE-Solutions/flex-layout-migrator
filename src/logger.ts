@@ -7,7 +7,10 @@ const myFormat = printf(({ timestamp, level, message, label, lineNumber }) => {
     typeof timestamp === 'string' || typeof timestamp === 'number' || timestamp instanceof Date
       ? timestamp
       : Date.now();
-  const formattedTimestamp = new Date(timestampValue).toISOString().replace('T', ' ').slice(0, 19);
+  const formattedTimestamp = new Date(timestampValue)
+    .toISOString()
+    .replace('T', ' ')
+    .replace(/\.\d{3}Z$/, 'Z');
   const fileLineInfo = label && lineNumber ? `(${label}:${lineNumber})` : '';
   return `[${formattedTimestamp}] ${level}: ${message} ${fileLineInfo}`;
 });

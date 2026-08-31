@@ -41,4 +41,20 @@ describe('FolderMigrator', () => {
     ]);
     await expect(access(outputFolder)).rejects.toThrow();
   });
+
+  test('orders discovered templates by UTF-16 code units instead of the host locale', async () => {
+    await writeFile(join(inputFolder, 'ä.html'), '<div></div>', 'utf8');
+    await writeFile(join(inputFolder, 'a.html'), '<div></div>', 'utf8');
+    await writeFile(join(inputFolder, 'Z.html'), '<div></div>', 'utf8');
+
+    const results = await new FolderMigrator(new TailwindAdapter(), inputFolder, outputFolder).migrate({
+      write: false,
+    });
+
+    expect(results.map(result => result.inputPath)).toEqual([
+      join(inputFolder, 'Z.html'),
+      join(inputFolder, 'a.html'),
+      join(inputFolder, 'ä.html'),
+    ]);
+  });
 });

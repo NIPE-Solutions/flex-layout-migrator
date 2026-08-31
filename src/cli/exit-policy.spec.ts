@@ -28,6 +28,7 @@ const reviewReport = report({ review: 1 });
 const unsupportedReport = report({ unsupported: 1 });
 const invalidReport = report({ invalid: 1 });
 const parseErrorReport = report({ parseErrors: 1 });
+const parseErrorWithUnresolvedReport = report({ parseErrors: 1, review: 1, unsupported: 1, invalid: 1 });
 
 describe('resolveExitCode', () => {
   test.each([
@@ -38,7 +39,10 @@ describe('resolveExitCode', () => {
     [reviewReport, true, 0],
     [unsupportedReport, true, 0],
     [invalidReport, true, 0],
+    [parseErrorReport, false, 1],
     [parseErrorReport, true, 1],
+    [parseErrorWithUnresolvedReport, false, 1],
+    [parseErrorWithUnresolvedReport, true, 1],
   ] as const)('resolves the documented exit code', (migrationReport, allowed, expected) => {
     expect(resolveExitCode(migrationReport, allowed)).toBe(expected);
   });

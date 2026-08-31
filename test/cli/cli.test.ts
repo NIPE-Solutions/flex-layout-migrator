@@ -49,6 +49,13 @@ describe('packaged CLI execution', () => {
     await rm(temporaryDirectory, { recursive: true, force: true });
   });
 
+  test('prints the package version without rendering a banner', async () => {
+    const result = await execute(['--version']);
+
+    expect(result).toMatchObject({ status: 0, stdout: '2.0.0-beta.0\n', stderr: '' });
+    expect(result.stdout).not.toContain('Flex-Layout Migrator');
+  });
+
   test('exits zero after writing a clean migration', async () => {
     const input = join(temporaryDirectory, 'input.html');
     const output = join(temporaryDirectory, 'output.html');

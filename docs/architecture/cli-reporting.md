@@ -39,6 +39,8 @@ Options:
 
 An output path does not need to exist. Its parent directory is created only when a changed template is written. In dry-run mode, neither the template output nor missing output directories are created. A requested JSON report is still written during dry-run because it is an explicit reporting side effect.
 
+The report path must be nonblank. Before parsing or writing any template, the CLI resolves relative components and existing symlinks and rejects a report path that aliases the single-file input, any discovered folder template, or any planned template output. This validation does not create output or report parents.
+
 Strict unresolved handling is the default. `--allow-unresolved` changes only the final exit code; it does not hide diagnostics or change which templates are written.
 
 ## Exit codes
@@ -141,7 +143,7 @@ The terminal presenter receives a report and writes through an injected text str
 - one concise line per unresolved result with relative path, source offset, diagnostic code, and reason;
 - a dry-run label when no template writes occurred.
 
-Normal output contains no emoji, thank-you text, color, or multi-phase implementation details. TTY, CI, and redirected output use the same stable plain text. Debug logging remains separate from the report.
+Normal output contains no emoji, thank-you text, color, or multi-phase implementation details. TTY, CI, and redirected output use the same stable plain text. Debug logging remains separate from the report, and its timestamps are rendered in UTC with a trailing `Z` marker.
 
 ### JSON presenter
 
