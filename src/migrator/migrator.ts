@@ -10,7 +10,11 @@ import { Statistics } from '../statistics';
 import { StatisticsReporter } from './observer/statistics.reporter';
 
 export class Migrator {
-  constructor(private converter: IConverter, private inputPath: string, private outputPath: string) {}
+  constructor(
+    private converter: IConverter,
+    private inputPath: string,
+    private outputPath: string,
+  ) {}
 
   public async migrate(): Promise<void> {
     const stat = await fs.promises.stat(this.inputPath);

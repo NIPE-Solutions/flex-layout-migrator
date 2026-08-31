@@ -1,6 +1,5 @@
 import { Command } from 'commander';
 import { Migrator } from './migrator/migrator';
-import 'tsconfig-paths/register';
 import { ConverterFactory } from './converter/converter.factory';
 import { logger } from './logger';
 import { getErrorMessage } from './util/error.util';

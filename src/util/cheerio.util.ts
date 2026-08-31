@@ -1,5 +1,6 @@
-import { Cheerio, CheerioAPI, Element as CheerioElement } from 'cheerio';
+import { Cheerio, CheerioAPI } from 'cheerio';
 import * as cheerio from 'cheerio';
+import type { AnyNode, Element as CheerioElement } from 'domhandler';
 import { Stack } from '../lib/stack';
 import { NodeWithChildren } from 'domhandler';
 
@@ -31,7 +32,9 @@ export function findElementsWithCustomAttributes(
 ): Cheerio<CheerioElement>[] {
   const elementsWithAttributes: Cheerio<CheerioElement>[] = [];
   const stack = new Stack<NodeWithChildren>();
-  stack.push(cheerioRoot.root()[0]);
+  const root = cheerioRoot.root()[0];
+  if (!root) return elementsWithAttributes;
+  stack.push(root);
 
   while (!stack.isEmpty()) {
     const node = stack.pop();
@@ -63,7 +66,7 @@ export function findElementsWithCustomAttributes(
  * @param element element to add styles to
  * @param styles key value pairs of styles to add
  */
-export function addInlineStyles(element: Cheerio<cheerio.AnyNode>, styles: { [key: string]: string }): void {
+export function addInlineStyles(element: Cheerio<AnyNode>, styles: { [key: string]: string }): void {
   let currentStyle = element.attr('style') || '';
 
   if (currentStyle && !currentStyle.endsWith(';')) {

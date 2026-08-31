@@ -1,61 +1,41 @@
-import { FileMigrator } from './file.migrator';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { IConverter } from '../converter/converter';
-
-import * as fs from 'fs-extra';
-import * as path from 'path';
-
-const readFileMock = jest.fn();
-const writeFileMock = jest.fn();
-const mkdirMock = jest.fn();
-
-jest.mock('fs-extra');
-jest.mock('path');
-
-const mockedFs = fs as jest.Mocked<typeof fs>;
-const mockedPath = path as jest.Mocked<typeof path>;
+import { FileMigrator } from './file.migrator';
 
 describe('FileMigrator', () => {
-  let converter: IConverter;
-  let fileMigrator: FileMigrator;
-  const input = 'input.html';
-  const output = 'output.html';
+  let temporaryDirectory: string;
 
-  beforeEach(() => {
-    converter = {
-      canConvert: jest.fn().mockReturnValue(true),
-      prepare: jest.fn(),
-      convert: jest.fn(),
-      getAllAttributes: jest.fn().mockReturnValue(['fxFlex']),
-      isSupportedFileExtension: jest.fn().mockReturnValue(true),
-      getPrettierConfig: jest.fn().mockReturnValue({}),
+  beforeEach(async () => {
+    temporaryDirectory = await mkdtemp(join(tmpdir(), 'flex-layout-codemod-'));
+  });
+
+  afterEach(async () => {
+    await rm(temporaryDirectory, { recursive: true, force: true });
+  });
+
+  test('migrates a template through the converter and writes the result', async () => {
+    const input = join(temporaryDirectory, 'input.html');
+    const output = join(temporaryDirectory, 'output', 'result.html');
+    await writeFile(input, '<div fxFlex="100%"></div>', 'utf8');
+
+    const converter = {
+      canConvert: vi.fn(() => true),
+      prepare: vi.fn(() => ({ usesPropertyBinding: false })),
+      convert: vi.fn((_attribute, _values, element) => element.addClass('flex-full')),
+      getAllAttributes: vi.fn(() => ['fxFlex']),
+      isSupportedFileExtension: vi.fn(() => true),
+      getPrettierConfig: vi.fn(() => ({ parser: 'angular' as const })),
     } as unknown as IConverter;
 
-    fileMigrator = new FileMigrator(converter, input, output);
+    await new FileMigrator(converter, input, output).migrate();
 
-    jest.spyOn(mockedFs.promises, 'readFile').mockImplementation(readFileMock);
-    jest.spyOn(mockedFs.promises, 'writeFile').mockImplementation(writeFileMock);
-    jest.spyOn(mockedFs.promises, 'mkdir').mockImplementation(mkdirMock);
-
-    readFileMock.mockImplementation(() => Promise.resolve('<div fxFlex="100%"></div>'));
-    writeFileMock.mockImplementation(() => Promise.resolve(undefined));
-    mkdirMock.mockImplementation(() => Promise.resolve(undefined));
-
-    mockedPath.dirname.mockReturnValue('path/to/output');
-    mockedPath.basename.mockImplementation(filePath => filePath);
-  });
-
-  afterEach(() => {
-    jest.clearAllMocks();
-  });
-
-  test('migrate() should call converter methods and read/write files', async () => {
-    await fileMigrator.migrate();
-
-    expect(converter.getAllAttributes).toHaveBeenCalled();
+    expect(converter.getAllAttributes).toHaveBeenCalledOnce();
     expect(converter.canConvert).toHaveBeenCalledWith('fxFlex', false);
-    expect(converter.convert).toHaveBeenCalled();
-
-    expect(mockedFs.promises.readFile).toHaveBeenCalledWith(input, 'utf8');
-    expect(mockedFs.promises.writeFile).toHaveBeenCalled();
+    expect(converter.convert).toHaveBeenCalledOnce();
+    const migrated = await readFile(output, 'utf8');
+    expect(migrated).toContain('class="flex-full"');
+    expect(migrated).not.toContain('fxFlex');
   });
 });

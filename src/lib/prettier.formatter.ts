@@ -25,7 +25,7 @@ export async function loadPrettierOptions(directory: string): Promise<void> {
  * @param fileContent the file content to format
  * @returns the formatted file content
  */
-export function formatFile(fileContent: string, options?: Options): string {
+export function formatFile(fileContent: string, options?: Options): Promise<string> {
   logger.debug('Formatting file content using prettier');
   return format(fileContent, { parser: 'html', printWidth: 80, ...prettierOptions, ...options });
 }

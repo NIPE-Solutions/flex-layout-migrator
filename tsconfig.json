@@ -4,14 +4,13 @@
     "types": ["node", "vitest/globals"],
     "module": "ESNext",
     "moduleResolution": "Bundler",
-    "baseUrl": ".",
     "strict": true,
     "esModuleInterop": true,
     "resolveJsonModule": true,
     "noUncheckedIndexedAccess": true,
     "noImplicitOverride": true,
     "noFallthroughCasesInSwitch": true,
-    "paths": {}
+    "skipLibCheck": true
   },
   "include": ["src/**/*.ts", "test/**/*.ts", "*.config.ts"],
   "exclude": ["node_modules", "dist", "coverage"]

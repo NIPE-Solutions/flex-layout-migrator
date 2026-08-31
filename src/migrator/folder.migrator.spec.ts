@@ -7,12 +7,12 @@ import mockFs from 'mock-fs';
 
 describe('FolderMigrator', () => {
   const mockedConverter: IConverter = {
-    convert: jest.fn(),
-    canConvert: jest.fn().mockReturnValue(true),
-    getAllAttributes: jest.fn().mockReturnValue(['fxFlex']),
-    prepare: jest.fn(),
-    isSupportedFileExtension: jest.fn().mockReturnValue(true),
-    getPrettierConfig: jest.fn().mockReturnValue({}),
+    convert: vi.fn(),
+    canConvert: vi.fn().mockReturnValue(true),
+    getAllAttributes: vi.fn().mockReturnValue(['fxFlex']),
+    prepare: vi.fn(),
+    isSupportedFileExtension: vi.fn().mockReturnValue(true),
+    getPrettierConfig: vi.fn().mockReturnValue({}),
   };
 
   const inputFolder = '/input';
@@ -87,7 +87,7 @@ describe('FolderMigrator', () => {
   });
 
   it('should call the convert method of the converter', async () => {
-    const spy = jest.spyOn(FileMigrator.prototype, 'migrate');
+    const spy = vi.spyOn(FileMigrator.prototype, 'migrate');
     mockFs({
       '/input': {
         'file1.html': '<div></div>',

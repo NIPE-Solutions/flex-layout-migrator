@@ -18,9 +18,9 @@ describe('BaseMigrator', () => {
 
   beforeEach(() => {
     converter = {
-      canConvert: jest.fn().mockReturnValue(false),
-      convert: jest.fn(),
-      getAllAttributes: jest.fn().mockReturnValue([]),
+      canConvert: vi.fn().mockReturnValue(false),
+      convert: vi.fn(),
+      getAllAttributes: vi.fn().mockReturnValue([]),
     } as unknown as IConverter;
 
     migrator = new TestMigrator(converter);
@@ -28,7 +28,7 @@ describe('BaseMigrator', () => {
 
   test('addObserver and removeObserver', () => {
     const observer: Observer = {
-      update: jest.fn(),
+      update: vi.fn(),
     };
 
     migrator.addObserver(observer);
@@ -40,7 +40,7 @@ describe('BaseMigrator', () => {
 
   test('notifyObservers', async () => {
     const observer: Observer = {
-      update: jest.fn(),
+      update: vi.fn(),
     };
     migrator.addObserver(observer);
 

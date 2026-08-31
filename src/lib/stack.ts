@@ -7,7 +7,10 @@ interface IStack<T> {
 }
 
 export class Stack<T> implements IStack<T> {
-  constructor(private storage: T[] = [], private capacity: number = Infinity) {}
+  constructor(
+    private storage: T[] = [],
+    private capacity: number = Infinity,
+  ) {}
 
   public push(item: T): void {
     if (this.size() === this.capacity) {
@@ -27,7 +30,7 @@ export class Stack<T> implements IStack<T> {
     if (this.isEmpty()) {
       throw new Error('Cannot peek at an empty stack');
     }
-    return this.storage[this.size() - 1];
+    return this.storage[this.size() - 1] as T;
   }
 
   public size(): number {

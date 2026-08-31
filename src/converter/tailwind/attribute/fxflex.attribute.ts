@@ -1,5 +1,5 @@
-import * as cheerio from 'cheerio';
 import { Cheerio } from 'cheerio';
+import type { Element } from 'domhandler';
 import classNames from 'classnames';
 import { logger } from '../../../logger';
 import { AttributeConverter } from '../../attribute.converter';
@@ -11,7 +11,7 @@ export class FxFlexAttributeConverter extends AttributeConverter<unknown> {
     super('fxFlex');
   }
 
-  public convert(value: string[], element: Cheerio<cheerio.Element>, breakPoint: BreakPoint | undefined): void {
+  public convert(value: string[], element: Cheerio<Element>, breakPoint: BreakPoint | undefined): void {
     const flexMap: { [key: string]: string } = {
       ['[0_1_auto]']: 'initial',
       ['[1_1_0]']: '1',

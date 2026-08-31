@@ -5,10 +5,11 @@ import { createLogger, format, transports } from 'winston';
 const { combine, timestamp, printf, colorize, splat } = format;
 
 const myFormat = printf(({ timestamp, level, message, label, lineNumber }) => {
-  const formattedTimestamp = dateFormat(
-    new Date(timestamp),
-    'yyyy-MM-dd HH:mm:ss',
-  );
+  const timestampValue =
+    typeof timestamp === 'string' || typeof timestamp === 'number' || timestamp instanceof Date
+      ? timestamp
+      : Date.now();
+  const formattedTimestamp = dateFormat(new Date(timestampValue), 'yyyy-MM-dd HH:mm:ss');
   const fileLineInfo = label && lineNumber ? `(${label}:${lineNumber})` : '';
   return `[${formattedTimestamp}] ${level}: ${message} ${fileLineInfo}`;
 });
