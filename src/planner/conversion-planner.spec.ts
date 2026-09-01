@@ -175,15 +175,263 @@ describe('ConversionPlanner', () => {
     expect(result.results).toContainEqual(expect.objectContaining({ status: 'review', code: 'bound-class' }));
   });
 
-  test('preserves inputs the adapter does not support', () => {
-    const source = '<div fxShow="false"></div>';
+  test.each([
+    ['fxShow', '<div fxShow></div>', '<div></div>'],
+    ['fxShow false', '<div fxShow="false"></div>', '<div class="hidden"></div>'],
+    ['fxHide', '<div fxHide></div>', '<div class="hidden"></div>'],
+    ['fxHide false', '<div fxHide="false"></div>', '<div></div>'],
+  ])('converts static visibility semantics for %s', (_case, source, expected) => {
+    const result = migrate(source);
 
+    expect(result.output).toBe(expected);
+    expect(result.results).toEqual([expect.objectContaining({ status: 'converted' })]);
+  });
+
+  test.each([
+    ['fxShow', '<div fxShow="fals&#101;"></div>', '<div class="hidden"></div>'],
+    ['fxHide', '<div fxHide="fals&#101;"></div>', '<div></div>'],
+  ])('uses Angular-decoded entity semantics for %s literals', (_case, source, expected) => {
+    const result = migrate(source);
+
+    expect(result.output).toBe(expected);
+    expect(result.results).toEqual([expect.objectContaining({ status: 'converted' })]);
+  });
+
+  test('uses a decoded entity class as restoration evidence while preserving its raw spelling', () => {
+    const result = migrate('<div class="bl&#111;ck" fxShow="false" fxShow.sm></div>');
+
+    expect(result.output).toBe(
+      '<div class="bl&#111;ck hidden [@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:block"></div>',
+    );
+    expect(result.results.every(item => item.status === 'converted')).toBe(true);
+  });
+
+  test('keeps generated classes separated after entity-encoded class whitespace', () => {
+    const result = migrate('<div class="bl&#111;ck&#32;" fxShow="false" fxShow.sm></div>');
+
+    expect(result.output).toBe(
+      '<div class="bl&#111;ck&#32;hidden [@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:block"></div>',
+    );
+  });
+
+  test('uses a decoded entity style declaration as blocking display evidence', () => {
+    const source = '<div style="displa&#121;:block" fxShow></div>';
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.results).toEqual([
+      expect.objectContaining({ status: 'review', code: 'display-restoration-unverified' }),
+    ]);
+  });
+
+  test.each([
+    '<div style="/* leading */ display:block" fxHide></div>',
+    '<div style="color:red; display/**/:block" fxHide></div>',
+    '<div style="d\\69 splay:block" fxHide></div>',
+  ])('preserves visibility when CSS-aware inline-style evidence controls display: %s', source => {
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.results).toEqual([
+      expect.objectContaining({ status: 'review', code: 'display-restoration-unverified' }),
+    ]);
+  });
+
+  test('converts a responsive-only hide without guessing a restoration display', () => {
+    const result = migrate('<div fxHide.sm></div>');
+
+    expect(result.output).toBe(
+      '<div class="[@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:hidden"></div>',
+    );
+    expect(result.results).toEqual([expect.objectContaining({ status: 'converted' })]);
+  });
+
+  test('restores a hidden base state from converted layout semantics', () => {
+    const result = migrate('<div fxLayout="column" fxShow="false" fxShow.sm></div>');
+
+    expect(result.output).toBe(
+      '<div class="flex flex-col box-border hidden [@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:flex"></div>',
+    );
+    expect(result.results.every(item => item.status === 'converted')).toBe(true);
+  });
+
+  test('restores a hidden base state from one existing display utility', () => {
+    const result = migrate('<div class="block" fxShow="false" fxShow.sm></div>');
+
+    expect(result.output).toBe(
+      '<div class="block hidden [@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:block"></div>',
+    );
+    expect(result.results.every(item => item.status === 'converted')).toBe(true);
+  });
+
+  test.each([
+    '<div style="display:block" fxShow></div>',
+    '<div [style.display]="display" fxShow></div>',
+    '<div [style.display]="display" fxHide></div>',
+    '<div [attr.style]="styles" fxShow></div>',
+    '<div bind-attr.style="styles" fxShow></div>',
+  ])('preserves visibility when parser-provided style evidence controls display: %s', source => {
     const result = migrate(source);
 
     expect(result.output).toBe(source);
     expect(result.results).toContainEqual(
-      expect.objectContaining({ status: 'unsupported', code: 'target-unsupported' }),
+      expect.objectContaining({ status: 'review', code: 'display-restoration-unverified' }),
     );
+  });
+
+  test.each([
+    '<div [class]="classes" fxHide></div>',
+    '<div [attr.class]="classes" fxHide></div>',
+    '<div bind-attr.class="classes" fxHide></div>',
+  ])('preserves a hiding family when parser-produced bound classes block generated output: %s', source => {
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.results).toEqual([expect.objectContaining({ status: 'review', code: 'bound-class' })]);
+  });
+
+  test.each(['CLASS', 'Class'])('merges generated visibility output into the existing %s attribute', classKey => {
+    const result = migrate(`<div ${classKey}="card" fxHide></div>`);
+
+    expect(result.output).toBe(`<div ${classKey}="card hidden"></div>`);
+    expect(result.results).toEqual([expect.objectContaining({ status: 'converted' })]);
+  });
+
+  test('uses an uppercase literal CLASS display utility as restoration evidence', () => {
+    const result = migrate('<div CLASS="block" fxShow="false" fxShow.sm></div>');
+
+    expect(result.output).toBe(
+      '<div CLASS="block hidden [@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:block"></div>',
+    );
+    expect(result.results.every(item => item.status === 'converted')).toBe(true);
+  });
+
+  test('removes an all-shown no-op family beside a bound class without inserting an empty class', () => {
+    const result = migrate('<div [class]="classes" fxShow></div>');
+
+    expect(result.output).toBe('<div [class]="classes"></div>');
+    expect(result.results).toEqual([expect.objectContaining({ status: 'converted' })]);
+  });
+
+  test.each([
+    ['zero generated output', '<div class="card" fxShow></div>', '<div class="card"></div>'],
+    [
+      'replacement-identical generated output',
+      '<div class="flex flex-row box-border" fxLayout="row"></div>',
+      '<div class="flex flex-row box-border"></div>',
+    ],
+  ])('does not enqueue an identical literal class edit for %s', (_case, source, expected) => {
+    const result = migrate(source);
+
+    expect(result.output).toBe(expected);
+    expect(result.edits).toHaveLength(1);
+    expect(result.edits).toEqual([
+      expect.objectContaining({ text: '', inputId: expect.not.stringContaining(':classes') }),
+    ]);
+  });
+
+  test('preserves layout and visibility atomically when visibility is dynamic', () => {
+    const source = '<div fxLayout="row" [fxHide]="hidden"></div>';
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.results).toEqual([
+      expect.objectContaining({ status: 'review', code: 'context-unverified' }),
+      expect.objectContaining({ status: 'review', code: 'dynamic-binding' }),
+    ]);
+  });
+
+  test('lets visibility own display when layout and hiding share one responsive range', () => {
+    const result = migrate('<div fxLayout.sm="column" fxHide.sm></div>');
+
+    expect(result.output).toBe(
+      '<div class="[@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:flex-col [@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:box-border [@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:hidden"></div>',
+    );
+    expect(result.output).not.toContain(']:flex ');
+    expect(result.results.every(item => item.status === 'converted')).toBe(true);
+  });
+
+  test.each([
+    ['nested max-only ranges', '<div fxLayout.lt-md="row" fxHide.lt-sm></div>'],
+    ['crossing min/max ranges', '<div fxLayout.gt-xs="row" fxHide.lt-md></div>'],
+  ])('preserves coupled directives for unsafe partial layout/visibility overlap across %s', (_case, source) => {
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.results).toEqual([
+      expect.objectContaining({ status: 'review', code: 'context-unverified' }),
+      expect.objectContaining({ status: 'review', code: 'context-unverified' }),
+    ]);
+  });
+
+  test.each([
+    ['literal class', 'class.sm="hidden"', 'target-unsupported', 'context-unverified'],
+    ['literal style', 'style.sm="display:block"', 'target-unsupported', 'display-restoration-unverified'],
+    ['bound ngClass', '[ngClass.sm]="classes"', 'dynamic-binding', 'bound-class'],
+    ['bind ngClass', 'bind-ngClass.sm="classes"', 'dynamic-binding', 'bound-class'],
+    ['bound class target', '[class.sm]="flag"', 'dynamic-binding', 'bound-class'],
+    ['bind class target', 'bind-class.sm="flag"', 'dynamic-binding', 'bound-class'],
+    ['bound ngStyle', '[ngStyle.sm]="styles"', 'dynamic-binding', 'display-restoration-unverified'],
+    ['bind ngStyle', 'bind-ngStyle.sm="styles"', 'dynamic-binding', 'display-restoration-unverified'],
+    ['bound style target', '[style.sm]="value"', 'dynamic-binding', 'display-restoration-unverified'],
+    ['bind style target', 'bind-style.sm="value"', 'dynamic-binding', 'display-restoration-unverified'],
+  ])(
+    'preserves generated hiding beside unsupported responsive %s authority',
+    (_case, authority, authorityCode, visibilityCode) => {
+      const source = `<div ${authority} fxHide.sm></div>`;
+      const result = migrate(source);
+
+      expect(result.output).toBe(source);
+      expect(result.results).toEqual([
+        expect.objectContaining({ status: expect.not.stringMatching('converted'), code: authorityCode }),
+        expect.objectContaining({ status: 'review', code: visibilityCode }),
+      ]);
+    },
+  );
+
+  test('preserves a competing existing display class and closes the layout dependency afterward', () => {
+    const source = '<div class="block" fxLayout="row" fxHide></div>';
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.results).toEqual([
+      expect.objectContaining({ status: 'review', code: 'context-unverified' }),
+      expect.objectContaining({ status: 'review', code: 'class-conflict' }),
+    ]);
+  });
+
+  test('closes visibility dependencies after a non-display layout class conflict', () => {
+    const source = '<div class="flex-col" fxLayout="row" fxShow="false" fxShow.sm></div>';
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.results).toEqual([
+      expect.objectContaining({ status: 'review', code: 'class-conflict' }),
+      expect.objectContaining({ status: 'review', code: 'context-unverified' }),
+      expect.objectContaining({ status: 'review', code: 'context-unverified' }),
+    ]);
+  });
+
+  test('keeps parent gap conversion independent from a hidden child', () => {
+    const result = migrate('<div fxLayout="row" fxLayoutGap="4"><span fxHide></span></div>');
+
+    expect(result.output).toBe('<div class="flex flex-row box-border gap-[4px]"><span class="hidden"></span></div>');
+    expect(result.results.every(item => item.status === 'converted')).toBe(true);
+  });
+
+  test.each([
+    ['dynamic', '<div fxLayout="row" [fxHide]="hidden"></div>', ['context-unverified', 'dynamic-binding']],
+    [
+      'optional breakpoint',
+      '<div fxLayout="row" fxShow.handset></div>',
+      ['context-unverified', 'breakpoint-unverified'],
+    ],
+    ['custom breakpoint', '<div fxLayout="row" fxHide.cinema></div>', ['context-unverified', 'custom-breakpoint']],
+  ] as const)('retains intrinsic visibility diagnostic precedence for %s input', (_case, source, codes) => {
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.results.map(item => (item.status === 'converted' ? undefined : item.code))).toEqual(codes);
   });
 
   test('plans fxFlex, fxGrow, and fxShrink as one atomic semantic group', () => {

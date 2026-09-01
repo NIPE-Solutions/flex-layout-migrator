@@ -2,6 +2,7 @@ import type { ConversionAdapter, ConversionContext, PlannedConversion } from '..
 import type { ConversionResult } from '../analyzer/conversion-result';
 import type { LocatedFlexLayoutInput } from '../analyzer/flex-layout-attribute.analyzer';
 import type { SourceEdit } from '../edit/source-edit';
+import { templateAttributeKeys } from '../template/template-attribute';
 import type { SourceRange, TemplateElement } from '../template/template.model';
 
 export interface FilePlan {
@@ -31,8 +32,33 @@ const directiveOrder = new Map(
     'fxFill',
     'fxFlexOffset',
     'fxFlexOrder',
+    'fxShow',
+    'fxHide',
   ].map((directive, index) => [directive, index]),
 );
+
+function boundClassBlocked(input: LocatedFlexLayoutInput): PlannedConversion {
+  return {
+    status: 'review',
+    input,
+    code: 'bound-class',
+    reason: 'Generated classes cannot be merged safely with a bound class value.',
+    suggestion: 'Merge the generated classes into the binding manually.',
+  };
+}
+
+function isBoundClassAttribute(attribute: TemplateElement['attributes'][number]): boolean {
+  if (attribute.binding !== 'property') return false;
+  return [...templateAttributeKeys(attribute)].some(
+    key => key === 'class' || key === 'ngclass' || key.startsWith('class.') || key.startsWith('ngclass.'),
+  );
+}
+
+function literalClassAttribute(element: TemplateElement) {
+  return element.attributes.find(
+    attribute => attribute.binding === 'literal' && templateAttributeKeys(attribute).has('class'),
+  );
+}
 
 function removalRange(source: string, input: LocatedFlexLayoutInput): SourceRange {
   const start =
@@ -66,19 +92,25 @@ export class ConversionPlanner {
       const elementInputs = inputsByElementId.get(element.id) ?? [];
       if (!elementInputs.length) continue;
       const parent = element.parentId ? elementById.get(element.parentId) : undefined;
+      const literalClass = literalClassAttribute(element);
+      const existingClassNames = literalClass?.value.split(/\s+/).filter(Boolean) ?? [];
       const context: ConversionContext = {
         element,
         inputs: elementInputs,
+        existingClassNames,
+        attributeEvidence: element.attributes,
         ...(parent
           ? { parent, parentInputs: inputsByElementId.get(parent.id) ?? [] }
           : { parentInputs: [] as readonly LocatedFlexLayoutInput[] }),
       };
       let plans =
         adapter.planElement?.(elementInputs, context) ?? elementInputs.map(input => adapter.plan(input, context));
-      const literalClass = element.attributes.find(
-        attribute => attribute.name === 'class' && attribute.binding === 'literal',
-      );
-      const existingClassNames = literalClass?.value.split(/\s+/).filter(Boolean) ?? [];
+      const hasBoundClass = element.attributes.some(isBoundClassAttribute);
+      if (hasBoundClass) {
+        plans = plans.map(plan =>
+          plan.status === 'converted' && plan.classNames.length > 0 ? boundClassBlocked(plan.input) : plan,
+        );
+      }
       plans = adapter.resolveClassConflicts?.(plans, existingClassNames) ?? plans;
       contextsByElementId.set(element.id, context);
       plansByElementId.set(element.id, plans);
@@ -103,20 +135,6 @@ export class ConversionPlanner {
 
       if (planned.status !== 'converted') {
         results.push(planned);
-        continue;
-      }
-
-      const hasBoundClass = element.attributes.some(
-        attribute => attribute.name === 'class' && attribute.binding === 'property',
-      );
-      if (hasBoundClass) {
-        results.push({
-          status: 'review',
-          input,
-          code: 'bound-class',
-          reason: 'Generated classes cannot be merged safely with a bound class value.',
-          suggestion: 'Merge the generated classes into the binding manually.',
-        });
         continue;
       }
 
@@ -150,17 +168,27 @@ export class ConversionPlanner {
         })),
       );
 
-      const classAttribute = conversion.element.attributes.find(
-        attribute => attribute.name === 'class' && attribute.binding === 'literal',
-      );
+      const classAttribute = literalClassAttribute(conversion.element);
       if (classAttribute?.valueSource) {
-        const classNames = [...new Set([...classAttribute.value.split(/\s+/).filter(Boolean), ...generatedClassNames])];
-        edits.push({
-          range: classAttribute.valueSource,
-          text: classNames.join(' '),
-          inputId: `${conversion.element.id}:classes`,
-        });
-      } else {
+        const existingClassNames = classAttribute.value.split(/\s+/).filter(Boolean);
+        const classNames = [...new Set([...existingClassNames, ...generatedClassNames])];
+        const missingClassNames = generatedClassNames.filter(className => !existingClassNames.includes(className));
+        const text =
+          classAttribute.rawValue === classAttribute.value
+            ? classNames.join(' ')
+            : `${classAttribute.rawValue}${
+                classAttribute.value.length > 0 && !/\s$/u.test(classAttribute.value) && missingClassNames.length > 0
+                  ? ' '
+                  : ''
+              }${missingClassNames.join(' ')}`;
+        if (text !== classAttribute.rawValue) {
+          edits.push({
+            range: classAttribute.valueSource,
+            text,
+            inputId: `${conversion.element.id}:classes`,
+          });
+        }
+      } else if (generatedClassNames.length > 0) {
         const startTag = source.slice(conversion.element.startTag.start, conversion.element.startTag.end);
         const selfClosing = startTag.endsWith('/>');
         const insertionOffset = conversion.element.startTag.end - (selfClosing ? 2 : 1);

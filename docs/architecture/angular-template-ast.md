@@ -45,7 +45,7 @@ type TemplateParseResult =
   { status: 'parsed'; template: ParsedTemplate } | { status: 'parse-error'; diagnostics: readonly ParseDiagnostic[] };
 ```
 
-`ParsedTemplate` contains normalized elements and inputs rather than Angular AST nodes. Every input records its directive name, raw source name, raw value, binding kind, optional breakpoint, element identity, and absolute source ranges. Ranges use half-open offsets: `start` is inclusive and `end` is exclusive.
+`ParsedTemplate` contains normalized elements and inputs rather than Angular AST nodes. Every attribute keeps its Angular-decoded semantic value separately from its raw source spelling and edit ranges. Bound attributes also retain Angular's property, attribute, class, style, animation, or two-way target kind so normalized target names cannot be mistaken for directive inputs. Ranges use half-open offsets: `start` is inclusive and `end` is exclusive.
 
 The wrapper traverses elements, templates, and control-flow branches in document order. Angular compiler nodes never cross this boundary.
 
@@ -67,13 +67,18 @@ interface TemplateElement {
 
 interface TemplateAttribute {
   readonly name: string;
+  readonly rawName: string;
+  readonly rawValue: string;
   readonly value: string;
   readonly binding: 'literal' | 'property';
+  readonly bindingTarget?: 'property' | 'attribute' | 'class' | 'style' | 'animation' | 'two-way';
   readonly source: SourceRange;
   readonly nameSource: SourceRange;
   readonly valueSource?: SourceRange;
 }
 ```
+
+For literal attributes, `value` is the Angular-decoded semantic text and `rawValue` is the exact text covered by `valueSource`. Property-binding expressions remain unevaluated raw text.
 
 Element identifiers are deterministic source offsets, not generated UUIDs. Parent relationships allow context-sensitive conversions without exposing mutable DOM nodes.
 

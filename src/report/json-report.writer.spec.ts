@@ -50,6 +50,33 @@ function reviewResult(fileName: string): ConversionResult {
   };
 }
 
+function visibilityReviewResult(
+  fileName: string,
+  sourceName: 'fxShow' | 'fxShow.sm',
+  offset: number,
+): ConversionResult {
+  const input: LocatedFlexLayoutInput = {
+    id: `${fileName}:${offset}`,
+    fileName,
+    elementId: 'visibility-element',
+    sourceName,
+    directive: 'fxShow',
+    value: sourceName === 'fxShow' ? 'false' : '',
+    binding: 'literal',
+    breakpoint: sourceName === 'fxShow' ? undefined : 'sm',
+    source: { start: offset, end: offset + sourceName.length },
+    nameSource: { start: offset, end: offset + sourceName.length },
+  };
+
+  return {
+    status: 'review',
+    input,
+    code: 'display-restoration-unverified',
+    reason: 'The visible display value cannot be proven from one unambiguous source.',
+    suggestion: 'Provide one unambiguous visible display value or migrate this visibility family manually.',
+  };
+}
+
 function file(inputPath: string): FileMigrationResult {
   return {
     inputPath,
@@ -123,6 +150,56 @@ describe('JsonReportWriter', () => {
                 status: 'review',
                 sourceName: 'fxFlexAlign.gt-xs',
                 code: 'responsive-precedence-unverified',
+              },
+            ],
+          },
+        ],
+      });
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  test('preserves exact visibility restoration diagnostics and counts in the public report', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'json-report-writer-'));
+    const inputRoot = '/private/checkout/templates';
+    const outputRoot = '/private/checkout/generated';
+    const inputPath = `${inputRoot}/visibility.component.html`;
+    const report = new MigrationReportBuilder().build(inputRoot, outputRoot, 'tailwind', false, 0, [
+      {
+        ...file(inputPath),
+        changed: false,
+        results: [visibilityReviewResult(inputPath, 'fxShow', 12), visibilityReviewResult(inputPath, 'fxShow.sm', 27)],
+      },
+    ]);
+    const target = join(directory, 'reports', 'migration.json');
+
+    try {
+      await new JsonReportWriter().write(target, report);
+
+      expect(JSON.parse(await readFile(target, 'utf8'))).toMatchObject({
+        summary: {
+          filesScanned: 1,
+          filesChanged: 0,
+          converted: 0,
+          review: 2,
+          unsupported: 0,
+          invalid: 0,
+          parseErrors: 0,
+        },
+        files: [
+          {
+            changed: false,
+            results: [
+              {
+                status: 'review',
+                sourceName: 'fxShow',
+                code: 'display-restoration-unverified',
+              },
+              {
+                status: 'review',
+                sourceName: 'fxShow.sm',
+                code: 'display-restoration-unverified',
               },
             ],
           },

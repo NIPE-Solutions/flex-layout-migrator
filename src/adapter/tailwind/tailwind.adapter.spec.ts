@@ -37,10 +37,50 @@ describe('TailwindAdapter', () => {
   test.each([
     [{ binding: 'property' }, 'review', 'dynamic-binding'],
     [{ breakpoint: 'cinema', sourceName: 'fxLayout.cinema' }, 'review', 'custom-breakpoint'],
-    [{ directive: 'fxShow', sourceName: 'fxShow' }, 'unsupported', 'target-unsupported'],
+    [{ directive: 'fxShow', sourceName: 'fxShow' }, 'review', 'context-unverified'],
     [{ value: 'diagonal' }, 'invalid', 'invalid-value'],
   ] as const)('classifies unresolved input %o', (overrides, status, code) => {
     expect(new TailwindAdapter().plan(input(overrides), { element })).toMatchObject({ status, code });
+  });
+
+  test('plans a complete static and responsive visibility family through the dedicated state pipeline', () => {
+    const adapter = new TailwindAdapter();
+    const inputs = [
+      input({ id: 'fixture:show', directive: 'fxShow', sourceName: 'fxShow', value: 'false' }),
+      input({
+        id: 'fixture:show-sm',
+        directive: 'fxShow',
+        sourceName: 'fxShow.sm',
+        breakpoint: 'sm',
+        value: '',
+      }),
+    ];
+
+    expect(adapter.planElement(inputs, { element, inputs, existingClassNames: ['block'] })).toEqual([
+      expect.objectContaining({ status: 'converted', classNames: ['hidden', expect.stringContaining(']:block')] }),
+      expect.objectContaining({ status: 'converted', classNames: [] }),
+    ]);
+  });
+
+  test('uses converted layout display as responsive visibility restoration', () => {
+    const adapter = new TailwindAdapter();
+    const inputs = [
+      input({ id: 'fixture:layout', directive: 'fxLayout', sourceName: 'fxLayout', value: 'column' }),
+      input({ id: 'fixture:show', directive: 'fxShow', sourceName: 'fxShow', value: 'false' }),
+      input({
+        id: 'fixture:show-sm',
+        directive: 'fxShow',
+        sourceName: 'fxShow.sm',
+        breakpoint: 'sm',
+        value: '',
+      }),
+    ];
+
+    expect(adapter.planElement(inputs, { element, inputs, existingClassNames: [] })).toEqual([
+      expect.objectContaining({ status: 'converted', classNames: ['flex', 'flex-col', 'box-border'] }),
+      expect.objectContaining({ status: 'converted', classNames: ['hidden', expect.stringContaining(']:flex')] }),
+      expect.objectContaining({ status: 'converted', classNames: [] }),
+    ]);
   });
 
   test('decorates verified responsive classes after planning their literal value semantics', () => {

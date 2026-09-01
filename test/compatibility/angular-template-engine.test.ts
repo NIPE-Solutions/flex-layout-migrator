@@ -16,11 +16,26 @@ function migrate(source: string, fileName = 'fixture.html') {
   const plan = new ConversionPlanner().plan(source, parsed.elements, inputs, new TailwindAdapter());
   const edited = new SourceEditor().apply(source, plan.edits);
   if (edited.status !== 'applied') throw new Error(edited.diagnostics.map(item => item.message).join('\n'));
-  return { output: edited.output, results: plan.results };
+  return { output: edited.output, results: plan.results, editCount: plan.edits.length };
 }
 
 function unresolvedCodes(results: readonly ConversionResult[]): readonly string[] {
   return results.flatMap(result => (result.status === 'converted' ? [] : [result.code]));
+}
+
+function resultCounts(results: readonly ConversionResult[]) {
+  const counts = { converted: 0, review: 0, unsupported: 0, invalid: 0, parseError: 0 };
+  for (const result of results) {
+    if (result.status === 'parse-error') counts.parseError += 1;
+    else counts[result.status] += 1;
+  }
+  return counts;
+}
+
+function diagnosticCounts(results: readonly ConversionResult[]): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const code of unresolvedCodes(results)) counts[code] = (counts[code] ?? 0) + 1;
+  return counts;
 }
 
 function equivalentResults(results: readonly ConversionResult[]) {
@@ -60,7 +75,6 @@ describe('Angular template engine compatibility', () => {
     unresolved: [
       'dynamic-binding',
       'custom-breakpoint',
-      'target-unsupported',
       'bound-class',
       'context-unverified',
       'semantic-unsupported',
@@ -68,9 +82,38 @@ describe('Angular template engine compatibility', () => {
       'dynamic-binding',
       'context-unverified',
     ],
+    visibility: [
+      'responsive-precedence-unverified',
+      'responsive-precedence-unverified',
+      'responsive-precedence-unverified',
+      'responsive-precedence-unverified',
+      'class-conflict',
+      'display-restoration-unverified',
+      'display-restoration-unverified',
+      'display-restoration-unverified',
+      'display-restoration-unverified',
+      'display-restoration-unverified',
+      'display-restoration-unverified',
+      'display-restoration-unverified',
+      'display-restoration-unverified',
+      'bound-class',
+      'bound-class',
+      'dynamic-binding',
+      'dynamic-binding',
+      'context-unverified',
+      'breakpoint-unverified',
+      'breakpoint-unverified',
+      'custom-breakpoint',
+      'dynamic-binding',
+      'context-unverified',
+      'dynamic-binding',
+      'class-conflict',
+      'context-unverified',
+      'context-unverified',
+    ],
   };
 
-  test.each(['static', 'angular-syntax', 'responsive', 'unresolved'])(
+  test.each(['static', 'angular-syntax', 'responsive', 'unresolved', 'visibility'])(
     'matches the %s fixture and is idempotent',
     async name => {
       const input = await fixture(name, 'input');
@@ -80,6 +123,7 @@ describe('Angular template engine compatibility', () => {
       expect(first.output).toBe(expected);
       const second = migrate(first.output, `${name}.html`);
       expect(second.output).toBe(expected);
+      expect(second.editCount).toBe(0);
       expect(unresolvedCodes(first.results)).toEqual(preservedCodes[name] ?? []);
       expect(unresolvedCodes(second.results)).toEqual(preservedCodes[name] ?? []);
     },
@@ -99,6 +143,60 @@ describe('Angular template engine compatibility', () => {
 
     expect(baseFirst.output).toBe(responsiveFirst.output);
     expect(equivalentResults(baseFirst.results)).toEqual(equivalentResults(responsiveFirst.results));
+  });
+
+  test('emits the same composed visibility family for equivalent attribute orders', () => {
+    const layoutFirst = migrate('<div fxLayout="row" fxShow="false" fxShow.sm></div>');
+    const visibilityFirst = migrate('<div fxShow.sm fxShow="false" fxLayout="row"></div>');
+
+    expect(layoutFirst.output).toBe(visibilityFirst.output);
+    expect(equivalentResults(layoutFirst.results)).toEqual(equivalentResults(visibilityFirst.results));
+  });
+
+  test('reports the exact visibility compatibility totals and diagnostic histogram', async () => {
+    const result = migrate(await fixture('visibility', 'input'), 'visibility.html');
+    const convertedVisibilityNames = new Set(
+      result.results.flatMap(item =>
+        item.status === 'converted' && (item.input.directive === 'fxShow' || item.input.directive === 'fxHide')
+          ? [item.input.sourceName]
+          : [],
+      ),
+    );
+
+    expect(resultCounts(result.results)).toEqual({
+      converted: 48,
+      review: 27,
+      unsupported: 0,
+      invalid: 0,
+      parseError: 0,
+    });
+    expect(diagnosticCounts(result.results)).toEqual({
+      'responsive-precedence-unverified': 4,
+      'class-conflict': 2,
+      'display-restoration-unverified': 8,
+      'bound-class': 2,
+      'dynamic-binding': 4,
+      'context-unverified': 4,
+      'breakpoint-unverified': 2,
+      'custom-breakpoint': 1,
+    });
+    expect([...convertedVisibilityNames]).toEqual(
+      expect.arrayContaining([
+        'fxHide.xs',
+        'fxHide.sm',
+        'fxHide.md',
+        'fxHide.lg',
+        'fxHide.xl',
+        'fxHide.lt-sm',
+        'fxHide.lt-md',
+        'fxHide.lt-lg',
+        'fxHide.lt-xl',
+        'fxHide.gt-xs',
+        'fxHide.gt-sm',
+        'fxHide.gt-md',
+        'fxHide.gt-lg',
+      ]),
+    );
   });
 
   test('classifies every unresolved syntax family without modifying it', async () => {
