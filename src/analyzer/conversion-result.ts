@@ -14,6 +14,7 @@ export type DiagnosticCode =
   | 'context-unverified'
   | 'responsive-precedence-unverified'
   | 'semantic-unsupported'
+  | 'tailwind-candidate-unverified'
   | 'target-unsupported';
 
 export interface ConvertedResult {

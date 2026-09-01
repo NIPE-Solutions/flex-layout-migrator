@@ -18,6 +18,13 @@ const results = [
     suggestion: 'Migrate manually.',
   },
   {
+    status: 'review',
+    input,
+    code: 'tailwind-candidate-unverified',
+    reason: 'The token may be an application or plugin class.',
+    suggestion: 'Keep the responsive class family or migrate it manually.',
+  },
+  {
     status: 'parse-error',
     fileName: 'broken.html',
     code: 'template-parse-error',
@@ -27,5 +34,5 @@ const results = [
 ] satisfies readonly ConversionResult[];
 
 test('models successful, unresolved, and parse-error results exhaustively', () => {
-  expect(results.map(result => result.status)).toEqual(['converted', 'review', 'parse-error']);
+  expect(results.map(result => result.status)).toEqual(['converted', 'review', 'review', 'parse-error']);
 });
