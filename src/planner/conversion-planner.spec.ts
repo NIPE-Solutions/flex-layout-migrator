@@ -175,15 +175,137 @@ describe('ConversionPlanner', () => {
     expect(result.results).toContainEqual(expect.objectContaining({ status: 'review', code: 'bound-class' }));
   });
 
-  test('preserves inputs the adapter does not support', () => {
-    const source = '<div fxShow="false"></div>';
+  test.each([
+    ['fxShow', '<div fxShow></div>', '<div></div>'],
+    ['fxShow false', '<div fxShow="false"></div>', '<div class="hidden"></div>'],
+    ['fxHide', '<div fxHide></div>', '<div class="hidden"></div>'],
+    ['fxHide false', '<div fxHide="false"></div>', '<div></div>'],
+  ])('converts static visibility semantics for %s', (_case, source, expected) => {
+    const result = migrate(source);
 
+    expect(result.output).toBe(expected);
+    expect(result.results).toEqual([expect.objectContaining({ status: 'converted' })]);
+  });
+
+  test('converts a responsive-only hide without guessing a restoration display', () => {
+    const result = migrate('<div fxHide.sm></div>');
+
+    expect(result.output).toBe(
+      '<div class="[@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:hidden"></div>',
+    );
+    expect(result.results).toEqual([expect.objectContaining({ status: 'converted' })]);
+  });
+
+  test('restores a hidden base state from converted layout semantics', () => {
+    const result = migrate('<div fxLayout="column" fxShow="false" fxShow.sm></div>');
+
+    expect(result.output).toBe(
+      '<div class="flex flex-col box-border hidden [@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:flex"></div>',
+    );
+    expect(result.results.every(item => item.status === 'converted')).toBe(true);
+  });
+
+  test('restores a hidden base state from one existing display utility', () => {
+    const result = migrate('<div class="block" fxShow="false" fxShow.sm></div>');
+
+    expect(result.output).toBe(
+      '<div class="block hidden [@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:block"></div>',
+    );
+    expect(result.results.every(item => item.status === 'converted')).toBe(true);
+  });
+
+  test.each([
+    '<div style="display:block" fxShow></div>',
+    '<div [style.display]="display" fxShow></div>',
+    '<div [style.display]="display" fxHide></div>',
+  ])('preserves visibility when parser-provided style evidence controls display: %s', source => {
     const result = migrate(source);
 
     expect(result.output).toBe(source);
     expect(result.results).toContainEqual(
-      expect.objectContaining({ status: 'unsupported', code: 'target-unsupported' }),
+      expect.objectContaining({ status: 'review', code: 'display-restoration-unverified' }),
     );
+  });
+
+  test('preserves a hiding family when bound classes block generated output', () => {
+    const source = '<div [class]="classes" fxHide></div>';
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.results).toEqual([expect.objectContaining({ status: 'review', code: 'bound-class' })]);
+  });
+
+  test('removes an all-shown no-op family beside a bound class without inserting an empty class', () => {
+    const result = migrate('<div [class]="classes" fxShow></div>');
+
+    expect(result.output).toBe('<div [class]="classes"></div>');
+    expect(result.results).toEqual([expect.objectContaining({ status: 'converted' })]);
+  });
+
+  test('preserves layout and visibility atomically when visibility is dynamic', () => {
+    const source = '<div fxLayout="row" [fxHide]="hidden"></div>';
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.results).toEqual([
+      expect.objectContaining({ status: 'review', code: 'context-unverified' }),
+      expect.objectContaining({ status: 'review', code: 'dynamic-binding' }),
+    ]);
+  });
+
+  test('lets visibility own display when layout and hiding share one responsive range', () => {
+    const result = migrate('<div fxLayout.sm="column" fxHide.sm></div>');
+
+    expect(result.output).toBe(
+      '<div class="[@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:flex-col [@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:box-border [@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:hidden"></div>',
+    );
+    expect(result.output).not.toContain(']:flex ');
+    expect(result.results.every(item => item.status === 'converted')).toBe(true);
+  });
+
+  test('preserves a competing existing display class and closes the layout dependency afterward', () => {
+    const source = '<div class="block" fxLayout="row" fxHide></div>';
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.results).toEqual([
+      expect.objectContaining({ status: 'review', code: 'context-unverified' }),
+      expect.objectContaining({ status: 'review', code: 'class-conflict' }),
+    ]);
+  });
+
+  test('closes visibility dependencies after a non-display layout class conflict', () => {
+    const source = '<div class="flex-col" fxLayout="row" fxShow="false" fxShow.sm></div>';
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.results).toEqual([
+      expect.objectContaining({ status: 'review', code: 'class-conflict' }),
+      expect.objectContaining({ status: 'review', code: 'context-unverified' }),
+      expect.objectContaining({ status: 'review', code: 'context-unverified' }),
+    ]);
+  });
+
+  test('keeps parent gap conversion independent from a hidden child', () => {
+    const result = migrate('<div fxLayout="row" fxLayoutGap="4"><span fxHide></span></div>');
+
+    expect(result.output).toBe('<div class="flex flex-row box-border gap-[4px]"><span class="hidden"></span></div>');
+    expect(result.results.every(item => item.status === 'converted')).toBe(true);
+  });
+
+  test.each([
+    ['dynamic', '<div fxLayout="row" [fxHide]="hidden"></div>', ['context-unverified', 'dynamic-binding']],
+    [
+      'optional breakpoint',
+      '<div fxLayout="row" fxShow.handset></div>',
+      ['context-unverified', 'breakpoint-unverified'],
+    ],
+    ['custom breakpoint', '<div fxLayout="row" fxHide.cinema></div>', ['context-unverified', 'custom-breakpoint']],
+  ] as const)('retains intrinsic visibility diagnostic precedence for %s input', (_case, source, codes) => {
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.results.map(item => (item.status === 'converted' ? undefined : item.code))).toEqual(codes);
   });
 
   test('plans fxFlex, fxGrow, and fxShrink as one atomic semantic group', () => {

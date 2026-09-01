@@ -1,6 +1,6 @@
 import type { DiagnosticCode } from '../analyzer/conversion-result';
 import type { LocatedFlexLayoutInput } from '../analyzer/flex-layout-attribute.analyzer';
-import type { TemplateElement } from '../template/template.model';
+import type { TemplateAttribute, TemplateElement } from '../template/template.model';
 
 export interface ConversionContext {
   readonly element: TemplateElement;
@@ -9,6 +9,8 @@ export interface ConversionContext {
   readonly parentInputs?: readonly LocatedFlexLayoutInput[];
   readonly activeLayout?: string;
   readonly activeParentLayout?: string;
+  readonly existingClassNames?: readonly string[];
+  readonly attributeEvidence?: readonly TemplateAttribute[];
 }
 
 export type PlannedConversion =

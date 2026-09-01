@@ -31,8 +31,32 @@ const directiveOrder = new Map(
     'fxFill',
     'fxFlexOffset',
     'fxFlexOrder',
+    'fxShow',
+    'fxHide',
   ].map((directive, index) => [directive, index]),
 );
+
+function boundClassBlocked(input: LocatedFlexLayoutInput): PlannedConversion {
+  return {
+    status: 'review',
+    input,
+    code: 'bound-class',
+    reason: 'Generated classes cannot be merged safely with a bound class value.',
+    suggestion: 'Merge the generated classes into the binding manually.',
+  };
+}
+
+function isBoundClassAttribute(attribute: TemplateElement['attributes'][number]): boolean {
+  if (attribute.binding !== 'property') return false;
+  const rawName = attribute.rawName.toLowerCase();
+  const key =
+    rawName.startsWith('[') && rawName.endsWith(']')
+      ? rawName.slice(1, -1)
+      : rawName.startsWith('bind-')
+        ? rawName.slice('bind-'.length)
+        : rawName;
+  return key === 'class' || key === 'ngclass' || key.startsWith('class.');
+}
 
 function removalRange(source: string, input: LocatedFlexLayoutInput): SourceRange {
   const start =
@@ -66,19 +90,27 @@ export class ConversionPlanner {
       const elementInputs = inputsByElementId.get(element.id) ?? [];
       if (!elementInputs.length) continue;
       const parent = element.parentId ? elementById.get(element.parentId) : undefined;
+      const literalClass = element.attributes.find(
+        attribute => attribute.name === 'class' && attribute.binding === 'literal',
+      );
+      const existingClassNames = literalClass?.value.split(/\s+/).filter(Boolean) ?? [];
       const context: ConversionContext = {
         element,
         inputs: elementInputs,
+        existingClassNames,
+        attributeEvidence: element.attributes,
         ...(parent
           ? { parent, parentInputs: inputsByElementId.get(parent.id) ?? [] }
           : { parentInputs: [] as readonly LocatedFlexLayoutInput[] }),
       };
       let plans =
         adapter.planElement?.(elementInputs, context) ?? elementInputs.map(input => adapter.plan(input, context));
-      const literalClass = element.attributes.find(
-        attribute => attribute.name === 'class' && attribute.binding === 'literal',
-      );
-      const existingClassNames = literalClass?.value.split(/\s+/).filter(Boolean) ?? [];
+      const hasBoundClass = element.attributes.some(isBoundClassAttribute);
+      if (hasBoundClass) {
+        plans = plans.map(plan =>
+          plan.status === 'converted' && plan.classNames.length > 0 ? boundClassBlocked(plan.input) : plan,
+        );
+      }
       plans = adapter.resolveClassConflicts?.(plans, existingClassNames) ?? plans;
       contextsByElementId.set(element.id, context);
       plansByElementId.set(element.id, plans);
@@ -103,20 +135,6 @@ export class ConversionPlanner {
 
       if (planned.status !== 'converted') {
         results.push(planned);
-        continue;
-      }
-
-      const hasBoundClass = element.attributes.some(
-        attribute => attribute.name === 'class' && attribute.binding === 'property',
-      );
-      if (hasBoundClass) {
-        results.push({
-          status: 'review',
-          input,
-          code: 'bound-class',
-          reason: 'Generated classes cannot be merged safely with a bound class value.',
-          suggestion: 'Merge the generated classes into the binding manually.',
-        });
         continue;
       }
 
@@ -160,7 +178,7 @@ export class ConversionPlanner {
           text: classNames.join(' '),
           inputId: `${conversion.element.id}:classes`,
         });
-      } else {
+      } else if (generatedClassNames.length > 0) {
         const startTag = source.slice(conversion.element.startTag.start, conversion.element.startTag.end);
         const selfClosing = startTag.endsWith('/>');
         const insertionOffset = conversion.element.startTag.end - (selfClosing ? 2 : 1);

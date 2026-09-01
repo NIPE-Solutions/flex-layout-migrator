@@ -128,4 +128,26 @@ describe('ResponsiveFamilyPlanner', () => {
       expect.objectContaining({ status: 'review', code: 'dynamic-binding' }),
     ]);
   });
+
+  test('closes fxShow and fxHide as one visibility family without replanning their semantics', () => {
+    const show = input('fxShow', '', { directive: 'fxShow' });
+    const hide = input('fxHide.sm', '', { directive: 'fxHide' });
+    const planner = new ResponsiveFamilyPlanner();
+    const plans = planner.closeDependencies([show, hide], { element, inputs: [show, hide] }, item =>
+      item.id === show.id
+        ? {
+            status: 'review',
+            input: item,
+            code: 'class-conflict',
+            reason: 'conflict',
+            suggestion: 'reconcile',
+          }
+        : { status: 'converted', input: item, classNames: ['hidden'] },
+    );
+
+    expect(plans).toEqual([
+      expect.objectContaining({ status: 'review', code: 'class-conflict' }),
+      expect.objectContaining({ status: 'review', code: 'context-unverified' }),
+    ]);
+  });
 });

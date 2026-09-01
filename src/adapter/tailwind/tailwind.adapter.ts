@@ -8,13 +8,17 @@ import { planLayoutAlign } from './directives/layout-align.strategy';
 import { planIndependentDirective } from './independent-directive.registry';
 import type { TemplateAttribute } from '../../template/template.model';
 import { planLayout } from './directives/layout.strategy';
-import { findTailwindClassConflicts } from './tailwind-class-conflict';
+import { describeTailwindDisplay, findTailwindClassConflicts } from './tailwind-class-conflict';
 import { BreakpointCatalog } from '../../breakpoint/breakpoint-catalog';
 import { ResponsiveVariantEmitter } from './responsive-variant.emitter';
 import { planResponsiveClasses } from './responsive-plan';
 import { ResponsiveFamilyPlanner } from './responsive-family.planner';
+import { DisplayCompositionPlanner } from './visibility/display-composition.planner';
+import { VisibilityStatePlanner } from './visibility/visibility-state.planner';
+import { VisibleDisplayResolver } from './visibility/visible-display.resolver';
 
 const flexItemDirectives = new Set<LocatedFlexLayoutInput['directive']>(['fxFlex', 'fxGrow', 'fxShrink']);
+const visibilityDirectives = new Set<LocatedFlexLayoutInput['directive']>(['fxShow', 'fxHide']);
 
 const supportedDirectives = new Set<LocatedFlexLayoutInput['directive']>([
   'fxFlex',
@@ -66,6 +70,60 @@ function staticLayoutContext(attributes: readonly TemplateAttribute[]): string |
   return layout?.name === 'fxLayout' && layout.binding === 'literal' ? layout.value : undefined;
 }
 
+function isBoundClassAttribute(attribute: TemplateAttribute): boolean {
+  if (attribute.binding !== 'property') return false;
+  const rawName = attribute.rawName.toLowerCase();
+  const key =
+    rawName.startsWith('[') && rawName.endsWith(']')
+      ? rawName.slice(1, -1)
+      : rawName.startsWith('bind-')
+        ? rawName.slice('bind-'.length)
+        : rawName;
+  return key === 'class' || key === 'ngclass' || key.startsWith('class.');
+}
+
+function contextUnverified(input: LocatedFlexLayoutInput, reason: string): PlannedConversion {
+  return {
+    status: 'review',
+    input,
+    code: 'context-unverified',
+    reason,
+    suggestion: 'Migrate the complete layout and visibility context together manually.',
+  };
+}
+
+function compatibleVisibilityClasses(
+  plan: Extract<PlannedConversion, { readonly status: 'converted' }>,
+  existingClassNames: readonly string[],
+): readonly string[] {
+  if (!visibilityDirectives.has(plan.input.directive)) return existingClassNames;
+
+  const generatedDisplays = plan.classNames.map(describeTailwindDisplay).filter(descriptor => descriptor !== undefined);
+  const hasBaseHidden = generatedDisplays.some(
+    descriptor => descriptor.activation.kind === 'base' && descriptor.utility === 'hidden',
+  );
+
+  return existingClassNames.filter(className => {
+    const existing = describeTailwindDisplay(className);
+    if (
+      !existing ||
+      existing.activation.kind !== 'base' ||
+      existing.important ||
+      existing.token !== existing.utility ||
+      existing.utility === 'hidden'
+    ) {
+      return true;
+    }
+
+    const suppliesResponsiveVisibility = hasBaseHidden
+      ? generatedDisplays.some(
+          generated => generated.activation.kind === 'media' && generated.utility === existing.utility,
+        )
+      : generatedDisplays.length > 0 && generatedDisplays.every(generated => generated.activation.kind === 'media');
+    return !suppliesResponsiveVisibility;
+  });
+}
+
 export class TailwindAdapter implements ConversionAdapter {
   readonly name = 'tailwind' as const;
   private readonly breakpointCatalog = new BreakpointCatalog();
@@ -74,6 +132,9 @@ export class TailwindAdapter implements ConversionAdapter {
     this.breakpointCatalog,
     this.responsiveEmitter,
   );
+  private readonly visibilityStatePlanner = new VisibilityStatePlanner(this.breakpointCatalog);
+  private readonly visibleDisplayResolver = new VisibleDisplayResolver();
+  private readonly displayCompositionPlanner = new DisplayCompositionPlanner(this.breakpointCatalog);
 
   resolveClassConflicts(
     plans: readonly PlannedConversion[],
@@ -82,13 +143,22 @@ export class TailwindAdapter implements ConversionAdapter {
     const convertedPlans = plans.filter(
       (plan): plan is Extract<PlannedConversion, { readonly status: 'converted' }> => plan.status === 'converted',
     );
-    const conflictingTokens = findTailwindClassConflicts(
+    const sharedConflictingTokens = findTailwindClassConflicts(
       existingClassNames,
       convertedPlans.flatMap(plan => plan.classNames),
     );
     const conflictingFamilies = new Set(
       convertedPlans
-        .filter(plan => plan.classNames.some(className => conflictingTokens.has(className)))
+        .filter(plan => {
+          if (!visibilityDirectives.has(plan.input.directive)) {
+            return plan.classNames.some(className => sharedConflictingTokens.has(className));
+          }
+          const conflictingTokens = findTailwindClassConflicts(
+            compatibleVisibilityClasses(plan, existingClassNames),
+            plan.classNames,
+          );
+          return plan.classNames.some(className => conflictingTokens.has(className));
+        })
         .map(plan => this.directiveFamily(plan.input.directive)),
     );
     return plans.map(plan =>
@@ -110,25 +180,74 @@ export class TailwindAdapter implements ConversionAdapter {
     plansByInputId: ReadonlyMap<string, PlannedConversion>,
   ): readonly PlannedConversion[] {
     const inputs = plans.map(plan => plan.input);
-    const currentPlans = new Map(plans.map(plan => [plan.input.id, plan]));
-    return this.responsiveFamilyPlanner.closeDependencies(inputs, { ...context, inputs }, (input, itemContext) => {
-      return plansByInputId.get(input.id) ?? currentPlans.get(input.id) ?? this.planSemantic(input, itemContext);
-    });
+    const closeResponsiveDependencies = (current: readonly PlannedConversion[]): readonly PlannedConversion[] => {
+      const currentPlans = new Map(current.map(plan => [plan.input.id, plan]));
+      return this.responsiveFamilyPlanner.closeDependencies(
+        inputs,
+        { ...context, inputs },
+        (input, itemContext) =>
+          currentPlans.get(input.id) ?? plansByInputId.get(input.id) ?? this.planSemantic(input, itemContext),
+      );
+    };
+
+    let closed = closeResponsiveDependencies(plans);
+    closed = this.closeDisplayDependencies(closed);
+    closed = closeResponsiveDependencies(closed);
+    return this.closeDisplayDependencies(closed);
   }
 
   private directiveFamily(directive: LocatedFlexLayoutInput['directive']): string {
     if (flexItemDirectives.has(directive)) return 'flex-item';
     if (directive === 'fxFlexFill' || directive === 'fxFill') return 'flex-fill';
+    if (visibilityDirectives.has(directive)) return 'visibility';
     return directive;
   }
 
   planElement(inputs: readonly LocatedFlexLayoutInput[], context: ConversionContext): readonly PlannedConversion[] {
-    return this.responsiveFamilyPlanner.plan(inputs, { ...context, inputs }, (input, itemContext) =>
-      this.planSemantic(input, itemContext),
+    const visibilityInputs = inputs.filter(input => visibilityDirectives.has(input.directive));
+    const strategyInputs = inputs.filter(input => !visibilityDirectives.has(input.directive));
+    const strategyPlans = this.responsiveFamilyPlanner.plan(
+      strategyInputs,
+      { ...context, inputs },
+      (input, itemContext) => this.planSemantic(input, itemContext),
     );
+    if (!visibilityInputs.length) return strategyPlans;
+
+    const layoutPlans = strategyPlans.filter(plan => plan.input.directive === 'fxLayout');
+    const visibilityPlan = this.visibilityStatePlanner.plan(visibilityInputs);
+    const displayResolution =
+      visibilityPlan.status === 'converted'
+        ? this.visibleDisplayResolver.resolve({
+            states: visibilityPlan.states,
+            layoutPlans,
+            existingClassNames: context.existingClassNames ?? [],
+            attributes: (context.attributeEvidence ?? context.element.attributes).filter(
+              attribute => !isBoundClassAttribute(attribute),
+            ),
+          })
+        : { status: 'resolved' as const, utility: undefined };
+    const composed = this.displayCompositionPlanner.compose({
+      visibilityPlan,
+      displayResolution,
+      layoutPlans,
+    });
+    const plansById = new Map(
+      [...strategyPlans.filter(plan => plan.input.directive !== 'fxLayout'), ...composed.plans].map(plan => [
+        plan.input.id,
+        plan,
+      ]),
+    );
+    return inputs.map(input => plansById.get(input.id) ?? this.planSemantic(input, context));
   }
 
   plan(input: LocatedFlexLayoutInput, context: ConversionContext): PlannedConversion {
+    if (visibilityDirectives.has(input.directive)) {
+      const family = this.visibilityStatePlanner.plan([input]);
+      if (family.status === 'unresolved')
+        return family.plans[0] ?? contextUnverified(input, 'Visibility is unresolved.');
+      return contextUnverified(input, 'Visibility requires complete element-family context before conversion.');
+    }
+
     const semantic = this.planSemantic(input, context);
     if (semantic.status !== 'converted') return semantic;
     return toResponsivePlannedConversion(
@@ -253,5 +372,26 @@ export class TailwindAdapter implements ConversionAdapter {
       reason: `${input.value} is not a supported ${input.directive} value.`,
       suggestion: 'Correct the value or migrate this directive manually.',
     };
+  }
+
+  private closeDisplayDependencies(plans: readonly PlannedConversion[]): readonly PlannedConversion[] {
+    const layoutPlans = plans.filter(plan => plan.input.directive === 'fxLayout');
+    const visibilityPlans = plans.filter(plan => visibilityDirectives.has(plan.input.directive));
+    const visibilityIsNoOp =
+      visibilityPlans.length > 0 &&
+      visibilityPlans.every(plan => plan.status === 'converted' && plan.classNames.length === 0);
+    if (!layoutPlans.length || !visibilityPlans.length || visibilityIsNoOp) return plans;
+
+    const displayContextIsUnresolved = [...layoutPlans, ...visibilityPlans].some(plan => plan.status !== 'converted');
+    if (!displayContextIsUnresolved) return plans;
+    return plans.map(plan =>
+      plan.status === 'converted' &&
+      (plan.input.directive === 'fxLayout' || visibilityDirectives.has(plan.input.directive))
+        ? contextUnverified(
+            plan.input,
+            'The element display context contains an unresolved layout or visibility family.',
+          )
+        : plan,
+    );
   }
 }

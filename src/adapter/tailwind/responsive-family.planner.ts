@@ -6,7 +6,15 @@ import { ResponsiveVariantEmitter } from './responsive-variant.emitter';
 import type { TailwindStrategyResult } from './tailwind-semantic.model';
 
 export type DirectiveFamily =
-  'layout' | 'layout-gap' | 'layout-align' | 'flex-item' | 'flex-align' | 'flex-fill' | 'flex-offset' | 'flex-order';
+  | 'layout'
+  | 'layout-gap'
+  | 'layout-align'
+  | 'flex-item'
+  | 'flex-align'
+  | 'flex-fill'
+  | 'flex-offset'
+  | 'flex-order'
+  | 'visibility';
 
 export type PlanOne = (input: LocatedFlexLayoutInput, context: ConversionContext) => PlannedConversion;
 
@@ -22,6 +30,8 @@ const familyByDirective = new Map<LocatedFlexLayoutInput['directive'], Directive
   ['fxFill', 'flex-fill'],
   ['fxFlexOffset', 'flex-offset'],
   ['fxFlexOrder', 'flex-order'],
+  ['fxShow', 'visibility'],
+  ['fxHide', 'visibility'],
 ]);
 
 const localLayoutDependents = new Set<DirectiveFamily>(['layout-gap', 'layout-align']);
