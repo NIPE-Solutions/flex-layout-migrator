@@ -26,4 +26,20 @@ describe('ResponsiveVariantEmitter', () => {
       );
     },
   );
+
+  test.each([
+    ['sm', 'hover:bg-blue-600', '[@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:hover:bg-blue-600'],
+    ['gt-xs', 'dark:hover:text-white', '[@media_screen_and_(min-width:_600px)]:dark:hover:text-white'],
+    ['lt-sm', '![color:red]', '[@media_screen_and_(max-width:_599.98px)]:![color:red]'],
+  ])('places the exact %s media variant before ordinary variants in %s', (alias, candidate, expected) => {
+    expect(new ResponsiveVariantEmitter().emitCandidate(definition(alias), candidate)).toBe(expected);
+  });
+
+  test('rejects a source candidate that already contains a generated exact-media variant', () => {
+    const candidate = '[@media_screen_and_(min-width:_600px)]:hover:flex';
+
+    expect(() => new ResponsiveVariantEmitter().emitCandidate(definition('sm'), candidate)).toThrow(
+      'Cannot decorate a candidate containing a generated media variant',
+    );
+  });
 });

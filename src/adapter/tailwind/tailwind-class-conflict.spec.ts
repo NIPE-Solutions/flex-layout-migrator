@@ -1,4 +1,8 @@
-import { describeTailwindDisplay, findTailwindClassConflicts } from './tailwind-class-conflict';
+import {
+  describeTailwindDisplay,
+  describeTailwindUtility,
+  findTailwindClassConflicts,
+} from './tailwind-class-conflict';
 
 const xs = (utility: string) => `[@media_screen_and_(min-width:_0px)_and_(max-width:_599.98px)]:${utility}`;
 const sm = (utility: string) => `[@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:${utility}`;
@@ -79,6 +83,39 @@ describe('describeTailwindDisplay', () => {
     });
     expect(describeTailwindDisplay('[flex:1_1_auto]')).toBeUndefined();
   });
+});
+
+describe('describeTailwindUtility', () => {
+  test('exposes ordinary variants, normalized importance, and a stable property group', () => {
+    expect(describeTailwindUtility('dark:hover:!text-white')).toEqual({
+      token: 'dark:hover:!text-white',
+      variants: ['dark', 'hover'],
+      utility: 'text-white',
+      propertyGroup: 'color',
+      activation: { kind: 'base' },
+      important: true,
+    });
+  });
+
+  test('finds a generated media activation before an ordinary variant', () => {
+    const token = `${sm('hover:flex')}`;
+
+    expect(describeTailwindUtility(token)).toEqual({
+      token,
+      variants: ['[@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]', 'hover'],
+      utility: 'flex',
+      propertyGroup: 'display',
+      activation: { kind: 'media', range: { min: 600, max: 959.98 } },
+      important: false,
+    });
+  });
+
+  test.each(['w-[17px', 'w-17px]', 'hover:', 'hover::flex', 'flex\\'])(
+    'rejects malformed bracket, variant, or escape structure in %j',
+    token => {
+      expect(describeTailwindUtility(token)).toBeUndefined();
+    },
+  );
 });
 
 describe('findTailwindClassConflicts', () => {
@@ -170,5 +207,22 @@ describe('findTailwindClassConflicts', () => {
 
     expect(findTailwindClassConflicts([gtXs('[flex:0_0_auto]')], [generated])).toEqual(new Set([generated]));
     expect(findTailwindClassConflicts([xs('[flex:0_0_auto]')], [generated])).toEqual(new Set());
+  });
+
+  test('uses the general property registry for non-layout utility conflicts', () => {
+    const generated = sm('text-blue-500');
+
+    expect(findTailwindClassConflicts(['text-slate-700'], [generated])).toEqual(new Set([generated]));
+    expect(findTailwindClassConflicts(['bg-slate-700'], [generated])).toEqual(new Set());
+  });
+
+  test.each([
+    ['[margin-top:1rem]', sm('mt-2')],
+    ['[padding-left:1rem]', sm('p-4')],
+    ['[border-color:red]', sm('border-blue-500')],
+    ['[left:0]', sm('inset-x-0')],
+    ['[rotate:10deg]', sm('rotate-45')],
+  ])('normalizes arbitrary property %s against built-in family %s', (existing, generated) => {
+    expect(findTailwindClassConflicts([existing], [generated])).toEqual(new Set([generated]));
   });
 });

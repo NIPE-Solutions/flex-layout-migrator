@@ -1,4 +1,5 @@
 import type { BreakpointDefinition, MediaRange } from '../../breakpoint/breakpoint-catalog';
+import { describeTailwindUtility } from './tailwind-class-conflict';
 
 export class ResponsiveVariantEmitter {
   emit(definition: BreakpointDefinition, utility: string): string {
@@ -7,6 +8,18 @@ export class ResponsiveVariantEmitter {
     }
 
     return `[${this.mediaQuery(definition.range)}]:${utility}`;
+  }
+
+  emitCandidate(definition: BreakpointDefinition, candidate: string): string {
+    const descriptor = describeTailwindUtility(candidate);
+    if (descriptor === undefined) {
+      throw new Error('Cannot decorate a malformed Tailwind candidate');
+    }
+    if (descriptor.activation.kind === 'media') {
+      throw new Error('Cannot decorate a candidate containing a generated media variant');
+    }
+
+    return `[${this.mediaQuery(definition.range)}]:${candidate}`;
   }
 
   private mediaQuery(range: MediaRange): string {
