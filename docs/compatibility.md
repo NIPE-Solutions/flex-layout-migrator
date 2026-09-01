@@ -27,14 +27,37 @@ No native CSS conversions are available yet. The CLI currently accepts only the 
 | `fxFill`        | Limited  | Non-responsive alias of `fxFlexFill`.                                                                                       |
 | `fxFlexOffset`  | Limited  | Static values with a statically known parent axis; unitless values remain percentages.                                      |
 | `fxFlexOrder`   | Limited  | Static integer values emitted independently of the Tailwind theme.                                                          |
-| `fxShow`        | Planned  | Recognized and preserved.                                                                                                   |
-| `fxHide`        | Planned  | Recognized and preserved.                                                                                                   |
+| `fxShow`        | Limited  | Literal base and standard viewport states convert when display restoration and the complete visibility family are safe.     |
+| `fxHide`        | Limited  | Literal base and standard viewport states convert with `fxShow`; hiding emits exact base or responsive `hidden` utilities.  |
 
 All generated lengths that originate in the template use Tailwind arbitrary values. This prevents a project spacing scale from changing `fxLayoutGap="4"` from Angular Flex-Layout's `4px`, or `fxFlexOffset="4"` from its `4%` meaning.
 
 The complete static semantic and diagnostic contract is documented in [Tailwind CSS v4 static conversion semantics](architecture/tailwind-v4-static-semantics.md).
 
-If an existing recognized Tailwind utility controls the same CSS property as a generated class, the directive remains unchanged with a `class-conflict` review result. This avoids relying on HTML class order, which does not determine Tailwind's cascade order.
+If an existing recognized Tailwind utility conflicts with a generated class in an intersecting activation range, the directive remains unchanged with a `class-conflict` review result. This avoids relying on HTML class order, which does not determine Tailwind's cascade order. Visibility restoration sources and the compatible `hidden` cases described below are deliberate exceptions.
+
+## Visibility semantics
+
+`fxShow` and `fxHide` are planned together as one atomic visibility family per element. Literal values use Angular Flex-Layout's coercion and inversion rules:
+
+| Input            | Resulting state |
+| ---------------- | --------------- |
+| `fxShow`         | shown           |
+| `fxShow=""`      | shown           |
+| `fxShow="false"` | hidden          |
+| other literals   | shown           |
+| `fxHide`         | hidden          |
+| `fxHide=""`      | hidden          |
+| `fxHide="false"` | shown           |
+| other literals   | hidden          |
+
+The literal string `"0"` is truthy. Property-bound zero remains dynamic because the codemod does not evaluate Angular expressions.
+
+Base and responsive hiding emits `hidden` under the exact activation range. An all-shown family is a safe no-op: the visibility attributes are removed without generating a class. Disjoint responsive states and identical overlapping states may convert together. Conflicting base states or conflicting overlapping responsive states preserve the whole family with `responsive-precedence-unverified`, independent of attribute order.
+
+A shown override after base hiding converts only when its restoration display is proven by a safely converted `fxLayout` or one unambiguous, unmodified base Tailwind display utility. Otherwise the family is preserved with `display-restoration-unverified`. Literal or bound display styles always block conversion. Bound class inputs block generated visibility classes with `bound-class`, while an all-shown no-op may still be removed beside a bound class. An existing `hidden` utility is compatible only when every effective state is hidden; conflicting, multiple, important, or variant-prefixed display utilities do not provide safe restoration evidence.
+
+When layout and visibility both control `display`, the planner composes them before editing. Visibility owns hidden ranges, covered `flex` or `inline-flex` layout utilities are suppressed, and non-display layout utilities remain. If one family is needed to prove the other, unresolved state closes across both families. See [Exact visibility conversion semantics](architecture/visibility-semantics.md) for the complete composition and diagnostic contract.
 
 ## Grid directives
 
@@ -69,6 +92,9 @@ The current safety gate preserves these cases for review:
 - every Angular property binding, including bindings whose expression appears constant;
 - orientation and print aliases;
 - unknown aliases, because they may be registered as custom project breakpoints;
+- visibility whose shown state needs a display value that cannot be proven from template and layout semantics;
+- visibility on an element whose literal or bound style may control `display`;
+- generated visibility output that cannot be merged safely with bound classes or existing display utilities;
 - every directive not implemented by the selected target adapter.
 
 This is intentional. Angular Flex-Layout's bounded and overlapping aliases are not equivalent to Tailwind's named mobile-first variants, so the codemod emits exact arbitrary media ranges rather than substituting `sm:`, `md:`, or another named Tailwind variant.

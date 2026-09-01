@@ -1,0 +1,63 @@
+<!-- literal coercion -->
+<div></div>
+<div></div>
+<div class="hidden"></div>
+<div></div>
+<div></div>
+<div class="hidden"></div>
+<div class="hidden"></div>
+<div></div>
+<div class="hidden"></div>
+<div class="hidden"></div>
+
+<!-- standard viewport aliases -->
+<div class="[@media_screen_and_(min-width:_0px)_and_(max-width:_599.98px)]:hidden"></div>
+<div class="[@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:hidden"></div>
+<div class="[@media_screen_and_(min-width:_960px)_and_(max-width:_1279.98px)]:hidden"></div>
+<div class="[@media_screen_and_(min-width:_1280px)_and_(max-width:_1919.98px)]:hidden"></div>
+<div class="[@media_screen_and_(min-width:_1920px)_and_(max-width:_4999.98px)]:hidden"></div>
+<div class="[@media_screen_and_(max-width:_599.98px)]:hidden"></div>
+<div class="[@media_screen_and_(max-width:_959.98px)]:hidden"></div>
+<div class="[@media_screen_and_(max-width:_1279.98px)]:hidden"></div>
+<div class="[@media_screen_and_(max-width:_1919.98px)]:hidden"></div>
+<div class="[@media_screen_and_(min-width:_600px)]:hidden"></div>
+<div class="[@media_screen_and_(min-width:_960px)]:hidden"></div>
+<div class="[@media_screen_and_(min-width:_1280px)]:hidden"></div>
+<div class="[@media_screen_and_(min-width:_1920px)]:hidden"></div>
+
+<!-- complete-family state planning -->
+<div class="[@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:hidden"></div>
+<div class="[@media_screen_and_(min-width:_0px)_and_(max-width:_599.98px)]:hidden"></div>
+<div class="[@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:hidden [@media_screen_and_(max-width:_959.98px)]:hidden"></div>
+<div fxHide.gt-xs fxShow.sm></div>
+<div></div>
+<div fxShow fxHide></div>
+
+<!-- restoration, layout composition, and safe no-ops -->
+<div class="block hidden [@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:block"></div>
+<div class="flex flex-col box-border hidden [@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:flex"></div>
+<div class="[@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:flex-col [@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:box-border [@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:hidden"></div>
+<div class="flex-row box-border hidden"></div>
+<div class="inline-flex flex-row box-border hidden [@media_screen_and_(min-width:_600px)]:inline-flex"></div>
+<div></div>
+
+<!-- existing display and class behavior -->
+<div class="hidden"></div>
+<div class="block [@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:hidden"></div>
+<div class="block" fxHide></div>
+<div class="hidden" fxShow></div>
+<div class="block flex" fxShow="false" fxShow.sm></div>
+<div class="hover:block" fxShow="false" fxShow.sm></div>
+<div style="display: inline" fxHide></div>
+<div [style.display]="display" fxHide></div>
+<div [style]="styles" fxShow></div>
+<div [class]="classes" fxHide></div>
+<div [class]="classes"></div>
+<div [class.hidden]="hidden" fxShow="false"></div>
+
+<!-- dynamic and unsupported family members -->
+<div [fxShow]="visible"></div>
+<div fxHide="{{ hidden }}"></div>
+<div fxShow fxHide.handset.landscape fxShow.print fxHide.cinema [fxShow.sm]="visible"></div>
+<div fxLayout="row" [fxHide]="hidden"></div>
+<div class="flex-col" fxLayout="row" fxShow="false" fxShow.sm></div>

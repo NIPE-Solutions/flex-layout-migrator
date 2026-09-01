@@ -141,5 +141,5 @@ Deferred work includes:
 - orientation and print conversion;
 - generated named variants and stylesheet mutation;
 - dynamic responsive expressions;
-- visibility and extended responsive directives; and
+- responsive class, style, and image directives; and
 - CSS Grid directives.

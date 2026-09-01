@@ -434,12 +434,20 @@ export class ResponsiveFamilyPlanner {
     validateResponsivePrecedence: boolean,
   ): readonly PlannedConversion[] {
     if (inputs.some(input => input.binding !== 'literal')) {
-      return inputs.map((input, index) =>
-        input.binding !== 'literal'
-          ? (semanticPlans[index] ??
-            contextUnverified(input, 'The dynamic member of this directive family cannot be planned.'))
-          : contextUnverified(input, 'Another member of this responsive directive family is dynamic.'),
-      );
+      return inputs.map((input, index) => {
+        const semanticPlan =
+          semanticPlans[index] ??
+          contextUnverified(input, 'The dynamic member of this directive family cannot be planned.');
+        if (input.binding !== 'literal') return semanticPlan;
+        const breakpointPlan = this.validateBreakpoint(semanticPlan);
+        if (
+          breakpointPlan.status !== 'converted' &&
+          (breakpointPlan.code === 'breakpoint-unverified' || breakpointPlan.code === 'custom-breakpoint')
+        ) {
+          return breakpointPlan;
+        }
+        return contextUnverified(input, 'Another member of this responsive directive family is dynamic.');
+      });
     }
     const supportedPlans = semanticPlans.map(plan => this.validateBreakpoint(plan));
     if (supportedPlans.some(plan => plan.status !== 'converted')) {

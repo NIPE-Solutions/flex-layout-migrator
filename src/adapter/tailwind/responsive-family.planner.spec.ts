@@ -150,4 +150,55 @@ describe('ResponsiveFamilyPlanner', () => {
       expect.objectContaining({ status: 'review', code: 'context-unverified' }),
     ]);
   });
+
+  test('retains intrinsic visibility diagnostics when dynamic closure preserves the family', () => {
+    const optional = input('fxShow.handset', '', { directive: 'fxShow' });
+    const custom = input('fxHide.cinema', '', { directive: 'fxHide' });
+    const dynamic = input('[fxShow.sm]', 'visible', { directive: 'fxShow' });
+    const existing = new Map<string, PlannedConversion>([
+      [
+        optional.id,
+        {
+          status: 'review',
+          input: optional,
+          code: 'breakpoint-unverified',
+          reason: 'optional breakpoint',
+          suggestion: 'keep the directive',
+        },
+      ],
+      [
+        custom.id,
+        {
+          status: 'review',
+          input: custom,
+          code: 'custom-breakpoint',
+          reason: 'custom breakpoint',
+          suggestion: 'provide its media query',
+        },
+      ],
+      [
+        dynamic.id,
+        {
+          status: 'review',
+          input: dynamic,
+          code: 'dynamic-binding',
+          reason: 'dynamic binding',
+          suggestion: 'make the input literal',
+        },
+      ],
+    ]);
+    const inputs = [optional, custom, dynamic];
+
+    const plans = new ResponsiveFamilyPlanner().closeDependencies(
+      inputs,
+      { element, inputs },
+      item => existing.get(item.id) ?? planOne(item),
+    );
+
+    expect(plans).toEqual([
+      expect.objectContaining({ status: 'review', code: 'breakpoint-unverified' }),
+      expect.objectContaining({ status: 'review', code: 'custom-breakpoint' }),
+      expect.objectContaining({ status: 'review', code: 'dynamic-binding' }),
+    ]);
+  });
 });

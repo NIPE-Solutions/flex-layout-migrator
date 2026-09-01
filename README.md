@@ -8,7 +8,21 @@ Version 2 is under active development and is not published to npm yet. It does n
 
 The v2 engine parses templates with the Angular compiler and applies validated source-range edits. It preserves comments, control-flow syntax, interpolation, line endings, and all unrelated source text instead of serializing the template as generic HTML.
 
-The current prerelease converts documented static inputs and literal responsive inputs using the standard Angular Flex-Layout viewport aliases (`xs` through `xl`, `lt-*`, and `gt-*`) to exact Tailwind CSS v4 arbitrary media variants. For example, `fxLayout.sm="row"` becomes `[@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:flex-row` alongside the other layout utilities. Dynamic bindings, orientation, print, and custom breakpoints, bound class values, unsupported directives, and responsive families with conflicting overlapping values remain unchanged with structured review results. Ambiguous behavior is never approximated silently.
+The current prerelease converts documented static inputs and literal responsive inputs using the standard Angular Flex-Layout viewport aliases (`xs` through `xl`, `lt-*`, and `gt-*`) to exact Tailwind CSS v4 arbitrary media variants. For example, `fxLayout.sm="row"` becomes `[@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:flex-row` alongside the other layout utilities. Dynamic bindings, orientation, print, and custom breakpoints, unsupported directives, and responsive families with conflicting overlapping values remain unchanged with structured review results. Ambiguous behavior is never approximated silently.
+
+Literal `fxShow` and `fxHide` inputs are converted when the element's complete display behavior is provable. The conversion follows Angular Flex-Layout coercion: `fxShow="false"` hides, `fxHide="false"` shows, and other literal strings, including `"0"`, are truthy before `fxHide` inversion. Hiding uses `hidden`; a responsive shown state after base hiding restores only a display value proven by a converted `fxLayout` or one unambiguous base Tailwind display utility.
+
+```html
+<!-- input -->
+<div fxLayout="column" fxShow="false" fxShow.sm></div>
+
+<!-- output -->
+<div
+  class="flex flex-col box-border hidden [@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:flex"
+></div>
+```
+
+The complete visibility family is preserved when it contains a binding or interpolation, an orientation, print, or custom alias, conflicting overlapping states, an unverified restoration display, or an unsafe class/style interaction. A literal or bound style that can control `display` always blocks conversion. A bound class blocks a family that needs generated classes, but does not block an all-shown no-op whose attributes can simply be removed. See the [compatibility reference](docs/compatibility.md) and [visibility architecture](docs/architecture/visibility-semantics.md) for the exact boundary.
 
 ## CLI workflow
 

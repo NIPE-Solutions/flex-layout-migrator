@@ -110,6 +110,39 @@ If unresolved visibility needs a converted layout to restore display, dependency
 
 Representative hidden and restoration tokens are compiled with Tailwind CSS v4 for base, bounded, min-only, and max-only activation ranges. Compiler output must prove the intended media query and final display declaration.
 
+The final compiler-proven token examples are:
+
+| Activation | Emitted token                                                             | Compiled result                                                  |
+| ---------- | ------------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| base       | `hidden`                                                                  | `display: none`                                                  |
+| `sm`       | `[@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:hidden` | bounded `600px`–`959.98px` media rule containing `display: none` |
+| `gt-xs`    | `[@media_screen_and_(min-width:_600px)]:flex`                             | min-only `600px` media rule containing `display: flex`           |
+| `lt-sm`    | `[@media_screen_and_(max-width:_599.98px)]:inline-flex`                   | max-only `599.98px` media rule containing `display: inline-flex` |
+
+Composition assigns those tokens only after resolving display ownership. For example:
+
+```html
+<!-- input -->
+<div fxLayout="column" fxShow="false" fxShow.sm></div>
+
+<!-- output -->
+<div
+  class="flex flex-col box-border hidden [@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:flex"
+></div>
+```
+
+When responsive layout and hiding share the `sm` range, the competing responsive `flex` token is omitted while direction and box sizing remain:
+
+```html
+<!-- input -->
+<div fxLayout.sm="column" fxHide.sm></div>
+
+<!-- output -->
+<div
+  class="[@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:flex-col [@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:box-border [@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:hidden"
+></div>
+```
+
 The existing Tailwind conflict policy remains the final external-class gate. It is extended only where needed to distinguish:
 
 - a base display utility deliberately consumed as the restoration source;

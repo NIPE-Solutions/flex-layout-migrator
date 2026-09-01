@@ -1,0 +1,63 @@
+<!-- literal coercion -->
+<div fxShow></div>
+<div fxShow=""></div>
+<div fxShow="false"></div>
+<div fxShow="0"></div>
+<div fxShow="FALSE"></div>
+<div fxHide></div>
+<div fxHide=""></div>
+<div fxHide="false"></div>
+<div fxHide="0"></div>
+<div fxHide="FALSE"></div>
+
+<!-- standard viewport aliases -->
+<div fxHide.xs></div>
+<div fxHide.sm></div>
+<div fxHide.md></div>
+<div fxHide.lg></div>
+<div fxHide.xl></div>
+<div fxHide.lt-sm></div>
+<div fxHide.lt-md></div>
+<div fxHide.lt-lg></div>
+<div fxHide.lt-xl></div>
+<div fxHide.gt-xs></div>
+<div fxHide.gt-sm></div>
+<div fxHide.gt-md></div>
+<div fxHide.gt-lg></div>
+
+<!-- complete-family state planning -->
+<div fxShow fxHide.sm></div>
+<div fxHide.xs fxShow.md></div>
+<div fxHide.lt-md fxShow.sm="false"></div>
+<div fxHide.gt-xs fxShow.sm></div>
+<div fxShow fxHide="false"></div>
+<div fxShow fxHide></div>
+
+<!-- restoration, layout composition, and safe no-ops -->
+<div class="block" fxShow="false" fxShow.sm></div>
+<div fxLayout="column" fxShow="false" fxShow.sm></div>
+<div fxLayout.sm="column" fxHide.sm></div>
+<div fxLayout="row" fxHide></div>
+<div fxLayout="row inline" fxShow="false" fxShow.gt-xs></div>
+<div fxShow fxHide.sm="false"></div>
+
+<!-- existing display and class behavior -->
+<div class="hidden" fxHide></div>
+<div class="block" fxHide.sm></div>
+<div class="block" fxHide></div>
+<div class="hidden" fxShow></div>
+<div class="block flex" fxShow="false" fxShow.sm></div>
+<div class="hover:block" fxShow="false" fxShow.sm></div>
+<div style="display: inline" fxHide></div>
+<div [style.display]="display" fxHide></div>
+<div [style]="styles" fxShow></div>
+<div [class]="classes" fxHide></div>
+<div [class]="classes" fxShow></div>
+<div [class.hidden]="hidden" fxShow="false"></div>
+
+<!-- dynamic and unsupported family members -->
+<div [fxShow]="visible"></div>
+<div fxHide="{{ hidden }}"></div>
+<div fxShow fxHide.handset.landscape fxShow.print fxHide.cinema [fxShow.sm]="visible"></div>
+<div fxLayout="row" [fxHide]="hidden"></div>
+<div class="flex-col" fxLayout="row" fxShow="false" fxShow.sm></div>

@@ -63,6 +63,34 @@ describe('FileMigrator', () => {
     expect(result.results.map(item => item.status)).toEqual(['converted']);
   });
 
+  test('returns exact public results for mixed converted and unresolved visibility inputs', async () => {
+    await writeFile(
+      input,
+      '<div fxHide></div>\n<div class="block" fxShow="false" fxShow.sm></div>\n<div fxShow="false" fxShow.sm></div>\n<div [fxHide]="hidden"></div>',
+      'utf8',
+    );
+
+    const result = await new FileMigrator(new TailwindAdapter(), input, output).migrate();
+
+    expect(await readFile(output, 'utf8')).toBe(
+      '<div class="hidden"></div>\n<div class="block hidden [@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:block"></div>\n<div fxShow="false" fxShow.sm></div>\n<div [fxHide]="hidden"></div>',
+    );
+    expect(
+      result.results.map(item => ({
+        status: item.status,
+        sourceName: item.status === 'parse-error' ? undefined : item.input.sourceName,
+        code: item.status === 'converted' || item.status === 'parse-error' ? undefined : item.code,
+      })),
+    ).toEqual([
+      { status: 'converted', sourceName: 'fxHide', code: undefined },
+      { status: 'converted', sourceName: 'fxShow', code: undefined },
+      { status: 'converted', sourceName: 'fxShow.sm', code: undefined },
+      { status: 'review', sourceName: 'fxShow', code: 'display-restoration-unverified' },
+      { status: 'review', sourceName: 'fxShow.sm', code: 'display-restoration-unverified' },
+      { status: 'review', sourceName: '[fxHide]', code: 'dynamic-binding' },
+    ]);
+  });
+
   test('returns an unchanged parse diagnostic and does not write malformed templates', async () => {
     await writeFile(input, '<span fxLayout="row" />', 'utf8');
 
