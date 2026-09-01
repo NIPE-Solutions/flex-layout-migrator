@@ -1,7 +1,9 @@
 import { compile } from 'tailwindcss';
 import { BreakpointCatalog, type BreakpointDefinition } from '../../src/breakpoint/breakpoint-catalog';
 import type { LocatedFlexLayoutInput } from '../../src/analyzer/flex-layout-attribute.analyzer';
+import type { PlannedConversion } from '../../src/adapter/conversion-adapter';
 import { ResponsiveVariantEmitter } from '../../src/adapter/tailwind/responsive-variant.emitter';
+import { DisplayCompositionPlanner } from '../../src/adapter/tailwind/visibility/display-composition.planner';
 import { VisibilityEmitter } from '../../src/adapter/tailwind/visibility/visibility.emitter';
 import type { VisibilityIntent, VisibilityState } from '../../src/adapter/tailwind/visibility/visibility.model';
 
@@ -35,6 +37,34 @@ function visibilityState(intent: VisibilityIntent, alias?: string): VisibilitySt
   return alias === undefined
     ? { input, intent, activation: { kind: 'base' } }
     : { input, intent, activation: { kind: 'media', definition: definition(alias) } };
+}
+
+function responsiveUtility(alias: string, utility: string): string {
+  return new ResponsiveVariantEmitter().emit(definition(alias), utility);
+}
+
+function layoutPlan(alias: string): PlannedConversion {
+  return {
+    status: 'converted',
+    input: {
+      ...visibilityState('shown', alias).input,
+      id: `fixture:fxLayout.${alias}`,
+      sourceName: `fxLayout.${alias}`,
+      directive: 'fxLayout',
+      value: 'row',
+    },
+    classNames: [responsiveUtility(alias, 'flex'), responsiveUtility(alias, 'flex-row')],
+  };
+}
+
+function composedCandidates(states: readonly VisibilityState[], layout: PlannedConversion): readonly string[] {
+  const result = new DisplayCompositionPlanner().compose({
+    visibilityPlan: { status: 'converted', states },
+    displayResolution: { status: 'resolved', utility: undefined },
+    layoutPlans: [layout],
+  });
+  if (result.status !== 'converted') throw new Error('Expected display composition to convert.');
+  return result.plans.flatMap(plan => (plan.status === 'converted' ? plan.classNames : []));
 }
 
 function mediaBlock(css: string, query: string): string {
@@ -90,5 +120,22 @@ describe('Tailwind CSS v4 arbitrary media variants', () => {
     expect(css).toMatch(/\.flex\s*\{\s*display: flex;\s*\}/u);
     expect(responsiveRule).toContain('display: none');
     expect(css.indexOf(responsiveRule)).toBeGreaterThan(css.indexOf('.flex'));
+  });
+
+  test('suppresses a responsive layout display that would otherwise override inherited base hiding', async () => {
+    const responsiveFlex = responsiveUtility('sm', 'flex');
+    const unsafeCss = await compileCandidates(['hidden', responsiveFlex]);
+    const unsafeResponsiveRule = mediaBlock(unsafeCss, 'screen and (min-width: 600px) and (max-width: 959.98px)');
+
+    expect(unsafeResponsiveRule).toContain('display: flex');
+    expect(unsafeCss.indexOf(unsafeResponsiveRule)).toBeGreaterThan(unsafeCss.indexOf('.hidden'));
+
+    const candidates = composedCandidates([visibilityState('hidden')], layoutPlan('sm'));
+    const css = await compileCandidates(candidates);
+    const responsiveRule = mediaBlock(css, 'screen and (min-width: 600px) and (max-width: 959.98px)');
+
+    expect(candidates).not.toContain(responsiveFlex);
+    expect(responsiveRule).toContain('flex-direction: row');
+    expect(responsiveRule).not.toContain('display: flex');
   });
 });

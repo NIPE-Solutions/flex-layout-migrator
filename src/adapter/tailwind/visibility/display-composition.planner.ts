@@ -1,9 +1,9 @@
 import type { LocatedFlexLayoutInput } from '../../../analyzer/flex-layout-attribute.analyzer';
-import { BreakpointCatalog } from '../../../breakpoint/breakpoint-catalog';
+import { BreakpointCatalog, mediaRangesIntersect, type MediaRange } from '../../../breakpoint/breakpoint-catalog';
 import type { PlannedConversion } from '../../conversion-adapter';
 import { describeTailwindDisplay, type TailwindActivation } from '../tailwind-class-conflict';
 import { VisibilityEmitter } from './visibility.emitter';
-import type { VisibilityActivation, VisibilityState } from './visibility.model';
+import type { VisibilityState } from './visibility.model';
 import type { VisibilityFamilyPlan } from './visibility-state.planner';
 import type { VisibleDisplayResolution } from './visible-display.resolver';
 
@@ -23,10 +23,43 @@ function compareText(left: string, right: string): number {
   return 0;
 }
 
-function sameActivation(left: TailwindActivation, right: VisibilityActivation): boolean {
-  if (left.kind !== right.kind) return false;
-  if (left.kind === 'base' || right.kind === 'base') return true;
-  return left.range.min === right.definition.range.min && left.range.max === right.definition.range.max;
+interface NumericRange {
+  readonly min: number;
+  readonly max: number;
+}
+
+function mediaRange(activation: TailwindActivation): MediaRange {
+  return activation.kind === 'base' ? {} : activation.range;
+}
+
+function numericRange(range: MediaRange): NumericRange {
+  return {
+    min: range.min ?? Number.NEGATIVE_INFINITY,
+    max: range.max ?? Number.POSITIVE_INFINITY,
+  };
+}
+
+function rangesCover(target: MediaRange, ranges: readonly MediaRange[]): boolean {
+  const numericTarget = numericRange(target);
+  const clipped = ranges
+    .filter(range => mediaRangesIntersect(target, range))
+    .map(range => {
+      const numeric = numericRange(range);
+      return {
+        min: Math.max(numericTarget.min, numeric.min),
+        max: Math.min(numericTarget.max, numeric.max),
+      };
+    })
+    .sort((left, right) => left.min - right.min);
+  const first = clipped[0];
+  if (!first || first.min !== numericTarget.min) return false;
+
+  let coveredUntil = first.max;
+  for (const range of clipped.slice(1)) {
+    if (range.min > coveredUntil) return false;
+    coveredUntil = Math.max(coveredUntil, range.max);
+  }
+  return coveredUntil >= numericTarget.max;
 }
 
 function isConvertedLayoutDisplay(className: string): boolean {
@@ -104,8 +137,23 @@ export class DisplayCompositionPlanner {
     if (!isConvertedLayoutDisplay(className)) return false;
     const descriptor = describeTailwindDisplay(className);
     if (!descriptor) return false;
-    const matchingStates = states.filter(state => sameActivation(descriptor.activation, state.activation));
-    return matchingStates.length > 0 && matchingStates.every(state => state.intent === 'hidden');
+    const target = mediaRange(descriptor.activation);
+    const baseStates = states.filter(state => state.activation.kind === 'base');
+    const responsiveStates = states.filter(
+      (state): state is VisibilityState & { readonly activation: { readonly kind: 'media' } } =>
+        state.activation.kind === 'media',
+    );
+    const baseIsHidden = baseStates.length > 0 && baseStates.every(state => state.intent === 'hidden');
+    if (baseIsHidden) {
+      return !responsiveStates.some(
+        state => state.intent === 'shown' && mediaRangesIntersect(target, state.activation.definition.range),
+      );
+    }
+
+    return rangesCover(
+      target,
+      responsiveStates.filter(state => state.intent === 'hidden').map(state => state.activation.definition.range),
+    );
   }
 
   private compareStates(left: VisibilityState, right: VisibilityState): number {

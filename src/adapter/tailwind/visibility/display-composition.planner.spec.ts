@@ -121,6 +121,75 @@ describe('DisplayCompositionPlanner', () => {
     expect(classes.get(hidden.input.id)).toEqual([variant('sm', 'hidden')]);
   });
 
+  test('suppresses a responsive layout display inherited under a hidden base state', () => {
+    const hidden = state('hidden');
+    const responsiveLayout = layout(
+      [variant('sm', 'flex'), variant('sm', 'flex-row'), variant('sm', 'box-border')],
+      'sm',
+    );
+
+    const classes = convertedClasses(compose([hidden], { layoutPlans: [responsiveLayout] }));
+
+    expect(classes.get(responsiveLayout.input.id)).toEqual([variant('sm', 'flex-row'), variant('sm', 'box-border')]);
+  });
+
+  test.each(['lt-md', 'gt-xs'])('suppresses a nested layout fully covered by the hidden %s range', breakpoint => {
+    const hidden = state('hidden', breakpoint);
+    const responsiveLayout = layout(
+      [variant('sm', 'inline-flex'), variant('sm', 'flex-col'), variant('sm', 'box-border')],
+      'sm',
+    );
+
+    const classes = convertedClasses(compose([hidden], { layoutPlans: [responsiveLayout] }));
+
+    expect(classes.get(responsiveLayout.input.id)).toEqual([variant('sm', 'flex-col'), variant('sm', 'box-border')]);
+  });
+
+  test('suppresses a base layout display when hidden responsive ranges jointly cover its complete activation', () => {
+    const hiddenBelowMd = state('hidden', 'lt-md');
+    const hiddenAboveXs = state('hidden', 'gt-xs');
+    const baseLayout = layout(['flex', 'flex-row', 'box-border']);
+
+    const classes = convertedClasses(
+      compose([hiddenAboveXs, hiddenBelowMd], {
+        layoutPlans: [baseLayout],
+      }),
+    );
+
+    expect(classes.get(baseLayout.input.id)).toEqual(['flex-row', 'box-border']);
+  });
+
+  test('retains a wider responsive layout display when hiding covers only a narrower subrange', () => {
+    const hidden = state('hidden', 'sm');
+    const widerLayout = layout(
+      [variant('lt-md', 'flex'), variant('lt-md', 'flex-row'), variant('lt-md', 'box-border')],
+      'lt-md',
+    );
+
+    const classes = convertedClasses(compose([hidden], { layoutPlans: [widerLayout] }));
+
+    expect(classes.get(widerLayout.input.id)).toEqual([
+      variant('lt-md', 'flex'),
+      variant('lt-md', 'flex-row'),
+      variant('lt-md', 'box-border'),
+    ]);
+  });
+
+  test('retains a responsive layout display when a shown override interrupts inherited base hiding', () => {
+    const baseHidden = state('hidden');
+    const responsiveShown = state('shown', 'sm');
+    const responsiveLayout = layout([variant('sm', 'flex'), variant('sm', 'flex-row')], 'sm');
+
+    const classes = convertedClasses(
+      compose([responsiveShown, baseHidden], {
+        displayResolution: { status: 'resolved', utility: 'flex' },
+        layoutPlans: [responsiveLayout],
+      }),
+    );
+
+    expect(classes.get(responsiveLayout.input.id)).toEqual([variant('sm', 'flex'), variant('sm', 'flex-row')]);
+  });
+
   test('keeps a base layout display when only a narrower responsive range is hidden', () => {
     const hidden = state('hidden', 'sm');
     const baseLayout = layout(['flex', 'flex-row', 'box-border']);
