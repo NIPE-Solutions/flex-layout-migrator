@@ -21,6 +21,7 @@ const accepted = [
   ['text-slate-700', 'color'],
   ['bg-blue-500', 'background-color'],
   ['bg-[url(hero.png)]', 'background-image'],
+  ['bg-[url(data:image/svg+xml;base64,AAAA)]', 'background-image'],
   ['border', 'border'],
   ['rounded-lg', 'border-radius'],
   ['shadow-md', 'box-shadow'],

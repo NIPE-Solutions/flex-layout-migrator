@@ -145,7 +145,7 @@ function hasValidArbitrarySyntax(value: string): boolean {
       continue;
     }
     if ([')', ']', '}'].includes(character) && stack.pop() !== character) return false;
-    if (character === ';') return false;
+    if (character === ';' && stack.length === 0) return false;
     if (character === ':' && stack.length === 0 && typedSeparator < 0) typedSeparator = index;
   }
 
