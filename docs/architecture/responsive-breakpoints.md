@@ -54,7 +54,7 @@ The analyzer continues to discover and normalize suffixes. It does not decide wh
 
 `ResponsiveVariantEmitter` is a Tailwind-specific strategy. It accepts a verified `BreakpointDefinition` and a semantic utility, then emits a self-contained Tailwind v4 arbitrary `@media` variant. Directive strategies remain responsible only for Flex-Layout value semantics; they do not construct breakpoint syntax.
 
-The emitter owns escaping and canonical formatting. Its output is validated by compiling representative generated classes with Tailwind CSS v4 during the test suite. This keeps the published package independent of Tailwind while ensuring the codemod does not emit syntax based only on string snapshots.
+The emitter owns Tailwind arbitrary-variant syntax and canonical formatting. Its output is validated by compiling generated classes with Tailwind CSS v4 during the test suite; HTML source safety is enforced separately before editing so no entity serialization hides a token from Tailwind's scanner. This keeps the published package independent of Tailwind while ensuring the codemod does not emit syntax based only on string snapshots.
 
 The compiler-proven token form is a self-contained arbitrary media variant, for example `[@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:flex-row` for the `sm` range. The underscores encode Tailwind's arbitrary-variant whitespace, so generated tokens retain the exact Angular Flex-Layout media conditions without relying on a project's named Tailwind breakpoint configuration.
 

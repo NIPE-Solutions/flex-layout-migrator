@@ -1,0 +1,82 @@
+<!-- all verified responsive class aliases -->
+<div class="[@media_screen_and_(min-width:_0px)_and_(max-width:_599.98px)]:flex [@media_screen_and_(min-width:_0px)_and_(max-width:_599.98px)]:items-center"></div>
+<div class="[@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:grid [@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:grid-cols-3 [@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:gap-4"></div>
+<div class="[@media_screen_and_(min-width:_960px)_and_(max-width:_1279.98px)]:p-4 [@media_screen_and_(min-width:_960px)_and_(max-width:_1279.98px)]:-mt-2"></div>
+<div class="[@media_screen_and_(min-width:_1280px)_and_(max-width:_1919.98px)]:text-sm [@media_screen_and_(min-width:_1280px)_and_(max-width:_1919.98px)]:text-slate-700"></div>
+<div class="[@media_screen_and_(min-width:_1920px)_and_(max-width:_4999.98px)]:bg-blue-500 [@media_screen_and_(min-width:_1920px)_and_(max-width:_4999.98px)]:border [@media_screen_and_(min-width:_1920px)_and_(max-width:_4999.98px)]:rounded-lg"></div>
+<div class="[@media_screen_and_(max-width:_599.98px)]:shadow-md [@media_screen_and_(max-width:_599.98px)]:opacity-50"></div>
+<div class="[@media_screen_and_(max-width:_959.98px)]:overflow-hidden [@media_screen_and_(max-width:_959.98px)]:absolute [@media_screen_and_(max-width:_959.98px)]:inset-x-0"></div>
+<div class="[@media_screen_and_(max-width:_1279.98px)]:rotate-45 [@media_screen_and_(max-width:_1279.98px)]:transition-colors"></div>
+<div class="[@media_screen_and_(max-width:_1919.98px)]:sr-only"></div>
+<div class="[@media_screen_and_(min-width:_600px)]:w-[17px]"></div>
+<div class="[@media_screen_and_(min-width:_960px)]:hover:bg-blue-600"></div>
+<div class="[@media_screen_and_(min-width:_1280px)]:dark:hover:text-white"></div>
+<div class="[@media_screen_and_(min-width:_1920px)]:![color:red] [@media_screen_and_(min-width:_1920px)]:[--card-gap:1rem]"></div>
+
+<!-- all verified responsive style aliases -->
+<div class="[@media_screen_and_(min-width:_0px)_and_(max-width:_599.98px)]:[font-size:14px]"></div>
+<div class="[@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:[color:#334155] [@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:[--Card_Gap:1rem]"></div>
+<div class="[@media_screen_and_(min-width:_960px)_and_(max-width:_1279.98px)]:[width:calc(100%_-_var(--card-gap,_1rem))]"></div>
+<div class="[@media_screen_and_(min-width:_1280px)_and_(max-width:_1919.98px)]:[content:exact_value]"></div>
+<div class="[@media_screen_and_(min-width:_1920px)_and_(max-width:_4999.98px)]:[color:rgb(var(--channels,_51_65_85)_/_50%)]"></div>
+<div class="[@media_screen_and_(max-width:_599.98px)]:[border-radius:.5rem]"></div>
+<div class="[@media_screen_and_(max-width:_959.98px)]:[opacity:.5]"></div>
+<div class="[@media_screen_and_(max-width:_1279.98px)]:[height:50vh]"></div>
+<div class="[@media_screen_and_(max-width:_1919.98px)]:[width:80%]"></div>
+<div class="[@media_screen_and_(min-width:_600px)]:[letter-spacing:.1em]"></div>
+<div class="[@media_screen_and_(min-width:_960px)]:[rotate:-45deg]"></div>
+<div class="[@media_screen_and_(min-width:_1280px)]:[animation-duration:.2s]"></div>
+<div class="[@media_screen_and_(min-width:_1920px)]:[transition-delay:150ms]"></div>
+
+<!-- precedence, fallbacks, and conflicts -->
+<div class="[@media_screen_and_(min-width:_0px)_and_(max-width:_599.98px)]:flex [@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:grid"></div>
+<div class="[@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:[color:red] [@media_screen_and_(min-width:_600px)]:[color:red]"></div>
+<div class="[@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:flex"></div>
+<div ngClass.sm="flex" ngClass.gt-xs="grid"></div>
+<div ngStyle.sm="color:red" ngStyle.gt-xs="color:blue"></div>
+<div class="card [@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:flex [@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:items-center"></div>
+<div style="color: red" class="[@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:[margin:1rem]"></div>
+<div style="color: red" ngStyle.sm="color:blue"></div>
+<div class="grid" ngClass.sm="flex"></div>
+<div class="text-blue-500" ngStyle.sm="color:red"></div>
+<div class="[@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:[color:blue]"></div>
+<div ngStyle.sm="margin:1rem;margin-top:2rem"></div>
+<div ngClass="flex"></div>
+<div ngClass="flex items-center" ngClass.sm="grid"></div>
+<div ngStyle="" class="[@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:[color:green]"></div>
+<div ngStyle="color:red" ngStyle.sm="color:red"></div>
+<div [ngClass]="classes" ngClass.sm=""></div>
+<div [ngStyle]="styles" ngStyle.sm=""></div>
+<div class="[row-gap:1rem]" ngClass.sm="gap-y-4"></div>
+<div class="sr-only" ngClass.sm="relative"></div>
+<div class='card' ngClass.sm="[content:'quoted&amp;copy;']"></div>
+<div ngClass="gap-4" ngClass.sm="gap-4" fxLayoutGap.sm="8"></div>
+<div ngStyle.sm="font-size:10px; font-size.px:20"></div>
+<div class="[line-height:2]" ngClass.sm="text-sm/5"></div>
+
+<!-- preserved extended inputs -->
+<div ngClass.sm="dashboard-panel plugin-widget"></div>
+<div ngClass.md="bg-brand-500"></div>
+<div [ngClass.sm]="classes"></div>
+<div ngClass.sm="{{ responsiveClasses }}"></div>
+<div class.sm="flex"></div>
+<div ngClass.cinema="flex"></div>
+<div ngClass.print="flex"></div>
+<div ngClass.="flex"></div>
+<div ngStyle.sm="background-image:url(card.png)"></div>
+<div [ngStyle.sm]="styles"></div>
+<div ngStyle.sm="color: {{ themeColor }}"></div>
+<div style.sm="color:red"></div>
+<div ngStyle.handset="color:red"></div>
+<div ngStyle.print="color:red"></div>
+<div ngStyle.="color:red"></div>
+<div></div>
+<div ngStyle.sm="color:red!important"></div>
+<div ngStyle.sm="content:'first;second'"></div>
+<div ngClass.sm="text-[14px]junk"></div>
+
+<!-- display ownership and mixed outcomes -->
+<div class="[@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:hidden"></div>
+<div ngStyle.sm="display:block" fxHide.sm></div>
+<div ngClass.sm="block" fxShow="false" fxShow.sm></div>
+<div ngStyle.sm="background-image:url(card.png)" class="[@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:hidden"></div>

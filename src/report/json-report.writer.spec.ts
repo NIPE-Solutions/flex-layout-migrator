@@ -77,6 +77,61 @@ function visibilityReviewResult(
   };
 }
 
+function extendedReviewResult(
+  fileName: string,
+  directive: 'ngClass' | 'ngStyle',
+  code: 'tailwind-candidate-unverified' | 'style-value-unverified',
+  offset: number,
+): ConversionResult {
+  const sourceName = `${directive}.sm`;
+  const input: LocatedFlexLayoutInput = {
+    id: `${fileName}:${offset}`,
+    fileName,
+    elementId: 'extended-element',
+    sourceName,
+    directive,
+    value: directive === 'ngClass' ? 'dashboard-panel' : 'background-image:url(card.png)',
+    binding: 'literal',
+    breakpoint: 'sm',
+    source: { start: offset, end: offset + sourceName.length },
+    nameSource: { start: offset, end: offset + sourceName.length },
+  };
+
+  return {
+    status: 'review',
+    input,
+    code,
+    reason:
+      directive === 'ngClass'
+        ? 'The class may be application-defined or supplied by a Tailwind plugin.'
+        : 'The declaration cannot be sanitized and encoded exactly.',
+    suggestion: 'Review this occurrence and migrate it manually when its project-specific behavior is known.',
+  };
+}
+
+function extendedConvertedResult(
+  fileName: string,
+  directive: 'ngClass' | 'ngStyle',
+  alias: 'sm' | 'lt-md',
+  offset: number,
+): ConversionResult {
+  const sourceName = `${directive}.${alias}`;
+  const input: LocatedFlexLayoutInput = {
+    id: `${fileName}:${offset}`,
+    fileName,
+    elementId: 'extended-element',
+    sourceName,
+    directive,
+    value: directive === 'ngClass' ? 'flex items-center' : 'font-size.px: 14',
+    binding: 'literal',
+    breakpoint: alias,
+    source: { start: offset, end: offset + sourceName.length },
+    nameSource: { start: offset, end: offset + sourceName.length },
+  };
+
+  return { status: 'converted', input };
+}
+
 function file(inputPath: string): FileMigrationResult {
   return {
     inputPath,
@@ -205,6 +260,74 @@ describe('JsonReportWriter', () => {
           },
         ],
       });
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  test('writes mixed responsive class and style occurrence totals and public result fields', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'json-report-writer-'));
+    const inputRoot = '/private/checkout/templates';
+    const outputRoot = '/private/checkout/generated';
+    const inputPath = `${inputRoot}/extended.component.html`;
+    const report = new MigrationReportBuilder().build(inputRoot, outputRoot, 'tailwind', false, 0, [
+      {
+        ...file(inputPath),
+        changed: true,
+        results: [
+          extendedConvertedResult(inputPath, 'ngClass', 'sm', 12),
+          extendedConvertedResult(inputPath, 'ngStyle', 'lt-md', 54),
+          extendedReviewResult(inputPath, 'ngClass', 'tailwind-candidate-unverified', 96),
+          extendedReviewResult(inputPath, 'ngStyle', 'style-value-unverified', 138),
+        ],
+      },
+    ]);
+    const target = join(directory, 'reports', 'migration.json');
+
+    try {
+      await new JsonReportWriter().write(target, report);
+
+      const contents = JSON.parse(await readFile(target, 'utf8')) as {
+        readonly summary: unknown;
+        readonly files: readonly unknown[];
+      };
+      expect(contents.summary).toEqual({
+        filesScanned: 1,
+        filesChanged: 1,
+        converted: 2,
+        review: 2,
+        unsupported: 0,
+        invalid: 0,
+        parseErrors: 0,
+      });
+      expect(contents.files).toEqual([
+        {
+          path: 'extended.component.html',
+          changed: true,
+          results: [
+            { status: 'converted', directive: 'ngClass', sourceName: 'ngClass.sm', offset: 12 },
+            { status: 'converted', directive: 'ngStyle', sourceName: 'ngStyle.lt-md', offset: 54 },
+            {
+              status: 'review',
+              directive: 'ngClass',
+              sourceName: 'ngClass.sm',
+              offset: 96,
+              code: 'tailwind-candidate-unverified',
+              reason: 'The class may be application-defined or supplied by a Tailwind plugin.',
+              suggestion: 'Review this occurrence and migrate it manually when its project-specific behavior is known.',
+            },
+            {
+              status: 'review',
+              directive: 'ngStyle',
+              sourceName: 'ngStyle.sm',
+              offset: 138,
+              code: 'style-value-unverified',
+              reason: 'The declaration cannot be sanitized and encoded exactly.',
+              suggestion: 'Review this occurrence and migrate it manually when its project-specific behavior is known.',
+            },
+          ],
+        },
+      ]);
     } finally {
       await rm(directory, { recursive: true, force: true });
     }

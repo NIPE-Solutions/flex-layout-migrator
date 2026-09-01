@@ -17,6 +17,15 @@ import { ResponsiveFamilyPlanner } from './responsive-family.planner';
 import { DisplayCompositionPlanner } from './visibility/display-composition.planner';
 import { VisibilityStatePlanner } from './visibility/visibility-state.planner';
 import { VisibleDisplayResolver } from './visibility/visible-display.resolver';
+import { ExtendedFamilyPlanner } from './extended/extended-family.planner';
+import { ExtendedDisplayCompositionPlanner } from './extended/extended-display-composition.planner';
+import { ExtendedResponsivePlanner } from './extended/extended-responsive.planner';
+import { parseResponsiveClassValue } from './extended/responsive-class-value.parser';
+import type { ResponsiveClassValue } from './extended/responsive-class.model';
+import { parseResponsiveStyleValue } from './extended/responsive-style-value.parser';
+import type { ResponsiveStyleValue } from './extended/responsive-style.model';
+import { TailwindCandidateClassifier } from './extended/tailwind-candidate-classifier';
+import { GeneratedPropertyCompositionPlanner } from './extended/generated-property-composition.planner';
 
 const flexItemDirectives = new Set<LocatedFlexLayoutInput['directive']>(['fxFlex', 'fxGrow', 'fxShrink']);
 const visibilityDirectives = new Set<LocatedFlexLayoutInput['directive']>(['fxShow', 'fxHide']);
@@ -27,6 +36,12 @@ const responsiveDisplayAuthorityDirectives = new Set<LocatedFlexLayoutInput['dir
   'ngStyle',
 ]);
 const responsiveStyleAuthorityDirectives = new Set<LocatedFlexLayoutInput['directive']>(['style', 'ngStyle']);
+const extendedClassDirectives = new Set<LocatedFlexLayoutInput['directive']>(['class', 'ngClass']);
+const extendedStyleDirectives = new Set<LocatedFlexLayoutInput['directive']>(['style', 'ngStyle']);
+const extendedDirectives = new Set<LocatedFlexLayoutInput['directive']>([
+  ...extendedClassDirectives,
+  ...extendedStyleDirectives,
+]);
 
 const supportedDirectives = new Set<LocatedFlexLayoutInput['directive']>([
   'fxFlex',
@@ -127,6 +142,23 @@ function compatibleVisibilityClasses(
   });
 }
 
+function equalClassValues(left: ResponsiveClassValue, right: ResponsiveClassValue): boolean {
+  return (
+    left.tokens.length === right.tokens.length && left.tokens.every((token, index) => token === right.tokens[index])
+  );
+}
+
+function equalStyleValues(left: ResponsiveStyleValue, right: ResponsiveStyleValue): boolean {
+  return (
+    left.declarations.length === right.declarations.length &&
+    left.declarations.every(
+      (declaration, index) =>
+        declaration.property === right.declarations[index]?.property &&
+        declaration.value === right.declarations[index]?.value,
+    )
+  );
+}
+
 export class TailwindAdapter implements ConversionAdapter {
   readonly name = 'tailwind' as const;
   private readonly breakpointCatalog = new BreakpointCatalog();
@@ -138,6 +170,17 @@ export class TailwindAdapter implements ConversionAdapter {
   private readonly visibilityStatePlanner = new VisibilityStatePlanner(this.breakpointCatalog);
   private readonly visibleDisplayResolver = new VisibleDisplayResolver();
   private readonly displayCompositionPlanner = new DisplayCompositionPlanner(this.breakpointCatalog);
+  private readonly extendedFamilyPlanner = new ExtendedFamilyPlanner(this.breakpointCatalog);
+  private readonly extendedResponsivePlanner = new ExtendedResponsivePlanner();
+  private readonly tailwindCandidateClassifier = new TailwindCandidateClassifier();
+  private readonly extendedDisplayCompositionPlanner = new ExtendedDisplayCompositionPlanner(
+    this.breakpointCatalog,
+    this.tailwindCandidateClassifier,
+  );
+  private readonly generatedPropertyCompositionPlanner = new GeneratedPropertyCompositionPlanner(
+    this.breakpointCatalog,
+    this.tailwindCandidateClassifier,
+  );
 
   resolveClassConflicts(
     plans: readonly PlannedConversion[],
@@ -203,25 +246,41 @@ export class TailwindAdapter implements ConversionAdapter {
     if (flexItemDirectives.has(directive)) return 'flex-item';
     if (directive === 'fxFlexFill' || directive === 'fxFill') return 'flex-fill';
     if (visibilityDirectives.has(directive)) return 'visibility';
+    if (extendedClassDirectives.has(directive)) return 'extended-class';
+    if (extendedStyleDirectives.has(directive)) return 'extended-style';
     return directive;
   }
 
   planElement(inputs: readonly LocatedFlexLayoutInput[], context: ConversionContext): readonly PlannedConversion[] {
     const visibilityInputs = inputs.filter(input => visibilityDirectives.has(input.directive));
     const strategyInputs = inputs.filter(input => !visibilityDirectives.has(input.directive));
-    const strategyPlans = this.responsiveFamilyPlanner.plan(
+    const plannedStrategies = this.responsiveFamilyPlanner.plan(
       strategyInputs,
       { ...context, inputs },
       (input, itemContext) => this.planSemantic(input, itemContext),
+      (family, familyInputs, itemContext) => this.planExtendedFamily(family, familyInputs, itemContext),
     );
-    if (!visibilityInputs.length) return strategyPlans;
+    const initialStrategyPlans = this.generatedPropertyCompositionPlanner.compose(plannedStrategies);
+    if (!visibilityInputs.length) {
+      return this.extendedDisplayCompositionPlanner.composeWithLayout(initialStrategyPlans);
+    }
 
-    const layoutPlans = strategyPlans.filter(plan => plan.input.directive === 'fxLayout');
-    const responsiveStyleInputs = strategyInputs.filter(input =>
-      responsiveStyleAuthorityDirectives.has(input.directive),
+    const initialVisibilityPlan = this.visibilityStatePlanner.plan(visibilityInputs);
+    const extendedComposition = this.extendedDisplayCompositionPlanner.compose(
+      initialStrategyPlans,
+      initialVisibilityPlan,
     );
-    const visibilityPlan = this.visibilityStatePlanner.plan(visibilityInputs);
-    const displayResolution =
+    const strategyPlans = extendedComposition.strategyPlans;
+    const visibilityPlan = extendedComposition.visibilityPlan;
+    const layoutPlans = strategyPlans.filter(plan => plan.input.directive === 'fxLayout');
+    const plansByStrategyInputId = new Map(strategyPlans.map(plan => [plan.input.id, plan]));
+    const responsiveStyleInputs = strategyInputs.filter(
+      input =>
+        responsiveStyleAuthorityDirectives.has(input.directive) &&
+        plansByStrategyInputId.get(input.id)?.status !== 'converted' &&
+        this.extendedDisplayCompositionPlanner.inputMayControlDisplay(input),
+    );
+    const baseDisplayResolution =
       visibilityPlan.status === 'converted'
         ? this.visibleDisplayResolver.resolve({
             states: visibilityPlan.states,
@@ -233,6 +292,11 @@ export class TailwindAdapter implements ConversionAdapter {
             responsiveStyleInputs,
           })
         : { status: 'resolved' as const, utility: undefined };
+    const displayResolution = this.extendedDisplayCompositionPlanner.resolveVisibleDisplay(
+      baseDisplayResolution,
+      strategyPlans,
+      visibilityPlan,
+    );
     const composed = this.displayCompositionPlanner.compose({
       visibilityPlan,
       displayResolution,
@@ -253,6 +317,19 @@ export class TailwindAdapter implements ConversionAdapter {
       if (family.status === 'unresolved')
         return family.plans[0] ?? contextUnverified(input, 'Visibility is unresolved.');
       return contextUnverified(input, 'Visibility requires complete element-family context before conversion.');
+    }
+
+    if (extendedDirectives.has(input.directive)) {
+      const family = extendedClassDirectives.has(input.directive) ? 'extended-class' : 'extended-style';
+      const plans = this.planExtendedFamily(family, [input], { ...context, inputs: [input] });
+      const intrinsic = plans[0];
+      if (intrinsic?.status !== 'converted') {
+        return intrinsic ?? contextUnverified(input, 'The responsive extended family is unresolved.');
+      }
+      return contextUnverified(
+        input,
+        'Responsive class and style conversion requires complete element-family context.',
+      );
     }
 
     const semantic = this.planSemantic(input, context);
@@ -381,10 +458,48 @@ export class TailwindAdapter implements ConversionAdapter {
     };
   }
 
+  private planExtendedFamily(
+    family: 'extended-class' | 'extended-style',
+    inputs: readonly LocatedFlexLayoutInput[],
+    context: ConversionContext,
+  ): readonly PlannedConversion[] {
+    if (family === 'extended-class') {
+      const familyPlan = this.extendedFamilyPlanner.plan<ResponsiveClassValue>({
+        kind: 'class',
+        inputs,
+        valueParser: input => parseResponsiveClassValue(input, this.tailwindCandidateClassifier),
+        equals: equalClassValues,
+      });
+      return this.extendedResponsivePlanner.plan({
+        kind: 'class',
+        familyPlan,
+        existingClassNames: [],
+        attributes: context.attributeEvidence ?? context.element.attributes,
+      }).plans;
+    }
+
+    const familyPlan = this.extendedFamilyPlanner.plan<ResponsiveStyleValue>({
+      kind: 'style',
+      inputs,
+      valueParser: parseResponsiveStyleValue,
+      equals: equalStyleValues,
+    });
+    return this.extendedResponsivePlanner.plan({
+      kind: 'style',
+      familyPlan,
+      existingClassNames: [],
+      attributes: context.attributeEvidence ?? context.element.attributes,
+    }).plans;
+  }
+
   private closeDisplayDependencies(plans: readonly PlannedConversion[]): readonly PlannedConversion[] {
     const layoutPlans = plans.filter(plan => plan.input.directive === 'fxLayout');
     const visibilityPlans = plans.filter(plan => visibilityDirectives.has(plan.input.directive));
-    const authorityPlans = plans.filter(plan => responsiveDisplayAuthorityDirectives.has(plan.input.directive));
+    const authorityPlans = plans.filter(
+      plan =>
+        responsiveDisplayAuthorityDirectives.has(plan.input.directive) &&
+        this.extendedDisplayCompositionPlanner.inputMayControlDisplay(plan.input),
+    );
     const visibilityIsNoOp =
       visibilityPlans.length > 0 &&
       visibilityPlans.every(plan => plan.status === 'converted' && plan.classNames.length === 0);
@@ -396,7 +511,10 @@ export class TailwindAdapter implements ConversionAdapter {
     if (!displayContextIsUnresolved) return plans;
     return plans.map(plan =>
       plan.status === 'converted' &&
-      (plan.input.directive === 'fxLayout' || visibilityDirectives.has(plan.input.directive))
+      (plan.input.directive === 'fxLayout' ||
+        visibilityDirectives.has(plan.input.directive) ||
+        (responsiveDisplayAuthorityDirectives.has(plan.input.directive) &&
+          this.extendedDisplayCompositionPlanner.inputMayControlDisplay(plan.input)))
         ? contextUnverified(
             plan.input,
             'The element display context contains an unresolved layout or visibility family.',

@@ -208,7 +208,9 @@ describe('VisibleDisplayResolver', () => {
     expect(
       resolve({
         states: [state('shown')],
-        attributes: parsedAttributes('<div style="color: red; opacity: 0.5"></div>'),
+        attributes: parsedAttributes(
+          '<div style="/* lead */ color: rgb(1, 2, 3); content: \'display: block\'; --display: grid"></div>',
+        ),
       }),
     ).toEqual({ status: 'resolved', utility: undefined });
   });

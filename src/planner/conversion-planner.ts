@@ -4,6 +4,7 @@ import type { LocatedFlexLayoutInput } from '../analyzer/flex-layout-attribute.a
 import type { SourceEdit } from '../edit/source-edit';
 import { templateAttributeKeys } from '../template/template-attribute';
 import type { SourceRange, TemplateElement } from '../template/template.model';
+import { appendLiteralClassNames } from '../edit/html-attribute-value';
 
 export interface FilePlan {
   readonly edits: readonly SourceEdit[];
@@ -32,6 +33,10 @@ const directiveOrder = new Map(
     'fxFill',
     'fxFlexOffset',
     'fxFlexOrder',
+    'ngClass',
+    'class',
+    'ngStyle',
+    'style',
     'fxShow',
     'fxHide',
   ].map((directive, index) => [directive, index]),
@@ -168,38 +173,14 @@ export class ConversionPlanner {
         })),
       );
 
-      const classAttribute = literalClassAttribute(conversion.element);
-      if (classAttribute?.valueSource) {
-        const existingClassNames = classAttribute.value.split(/\s+/).filter(Boolean);
-        const classNames = [...new Set([...existingClassNames, ...generatedClassNames])];
-        const missingClassNames = generatedClassNames.filter(className => !existingClassNames.includes(className));
-        const text =
-          classAttribute.rawValue === classAttribute.value
-            ? classNames.join(' ')
-            : `${classAttribute.rawValue}${
-                classAttribute.value.length > 0 && !/\s$/u.test(classAttribute.value) && missingClassNames.length > 0
-                  ? ' '
-                  : ''
-              }${missingClassNames.join(' ')}`;
-        if (text !== classAttribute.rawValue) {
-          edits.push({
-            range: classAttribute.valueSource,
-            text,
-            inputId: `${conversion.element.id}:classes`,
-          });
-        }
-      } else if (generatedClassNames.length > 0) {
-        const startTag = source.slice(conversion.element.startTag.start, conversion.element.startTag.end);
-        const selfClosing = startTag.endsWith('/>');
-        const insertionOffset = conversion.element.startTag.end - (selfClosing ? 2 : 1);
-        const hasClosingWhitespace = /\s/.test(source[insertionOffset - 1] ?? '');
-        const classAttributeText = `class="${[...new Set(generatedClassNames)].join(' ')}"`;
-        edits.push({
-          range: { start: insertionOffset, end: insertionOffset },
-          text: selfClosing && hasClosingWhitespace ? `${classAttributeText} ` : ` ${classAttributeText}`,
-          inputId: `${conversion.element.id}:classes`,
-        });
-      }
+      const classEdit = appendLiteralClassNames(
+        source,
+        conversion.element,
+        literalClassAttribute(conversion.element),
+        generatedClassNames,
+        `${conversion.element.id}:classes`,
+      );
+      if (classEdit !== undefined) edits.push(classEdit);
     }
 
     return { edits, results };

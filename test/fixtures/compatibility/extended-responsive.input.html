@@ -1,0 +1,82 @@
+<!-- all verified responsive class aliases -->
+<div ngClass.xs="flex&#160;items-center"></div>
+<div ngClass.sm="grid grid-cols-3 gap-4"></div>
+<div ngClass.md="p-4 -mt-2"></div>
+<div ngClass.lg="text-sm text-slate-700"></div>
+<div ngClass.xl="bg-blue-500 border rounded-lg"></div>
+<div ngClass.lt-sm="shadow-md opacity-50"></div>
+<div ngClass.lt-md="overflow-hidden absolute inset-x-0"></div>
+<div ngClass.lt-lg="rotate-45 transition-colors"></div>
+<div ngClass.lt-xl="sr-only"></div>
+<div ngClass.gt-xs="w-[17px]"></div>
+<div ngClass.gt-sm="hover:bg-blue-600"></div>
+<div ngClass.gt-md="dark:hover:text-white"></div>
+<div ngClass.gt-lg="![color:red] [--card-gap:1rem]"></div>
+
+<!-- all verified responsive style aliases -->
+<div ngStyle.xs="font-size.px: 14"></div>
+<div ngStyle.sm="color: #334155; --Card_Gap: 1rem"></div>
+<div ngStyle.md="width: calc(100% - var(--card-gap, 1rem))"></div>
+<div ngStyle.lg="content: 'exact value'"></div>
+<div ngStyle.xl="color: rgb(var(--channels, 51 65 85) / 50%)"></div>
+<div ngStyle.lt-sm="border-radius: .5rem"></div>
+<div ngStyle.lt-md="opacity: .5"></div>
+<div ngStyle.lt-lg="height.vh: 50"></div>
+<div ngStyle.lt-xl="width.%: 80"></div>
+<div ngStyle.gt-xs="letter-spacing.em: .1"></div>
+<div ngStyle.gt-sm="rotate.deg: -45"></div>
+<div ngStyle.gt-md="animation-duration.s: .2"></div>
+<div ngStyle.gt-lg="transition-delay.ms: 150"></div>
+
+<!-- precedence, fallbacks, and conflicts -->
+<div ngClass.xs="flex" ngClass.sm="grid"></div>
+<div ngStyle.sm="color:red" ngStyle.gt-xs="color:red"></div>
+<div ngClass.sm="flex" ngClass.sm="flex"></div>
+<div ngClass.sm="flex" ngClass.gt-xs="grid"></div>
+<div ngStyle.sm="color:red" ngStyle.gt-xs="color:blue"></div>
+<div class="card" ngClass.sm="flex items-center"></div>
+<div style="color: red" ngStyle.sm="margin:1rem"></div>
+<div style="color: red" ngStyle.sm="color:blue"></div>
+<div class="grid" ngClass.sm="flex"></div>
+<div class="text-blue-500" ngStyle.sm="color:red"></div>
+<div ngClass.sm="text-red-500" ngStyle.sm="color:blue"></div>
+<div ngStyle.sm="margin:1rem;margin-top:2rem"></div>
+<div ngClass="flex" ngClass.sm="flex"></div>
+<div ngClass="flex items-center" ngClass.sm="grid"></div>
+<div ngStyle="" ngStyle.sm="color:green"></div>
+<div ngStyle="color:red" ngStyle.sm="color:red"></div>
+<div [ngClass]="classes" ngClass.sm=""></div>
+<div [ngStyle]="styles" ngStyle.sm=""></div>
+<div class="[row-gap:1rem]" ngClass.sm="gap-y-4"></div>
+<div class="sr-only" ngClass.sm="relative"></div>
+<div class='card' ngClass.sm="[content:'quoted&amp;copy;']"></div>
+<div ngClass="gap-4" ngClass.sm="gap-4" fxLayoutGap.sm="8"></div>
+<div ngStyle.sm="font-size:10px; font-size.px:20"></div>
+<div class="[line-height:2]" ngClass.sm="text-sm/5"></div>
+
+<!-- preserved extended inputs -->
+<div ngClass.sm="dashboard-panel plugin-widget"></div>
+<div ngClass.md="bg-brand-500"></div>
+<div [ngClass.sm]="classes"></div>
+<div ngClass.sm="{{ responsiveClasses }}"></div>
+<div class.sm="flex"></div>
+<div ngClass.cinema="flex"></div>
+<div ngClass.print="flex"></div>
+<div ngClass.="flex"></div>
+<div ngStyle.sm="background-image:url(card.png)"></div>
+<div [ngStyle.sm]="styles"></div>
+<div ngStyle.sm="color: {{ themeColor }}"></div>
+<div style.sm="color:red"></div>
+<div ngStyle.handset="color:red"></div>
+<div ngStyle.print="color:red"></div>
+<div ngStyle.="color:red"></div>
+<div ngClass.sm="" ngStyle.sm=""></div>
+<div ngStyle.sm="color:red!important"></div>
+<div ngStyle.sm="content:'first;second'"></div>
+<div ngClass.sm="text-[14px]junk"></div>
+
+<!-- display ownership and mixed outcomes -->
+<div ngClass.sm="hidden" fxHide.sm></div>
+<div ngStyle.sm="display:block" fxHide.sm></div>
+<div ngClass.sm="block" fxShow="false" fxShow.sm></div>
+<div ngStyle.sm="background-image:url(card.png)" fxHide.sm></div>

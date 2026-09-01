@@ -55,10 +55,16 @@ describe('ConversionPlanner', () => {
     expect(result.output).toBe('<app-card class="flex flex-col box-border"/>');
   });
 
-  test('deduplicates classes while preserving their first occurrence', () => {
+  test('preserves existing class bytes while avoiding duplicate generated classes', () => {
     const result = migrate('<div class="flex card flex" fxLayout="row"></div>');
 
-    expect(result.output).toBe('<div class="flex card flex-row box-border"></div>');
+    expect(result.output).toBe('<div class="flex card flex flex-row box-border"></div>');
+  });
+
+  test('appends a byte-exact generated token when only an entity-decoded equivalent exists', () => {
+    const result = migrate('<div class="fl&#101;x" fxLayout="row"></div>');
+
+    expect(result.output).toBe('<div class="fl&#101;x flex flex-row box-border"></div>');
   });
 
   test('preserves a directive when an existing Tailwind utility controls the same property', () => {
@@ -210,7 +216,7 @@ describe('ConversionPlanner', () => {
     const result = migrate('<div class="bl&#111;ck&#32;" fxShow="false" fxShow.sm></div>');
 
     expect(result.output).toBe(
-      '<div class="bl&#111;ck&#32;hidden [@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:block"></div>',
+      '<div class="bl&#111;ck&#32; hidden [@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:block"></div>',
     );
   });
 
@@ -330,6 +336,879 @@ describe('ConversionPlanner', () => {
     ]);
   });
 
+  test.each([
+    [
+      'bounded class',
+      '<div class="card" ngClass.sm="flex items-center"></div>',
+      '<div class="card [@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:flex [@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:items-center"></div>',
+    ],
+    [
+      'minimum class',
+      '<div ngClass.gt-xs="grid"></div>',
+      '<div class="[@media_screen_and_(min-width:_600px)]:grid"></div>',
+    ],
+    [
+      'maximum style',
+      '<div ngStyle.lt-md="font-size.px: 14; color: #334155"></div>',
+      '<div class="[@media_screen_and_(max-width:_959.98px)]:[font-size:14px] [@media_screen_and_(max-width:_959.98px)]:[color:#334155]"></div>',
+    ],
+  ])('converts an exact responsive extended %s family', (_case, source, expected) => {
+    const result = migrate(source);
+
+    expect(result.output).toBe(expected);
+    expect(result.results.every(item => item.status === 'converted')).toBe(true);
+  });
+
+  test('converts disjoint extended states and exact identical overlaps atomically', () => {
+    const source = '<div ngClass.xs="flex" ngClass.sm="grid" ngStyle.sm="color:red" ngStyle.gt-xs="color:red"></div>';
+    const result = migrate(source);
+
+    expect(result.output).toBe(
+      '<div class="[@media_screen_and_(min-width:_0px)_and_(max-width:_599.98px)]:flex [@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:grid [@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:[color:red] [@media_screen_and_(min-width:_600px)]:[color:red]"></div>',
+    );
+    expect(result.results.every(item => item.status === 'converted')).toBe(true);
+  });
+
+  test.each([
+    ['cold case collision', '<div ngStyle.sm="font-size:10px; FONT-SIZE:20px; font-size:30px"></div>'],
+    ['activation transition collision', '<div ngStyle.gt-xs="font-size:20px" ngStyle.sm="FONT-SIZE:20px"></div>'],
+    ['cold unit-suffix alias', '<div ngStyle.sm="font-size:10px; font-size.px:20"></div>'],
+    ['cross-breakpoint unit-suffix alias', '<div ngStyle.gt-xs="font-size:20px" ngStyle.sm="font-size.px:20"></div>'],
+    [
+      'cross-breakpoint multiple unit aliases',
+      '<div ngStyle.gt-xs="font-size.rem:1.25" ngStyle.sm="font-size.px:20"></div>',
+    ],
+  ])('preserves an activation-history-dependent responsive ngStyle %s atomically', (_case, source) => {
+    const first = migrate(source);
+
+    expect(first.output).toBe(source);
+    expect(first.edits).toEqual([]);
+    expect(first.results.every(result => result.status === 'review' && result.code === 'style-value-unverified')).toBe(
+      true,
+    );
+    expect(migrate(first.output)).toMatchObject({ output: source, edits: [] });
+  });
+
+  test('preserves safe responsive style siblings when one state has exact-key aliases', () => {
+    const source = '<div ngStyle.xs="color:red" ngStyle.sm="font-size:10px; font-size.px:20"></div>';
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.edits).toEqual([]);
+    expect(result.results).toEqual([
+      expect.objectContaining({ status: 'review', code: 'context-unverified' }),
+      expect.objectContaining({ status: 'review', code: 'style-value-unverified' }),
+    ]);
+  });
+
+  test('preserves an ownership-ambiguous arbitrary shadow beside an inline shadow-color writer', () => {
+    const source = '<div ngClass.sm="shadow-[red]" ngStyle.sm="--tw-shadow-color:blue"></div>';
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.edits).toEqual([]);
+    expect(result.results).toEqual([
+      expect.objectContaining({ status: 'review', code: 'tailwind-candidate-unverified' }),
+      expect.objectContaining({ status: 'review', code: 'context-unverified' }),
+    ]);
+  });
+
+  test('preserves a responsive shadow-color writer beside an existing arbitrary shadow color', () => {
+    const source = '<div class="shadow-[red]" ngStyle.sm="--tw-shadow-color:blue"></div>';
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.edits).toEqual([]);
+    expect(result.results).toEqual([expect.objectContaining({ status: 'review', code: 'class-conflict' })]);
+  });
+
+  test.each([
+    ['text absolute size', 'focus-within:text-[xx-small]', 'font-size:14px'],
+    ['directional border width', 'focus-within:border-x-2', 'border-inline-start-width:4px'],
+    ['named shadow color', 'focus-within:shadow-red-500', '--tw-shadow-color:blue'],
+  ])('preserves a responsive style family behind an overlapping focus-within %s authority', (_case, utility, style) => {
+    const source = `<div class="${utility}" ngStyle.sm="${style}"></div>`;
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.edits).toEqual([]);
+    expect(result.results).toEqual([expect.objectContaining({ status: 'review', code: 'class-conflict' })]);
+  });
+
+  test.each([
+    ['text absolute size', 'focus-within:text-[xx-small]'],
+    ['directional border width', 'focus-within:border-x-2'],
+    ['named shadow color', 'focus-within:shadow-red-500'],
+  ])('converts an unrelated responsive color beside focus-within %s ownership', (_case, utility) => {
+    const expected = `<div class="${utility} [@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:[color:red]"></div>`;
+    const first = migrate(`<div class="${utility}" ngStyle.sm="color:red"></div>`);
+
+    expect(first.output).toBe(expected);
+    expect(first.results.every(result => result.status === 'converted')).toBe(true);
+    expect(migrate(first.output)).toMatchObject({ output: expected, edits: [], results: [] });
+  });
+
+  test.each([
+    ['generated content', 'focus-within:content-none', 'content:none'],
+    ['background position', 'focus-within:bg-[position:left_top]', 'background-position:center'],
+    ['background size', 'focus-within:bg-[length:50%_auto]', 'background-size:cover'],
+    ['background color', 'focus-within:bg-[color:red]', 'background-color:blue'],
+    ['untyped background position', 'focus-within:bg-[center]', 'background-position:left'],
+    ['untyped background size', 'focus-within:bg-[cover]', 'background-size:auto'],
+    ['untyped background color', 'focus-within:bg-[red]', 'background-color:blue'],
+    ['inset shadow geometry', 'focus-within:inset-shadow-sm', 'box-shadow:none'],
+    ['inset shadow color', 'focus-within:inset-shadow-red-500', '--tw-inset-shadow-color:blue'],
+    ['inset ring geometry', 'focus-within:inset-ring-2', '--tw-inset-ring-shadow:none'],
+    ['inset ring color', 'focus-within:inset-ring-red-500', '--tw-inset-ring-color:blue'],
+    ['z-axis rotation', 'focus-within:rotate-z-45', 'transform:none'],
+    ['discrete transition behavior', 'focus-within:transition-discrete', 'transition-behavior:normal'],
+    ['normal transition behavior', 'focus-within:transition-normal', 'transition-behavior:allow-discrete'],
+  ])('preserves an overlapping responsive style behind focus-within %s ownership', (_case, utility, style) => {
+    const source = `<div class="${utility}" ngStyle.sm="${style}"></div>`;
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.edits).toEqual([]);
+    expect(result.results).toEqual([expect.objectContaining({ status: 'review', code: 'class-conflict' })]);
+  });
+
+  test.each([
+    ['generated content', 'focus-within:content-none'],
+    ['background position', 'focus-within:bg-[position:left_top]'],
+    ['background size', 'focus-within:bg-[length:50%_auto]'],
+    ['background color', 'focus-within:bg-[color:red]'],
+    ['untyped background position', 'focus-within:bg-[center]'],
+    ['untyped background size', 'focus-within:bg-[cover]'],
+    ['untyped background color', 'focus-within:bg-[red]'],
+    ['inset shadow geometry', 'focus-within:inset-shadow-sm'],
+    ['inset shadow color', 'focus-within:inset-shadow-red-500'],
+    ['inset ring geometry', 'focus-within:inset-ring-2'],
+    ['inset ring color', 'focus-within:inset-ring-red-500'],
+    ['z-axis rotation', 'focus-within:rotate-z-45'],
+    ['discrete transition behavior', 'focus-within:transition-discrete'],
+    ['normal transition behavior', 'focus-within:transition-normal'],
+  ])('converts an unrelated responsive color beside focus-within %s ownership', (_case, utility) => {
+    const expected = `<div class="${utility} [@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:[color:red]"></div>`;
+    const first = migrate(`<div class="${utility}" ngStyle.sm="color:red"></div>`);
+
+    expect(first.output).toBe(expected);
+    expect(first.results.every(result => result.status === 'converted')).toBe(true);
+    expect(migrate(first.output)).toMatchObject({ output: expected, edits: [], results: [] });
+  });
+
+  test('preserves unrelated responsive ownership behind an untyped arbitrary background authority', () => {
+    const source = '<div class="focus-within:bg-[50%]" ngStyle.sm="color:red"></div>';
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.edits).toEqual([]);
+    expect(result.results).toEqual([expect.objectContaining({ status: 'review', code: 'class-conflict' })]);
+  });
+
+  test('preserves a multi-property responsive class when inline ownership covers only one declaration', () => {
+    const source = '<div ngClass.sm="text-sm/5" ngStyle.sm="font-size:14px"></div>';
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.results).toEqual([
+      expect.objectContaining({ status: 'review', code: 'context-unverified' }),
+      expect.objectContaining({ status: 'review', code: 'context-unverified' }),
+    ]);
+  });
+
+  test('suppresses a multi-property responsive class only when inline ownership covers every declaration', () => {
+    const source = '<div ngClass.sm="text-sm/5" ngStyle.sm="font-size:14px;line-height:2"></div>';
+    const expected =
+      '<div class="[@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:[font-size:14px] [@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:[line-height:2]"></div>';
+    const first = migrate(source);
+
+    expect(first.output).toBe(expected);
+    expect(first.results.every(result => result.status === 'converted')).toBe(true);
+    expect(migrate(first.output)).toMatchObject({ output: expected, edits: [], results: [] });
+  });
+
+  test('preserves extended families with conflicting overlap values', () => {
+    const source =
+      '<div ngClass.sm="flex" ngClass.gt-xs="grid" ngStyle.sm="color:red" ngStyle.gt-xs="color:blue"></div>';
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.results).toEqual([
+      expect.objectContaining({ status: 'review', code: 'responsive-precedence-unverified' }),
+      expect.objectContaining({ status: 'review', code: 'responsive-precedence-unverified' }),
+      expect.objectContaining({ status: 'review', code: 'responsive-precedence-unverified' }),
+      expect.objectContaining({ status: 'review', code: 'responsive-precedence-unverified' }),
+    ]);
+  });
+
+  test.each([
+    ['application class', 'ngClass.sm="card"', 'tailwind-candidate-unverified'],
+    ['unsafe style', 'ngStyle.sm="background-image:url(card.png)"', 'style-value-unverified'],
+    ['dynamic class', '[ngClass.sm]="classes"', 'dynamic-binding'],
+    ['dynamic style', '[ngStyle.sm]="styles"', 'dynamic-binding'],
+    ['deprecated class', 'class.sm="flex"', 'semantic-unsupported'],
+    ['deprecated style', 'style.sm="color:red"', 'semantic-unsupported'],
+    ['custom class alias', 'ngClass.cinema="flex"', 'custom-breakpoint'],
+    ['optional style alias', 'ngStyle.handset="color:red"', 'breakpoint-unverified'],
+    ['print class alias', 'ngClass.print="flex"', 'breakpoint-unverified'],
+  ])('preserves an unsupported extended %s with its intrinsic diagnostic', (_case, attribute, code) => {
+    const source = `<div ${attribute}></div>`;
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.results).toEqual([expect.objectContaining({ status: 'review', code })]);
+  });
+
+  test.each([
+    ['existing class', '<div class="grid" ngClass.sm="flex"></div>'],
+    ['existing style utility', '<div class="text-blue-500" ngStyle.sm="color:red"></div>'],
+    ['fallback style', '<div style="color:blue" ngStyle.sm="color:red"></div>'],
+  ])('preserves an extended family with an intersecting %s conflict', (_case, source) => {
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.results).toEqual([expect.objectContaining({ status: 'review', code: 'class-conflict' })]);
+  });
+
+  test('keeps unrelated layout and responsive style ownership independent', () => {
+    const result = migrate('<div fxLayout="row" ngStyle.sm="color:red"></div>');
+
+    expect(result.output).toBe(
+      '<div class="flex flex-row box-border [@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:[color:red]"></div>',
+    );
+    expect(result.results.every(item => item.status === 'converted')).toBe(true);
+  });
+
+  test('keeps the proven inline style winner for overlapping responsive class color', () => {
+    const result = migrate('<div ngClass.sm="text-red-500" ngStyle.sm="color:blue"></div>');
+
+    expect(result.output).toBe(
+      '<div class="[@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:[color:blue]"></div>',
+    );
+    expect(result.results.every(item => item.status === 'converted')).toBe(true);
+  });
+
+  test.each([
+    ['arbitrary property', '[color:red!important]', 'color:blue'],
+    ['arbitrary color value', 'text-[color:red!important]', 'color:blue'],
+    ['arbitrary width value', 'w-[17px!important]', 'width:20px'],
+    ['trivia-terminated arbitrary property', '[color:red!important_]', 'color:blue'],
+    ['comment-terminated arbitrary property', '[color:red!important/**/]', 'color:blue'],
+    ['comment-separated arbitrary property', '[color:red!/**/important]', 'color:blue'],
+    ['leading important modifier', '![color:red]', 'color:blue'],
+    ['trailing important modifier', '[color:red]!', 'color:blue'],
+  ])('preserves %s ownership against a normal responsive inline style', (_case, className, style) => {
+    const source = `<div ngClass.sm="${className}" ngStyle.sm="${style}"></div>`;
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.results).toEqual([
+      expect.objectContaining({ status: 'review', code: 'context-unverified' }),
+      expect.objectContaining({ status: 'review', code: 'context-unverified' }),
+    ]);
+  });
+
+  test('preserves a normal class property beside ngStyle priority text that Angular does not apply', () => {
+    const source = '<div ngClass.sm="text-red-500" ngStyle.sm="color:blue!important"></div>';
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.results).toEqual([
+      expect.objectContaining({ status: 'review', code: 'context-unverified' }),
+      expect.objectContaining({ status: 'review', code: 'style-value-unverified' }),
+    ]);
+  });
+
+  test('preserves internal important display ownership beside all-shown visibility', () => {
+    const source = '<div ngClass.sm="[display:block!important]" fxShow.sm></div>';
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.results.every(item => item.status === 'review')).toBe(true);
+    expect(result.results.map(item => (item.status === 'converted' ? undefined : item.code))).toContain(
+      'context-unverified',
+    );
+  });
+
+  test('keeps the proven responsive layout winner for overlapping responsive class direction', () => {
+    const result = migrate('<div fxLayout.sm="column" ngClass.sm="flex-row"></div>');
+
+    expect(result.output).toBe(
+      '<div class="[@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:flex [@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:flex-col [@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:box-border"></div>',
+    );
+    expect(result.results.every(item => item.status === 'converted')).toBe(true);
+  });
+
+  test('preserves overlapping responsive layout and ngStyle direction inline writers', () => {
+    const source = '<div fxLayout.sm="column" ngStyle.sm="flex-direction:row;color:blue"></div>';
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.results).toEqual([
+      expect.objectContaining({ status: 'review', code: 'context-unverified' }),
+      expect.objectContaining({ status: 'review', code: 'context-unverified' }),
+    ]);
+  });
+
+  test.each([
+    ['different native gap', '8', 'gap-4'],
+    ['identical native gap', '16px', 'gap-[16px]'],
+  ])('preserves responsive fxLayoutGap replacement beside %s', (_case, gap, className) => {
+    const source = `<div fxLayoutGap.sm="${gap}" ngClass.sm="${className}"></div>`;
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.results).toEqual([
+      expect.objectContaining({ status: 'review', code: 'context-unverified' }),
+      expect.objectContaining({ status: 'review', code: 'context-unverified' }),
+    ]);
+  });
+
+  test('lets a converted responsive layout own an overlapping ngClass display candidate', () => {
+    const result = migrate('<div fxLayout.sm="row" ngClass.sm="hidden"></div>');
+
+    expect(result.output).toBe(
+      '<div class="[@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:flex [@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:flex-row [@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:box-border"></div>',
+    );
+    expect(result.results.every(item => item.status === 'converted')).toBe(true);
+  });
+
+  test('preserves overlapping responsive layout and ngStyle display ownership', () => {
+    const source = '<div fxLayout.sm="row" ngStyle.sm="display:block"></div>';
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.results).toEqual([
+      expect.objectContaining({ status: 'review', code: 'context-unverified' }),
+      expect.objectContaining({ status: 'review', code: 'context-unverified' }),
+    ]);
+  });
+
+  test('preserves partially overlapping layout and extended display families', () => {
+    const source = '<div fxLayout.lt-sm="row" ngClass.lt-md="hidden"></div>';
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.results).toEqual([
+      expect.objectContaining({ status: 'review', code: 'context-unverified' }),
+      expect.objectContaining({ status: 'review', code: 'context-unverified' }),
+    ]);
+  });
+
+  test.each(['ngClass.sm="[all:unset]"', 'ngStyle.sm="all:unset"'])(
+    'preserves universal responsive %s ownership beside responsive layout',
+    authority => {
+      const source = `<div fxLayout.sm="row" ${authority}></div>`;
+      const result = migrate(source);
+
+      expect(result.output).toBe(source);
+      expect(result.results).toEqual([
+        expect.objectContaining({ status: 'review', code: 'context-unverified' }),
+        expect.objectContaining({ status: 'review', code: 'context-unverified' }),
+      ]);
+    },
+  );
+
+  test('lets responsive ngStyle own an exact overlapping ngClass display candidate', () => {
+    const result = migrate('<div ngClass.sm="hidden" ngStyle.sm="display:block"></div>');
+
+    expect(result.output).toBe(
+      '<div class="[@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:[display:block]"></div>',
+    );
+    expect(result.results.every(item => item.status === 'converted')).toBe(true);
+  });
+
+  test('preserves partially overlapping responsive class and style display families', () => {
+    const source = '<div ngClass.lt-md="hidden" ngStyle.lt-sm="display:block"></div>';
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.results).toEqual([
+      expect.objectContaining({ status: 'review', code: 'context-unverified' }),
+      expect.objectContaining({ status: 'review', code: 'context-unverified' }),
+    ]);
+  });
+
+  test('preserves responsive style display conversion beside an unresolved class family', () => {
+    const source = '<div ngClass.sm="card" ngStyle.sm="display:block"></div>';
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.results).toEqual([
+      expect.objectContaining({ status: 'review', code: 'tailwind-candidate-unverified' }),
+      expect.objectContaining({ status: 'review', code: 'context-unverified' }),
+    ]);
+  });
+
+  test('preserves responsive style property ownership beside an unresolved class family', () => {
+    const source = '<div ngClass.sm="card" ngStyle.sm="color:red"></div>';
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.results).toEqual([
+      expect.objectContaining({ status: 'review', code: 'tailwind-candidate-unverified' }),
+      expect.objectContaining({ status: 'review', code: 'context-unverified' }),
+    ]);
+  });
+
+  test('lets exact responsive hiding own an ngClass display candidate', () => {
+    const result = migrate('<div ngClass.sm="hidden" fxHide.sm></div>');
+
+    expect(result.output).toBe(
+      '<div class="[@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:hidden"></div>',
+    );
+    expect(result.results.every(item => item.status === 'converted')).toBe(true);
+  });
+
+  test.each(['ngClass.sm="[all:unset]"', 'ngStyle.sm="all:unset"'])(
+    'preserves universal responsive %s ownership beside responsive visibility',
+    authority => {
+      const source = `<div ${authority} fxHide.sm></div>`;
+      const result = migrate(source);
+
+      expect(result.output).toBe(source);
+      expect(result.results).toEqual([
+        expect.objectContaining({ status: 'review', code: 'context-unverified' }),
+        expect.objectContaining({ status: 'review', code: 'context-unverified' }),
+      ]);
+    },
+  );
+
+  test('preserves visibility when an unresolved responsive class may control display', () => {
+    const source = '<div ngClass.sm="card" fxHide.sm></div>';
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.results).toEqual([
+      expect.objectContaining({ status: 'review', code: 'tailwind-candidate-unverified' }),
+      expect.objectContaining({ status: 'review', code: 'context-unverified' }),
+    ]);
+  });
+
+  test.each(['block', 'none'])(
+    'preserves overlapping responsive ngStyle display:%s and visibility inline writers',
+    display => {
+      const source = `<div ngStyle.sm="display:${display}" fxHide.sm></div>`;
+      const result = migrate(source);
+
+      expect(result.output).toBe(source);
+      expect(result.results).toEqual([
+        expect.objectContaining({ status: 'review', code: 'context-unverified' }),
+        expect.objectContaining({ status: 'review', code: 'context-unverified' }),
+      ]);
+    },
+  );
+
+  test.each([
+    ['exact class', 'ngClass.sm="block"', 'display-restoration-unverified'],
+    ['conditional class', 'ngClass.sm="hover:block"', 'display-restoration-unverified'],
+    ['theme-conditional class', 'ngClass.sm="dark:block"', 'display-restoration-unverified'],
+    ['exact style', 'ngStyle.sm="display:block"', 'context-unverified'],
+  ])('preserves %s display when visibility restoration depends on initialization', (_case, authority, expectedCode) => {
+    const source = `<div ${authority} fxShow="false" fxShow.sm></div>`;
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.results.every(item => item.status === 'review')).toBe(true);
+    expect(result.results).toContainEqual(expect.objectContaining({ status: 'review', code: expectedCode }));
+  });
+
+  test.each([
+    ['exact', 'block'],
+    ['inner variant', 'hover:block'],
+  ])('preserves %s all-shown responsive class display initialization', (_case, className) => {
+    const source = `<span ngClass.sm="${className}" fxShow.sm></span>`;
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.results).toEqual([
+      expect.objectContaining({ status: 'review', code: 'context-unverified' }),
+      expect.objectContaining({ status: 'review', code: 'display-restoration-unverified' }),
+    ]);
+  });
+
+  test('preserves disjoint explicit ranges coupled through the implicit shown visibility base', () => {
+    const source = '<span ngClass.sm="block" fxShow.md></span>';
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.results.every(item => item.status === 'review')).toBe(true);
+    expect(result.results).toContainEqual(expect.objectContaining({ code: 'display-restoration-unverified' }));
+  });
+
+  test('preserves an inner display variant coupled through implicit shown restoration', () => {
+    const source = '<span ngClass.sm="hover:block" fxHide.md></span>';
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.results.every(item => item.status === 'review')).toBe(true);
+    expect(result.results).toContainEqual(expect.objectContaining({ code: 'display-restoration-unverified' }));
+  });
+
+  test('preserves a responsive style writer coupled through implicit shown restoration', () => {
+    const source = '<span ngStyle.sm="display:block" fxHide.md></span>';
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.results.every(item => item.status === 'review')).toBe(true);
+  });
+
+  test('lets exact hidden-only visibility own a normal responsive class display', () => {
+    const result = migrate('<span ngClass.md="block" fxHide.md></span>');
+
+    expect(result.output).toBe(
+      '<span class="[@media_screen_and_(min-width:_960px)_and_(max-width:_1279.98px)]:hidden"></span>',
+    );
+    expect(result.results.every(item => item.status === 'converted')).toBe(true);
+  });
+
+  test('preserves an extended display when it cannot restore the exact shown range', () => {
+    const source = '<div ngClass.gt-xs="block" fxShow="false" fxShow.sm></div>';
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.results).toEqual([
+      expect.objectContaining({ status: 'review', code: 'context-unverified' }),
+      expect.objectContaining({ status: 'review', code: 'display-restoration-unverified' }),
+      expect.objectContaining({ status: 'review', code: 'display-restoration-unverified' }),
+    ]);
+  });
+
+  test.each(['none', 'var(--display-mode)'])(
+    'preserves responsive ngStyle display:%s when visibility must show the element',
+    display => {
+      const source = `<div ngStyle.sm="display:${display}" fxShow="false" fxShow.sm></div>`;
+      const result = migrate(source);
+
+      expect(result.output).toBe(source);
+      expect(result.results).toEqual([
+        expect.objectContaining({ status: 'review', code: 'context-unverified' }),
+        expect.objectContaining({ status: 'review', code: 'context-unverified' }),
+        expect.objectContaining({ status: 'review', code: 'context-unverified' }),
+      ]);
+    },
+  );
+
+  test.each([
+    ['visibility hiding', 'fxHide.sm'],
+    ['visibility showing', 'fxShow="false" fxShow.sm'],
+    ['responsive layout', 'fxLayout.sm="row"'],
+    ['responsive style', 'ngStyle.sm="display:block"'],
+  ])('preserves important responsive display ownership beside %s', (_case, authority) => {
+    const source = `<div ngClass.sm="!hidden" ${authority}></div>`;
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.results.every(item => item.status === 'review')).toBe(true);
+    expect(result.results.map(item => (item.status === 'converted' ? undefined : item.code))).toContain(
+      'context-unverified',
+    );
+  });
+
+  test('preserves visibility when an unresolved responsive style may control display', () => {
+    const source = '<div ngStyle.sm="display:url(card.png)" fxHide.sm></div>';
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.results).toEqual([
+      expect.objectContaining({ status: 'review', code: 'style-value-unverified' }),
+      expect.objectContaining({ status: 'review', code: 'display-restoration-unverified' }),
+    ]);
+  });
+
+  test('keeps visibility independent from an unresolved non-display responsive style', () => {
+    const result = migrate('<div ngStyle.sm="background-image:url(card.png)" fxHide.sm></div>');
+
+    expect(result.output).toBe(
+      '<div ngStyle.sm="background-image:url(card.png)" class="[@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:hidden"></div>',
+    );
+    expect(result.results).toEqual([
+      expect.objectContaining({ status: 'review', code: 'style-value-unverified' }),
+      expect.objectContaining({ status: 'converted' }),
+    ]);
+  });
+
+  test('retains the extended intrinsic diagnostic before closing display dependencies', () => {
+    const source = '<div ngClass.sm="card" ngClass.md="flex" fxHide.sm></div>';
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.results).toEqual([
+      expect.objectContaining({ status: 'review', code: 'tailwind-candidate-unverified' }),
+      expect.objectContaining({ status: 'review', code: 'context-unverified' }),
+      expect.objectContaining({ status: 'review', code: 'context-unverified' }),
+    ]);
+  });
+
+  test('orders extended output independently of attribute source order', () => {
+    const forward = migrate('<div ngClass.sm="flex items-center" ngStyle.xs="color:red"></div>');
+    const reverse = migrate('<div ngStyle.xs="color:red" ngClass.sm="flex items-center"></div>');
+
+    expect(reverse.output).toBe(forward.output);
+    expect(reverse.results.every(item => item.status === 'converted')).toBe(true);
+  });
+
+  test('removes empty and byte-identical extended output without an unnecessary class edit', () => {
+    const result = migrate(
+      '<div class="[@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:flex" ngClass.sm="flex" ngStyle.sm=""></div>',
+    );
+
+    expect(result.output).toBe(
+      '<div class="[@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:flex"></div>',
+    );
+    expect(result.edits).toHaveLength(2);
+    expect(result.edits.every(edit => !edit.inputId.endsWith(':classes'))).toBe(true);
+  });
+
+  test('produces no edits when exact extended output is migrated a second time', () => {
+    const first = migrate('<div ngClass.sm="flex" ngStyle.lt-md="color:red"></div>');
+    const second = migrate(first.output);
+
+    expect(first.results.every(item => item.status === 'converted')).toBe(true);
+    expect(second.output).toBe(first.output);
+    expect(second.edits).toEqual([]);
+    expect(second.results).toEqual([]);
+  });
+
+  test.each([
+    [
+      'double-quoted class content',
+      '<div class="card" ngClass.sm="[content:&quot;quoted&amp;copy;&quot;]"></div>',
+      'tailwind-candidate-unverified',
+    ],
+    [
+      'single-quoted class content',
+      `<div class='card' ngClass.sm="[content:'quoted&amp;copy;']"></div>`,
+      'tailwind-candidate-unverified',
+    ],
+    [
+      'new class content',
+      '<div ngClass.sm="[content:&quot;quoted&amp;copy;&quot;]"></div>',
+      'tailwind-candidate-unverified',
+    ],
+    ['named-entity style content', '<div ngStyle.sm="content:&amp;copy;"></div>', 'style-value-unverified'],
+  ])('preserves responsive %s whose decoded candidate is absent from Tailwind raw source', (_case, source, code) => {
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.edits).toEqual([]);
+    expect(result.results).toEqual([expect.objectContaining({ status: 'review', code })]);
+  });
+
+  test('preserves a responsive arbitrary-selector candidate whose CSS target is not the host element', () => {
+    const source = '<div ngClass.sm="[&>*]:p-4"></div>';
+    const first = migrate(source);
+
+    expect(first.output).toBe(source);
+    expect(first.edits).toEqual([]);
+    expect(first.results).toEqual([
+      expect.objectContaining({ status: 'review', code: 'tailwind-candidate-unverified' }),
+    ]);
+  });
+
+  test.each([
+    'before:flex',
+    'after:flex',
+    'placeholder:text-slate-700',
+    'selection:bg-blue-500',
+    'marker:text-slate-700',
+    'file:border',
+    'backdrop:bg-blue-500',
+    'group-hover:flex',
+    'peer-checked:flex',
+    '[&:hover]:flex',
+    '[{}]:flex',
+    '[>img]:flex',
+  ])('preserves responsive target-changing or compiler-empty candidate %s', candidate => {
+    const source = `<div ngClass.sm="${candidate}"></div>`;
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.edits).toEqual([]);
+    expect(result.results).toEqual([
+      expect.objectContaining({ status: 'review', code: 'tailwind-candidate-unverified' }),
+    ]);
+  });
+
+  test('does not reserialize an existing arbitrary-selector class while preserving a target-changing candidate', () => {
+    const source = '<div class="[&>*]:p-4" ngClass.sm="before:flex"></div>';
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.edits).toEqual([]);
+  });
+
+  test('tokenizes responsive class strings with Angular NgClass ECMAScript whitespace', () => {
+    const source = '<div ngClass.sm="flex\u00a0items-center"></div>';
+    const expected =
+      '<div class="[@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:flex [@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:items-center"></div>';
+
+    expect(migrate(source).output).toBe(expected);
+  });
+
+  test('preserves a non-breaking-space-split arbitrary selector exactly as Angular NgClass tokenizes it', () => {
+    const source = '<div ngClass.sm="[&>\u00a0*]:flex"></div>';
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.edits).toEqual([]);
+    expect(result.results).toEqual([
+      expect.objectContaining({ status: 'review', code: 'tailwind-candidate-unverified' }),
+    ]);
+  });
+
+  test.each([
+    [
+      'double-quoted value',
+      '<div class="[&>*]:p-4" fxLayout="row"></div>',
+      '<div class="[&>*]:p-4 flex flex-row box-border"></div>',
+    ],
+    [
+      'single-quoted value',
+      `<div class='[&>*]:p-4' fxLayout="row"></div>`,
+      `<div class='[&>*]:p-4 flex flex-row box-border'></div>`,
+    ],
+    ['unquoted value', '<div class=card fxLayout="row"></div>', '<div class="card flex flex-row box-border"></div>'],
+    [
+      'entity-bearing unquoted value',
+      '<div class=ca&#114;d fxLayout="row"></div>',
+      '<div class="ca&#114;d flex flex-row box-border"></div>',
+    ],
+    ['valueless attribute', '<div class fxLayout="row"></div>', '<div class="flex flex-row box-border"></div>'],
+    ['absent attribute', '<div fxLayout="row"></div>', '<div class="flex flex-row box-border"></div>'],
+  ])('appends generated classes through a valid %s without changing existing raw bytes', (_case, source, expected) => {
+    const first = migrate(source);
+
+    expect(first.output).toBe(expected);
+    const parsed = new AngularTemplateParser().parse(first.output, 'fixture.html');
+    expect(parsed.status).toBe('parsed');
+    if (parsed.status !== 'parsed') throw new Error('Expected edited class attribute to parse.');
+    expect(parsed.elements[0]?.attributes.filter(attribute => attribute.name === 'class')).toHaveLength(1);
+    expect(migrate(first.output)).toMatchObject({ output: expected, edits: [], results: [] });
+  });
+
+  test('removes a responsive class family whose literal unsuffixed fallback has the exact same value', () => {
+    const source = '<div ngClass="flex" ngClass.sm="flex"></div>';
+    const expected = '<div ngClass="flex"></div>';
+    const first = migrate(source);
+
+    expect(first.output).toBe(expected);
+    expect(first.results.every(result => result.status === 'converted')).toBe(true);
+    expect(migrate(first.output)).toMatchObject({ output: expected, edits: [], results: [] });
+  });
+
+  test.each([
+    ['semantic gap replacement', '<div ngClass="gap-4" ngClass.sm="gap-4" fxLayoutGap.sm="8"></div>'],
+    [
+      'inline style replacement',
+      '<div ngClass="text-red-500" ngClass.sm="text-red-500" ngStyle.sm="color:blue"></div>',
+    ],
+    ['display replacement', '<div ngClass="block" ngClass.sm="block" fxLayout.sm="row"></div>'],
+    ['visibility replacement', '<div ngClass="block" ngClass.sm="block" fxHide.sm></div>'],
+  ])('retains identical ngClass fallback ownership during %s composition', (_case, source) => {
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.results).toHaveLength(2);
+    expect(result.results).toEqual([
+      expect.objectContaining({ status: 'review', code: 'context-unverified' }),
+      expect.objectContaining({ status: 'review', code: 'context-unverified' }),
+    ]);
+  });
+
+  test('keeps an identical ngStyle fallback authoritative during display composition', () => {
+    const source = '<div ngStyle="display:block" ngStyle.sm="display:block" fxLayout.sm="row"></div>';
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.results).toEqual([
+      expect.objectContaining({ status: 'review', code: 'class-conflict' }),
+      expect.objectContaining({ status: 'review', code: 'context-unverified' }),
+    ]);
+  });
+
+  test.each([
+    [
+      'class',
+      '<div ngClass="" ngClass.sm="grid"></div>',
+      '<div ngClass="" class="[@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:grid"></div>',
+    ],
+    [
+      'style',
+      '<div ngStyle="" ngStyle.sm="color:red"></div>',
+      '<div ngStyle="" class="[@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:[color:red]"></div>',
+    ],
+  ])('converts responsive %s output beside an exact empty literal fallback', (_case, source, expected) => {
+    expect(migrate(source)).toMatchObject({ output: expected });
+  });
+
+  test.each([
+    ['class replacement', '<div ngClass="flex items-center" ngClass.sm="grid"></div>', 'class-conflict'],
+    ['class fallback candidate', '<div ngClass="card" ngClass.sm="flex"></div>', 'tailwind-candidate-unverified'],
+    ['bound class with empty state', '<div [ngClass]="classes" ngClass.sm=""></div>', 'bound-class'],
+    ['style replacement', '<div ngStyle="color:red" ngStyle.sm="margin:1rem"></div>', 'class-conflict'],
+    ['style override', '<div ngStyle="color:red" ngStyle.sm="color:blue"></div>', 'class-conflict'],
+    [
+      'equivalent raw-string style fallback',
+      `<div ngStyle="color:'red'" ngStyle.sm="color:red"></div>`,
+      'class-conflict',
+    ],
+    ['non-empty empty-map style fallback', '<div ngStyle=" ; ; " ngStyle.sm="color:red"></div>', 'class-conflict'],
+    ['style fallback parse', `<div ngStyle="content:'a;b'" ngStyle.sm="color:red"></div>`, 'style-value-unverified'],
+    ['bound style with empty state', '<div [ngStyle]="styles" ngStyle.sm=""></div>', 'class-conflict'],
+  ])('preserves the complete responsive family for unsafe unsuffixed %s authority', (_case, source, code) => {
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.results).toEqual([expect.objectContaining({ status: 'review', code })]);
+  });
+
+  test('preserves a multi-state family when only one state differs from the unsuffixed fallback', () => {
+    const source = '<div ngClass="flex" ngClass.xs="flex" ngClass.sm="grid"></div>';
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.results).toEqual([
+      expect.objectContaining({ status: 'review', code: 'class-conflict' }),
+      expect.objectContaining({ status: 'review', code: 'class-conflict' }),
+    ]);
+  });
+
+  test('plans equivalent unsuffixed fallback families independently of attribute source order', () => {
+    const classFirst = migrate('<div ngClass="flex" ngClass.sm="flex"></div>');
+    const responsiveFirst = migrate('<div ngClass.sm="flex" ngClass="flex"></div>');
+
+    expect(responsiveFirst.output).toBe(classFirst.output);
+    expect(responsiveFirst.results.map(result => result.status)).toEqual(
+      classFirst.results.map(result => result.status),
+    );
+  });
+
+  test.each([
+    '<div ngStyle.sm="color:red!important"></div>',
+    '<div ngStyle.sm="color:red ! IMPORTANT"></div>',
+    '<div ngStyle.sm="color:red!/**/important"></div>',
+  ])('preserves responsive ngStyle priority text instead of manufacturing an important utility: %s', source => {
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.results).toEqual([expect.objectContaining({ status: 'review', code: 'style-value-unverified' })]);
+  });
+
+  test.each([
+    '<div class="[row-gap:1rem]" ngClass.sm="gap-y-4"></div>',
+    '<div class="sr-only" ngClass.sm="relative"></div>',
+    '<div class="[line-height:2]" ngClass.sm="text-sm/5"></div>',
+  ])(
+    'preserves responsive class output whose complete CSS ownership conflicts with an existing utility: %s',
+    source => {
+      const result = migrate(source);
+
+      expect(result.output).toBe(source);
+      expect(result.results).toEqual([expect.objectContaining({ status: 'review', code: 'class-conflict' })]);
+    },
+  );
+
   test('preserves layout and visibility atomically when visibility is dynamic', () => {
     const source = '<div fxLayout="row" [fxHide]="hidden"></div>';
     const result = migrate(source);
@@ -365,8 +1244,8 @@ describe('ConversionPlanner', () => {
   });
 
   test.each([
-    ['literal class', 'class.sm="hidden"', 'target-unsupported', 'context-unverified'],
-    ['literal style', 'style.sm="display:block"', 'target-unsupported', 'display-restoration-unverified'],
+    ['literal class', 'class.sm="hidden"', 'semantic-unsupported', 'context-unverified'],
+    ['literal style', 'style.sm="display:block"', 'semantic-unsupported', 'display-restoration-unverified'],
     ['bound ngClass', '[ngClass.sm]="classes"', 'dynamic-binding', 'bound-class'],
     ['bind ngClass', 'bind-ngClass.sm="classes"', 'dynamic-binding', 'bound-class'],
     ['bound class target', '[class.sm]="flag"', 'dynamic-binding', 'bound-class'],

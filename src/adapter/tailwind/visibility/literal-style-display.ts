@@ -1,6 +1,15 @@
 const cssWhitespace = /[\t\n\f\r ]/u;
 const hexDigit = /[\da-f]/iu;
 
+export interface LiteralStyleDeclaration {
+  readonly property: string;
+  readonly value: string;
+}
+
+export type LiteralStyleParseResult =
+  | { readonly status: 'parsed'; readonly declarations: readonly LiteralStyleDeclaration[] }
+  | { readonly status: 'unverified'; readonly reason: string };
+
 function splitDeclarations(value: string): readonly string[] | undefined {
   const declarations: string[] = [];
   let current = '';
@@ -148,16 +157,32 @@ function decodeIdentifier(value: string): string | undefined {
 }
 
 export function literalStyleMayControlDisplay(value: string): boolean {
-  const declarations = splitDeclarations(value);
-  if (!declarations) return true;
+  const result = parseLiteralStyleDeclarations(value);
+  if (result.status === 'unverified') return true;
 
-  for (const declaration of declarations) {
-    if (!declaration.trim()) continue;
-    const colon = declarationColon(declaration);
-    if (colon === undefined) return true;
-    const property = decodeIdentifier(declaration.slice(0, colon));
-    if (!property) return true;
-    if (property.toLowerCase() === 'display') return true;
+  return result.declarations.some(declaration => declaration.property.toLowerCase() === 'display');
+}
+
+export function parseLiteralStyleDeclarations(value: string): LiteralStyleParseResult {
+  const segments = splitDeclarations(value);
+  if (!segments) {
+    return { status: 'unverified', reason: 'The literal style has malformed or unbalanced delimiters.' };
   }
-  return false;
+
+  const declarations: LiteralStyleDeclaration[] = [];
+
+  for (const segment of segments) {
+    if (!segment.trim()) continue;
+    const colon = declarationColon(segment);
+    if (colon === undefined) {
+      return { status: 'unverified', reason: 'A literal style declaration is missing its property separator.' };
+    }
+    const property = decodeIdentifier(segment.slice(0, colon));
+    if (!property) {
+      return { status: 'unverified', reason: 'A literal style declaration has an ambiguous property name.' };
+    }
+    declarations.push({ property, value: segment.slice(colon + 1).trim() });
+  }
+
+  return { status: 'parsed', declarations };
 }

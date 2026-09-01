@@ -8,6 +8,21 @@ import { ConversionPlanner } from '../../src/planner/conversion-planner';
 import { AngularTemplateParser } from '../../src/template/angular-template.parser';
 
 const fixtureDirectory = new URL('../fixtures/compatibility/', import.meta.url);
+const standardAliases = [
+  'xs',
+  'sm',
+  'md',
+  'lg',
+  'xl',
+  'lt-sm',
+  'lt-md',
+  'lt-lg',
+  'lt-xl',
+  'gt-xs',
+  'gt-sm',
+  'gt-md',
+  'gt-lg',
+] as const;
 
 function migrate(source: string, fileName = 'fixture.html') {
   const parsed = new AngularTemplateParser().parse(source, fileName);
@@ -50,6 +65,17 @@ function equivalentResults(results: readonly ConversionResult[]) {
           },
     )
     .sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)));
+}
+
+function extendedOccurrenceCounts(results: readonly ConversionResult[]) {
+  const counts = { converted: 0, preserved: 0 };
+  for (const result of results) {
+    if (result.status === 'parse-error') continue;
+    if (!['class', 'ngClass', 'style', 'ngStyle'].includes(result.input.directive)) continue;
+    if (result.status === 'converted') counts.converted += 1;
+    else counts.preserved += 1;
+  }
+  return counts;
 }
 
 async function fixture(name: string, kind: 'input' | 'expected'): Promise<string> {
@@ -204,5 +230,66 @@ describe('Angular template engine compatibility', () => {
     const result = migrate(input);
 
     expect(unresolvedCodes(result.results)).toEqual(preservedCodes.unresolved);
+  });
+
+  test('matches the extended responsive fixture byte-for-byte and reports occurrence coverage', async () => {
+    const input = await fixture('extended-responsive', 'input');
+    const expected = await fixture('extended-responsive', 'expected');
+
+    const first = migrate(input, 'extended-responsive.html');
+    expect(first.output).toBe(expected);
+    expect(resultCounts(first.results)).toEqual({
+      converted: 43,
+      review: 41,
+      unsupported: 0,
+      invalid: 0,
+      parseError: 0,
+    });
+    expect(diagnosticCounts(first.results)).toEqual({
+      'responsive-precedence-unverified': 4,
+      'class-conflict': 9,
+      'tailwind-candidate-unverified': 4,
+      'dynamic-binding': 4,
+      'semantic-unsupported': 2,
+      'custom-breakpoint': 1,
+      'breakpoint-unverified': 3,
+      'style-value-unverified': 6,
+      'context-unverified': 5,
+      'display-restoration-unverified': 2,
+      'bound-class': 1,
+    });
+    expect(extendedOccurrenceCounts(first.results)).toEqual({ converted: 41, preserved: 37 });
+
+    for (const directive of ['ngClass', 'ngStyle'] as const) {
+      const convertedAliases = new Set(
+        first.results.flatMap(result =>
+          result.status === 'converted' && result.input.directive === directive && result.input.breakpoint
+            ? [result.input.breakpoint]
+            : [],
+        ),
+      );
+      expect(convertedAliases).toEqual(new Set(standardAliases));
+    }
+
+    const second = migrate(first.output, 'extended-responsive.html');
+    expect(second.output).toBe(expected);
+    expect(second.editCount).toBe(0);
+    expect(extendedOccurrenceCounts(second.results)).toEqual({ converted: 0, preserved: 37 });
+  });
+
+  test('emits equivalent multi-state class and style families independently of source attribute order', () => {
+    const canonicalOrder = migrate(
+      '<div ngClass.xs="flex" ngClass.sm="grid" ngClass.gt-xs="grid" ngStyle.xs="color:red" ngStyle.sm="font-size.px:14" ngStyle.gt-xs="font-size.px:14"></div>',
+      'extended-order.html',
+    );
+    const reverseOrder = migrate(
+      '<div ngStyle.gt-xs="font-size.px:14" ngStyle.sm="font-size.px:14" ngStyle.xs="color:red" ngClass.gt-xs="grid" ngClass.sm="grid" ngClass.xs="flex"></div>',
+      'extended-order.html',
+    );
+
+    expect(canonicalOrder.results).toHaveLength(6);
+    expect(canonicalOrder.results.every(result => result.status === 'converted')).toBe(true);
+    expect(reverseOrder.output).toBe(canonicalOrder.output);
+    expect(equivalentResults(reverseOrder.results)).toEqual(equivalentResults(canonicalOrder.results));
   });
 });

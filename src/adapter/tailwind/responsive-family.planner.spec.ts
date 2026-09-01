@@ -50,6 +50,30 @@ function plan(inputs: readonly LocatedFlexLayoutInput[]) {
 }
 
 describe('ResponsiveFamilyPlanner', () => {
+  test('routes ngClass/class and ngStyle/style as two complete extended families', () => {
+    const members = [
+      input('ngClass.sm', 'flex', { directive: 'ngClass' }),
+      input('class.md', 'card', { directive: 'class' }),
+      input('ngStyle.sm', 'color:red', { directive: 'ngStyle' }),
+      input('style.md', 'display:block', { directive: 'style' }),
+    ];
+
+    const plans = new ResponsiveFamilyPlanner().plan(
+      members,
+      { element, inputs: members },
+      planOne,
+      (family, familyMembers) =>
+        familyMembers.map(member => ({ status: 'converted', input: member, classNames: [family] })),
+    );
+
+    expect(plans).toEqual([
+      expect.objectContaining({ status: 'converted', classNames: ['extended-class'] }),
+      expect.objectContaining({ status: 'converted', classNames: ['extended-class'] }),
+      expect.objectContaining({ status: 'converted', classNames: ['extended-style'] }),
+      expect.objectContaining({ status: 'converted', classNames: ['extended-style'] }),
+    ]);
+  });
+
   test('converts a base member and a verified responsive override atomically', () => {
     const plans = plan([input('fxFlexAlign', 'start'), input('fxFlexAlign.sm', 'end')]);
 
