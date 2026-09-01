@@ -48,9 +48,9 @@ const unverifiedDisplayReason = 'The visible display value cannot be proven from
 
 function attributeKey(attribute: TemplateAttribute): string {
   const rawName = attribute.rawName.toLowerCase();
-  return attribute.binding === 'property' && rawName.startsWith('[') && rawName.endsWith(']')
-    ? rawName.slice(1, -1)
-    : rawName;
+  if (attribute.binding !== 'property') return rawName;
+  if (rawName.startsWith('[') && rawName.endsWith(']')) return rawName.slice(1, -1);
+  return rawName.startsWith('bind-') ? rawName.slice('bind-'.length) : rawName;
 }
 
 function controlsDisplay(attribute: TemplateAttribute): boolean {
