@@ -137,6 +137,17 @@ describe('parseResponsiveStyleValue', () => {
   });
 
   test.each([
+    ['longhand before shorthand', 'margin-top: 2rem; margin: 1rem'],
+    ['shorthand before longhand', 'margin: 1rem; margin-top: 2rem'],
+  ])('rejects overlapping declaration ownership with %s', (_case, value) => {
+    const result = parseResponsiveStyleValue(input({ value }));
+
+    expect(result).toMatchObject({ status: 'unverified' });
+    if (result.status !== 'unverified') throw new Error('Expected overlapping declarations to be unverified.');
+    expect(result.reason).toMatch(/overlapping CSS property ownership/u);
+  });
+
+  test.each([
     ['URL function', 'background-image: url("https://example.test/image.png")'],
     ['URL inside another function', 'background-image: image-set("https://example.test/image.png" 1x)'],
     ['relative URL inside image-set', 'background-image: image-set("card.png" 1x)'],

@@ -3,6 +3,7 @@ import { BreakpointCatalog } from '../../../breakpoint/breakpoint-catalog';
 import { parseLiteralStyleDeclarations } from '../visibility/literal-style-display';
 import type { LiteralStyleDeclaration, ResponsiveStyleValueResult } from './responsive-style.model';
 import { TailwindArbitraryPropertyEncoder } from './tailwind-arbitrary-property.encoder';
+import { cssPropertiesOverlap } from './css-property-ownership';
 
 const interpolation = /\{\{[\s\S]*\}\}/u;
 const ordinaryProperty = /^-?[a-z][a-z\d-]*$/iu;
@@ -104,6 +105,16 @@ export function parseResponsiveStyleValue(input: LocatedFlexLayoutInput): Respon
         };
       }
       continue;
+    }
+
+    const overlapping = declarations.find(declaration =>
+      cssPropertiesOverlap(declaration.property, normalized.property),
+    );
+    if (overlapping !== undefined) {
+      return {
+        status: 'unverified',
+        reason: `The properties ${JSON.stringify(overlapping.property)} and ${JSON.stringify(normalized.property)} have overlapping CSS property ownership.`,
+      };
     }
 
     valuesByProperty.set(normalized.property, normalized.value);

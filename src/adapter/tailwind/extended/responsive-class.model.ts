@@ -16,11 +16,14 @@ export interface ExtendedResponsiveState<T> {
   readonly value: T;
 }
 
+export type ExtendedResponsiveKind = 'class' | 'style';
+
 export type ExtendedFamilyPlan<T> =
   | { readonly status: 'converted'; readonly states: readonly ExtendedResponsiveState<T>[] }
   | { readonly status: 'unresolved'; readonly plans: readonly PlannedConversion[] };
 
 export interface ExtendedFamilyPlanRequest<T> {
+  readonly kind: ExtendedResponsiveKind;
   readonly inputs: readonly LocatedFlexLayoutInput[];
   readonly valueParser: (
     input: LocatedFlexLayoutInput,

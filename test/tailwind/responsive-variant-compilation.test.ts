@@ -9,6 +9,7 @@ import type {
   ResponsiveClassValue,
 } from '../../src/adapter/tailwind/extended/responsive-class.model';
 import type { ResponsiveStyleValue } from '../../src/adapter/tailwind/extended/responsive-style.model';
+import { parseResponsiveStyleValue } from '../../src/adapter/tailwind/extended/responsive-style-value.parser';
 import { DisplayCompositionPlanner } from '../../src/adapter/tailwind/visibility/display-composition.planner';
 import { VisibilityEmitter } from '../../src/adapter/tailwind/visibility/visibility.emitter';
 import type { VisibilityIntent, VisibilityState } from '../../src/adapter/tailwind/visibility/visibility.model';
@@ -140,6 +141,50 @@ describe('Tailwind CSS v4 arbitrary media variants', () => {
     expect(minOnly).toContain('font-size: 14px');
     expect(minOnly).toContain('--card-gap: 1rem');
   });
+
+  test.each([
+    [
+      'longhand before shorthand',
+      'margin-top: 2rem; margin: 1rem',
+      [
+        { property: 'margin-top', value: '2rem' },
+        { property: 'margin', value: '1rem' },
+      ],
+    ],
+    [
+      'shorthand before longhand',
+      'margin: 1rem; margin-top: 2rem',
+      [
+        { property: 'margin', value: '1rem' },
+        { property: 'margin-top', value: '2rem' },
+      ],
+    ],
+  ] as const)(
+    'rejects %s because Tailwind compiler order ignores responsive style source order',
+    async (_case, value, declarations) => {
+      const emitter = new ExtendedResponsiveEmitter();
+      const styleInput: LocatedFlexLayoutInput = {
+        ...visibilityState('shown', 'sm').input,
+        directive: 'ngStyle',
+        sourceName: 'ngStyle.sm',
+        value,
+      };
+      const state: ExtendedResponsiveState<ResponsiveStyleValue> = {
+        input: styleInput,
+        activation: { kind: 'media', definition: definition('sm') },
+        value: { declarations },
+      };
+      const candidates = emitter.emitStyle(state);
+      const sourceOrderCss = await compileCandidates(candidates);
+      const reverseOrderCss = await compileCandidates([...candidates].reverse());
+      const responsiveRule = mediaBlock(sourceOrderCss, 'screen and (min-width: 600px) and (max-width: 959.98px)');
+
+      expect(reverseOrderCss).toBe(sourceOrderCss);
+      expect(responsiveRule).toContain('margin: 1rem');
+      expect(responsiveRule).toContain('margin-top: 2rem');
+      expect(parseResponsiveStyleValue(styleInput)).toMatchObject({ status: 'unverified' });
+    },
+  );
 
   test('compiles visibility display ownership in base, bounded, min-only, and max-only activations', async () => {
     const emitter = new VisibilityEmitter();

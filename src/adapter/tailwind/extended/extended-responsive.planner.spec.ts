@@ -5,6 +5,7 @@ import type { TemplateAttribute } from '../../../template/template.model';
 import { AngularTemplateParser } from '../../../template/angular-template.parser';
 import type { PlannedConversion } from '../../conversion-adapter';
 import type { ExtendedFamilyPlan, ExtendedResponsiveState, ResponsiveClassValue } from './responsive-class.model';
+import { ExtendedFamilyPlanner } from './extended-family.planner';
 import { ExtendedResponsivePlanner } from './extended-responsive.planner';
 import { parseResponsiveStyleValue } from './responsive-style-value.parser';
 import type { ResponsiveStyleValue } from './responsive-style.model';
@@ -71,7 +72,27 @@ function classFamily(
 function styleFamily(
   states: readonly ExtendedResponsiveState<ResponsiveStyleValue>[],
 ): ExtendedFamilyPlan<ResponsiveStyleValue> {
-  return { status: 'converted', states };
+  return producedStyleFamily(states.map(state => state.input));
+}
+
+function equalStyleValues(left: ResponsiveStyleValue, right: ResponsiveStyleValue): boolean {
+  return (
+    left.declarations.length === right.declarations.length &&
+    left.declarations.every(
+      (declaration, index) =>
+        declaration.property === right.declarations[index]?.property &&
+        declaration.value === right.declarations[index]?.value,
+    )
+  );
+}
+
+function producedStyleFamily(inputs: readonly LocatedFlexLayoutInput[]): ExtendedFamilyPlan<ResponsiveStyleValue> {
+  return new ExtendedFamilyPlanner().plan({
+    kind: 'style',
+    inputs,
+    valueParser: parseResponsiveStyleValue,
+    equals: equalStyleValues,
+  });
 }
 
 function attributes(source: string): readonly TemplateAttribute[] {
@@ -126,6 +147,24 @@ function expectUnresolvedWithCode(
 }
 
 describe('ExtendedResponsivePlanner', () => {
+  test('plans real ngStyle family output through the load-bearing producer seam', () => {
+    const member = input('ngStyle', 'sm', 'font-size.px: 14; color: #334155');
+
+    expect(stylePlan(producedStyleFamily([member]))).toEqual({
+      status: 'converted',
+      plans: [
+        {
+          status: 'converted',
+          input: member,
+          classNames: [
+            '[@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:[font-size:14px]',
+            '[@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:[color:#334155]',
+          ],
+        },
+      ],
+    });
+  });
+
   test('keeps ordinary base application classes compatible with responsive class output', () => {
     const state = classState('sm', ['flex', 'items-center']);
 
@@ -205,12 +244,32 @@ describe('ExtendedResponsivePlanner', () => {
   test.each([
     ['exact property', 'color: red', 'color: #334155'],
     ['shared shorthand group', 'margin-top: 1rem', 'margin: 2rem'],
+    ['font shorthand', 'font: 16px sans-serif', 'font-size: 14px'],
+    ['background shorthand', 'background: red', 'background-color: blue'],
+    ['gap shorthand', 'gap: 1rem', 'row-gap: 2rem'],
+    ['border shorthand', 'border: 1px solid red', 'border-left-color: blue'],
+    ['inset shorthand', 'inset: 0', 'top: 1rem'],
+    ['padding shorthand', 'padding: 1rem', 'padding-top: 2rem'],
   ])('preserves a literal fallback style with an overlapping %s', (_case, fallback, responsive) => {
     const result = stylePlan(styleFamily([styleState('sm', responsive)]), {
       attributes: attributes(`<div style="${fallback}"></div>`),
     });
 
     expectUnresolvedWithCode(result, 'class-conflict');
+  });
+
+  test.each([
+    ['margin edges', 'margin-top: 1rem', 'margin-bottom: 2rem'],
+    ['padding edges', 'padding-left: 1rem', 'padding-right: 2rem'],
+    ['inset edges', 'top: 0', 'bottom: 1rem'],
+    ['gap axes', 'row-gap: 1rem', 'column-gap: 2rem'],
+    ['border edges', 'border-top-color: red', 'border-bottom-width: 2px'],
+  ])('allows literal fallback style with disjoint %s ownership', (_case, fallback, responsive) => {
+    const result = stylePlan(styleFamily([styleState('sm', responsive)]), {
+      attributes: attributes(`<div style="${fallback}"></div>`),
+    });
+
+    expect(result.status).toBe('converted');
   });
 
   test('preserves a responsive style family when the literal fallback declaration list is ambiguous', () => {

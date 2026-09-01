@@ -12,6 +12,7 @@ import { ExtendedResponsiveEmitter } from './extended-responsive.emitter';
 import type { ExtendedFamilyPlan, ExtendedResponsiveState, ResponsiveClassValue } from './responsive-class.model';
 import type { ResponsiveStyleValue } from './responsive-style.model';
 import { TailwindCandidateClassifier } from './tailwind-candidate-classifier';
+import { cssPropertiesOverlap } from './css-property-ownership';
 
 interface ExtendedResponsiveRequestBase {
   readonly existingClassNames: readonly string[];
@@ -93,11 +94,6 @@ function literalStyleAuthority(attribute: TemplateAttribute): boolean {
   return attribute.binding === 'literal' && templateAttributeKeys(attribute).has('style');
 }
 
-function propertyDescriptor(property: string): TailwindUtilityDescriptor | undefined {
-  const normalized = property.startsWith('--') ? property : property.toLowerCase();
-  return describeTailwindUtility(`[${normalized}:initial]`);
-}
-
 function hasPropertyOwnership(
   descriptor: TailwindUtilityDescriptor | undefined,
 ): descriptor is OwnedTailwindUtilityDescriptor {
@@ -170,8 +166,10 @@ export class ExtendedResponsivePlanner {
         );
       }
 
-      const generatedPropertyGroups = new Set(candidates.map(candidate => candidate.descriptor.propertyGroup));
-      if (this.literalStyleConflicts(request.attributes, generatedPropertyGroups)) {
+      const generatedProperties = new Set(
+        request.familyPlan.states.flatMap(state => state.value.declarations.map(declaration => declaration.property)),
+      );
+      if (this.literalStyleConflicts(request.attributes, generatedProperties)) {
         return this.unresolved(
           states,
           'class-conflict',
@@ -274,16 +272,15 @@ export class ExtendedResponsivePlanner {
 
   private literalStyleConflicts(
     attributes: readonly TemplateAttribute[],
-    generatedPropertyGroups: ReadonlySet<string>,
+    generatedProperties: ReadonlySet<string>,
   ): boolean {
     return attributes.filter(literalStyleAuthority).some(attribute => {
       const parsed = parseLiteralStyleDeclarations(attribute.value);
       if (parsed.status === 'unverified') return true;
 
-      return parsed.declarations.some(declaration => {
-        const descriptor = propertyDescriptor(declaration.property);
-        return descriptor?.propertyGroup === undefined || generatedPropertyGroups.has(descriptor.propertyGroup);
-      });
+      return parsed.declarations.some(declaration =>
+        [...generatedProperties].some(property => cssPropertiesOverlap(declaration.property, property)),
+      );
     });
   }
 

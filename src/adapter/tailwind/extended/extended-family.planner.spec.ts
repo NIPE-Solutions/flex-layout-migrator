@@ -3,6 +3,8 @@ import type { PlannedConversion } from '../../conversion-adapter';
 import { ExtendedFamilyPlanner } from './extended-family.planner';
 import type { ResponsiveClassValue, ResponsiveClassValueResult } from './responsive-class.model';
 import { parseResponsiveClassValue } from './responsive-class-value.parser';
+import { parseResponsiveStyleValue } from './responsive-style-value.parser';
+import type { ResponsiveStyleValue } from './responsive-style.model';
 import { TailwindCandidateClassifier } from './tailwind-candidate-classifier';
 
 function input(
@@ -19,7 +21,7 @@ function input(
     fileName: 'fixture.html',
     elementId: '0',
     sourceName,
-    directive: directive as 'class' | 'ngClass',
+    directive: directive as LocatedFlexLayoutInput['directive'],
     value,
     binding: sourceName.startsWith('[') ? 'property' : 'literal',
     breakpoint,
@@ -39,9 +41,30 @@ function equalClassValues(left: ResponsiveClassValue, right: ResponsiveClassValu
 
 function plan(inputs: readonly LocatedFlexLayoutInput[]) {
   return new ExtendedFamilyPlanner().plan<ResponsiveClassValue>({
+    kind: 'class',
     inputs,
     valueParser: (member): ResponsiveClassValueResult => parseResponsiveClassValue(member, classifier),
     equals: equalClassValues,
+  });
+}
+
+function equalStyleValues(left: ResponsiveStyleValue, right: ResponsiveStyleValue): boolean {
+  return (
+    left.declarations.length === right.declarations.length &&
+    left.declarations.every(
+      (declaration, index) =>
+        declaration.property === right.declarations[index]?.property &&
+        declaration.value === right.declarations[index]?.value,
+    )
+  );
+}
+
+function planStyle(inputs: readonly LocatedFlexLayoutInput[]) {
+  return new ExtendedFamilyPlanner().plan<ResponsiveStyleValue>({
+    kind: 'style',
+    inputs,
+    valueParser: parseResponsiveStyleValue,
+    equals: equalStyleValues,
   });
 }
 
@@ -51,6 +74,45 @@ function unresolvedPlans(result: ReturnType<typeof plan>): readonly PlannedConve
 }
 
 describe('ExtendedFamilyPlanner', () => {
+  test('produces canonical responsive style states from real ngStyle inputs', () => {
+    const xs = input('ngStyle.xs', 'font-size.px: 12');
+    const sm = input('ngStyle.sm', 'font-size.px: 14');
+
+    expect(planStyle([sm, xs])).toMatchObject({
+      status: 'converted',
+      states: [
+        { input: xs, value: { declarations: [{ property: 'font-size', value: '12px' }] } },
+        { input: sm, value: { declarations: [{ property: 'font-size', value: '14px' }] } },
+      ],
+    });
+  });
+
+  test('retains style-value-unverified on an unsafe style member and closes its sibling context', () => {
+    const safe = input('ngStyle.sm', 'color: red');
+    const unsafe = input('ngStyle.md', 'background-image: url("card.png")');
+
+    expect(planStyle([unsafe, safe])).toMatchObject({
+      status: 'unresolved',
+      plans: [
+        { input: safe, code: 'context-unverified' },
+        { input: unsafe, code: 'style-value-unverified' },
+      ],
+    });
+  });
+
+  test('preserves deprecated style aliases while closing a real ngStyle sibling', () => {
+    const verified = input('ngStyle.sm', 'color: red');
+    const deprecated = input('style.md', 'color: blue');
+
+    expect(planStyle([deprecated, verified])).toMatchObject({
+      status: 'unresolved',
+      plans: [
+        { input: verified, code: 'context-unverified' },
+        { input: deprecated, code: 'semantic-unsupported' },
+      ],
+    });
+  });
+
   test('converts different values in disjoint verified ranges', () => {
     const xs = input('ngClass.xs', 'flex');
     const sm = input('ngClass.sm', 'grid');

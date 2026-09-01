@@ -5,7 +5,12 @@ import {
   type BreakpointClassification,
 } from '../../../breakpoint/breakpoint-catalog';
 import type { PlannedConversion } from '../../conversion-adapter';
-import type { ExtendedFamilyPlan, ExtendedFamilyPlanRequest, ExtendedResponsiveState } from './responsive-class.model';
+import type {
+  ExtendedFamilyPlan,
+  ExtendedFamilyPlanRequest,
+  ExtendedResponsiveKind,
+  ExtendedResponsiveState,
+} from './responsive-class.model';
 
 type ClassifiedMember<T> =
   | { readonly input: LocatedFlexLayoutInput; readonly state: ExtendedResponsiveState<T> }
@@ -23,13 +28,13 @@ function dynamicBinding(input: LocatedFlexLayoutInput): PlannedConversion {
   };
 }
 
-function deprecatedAlias(input: LocatedFlexLayoutInput): PlannedConversion {
+function deprecatedAlias(input: LocatedFlexLayoutInput, kind: ExtendedResponsiveKind): PlannedConversion {
   return {
     status: 'review',
     input,
     code: 'semantic-unsupported',
-    reason: 'Deprecated responsive class aliases have version-dependent behavior.',
-    suggestion: 'Keep the deprecated alias or migrate the complete responsive class family manually.',
+    reason: `Deprecated responsive ${kind} aliases have version-dependent behavior.`,
+    suggestion: `Keep the deprecated alias or migrate the complete responsive ${kind} family manually.`,
   };
 }
 
@@ -57,7 +62,22 @@ function unresolvedBreakpoint(
   };
 }
 
-function unverifiedValue(input: LocatedFlexLayoutInput, token: string | undefined, reason: string): PlannedConversion {
+function unverifiedValue(
+  input: LocatedFlexLayoutInput,
+  kind: ExtendedResponsiveKind,
+  token: string | undefined,
+  reason: string,
+): PlannedConversion {
+  if (kind === 'style') {
+    return {
+      status: 'review',
+      input,
+      code: 'style-value-unverified',
+      reason,
+      suggestion: 'Keep the complete responsive style family or replace unsafe declarations before migration.',
+    };
+  }
+
   return {
     status: 'review',
     input,
@@ -101,7 +121,7 @@ export class ExtendedFamilyPlanner {
 
   plan<T>(request: ExtendedFamilyPlanRequest<T>): ExtendedFamilyPlan<T> {
     const members = request.inputs
-      .map(input => this.classify(input, request.valueParser))
+      .map(input => this.classify(input, request.kind, request.valueParser))
       .sort((left, right) => this.compare(left.input, right.input));
 
     if (!members.every((member): member is ClassifiedState<T> => 'state' in member)) {
@@ -124,20 +144,22 @@ export class ExtendedFamilyPlanner {
 
   private classify<T>(
     input: LocatedFlexLayoutInput,
+    kind: ExtendedResponsiveKind,
     valueParser: ExtendedFamilyPlanRequest<T>['valueParser'],
   ): ClassifiedMember<T> {
     if (input.binding !== 'literal' || /\{\{[\s\S]*\}\}/u.test(input.value)) {
       return { input, plan: dynamicBinding(input) };
     }
-    if (input.directive !== 'ngClass') return { input, plan: deprecatedAlias(input) };
-    if (input.breakpoint === undefined) return { input, plan: deprecatedAlias(input) };
+    const expectedDirective = kind === 'class' ? 'ngClass' : 'ngStyle';
+    if (input.directive !== expectedDirective) return { input, plan: deprecatedAlias(input, kind) };
+    if (input.breakpoint === undefined) return { input, plan: deprecatedAlias(input, kind) };
 
     const breakpoint = this.catalog.classify(input.breakpoint);
     if (breakpoint.kind !== 'verified') return { input, plan: unresolvedBreakpoint(input, breakpoint) };
 
     const parsed = valueParser(input);
     if (parsed.status === 'unverified') {
-      return { input, plan: unverifiedValue(input, parsed.token, parsed.reason) };
+      return { input, plan: unverifiedValue(input, kind, parsed.token, parsed.reason) };
     }
 
     return {
