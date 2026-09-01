@@ -1,8 +1,85 @@
-import { findTailwindClassConflicts } from './tailwind-class-conflict';
+import { describeTailwindDisplay, findTailwindClassConflicts } from './tailwind-class-conflict';
 
 const xs = (utility: string) => `[@media_screen_and_(min-width:_0px)_and_(max-width:_599.98px)]:${utility}`;
 const sm = (utility: string) => `[@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:${utility}`;
 const gtXs = (utility: string) => `[@media_screen_and_(min-width:_600px)]:${utility}`;
+
+describe('describeTailwindDisplay', () => {
+  test.each([
+    'inline',
+    'block',
+    'inline-block',
+    'flow-root',
+    'flex',
+    'inline-flex',
+    'grid',
+    'inline-grid',
+    'contents',
+    'table',
+    'inline-table',
+    'table-caption',
+    'table-cell',
+    'table-column',
+    'table-column-group',
+    'table-footer-group',
+    'table-header-group',
+    'table-row-group',
+    'table-row',
+    'list-item',
+    'hidden',
+  ])('describes the standard Tailwind display utility %s', utility => {
+    expect(describeTailwindDisplay(utility)).toEqual({
+      token: utility,
+      utility,
+      activation: { kind: 'base' },
+      important: false,
+    });
+  });
+
+  test.each([
+    ['!block', 'block'],
+    ['inline-flex!', 'inline-flex'],
+  ])('normalizes the important display utility %s', (token, utility) => {
+    expect(describeTailwindDisplay(token)).toEqual({
+      token,
+      utility,
+      activation: { kind: 'base' },
+      important: true,
+    });
+  });
+
+  test.each([
+    [sm('grid'), { min: 600, max: 959.98 }],
+    [gtXs('flex'), { min: 600 }],
+    ['[@media_screen_and_(max-width:_599.98px)]:inline', { max: 599.98 }],
+  ])('describes the generated media activation for %s', (token, range) => {
+    expect(describeTailwindDisplay(token)).toEqual({
+      token,
+      utility: token.slice(token.lastIndexOf(':') + 1),
+      activation: { kind: 'media', range },
+      important: false,
+    });
+  });
+
+  test('retains an ordinary variant as a modified base display token', () => {
+    expect(describeTailwindDisplay('hover:contents')).toEqual({
+      token: 'hover:contents',
+      utility: 'contents',
+      activation: { kind: 'base' },
+      important: false,
+    });
+  });
+
+  test('does not split an arbitrary display property at its inner colon', () => {
+    expect(describeTailwindDisplay('[display:block]')).toEqual({
+      token: '[display:block]',
+      utility: '[display:block]',
+      activation: { kind: 'base' },
+      important: false,
+    });
+    expect(describeTailwindDisplay('[flex:1_1_auto]')).toBeUndefined();
+  });
+});
 
 describe('findTailwindClassConflicts', () => {
   test.each([

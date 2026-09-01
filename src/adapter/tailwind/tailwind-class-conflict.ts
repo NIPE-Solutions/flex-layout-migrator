@@ -1,6 +1,13 @@
 import { mediaRangesIntersect, type MediaRange } from '../../breakpoint/breakpoint-catalog';
 
-type TailwindActivation = { readonly kind: 'base' } | { readonly kind: 'media'; readonly range: MediaRange };
+export type TailwindActivation = { readonly kind: 'base' } | { readonly kind: 'media'; readonly range: MediaRange };
+
+export interface TailwindDisplayUtility {
+  readonly token: string;
+  readonly utility: string;
+  readonly activation: TailwindActivation;
+  readonly important: boolean;
+}
 
 interface TailwindUtilityDescriptor {
   readonly token: string;
@@ -105,9 +112,27 @@ function propertyGroup(utility: string): string | undefined {
   return undefined;
 }
 
-function describe(token: string): TailwindUtilityDescriptor {
-  const { variants, utility } = splitVariants(token);
-  return { token, propertyGroup: propertyGroup(utility), activation: activation(variants) };
+interface DescribedTailwindUtility extends TailwindUtilityDescriptor {
+  readonly utility: string;
+  readonly important: boolean;
+}
+
+function describe(token: string): DescribedTailwindUtility {
+  const { variants, utility: modifiedUtility } = splitVariants(token);
+  const important = modifiedUtility.startsWith('!') || modifiedUtility.endsWith('!');
+  const utility = modifiedUtility.replace(/^!/u, '').replace(/!$/u, '');
+  return { token, utility, propertyGroup: propertyGroup(utility), activation: activation(variants), important };
+}
+
+export function describeTailwindDisplay(token: string): TailwindDisplayUtility | undefined {
+  const descriptor = describe(token);
+  if (descriptor.propertyGroup !== 'display') return undefined;
+  return {
+    token: descriptor.token,
+    utility: descriptor.utility,
+    activation: descriptor.activation,
+    important: descriptor.important,
+  };
 }
 
 function activationsIntersect(left: TailwindActivation, right: TailwindActivation): boolean {
