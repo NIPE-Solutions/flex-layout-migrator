@@ -83,6 +83,87 @@ describe('TailwindAdapter', () => {
     ]);
   });
 
+  test.each([
+    ['xs', '[@media_screen_and_(min-width:_0px)_and_(max-width:_599.98px)]:flex'],
+    ['sm', '[@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:flex'],
+    ['md', '[@media_screen_and_(min-width:_960px)_and_(max-width:_1279.98px)]:flex'],
+    ['lg', '[@media_screen_and_(min-width:_1280px)_and_(max-width:_1919.98px)]:flex'],
+    ['xl', '[@media_screen_and_(min-width:_1920px)_and_(max-width:_4999.98px)]:flex'],
+    ['lt-sm', '[@media_screen_and_(max-width:_599.98px)]:flex'],
+    ['lt-md', '[@media_screen_and_(max-width:_959.98px)]:flex'],
+    ['lt-lg', '[@media_screen_and_(max-width:_1279.98px)]:flex'],
+    ['lt-xl', '[@media_screen_and_(max-width:_1919.98px)]:flex'],
+    ['gt-xs', '[@media_screen_and_(min-width:_600px)]:flex'],
+    ['gt-sm', '[@media_screen_and_(min-width:_960px)]:flex'],
+    ['gt-md', '[@media_screen_and_(min-width:_1280px)]:flex'],
+    ['gt-lg', '[@media_screen_and_(min-width:_1920px)]:flex'],
+  ] as const)(
+    'routes literal ngClass and ngStyle %s families through exact extended conversion',
+    (alias, className) => {
+      const classMember = input({
+        id: `fixture:ngClass.${alias}`,
+        directive: 'ngClass',
+        sourceName: `ngClass.${alias}`,
+        breakpoint: alias,
+        value: 'flex',
+      });
+      const styleMember = input({
+        id: `fixture:ngStyle.${alias}`,
+        directive: 'ngStyle',
+        sourceName: `ngStyle.${alias}`,
+        breakpoint: alias,
+        value: 'color:red',
+      });
+
+      expect(
+        new TailwindAdapter().planElement([classMember, styleMember], { element, inputs: [classMember, styleMember] }),
+      ).toEqual([
+        { status: 'converted', input: classMember, classNames: [className] },
+        { status: 'converted', input: styleMember, classNames: [className.replace(/:flex$/u, ':[color:red]')] },
+      ]);
+    },
+  );
+
+  test('routes literal responsive style declarations through the real extended producer', () => {
+    const member = input({
+      id: 'fixture:ngStyle.lt-md',
+      directive: 'ngStyle',
+      sourceName: 'ngStyle.lt-md',
+      breakpoint: 'lt-md',
+      value: 'font-size.px: 14; color: #334155',
+    });
+
+    expect(new TailwindAdapter().planElement([member], { element, inputs: [member] })).toEqual([
+      {
+        status: 'converted',
+        input: member,
+        classNames: [
+          '[@media_screen_and_(max-width:_959.98px)]:[font-size:14px]',
+          '[@media_screen_and_(max-width:_959.98px)]:[color:#334155]',
+        ],
+      },
+    ]);
+  });
+
+  test('keeps standalone extended planning context-unverified while retaining intrinsic diagnostics', () => {
+    const convertible = input({
+      directive: 'ngClass',
+      sourceName: 'ngClass.sm',
+      breakpoint: 'sm',
+      value: 'flex',
+    });
+    const applicationClass = input({ ...convertible, value: 'card' });
+
+    expect(new TailwindAdapter().plan(convertible, { element })).toMatchObject({
+      status: 'review',
+      code: 'context-unverified',
+    });
+    expect(new TailwindAdapter().plan(applicationClass, { element })).toMatchObject({
+      status: 'review',
+      code: 'tailwind-candidate-unverified',
+    });
+  });
+
   test('decorates verified responsive classes after planning their literal value semantics', () => {
     expect(
       new TailwindAdapter().plan(

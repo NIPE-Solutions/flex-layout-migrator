@@ -14,9 +14,16 @@ export type DirectiveFamily =
   | 'flex-fill'
   | 'flex-offset'
   | 'flex-order'
-  | 'visibility';
+  | 'visibility'
+  | 'extended-class'
+  | 'extended-style';
 
 export type PlanOne = (input: LocatedFlexLayoutInput, context: ConversionContext) => PlannedConversion;
+export type PlanExtendedFamily = (
+  family: 'extended-class' | 'extended-style',
+  inputs: readonly LocatedFlexLayoutInput[],
+  context: ConversionContext,
+) => readonly PlannedConversion[];
 
 const familyByDirective = new Map<LocatedFlexLayoutInput['directive'], DirectiveFamily>([
   ['fxLayout', 'layout'],
@@ -32,6 +39,10 @@ const familyByDirective = new Map<LocatedFlexLayoutInput['directive'], Directive
   ['fxFlexOrder', 'flex-order'],
   ['fxShow', 'visibility'],
   ['fxHide', 'visibility'],
+  ['class', 'extended-class'],
+  ['ngClass', 'extended-class'],
+  ['style', 'extended-style'],
+  ['ngStyle', 'extended-style'],
 ]);
 
 const localLayoutDependents = new Set<DirectiveFamily>(['layout-gap', 'layout-align']);
@@ -161,8 +172,9 @@ export class ResponsiveFamilyPlanner {
     inputs: readonly LocatedFlexLayoutInput[],
     context: ConversionContext,
     planOne: PlanOne,
+    planExtendedFamily?: PlanExtendedFamily,
   ): readonly PlannedConversion[] {
-    return this.planWithDependencies(inputs, context, planOne, true, true);
+    return this.planWithDependencies(inputs, context, planOne, true, true, planExtendedFamily);
   }
 
   closeDependencies(
@@ -179,6 +191,7 @@ export class ResponsiveFamilyPlanner {
     planOne: PlanOne,
     decorate: boolean,
     validateResponsivePrecedence: boolean,
+    planExtendedFamily?: PlanExtendedFamily,
   ): readonly PlannedConversion[] {
     const groups = new Map<DirectiveFamily, LocatedFlexLayoutInput[]>();
     const ungrouped: LocatedFlexLayoutInput[] = [];
@@ -220,7 +233,9 @@ export class ResponsiveFamilyPlanner {
       if (family === 'layout') continue;
 
       let plans: readonly PlannedConversion[];
-      if (localLayoutDependents.has(family)) {
+      if ((family === 'extended-class' || family === 'extended-style') && planExtendedFamily) {
+        plans = planExtendedFamily(family, familyInputs, completeContext);
+      } else if (localLayoutDependents.has(family)) {
         plans = localLayoutSafe
           ? this.planContextualFamily(
               familyInputs,
@@ -283,8 +298,9 @@ export class ResponsiveFamilyPlanner {
     }
 
     const plansById = new Map<string, PlannedConversion>();
-    for (const plans of rawPlansByFamily.values()) {
-      for (const plan of plans) plansById.set(plan.input.id, decorate ? this.decorate(plan) : plan);
+    for (const [family, plans] of rawPlansByFamily) {
+      const shouldDecorate = decorate && family !== 'extended-class' && family !== 'extended-style';
+      for (const plan of plans) plansById.set(plan.input.id, shouldDecorate ? this.decorate(plan) : plan);
     }
     for (const input of ungrouped) {
       const plan = planOne(input, completeContext);
