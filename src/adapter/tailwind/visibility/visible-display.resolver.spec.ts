@@ -1,6 +1,6 @@
 import type { LocatedFlexLayoutInput } from '../../../analyzer/flex-layout-attribute.analyzer';
 import type { PlannedConversion } from '../../conversion-adapter';
-import type { TemplateAttribute } from '../../../template/template.model';
+import { AngularTemplateParser } from '../../../template/angular-template.parser';
 import type { VisibilityActivation, VisibilityIntent, VisibilityState } from './visibility.model';
 import { VisibleDisplayResolver, type VisibleDisplayRequest } from './visible-display.resolver';
 
@@ -43,14 +43,12 @@ function layout(classNames: readonly string[], breakpoint?: string): PlannedConv
   return { status: 'converted', input: input('fxLayout', breakpoint), classNames };
 }
 
-function attribute(name: string, value: string, binding: TemplateAttribute['binding'] = 'literal'): TemplateAttribute {
-  return {
-    name,
-    value,
-    binding,
-    source: { start: 0, end: 1 },
-    nameSource: { start: 0, end: 1 },
-  };
+function parsedAttributes(source: string) {
+  const result = new AngularTemplateParser().parse(source, 'fixture.html');
+  if (result.status !== 'parsed') throw new Error('Expected the attribute fixture to parse.');
+  const element = result.elements[0];
+  if (!element) throw new Error('Expected the attribute fixture to contain one element.');
+  return element.attributes;
 }
 
 function request(overrides: Partial<VisibleDisplayRequest> = {}): VisibleDisplayRequest {
@@ -187,30 +185,40 @@ describe('VisibleDisplayResolver', () => {
     ).toMatchObject({ status: 'unverified' });
   });
 
-  test('blocks a literal inline display declaration even for an otherwise safe no-op', () => {
-    expect(
-      resolve({ states: [state('shown')], attributes: [attribute('style', 'color: red; display: block')] }),
-    ).toMatchObject({ status: 'unverified' });
-  });
+  test.each(['<div style="color: red; display: block"></div>', '<div STYLE="display:block"></div>'])(
+    'blocks a parser-produced literal inline display declaration in %s',
+    source => {
+      expect(resolve({ states: [state('shown')], attributes: parsedAttributes(source) })).toMatchObject({
+        status: 'unverified',
+      });
+    },
+  );
 
   test.each([
-    ['style', 'styles'],
-    ['ngStyle', 'styles'],
-    ['style.display', 'display'],
-  ])('blocks the bound display-controlling attribute [%s]', (name, value) => {
-    expect(resolve({ existingClassNames: ['block'], attributes: [attribute(name, value, 'property')] })).toMatchObject({
+    '<div [style]="styles"></div>',
+    '<div [ngStyle]="styles"></div>',
+    '<div [style.display]="display"></div>',
+    '<div [style.display.important]="display"></div>',
+  ])('blocks the parser-produced bound display-controlling attribute in %s', source => {
+    expect(resolve({ existingClassNames: ['block'], attributes: parsedAttributes(source) })).toMatchObject({
       status: 'unverified',
     });
   });
 
-  test.each(['class', 'ngClass', 'class.hidden'])('blocks bound classes when hiding generates a class: [%s]', name => {
-    expect(
-      resolve({ states: [mediaState('hidden', 'sm')], attributes: [attribute(name, 'classes', 'property')] }),
-    ).toMatchObject({ status: 'unverified' });
+  test.each([
+    '<div [class]="classes"></div>',
+    '<div [ngClass]="classes"></div>',
+    '<div [class.hidden]="isHidden"></div>',
+  ])('blocks parser-produced bound classes when hiding generates a class: %s', source => {
+    expect(resolve({ states: [mediaState('hidden', 'sm')], attributes: parsedAttributes(source) })).toMatchObject({
+      status: 'unverified',
+    });
   });
 
   test('allows bound classes when an always-shown family is a safe no-op', () => {
-    expect(resolve({ states: [state('shown')], attributes: [attribute('class', 'classes', 'property')] })).toEqual({
+    expect(
+      resolve({ states: [state('shown')], attributes: parsedAttributes('<div [class]="classes"></div>') }),
+    ).toEqual({
       status: 'resolved',
       utility: undefined,
     });
@@ -221,7 +229,7 @@ describe('VisibleDisplayResolver', () => {
       resolve({
         states: [state('shown')],
         existingClassNames: ['hidden'],
-        attributes: [attribute('class', 'classes', 'property')],
+        attributes: parsedAttributes('<div [class]="classes"></div>'),
       }),
     ).toEqual({
       status: 'unverified',

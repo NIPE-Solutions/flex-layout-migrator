@@ -5,6 +5,7 @@ export interface SourceRange {
 
 export interface TemplateAttribute {
   readonly name: string;
+  readonly rawName: string;
   readonly value: string;
   readonly binding: 'literal' | 'property';
   readonly source: SourceRange;

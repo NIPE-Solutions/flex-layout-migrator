@@ -25,12 +25,14 @@ function normalizeAttribute(
   attribute: TmplAstTextAttribute | TmplAstBoundAttribute,
   binding: TemplateAttribute['binding'],
 ): TemplateAttribute {
+  const nameSource = attributeNameRange(source, attribute);
   const valueSource = attribute.valueSpan
     ? range(attribute.valueSpan.start.offset, attribute.valueSpan.end.offset)
     : undefined;
 
   return {
     name: attribute.name,
+    rawName: source.slice(nameSource.start, nameSource.end),
     value: valueSource
       ? source.slice(valueSource.start, valueSource.end)
       : attribute instanceof TmplAstTextAttribute
@@ -38,7 +40,7 @@ function normalizeAttribute(
         : '',
     binding,
     source: range(attribute.sourceSpan.start.offset, attribute.sourceSpan.end.offset),
-    nameSource: attributeNameRange(source, attribute),
+    nameSource,
     ...(valueSource ? { valueSource } : {}),
   };
 }

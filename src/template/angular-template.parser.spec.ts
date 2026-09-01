@@ -16,6 +16,7 @@ describe('AngularTemplateParser', () => {
           attributes: [
             {
               name: 'fxLayout',
+              rawName: 'fxLayout',
               value: 'row',
               binding: 'literal',
               source: { start: 5, end: 19 },
@@ -24,6 +25,7 @@ describe('AngularTemplateParser', () => {
             },
             {
               name: 'fxFlex',
+              rawName: '[fxFlex]',
               value: 'basis',
               binding: 'property',
               source: { start: 20, end: 36 },
@@ -47,6 +49,27 @@ describe('AngularTemplateParser', () => {
         { id: '0', name: 'section' },
         { id: '22', name: 'article', parentId: '0' },
         { id: '31', name: 'app-item', parentId: '22' },
+      ],
+    });
+  });
+
+  test('preserves raw attribute keys when Angular normalizes style and class binding names', () => {
+    const result = new AngularTemplateParser().parse(
+      '<div STYLE="display:block" [style.display]="display" [style.display.important]="display" [class.hidden]="hidden"></div>',
+      'bindings.component.html',
+    );
+
+    expect(result).toMatchObject({
+      status: 'parsed',
+      elements: [
+        {
+          attributes: [
+            { name: 'STYLE', rawName: 'STYLE', binding: 'literal' },
+            { name: 'display', rawName: '[style.display]', binding: 'property' },
+            { name: 'display', rawName: '[style.display.important]', binding: 'property' },
+            { name: 'hidden', rawName: '[class.hidden]', binding: 'property' },
+          ],
+        },
       ],
     });
   });
