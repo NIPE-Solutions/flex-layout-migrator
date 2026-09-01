@@ -53,9 +53,58 @@ const cssColorKeywords = new Set(
     .filter(Boolean),
 );
 
+const absoluteFontSizes = new Set([
+  'xx-small',
+  'x-small',
+  'small',
+  'medium',
+  'large',
+  'x-large',
+  'xx-large',
+  'xxx-large',
+]);
+const relativeFontSizes = new Set(['larger', 'smaller']);
+const defaultTailwindColorNames = new Set([
+  'red',
+  'orange',
+  'amber',
+  'yellow',
+  'lime',
+  'green',
+  'emerald',
+  'teal',
+  'cyan',
+  'sky',
+  'blue',
+  'indigo',
+  'violet',
+  'purple',
+  'fuchsia',
+  'pink',
+  'rose',
+  'slate',
+  'gray',
+  'zinc',
+  'neutral',
+  'stone',
+]);
+const defaultTailwindColorShades = new Set([
+  '50',
+  '100',
+  '200',
+  '300',
+  '400',
+  '500',
+  '600',
+  '700',
+  '800',
+  '900',
+  '950',
+]);
+
 const unsignedDecimal = /^(?:(?:\d+(?:\.\d+)?)|(?:\.\d+))$/u;
 const signedCssNumber = /^[+-]?(?:\d*\.)?\d+(?:e[+-]?\d+)?$/iu;
-const mathFunction = /^(?:calc|min|max|clamp|mod|rem|sin|cos|tan|asin|acos|atan|atan2|pow|sqrt|hypot|log|exp|round)\(/u;
+const mathFunction = /(?:calc|min|max|clamp|mod|rem|sin|cos|tan|asin|acos|atan|atan2|pow|sqrt|hypot|log|exp|round)\(/u;
 const colorFunction = /^(?:rgba?|hsla?|hwb|color|(?:ok)?(?:lab|lch)|light-dark|color-mix|--alpha)\(/iu;
 
 interface ArbitraryValue {
@@ -100,37 +149,104 @@ export function isConservativelyAdmittedBorderWidth(value: string): boolean {
 }
 
 function isTailwindLength(value: string): boolean {
+  if (/^--spacing\(/iu.test(value)) return true;
   if (mathFunction.test(value)) return true;
   const match = value.match(/^([+-]?(?:\d*\.)?\d+(?:e[+-]?\d+)?)([a-zA-Z]+)$/iu);
   return match !== null && signedCssNumber.test(match[1] ?? '') && cssLengthUnits.has(match[2] ?? '');
 }
 
-export function tailwindArbitraryTextKind(value: string): 'color' | 'font-size' {
+function isTailwindPercentage(value: string): boolean {
+  return /^[+-]?(?:\d*\.)?\d+(?:e[+-]?\d+)?%$/iu.test(value) || mathFunction.test(value);
+}
+
+function decodedInferenceValue(value: string): string | undefined {
+  if (value.includes('\\')) return undefined;
+  return value.replaceAll('_', ' ');
+}
+
+type TailwindDataType = 'color' | 'length' | 'percentage' | 'absolute-size' | 'relative-size' | 'line-width';
+
+function inferTailwindDataType(value: string, types: readonly TailwindDataType[]): TailwindDataType | undefined {
+  if (value.startsWith('var(')) return undefined;
+
+  for (const type of types) {
+    if (
+      type === 'color' &&
+      (value.startsWith('#') || colorFunction.test(value) || cssColorKeywords.has(value.toLowerCase()))
+    ) {
+      return type;
+    }
+    if (type === 'length' && isTailwindLength(value)) return type;
+    if (type === 'percentage' && isTailwindPercentage(value)) return type;
+    if (type === 'absolute-size' && absoluteFontSizes.has(value)) return type;
+    if (type === 'relative-size' && relativeFontSizes.has(value)) return type;
+    if (type === 'line-width') {
+      const parts = value.split(' ');
+      if (
+        parts.length > 0 &&
+        parts.every(
+          part =>
+            part.length > 0 &&
+            (isTailwindLength(part) || signedCssNumber.test(part) || ['thin', 'medium', 'thick'].includes(part)),
+        )
+      ) {
+        return type;
+      }
+    }
+  }
+  return undefined;
+}
+
+export function isPinnedTailwindColorToken(value: string): boolean {
+  const [color, opacity, remainder] = value.split('/');
+  if (remainder !== undefined || color === undefined) return false;
+  const standard = ['inherit', 'current', 'transparent', 'black', 'white'].includes(color);
+  const [name, shade, extra] = color.split('-');
+  const palette =
+    extra === undefined &&
+    name !== undefined &&
+    shade !== undefined &&
+    defaultTailwindColorNames.has(name) &&
+    defaultTailwindColorShades.has(shade);
+  if (!standard && !palette) return false;
+  if (opacity === undefined) return true;
+  if (!/^(?:0|[1-9]\d*)(?:\.\d+)?$/u.test(opacity)) return false;
+  const numericOpacity = Number(opacity);
+  return numericOpacity >= 0 && numericOpacity <= 100;
+}
+
+export function tailwindArbitraryTextKind(value: string): 'color' | 'font-size' | 'unknown' {
   const arbitrary = arbitraryValue(value);
-  if (arbitrary === undefined) return 'color';
-  if (arbitrary.hint === 'length') return 'font-size';
+  if (arbitrary === undefined) return 'unknown';
+  if (['size', 'length', 'percentage', 'absolute-size', 'relative-size'].includes(arbitrary.hint ?? '')) {
+    return 'font-size';
+  }
   if (arbitrary.hint === 'color') return 'color';
-  return isTailwindLength(arbitrary.payload) || /^[+-]?(?:\d*\.)?\d+(?:e[+-]?\d+)?%$/iu.test(arbitrary.payload)
-    ? 'font-size'
-    : 'color';
+  if (arbitrary.hint !== undefined) return 'unknown';
+  const payload = decodedInferenceValue(arbitrary.payload);
+  if (payload === undefined || payload.length === 0) return 'unknown';
+  const inferred = inferTailwindDataType(payload, ['color', 'length', 'percentage', 'absolute-size', 'relative-size']);
+  return inferred !== undefined && inferred !== 'color' ? 'font-size' : 'color';
 }
 
-export function tailwindArbitraryBorderKind(value: string): 'border-color' | 'border-width' {
+export function tailwindArbitraryBorderKind(value: string): 'border-color' | 'border-width' | 'unknown' {
   const arbitrary = arbitraryValue(value);
-  if (arbitrary === undefined) return 'border-color';
-  if (arbitrary.hint === 'length') return 'border-width';
+  if (arbitrary === undefined) return 'unknown';
+  if (arbitrary.hint === 'length' || arbitrary.hint === 'line-width') return 'border-width';
   if (arbitrary.hint === 'color') return 'border-color';
-  return isTailwindLength(arbitrary.payload) || signedCssNumber.test(arbitrary.payload)
-    ? 'border-width'
-    : 'border-color';
+  if (arbitrary.hint !== undefined) return 'unknown';
+  const payload = decodedInferenceValue(arbitrary.payload);
+  if (payload === undefined || payload.length === 0) return 'unknown';
+  const inferred = inferTailwindDataType(payload, ['color', 'line-width', 'length']);
+  return inferred === 'line-width' || inferred === 'length' ? 'border-width' : 'border-color';
 }
 
-export function tailwindArbitraryShadowKind(value: string): 'shadow-color' | 'shadow-geometry' {
+export function tailwindArbitraryShadowKind(value: string): 'shadow-color' | 'shadow-geometry' | 'unknown' {
   const arbitrary = arbitraryValue(value);
-  if (arbitrary === undefined) return 'shadow-geometry';
+  if (arbitrary === undefined) return 'unknown';
   if (arbitrary.hint === 'color') return 'shadow-color';
-  const payload = arbitrary.payload;
-  return payload.startsWith('#') || colorFunction.test(payload) || cssColorKeywords.has(payload.toLowerCase())
-    ? 'shadow-color'
-    : 'shadow-geometry';
+  if (arbitrary.hint !== undefined) return 'unknown';
+  const payload = decodedInferenceValue(arbitrary.payload);
+  if (payload === undefined || payload.length === 0) return 'unknown';
+  return inferTailwindDataType(payload, ['color']) === 'color' ? 'shadow-color' : 'shadow-geometry';
 }

@@ -1,12 +1,188 @@
+import { readFile } from 'node:fs/promises';
+import postcss from 'postcss';
+import { __unstable__loadDesignSystem, compile } from 'tailwindcss';
+import { cssPropertyOwnershipCovers } from './extended/css-property-ownership';
 import {
   describeTailwindDisplay,
   describeTailwindUtility,
   findTailwindClassConflicts,
 } from './tailwind-class-conflict';
 
+const tailwindSource = readFile(new URL('../../../node_modules/tailwindcss/theme.css', import.meta.url), 'utf8').then(
+  theme => `${theme}\n@tailwind utilities;`,
+);
+
 const xs = (utility: string) => `[@media_screen_and_(min-width:_0px)_and_(max-width:_599.98px)]:${utility}`;
 const sm = (utility: string) => `[@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:${utility}`;
 const gtXs = (utility: string) => `[@media_screen_and_(min-width:_600px)]:${utility}`;
+
+async function compiledClassCssProperties(candidate: string): Promise<readonly string[]> {
+  const compiler = await compile(await tailwindSource);
+  const properties: string[] = [];
+
+  postcss.parse(compiler.build([candidate])).walkRules(rule => {
+    if (!rule.selector.includes('.')) return;
+    rule.walkDecls(declaration => {
+      if (!properties.includes(declaration.prop)) properties.push(declaration.prop);
+    });
+  });
+  return properties;
+}
+
+const existingCompilerOwnershipMatrix = [
+  'flex',
+  'flex-row',
+  'flex-wrap',
+  'flex-1',
+  'grow',
+  'shrink-0',
+  'basis-1/2',
+  'box-border',
+  'justify-center',
+  'justify-items-center',
+  'justify-self-end',
+  'items-center',
+  'content-between',
+  "content-['card']",
+  'self-end',
+  'gap-4',
+  'gap-x-4',
+  'gap-y-4',
+  '-mt-2',
+  'mx-4',
+  'p-4',
+  'px-4',
+  'size-4',
+  'w-1/2',
+  'h-dvh',
+  'min-w-0',
+  'max-h-screen',
+  'text-sm',
+  'text-sm/5',
+  'text-red-500',
+  'text-[xx-small]',
+  'text-[larger]',
+  'text-[--spacing(4)]',
+  'text-[absolute-size:xx-small]',
+  'text-[relative-size:larger]',
+  'text-[percentage:50%]',
+  'text-[size:12px]',
+  'text-[foo:xx-small]',
+  'text-[color:red]',
+  'text-left',
+  'text-balance',
+  'bg-red-500',
+  'bg-[url(hero.png)]',
+  'bg-cover',
+  'bg-center',
+  'bg-repeat',
+  'bg-fixed',
+  'bg-blend-multiply',
+  'border',
+  'border-2',
+  'border-x-2',
+  'border-y-2',
+  'border-s-2',
+  'border-e-2',
+  'border-bs-2',
+  'border-be-2',
+  'border-t-2',
+  'border-r-2',
+  'border-b-2',
+  'border-l-2',
+  'border-[thin]',
+  'border-[thin_medium]',
+  'border-[1px_2px]',
+  'border-[line-width:thin]',
+  'border-[length:--spacing(4)]',
+  'border-[--spacing(4)]',
+  'border-x-[thin_medium]',
+  'border-red-500',
+  'border-x-red-500',
+  'border-be-red-500',
+  'border-[foo:thin]',
+  'border-solid',
+  'border-collapse',
+  'border-spacing-2',
+  'rounded-lg',
+  'rounded-t-lg',
+  'shadow',
+  'shadow-sm',
+  'shadow-none',
+  'shadow-red-500',
+  'shadow-red-500/50',
+  'shadow-transparent',
+  'shadow-current',
+  'shadow-[red]',
+  'shadow-[1px_2px_3px_red]',
+  'shadow-[foo:red]',
+  'shadow-(--card-shadow)',
+  'ring-2',
+  'ring-red-500',
+  'ring-inset',
+  'ring-offset-2',
+  'ring-offset-red-500',
+  'truncate',
+  'opacity-50',
+  'overflow-x-auto',
+  'relative',
+  'inset-x-0',
+  'top-0',
+  'rotate-45',
+  'rotate-x-45',
+  'scale-50',
+  'scale-x-50',
+  'translate-x-4',
+  'translate-z-4',
+  'skew-x-3',
+  'transition-colors',
+  'duration-200',
+  'delay-200',
+  'ease-in',
+  'grid-cols-3',
+  'auto-cols-fr',
+  'grid-rows-2',
+  'auto-rows-min',
+  'grid-flow-row',
+  'col-span-2',
+  'row-span-2',
+  'table-auto',
+  'list-disc',
+  'list-inside',
+  'object-cover',
+  'object-left-top',
+  'cursor-pointer',
+  'pointer-events-none',
+  'visible',
+  'sr-only',
+  'not-sr-only',
+  'font-bold',
+  'leading-5',
+  'tracking-wide',
+  'underline',
+  'outline',
+  'divide-x-2',
+  'blur-sm',
+  'drop-shadow-sm',
+  'z-10',
+  'aspect-square',
+  'columns-2',
+  'align-middle',
+  'backface-hidden',
+  'block-auto',
+  'grayscale',
+  'max-inline-full',
+  'placeholder-red-500',
+  'scheme-dark',
+  'scrollbar-thin',
+  'select-none',
+  'uppercase',
+  'wrap-anywhere',
+  'zoom-50',
+  'focus-within:text-[xx-small]',
+  'focus-within:border-x-2',
+  'focus-within:shadow-red-500',
+] as const;
 
 describe('describeTailwindDisplay', () => {
   test.each([
@@ -176,6 +352,91 @@ describe('describeTailwindUtility', () => {
     expect(describeTailwindUtility(token)).toMatchObject({ cssProperties });
   });
 
+  test.each([
+    ['text-[xx-small]', ['font-size']],
+    ['text-[larger]', ['font-size']],
+    ['text-[--spacing(4)]', ['font-size']],
+    ['text-[absolute-size:xx-small]', ['font-size']],
+    ['text-[relative-size:larger]', ['font-size']],
+    ['text-[percentage:50%]', ['font-size']],
+    ['text-[size:12px]', ['font-size']],
+    ['border-x-2', ['border-inline-style', 'border-inline-width']],
+    ['border-y-2', ['border-block-style', 'border-block-width']],
+    ['border-s-2', ['border-inline-start-style', 'border-inline-start-width']],
+    ['border-e-2', ['border-inline-end-style', 'border-inline-end-width']],
+    ['border-bs-2', ['border-block-start-style', 'border-block-start-width']],
+    ['border-be-2', ['border-block-end-style', 'border-block-end-width']],
+    ['border-t-2', ['border-top-style', 'border-top-width']],
+    ['border-r-2', ['border-right-style', 'border-right-width']],
+    ['border-b-2', ['border-bottom-style', 'border-bottom-width']],
+    ['border-l-2', ['border-left-style', 'border-left-width']],
+    ['border-[thin_medium]', ['border-style', 'border-width']],
+    ['border-[1px_2px]', ['border-style', 'border-width']],
+    ['border-[line-width:thin]', ['border-style', 'border-width']],
+    ['border-[length:--spacing(4)]', ['border-style', 'border-width']],
+    ['border-x-red-500', ['border-inline-color']],
+    ['border-be-red-500', ['border-block-end-color']],
+    ['shadow-red-500', ['--tw-shadow-color']],
+    ['shadow-red-500/50', ['--tw-shadow-color']],
+    ['shadow-sm', ['--tw-shadow', 'box-shadow']],
+  ] as const)('reports the exact pinned property set for existing utility %s', (token, cssProperties) => {
+    expect(describeTailwindUtility(token)).toMatchObject({ cssProperties });
+  });
+
+  test.each(existingCompilerOwnershipMatrix)(
+    'never under-reports parsed Tailwind declarations for compiler-valid existing utility %s',
+    async token => {
+      const emitted = await compiledClassCssProperties(token);
+      const descriptor = describeTailwindUtility(token);
+
+      expect(emitted.length).toBeGreaterThan(0);
+      expect(descriptor).toBeDefined();
+      if (descriptor === undefined) return;
+      expect(
+        emitted.filter(
+          property =>
+            descriptor.hasUnknownCssAuthority !== true &&
+            !descriptor.cssProperties.some(owner => cssPropertyOwnershipCovers(owner, property)),
+        ),
+      ).toEqual([]);
+    },
+  );
+
+  test('never silently ignores a pinned default-theme class-list utility', async () => {
+    const designSystem = await __unstable__loadDesignSystem(await tailwindSource);
+    const missing = designSystem
+      .getClassList()
+      .map(([candidate]) => candidate)
+      .filter(candidate => {
+        const descriptor = describeTailwindUtility(candidate);
+        return (
+          descriptor === undefined ||
+          (descriptor.cssProperties.length === 0 && descriptor.hasUnknownCssAuthority !== true)
+        );
+      });
+
+    expect(missing).toEqual([]);
+  });
+
+  test('marks a recognized but unmodeled Tailwind utility as an unknown CSS authority', () => {
+    expect(describeTailwindUtility('font-bold')).toMatchObject({
+      cssProperties: [],
+      hasUnknownCssAuthority: true,
+    });
+    expect(describeTailwindUtility('card')).toMatchObject({ cssProperties: [] });
+    expect(describeTailwindUtility('card')).not.toHaveProperty('hasUnknownCssAuthority');
+  });
+
+  test.each(['text-[foo:xx-small]', 'border-[foo:thin]', 'shadow-[foo:red]'])(
+    'marks compiler-valid unmodeled arbitrary inference in %s as unknown authority',
+    token => {
+      expect(describeTailwindUtility(token)).toMatchObject({
+        cssProperties: [],
+        hasUnknownCssAuthority: true,
+      });
+    },
+  );
+
   test.each(['w-[17px', 'w-17px]', 'hover:', 'hover::flex', 'flex\\'])(
     'rejects malformed bracket, variant, or escape structure in %j',
     token => {
@@ -332,5 +593,12 @@ describe('findTailwindClassConflicts', () => {
     const generated = sm('[--tw-shadow-color:blue]');
 
     expect(findTailwindClassConflicts(['shadow-[red]'], [generated])).toEqual(new Set([generated]));
+  });
+
+  test('treats a recognized unknown existing authority as conflicting with generated ownership', () => {
+    const generated = sm('[font-weight:500]');
+
+    expect(findTailwindClassConflicts(['font-bold'], [generated])).toEqual(new Set([generated]));
+    expect(findTailwindClassConflicts(['card'], [generated])).toEqual(new Set());
   });
 });

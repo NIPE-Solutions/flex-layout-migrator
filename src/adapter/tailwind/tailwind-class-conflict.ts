@@ -2,6 +2,7 @@ import { mediaRangesIntersect, type MediaRange } from '../../breakpoint/breakpoi
 import { analyzeTailwindArbitrarySyntax } from './tailwind-arbitrary-syntax';
 import { cssPropertiesOverlap } from './extended/css-property-ownership';
 import {
+  isPinnedTailwindColorToken,
   tailwindArbitraryBorderKind,
   tailwindArbitraryShadowKind,
   tailwindArbitraryTextKind,
@@ -21,6 +22,7 @@ export interface TailwindUtilityDescriptor {
   readonly variants: readonly string[];
   readonly utility: string;
   readonly cssProperties: readonly string[];
+  readonly hasUnknownCssAuthority?: true;
   readonly activation: TailwindActivation;
   readonly hasGeneratedMediaVariant: boolean;
   readonly important: boolean;
@@ -113,7 +115,267 @@ function hasInternalDeclarationImportance(utility: string): boolean {
   return analyzeTailwindArbitrarySyntax(utility.slice(arbitraryStart))?.important ?? false;
 }
 
-function cssProperties(utility: string): readonly string[] {
+type CssAuthority = readonly string[] | 'unknown';
+
+const textSizes = new Set(['xs', 'sm', 'base', 'lg', 'xl', '2xl', '3xl', '4xl', '5xl', '6xl', '7xl', '8xl', '9xl']);
+const shadowGeometryNames = new Set(['2xs', 'xs', 'sm', 'md', 'lg', 'xl', '2xl', 'none']);
+
+interface BorderFamilyOwnership {
+  readonly namespace: string;
+  readonly width: readonly string[];
+  readonly color: readonly string[];
+}
+
+const borderFamilies: readonly BorderFamilyOwnership[] = [
+  {
+    namespace: 'border-bs',
+    width: ['border-block-start-style', 'border-block-start-width'],
+    color: ['border-block-start-color'],
+  },
+  {
+    namespace: 'border-be',
+    width: ['border-block-end-style', 'border-block-end-width'],
+    color: ['border-block-end-color'],
+  },
+  {
+    namespace: 'border-x',
+    width: ['border-inline-style', 'border-inline-width'],
+    color: ['border-inline-color'],
+  },
+  {
+    namespace: 'border-y',
+    width: ['border-block-style', 'border-block-width'],
+    color: ['border-block-color'],
+  },
+  {
+    namespace: 'border-s',
+    width: ['border-inline-start-style', 'border-inline-start-width'],
+    color: ['border-inline-start-color'],
+  },
+  {
+    namespace: 'border-e',
+    width: ['border-inline-end-style', 'border-inline-end-width'],
+    color: ['border-inline-end-color'],
+  },
+  { namespace: 'border-t', width: ['border-top-style', 'border-top-width'], color: ['border-top-color'] },
+  { namespace: 'border-r', width: ['border-right-style', 'border-right-width'], color: ['border-right-color'] },
+  { namespace: 'border-b', width: ['border-bottom-style', 'border-bottom-width'], color: ['border-bottom-color'] },
+  { namespace: 'border-l', width: ['border-left-style', 'border-left-width'], color: ['border-left-color'] },
+  { namespace: 'border', width: ['border-style', 'border-width'], color: ['border-color'] },
+];
+
+const recognizedTailwindAuthorityNamespaces = [
+  '@container',
+  'accent',
+  'align',
+  'animate',
+  'appearance',
+  'aspect',
+  'auto-cols',
+  'auto-rows',
+  'backdrop',
+  'backface',
+  'basis',
+  'bg',
+  'block',
+  'blur',
+  'border',
+  'box-decoration',
+  'break',
+  'brightness',
+  'caption',
+  'caret',
+  'clear',
+  'col',
+  'columns',
+  'contain',
+  'content',
+  'contrast',
+  'decoration',
+  'delay',
+  'divide',
+  'drop-shadow',
+  'duration',
+  'ease',
+  'end',
+  'field-sizing',
+  'fill',
+  'filter',
+  'float',
+  'font',
+  'forced-color-adjust',
+  'from',
+  'gradient',
+  'grid',
+  'grid-flow',
+  'grayscale',
+  'hue-rotate',
+  'hyphens',
+  'indent',
+  'inline',
+  'inset-ring',
+  'inset-shadow',
+  'invert',
+  'isolate',
+  'isolation',
+  'justify-items',
+  'justify-self',
+  'leading',
+  'line-clamp',
+  'list',
+  'list-image',
+  'mask',
+  'max-block',
+  'max-inline',
+  'mbe',
+  'mbs',
+  'min-block',
+  'min-inline',
+  'mix-blend',
+  'object',
+  'opacity',
+  'order',
+  'origin',
+  'outline',
+  'overflow',
+  'overscroll',
+  'place-content',
+  'place-items',
+  'place-self',
+  'placeholder',
+  'pbe',
+  'pbs',
+  'perspective',
+  'perspective-origin',
+  'resize',
+  'ring',
+  'rotate',
+  'rounded',
+  'row',
+  'saturate',
+  'scale',
+  'scheme',
+  'scroll',
+  'scrollbar',
+  'select',
+  'sepia',
+  'shadow',
+  'skew',
+  'snap',
+  'space',
+  'start',
+  'stroke',
+  'tab',
+  'table',
+  'text',
+  'to',
+  'touch',
+  'tracking',
+  'transform',
+  'transition',
+  'translate',
+  'underline-offset',
+  'via',
+  'whitespace',
+  'will-change',
+  'wrap',
+  'z',
+  'zoom',
+] as const;
+
+const recognizedTailwindAuthorityTokens = new Set([
+  'antialiased',
+  'border-collapse',
+  'border-separate',
+  'capitalize',
+  'container',
+  'diagonal-fractions',
+  'italic',
+  'line-through',
+  'lining-nums',
+  'lowercase',
+  'no-underline',
+  'normal-case',
+  'normal-nums',
+  'not-italic',
+  'oldstyle-nums',
+  'ordinal',
+  'outline',
+  'overline',
+  'proportional-nums',
+  'slashed-zero',
+  'stacked-fractions',
+  'subpixel-antialiased',
+  'tabular-nums',
+  'truncate',
+  'underline',
+  'uppercase',
+]);
+
+function isCanonicalInteger(value: string): boolean {
+  return /^(?:0|[1-9]\d*)$/u.test(value);
+}
+
+function isCssVariableShorthand(value: string): boolean {
+  return /^\(--[A-Za-z_][A-Za-z0-9_-]*\)$/u.test(value);
+}
+
+function borderCssAuthority(utility: string): CssAuthority | undefined {
+  const family = borderFamilies.find(
+    current => utility === current.namespace || utility.startsWith(`${current.namespace}-`),
+  );
+  if (family === undefined) return undefined;
+  const suffix = utility === family.namespace ? '' : utility.slice(family.namespace.length + 1);
+  if (suffix.length === 0 || isCanonicalInteger(suffix)) return family.width;
+  if (family.namespace === 'border' && ['solid', 'dashed', 'dotted', 'double', 'hidden', 'none'].includes(suffix)) {
+    return ['--tw-border-style', 'border-style'];
+  }
+  if (suffix.startsWith('[') && suffix.endsWith(']')) {
+    const kind = tailwindArbitraryBorderKind(suffix);
+    if (kind === 'border-width') return family.width;
+    if (kind === 'border-color') return family.color;
+    return 'unknown';
+  }
+  if (isCssVariableShorthand(suffix) || isPinnedTailwindColorToken(suffix)) return family.color;
+  return 'unknown';
+}
+
+function shadowCssAuthority(utility: string): CssAuthority | undefined {
+  if (utility === 'shadow') return ['--tw-shadow', 'box-shadow'];
+  if (!utility.startsWith('shadow-')) return undefined;
+  const suffix = utility.slice('shadow-'.length);
+  if (suffix.startsWith('[') && suffix.endsWith(']')) {
+    const kind = tailwindArbitraryShadowKind(suffix);
+    if (kind === 'shadow-color') return ['--tw-shadow-color'];
+    if (kind === 'shadow-geometry') return ['--tw-shadow', 'box-shadow'];
+    return 'unknown';
+  }
+  if (isCssVariableShorthand(suffix) || shadowGeometryNames.has(suffix)) return ['--tw-shadow', 'box-shadow'];
+  if (isPinnedTailwindColorToken(suffix)) return ['--tw-shadow-color'];
+  return 'unknown';
+}
+
+function ringCssAuthority(utility: string): CssAuthority | undefined {
+  if (utility === 'ring') return ['--tw-ring-shadow', 'box-shadow'];
+  if (utility === 'ring-inset') return ['--tw-ring-inset'];
+  if (!utility.startsWith('ring-')) return undefined;
+  const suffix = utility.slice('ring-'.length);
+  if (isCanonicalInteger(suffix)) return ['--tw-ring-shadow', 'box-shadow'];
+  if (isPinnedTailwindColorToken(suffix)) return ['--tw-ring-color'];
+  return 'unknown';
+}
+
+function isRecognizedTailwindAuthority(utility: string): boolean {
+  const normalized = utility.startsWith('-') ? utility.slice(1) : utility;
+  return (
+    recognizedTailwindAuthorityTokens.has(normalized) ||
+    recognizedTailwindAuthorityNamespaces.some(
+      namespace => normalized === namespace || normalized.startsWith(`${namespace}-`),
+    )
+  );
+}
+
+function cssProperties(utility: string): CssAuthority | undefined {
   const arbitraryProperty = utility.match(/^\[([^:]+):/u)?.[1];
   if (arbitraryProperty) return [arbitraryProperty];
   if (displayUtilities.has(utility)) return ['display'];
@@ -124,8 +386,11 @@ function cssProperties(utility: string): readonly string[] {
   if (/^shrink(?:-.+)?$/u.test(utility)) return ['flex-shrink'];
   if (/^basis-.+$/u.test(utility)) return ['flex-basis'];
   if (/^box-(?:border|content)$/u.test(utility)) return ['box-sizing'];
+  if (/^justify-items-/u.test(utility)) return ['justify-items'];
+  if (/^justify-self-/u.test(utility)) return ['justify-self'];
   if (/^justify-/u.test(utility)) return ['justify-content'];
   if (/^items-/u.test(utility)) return ['align-items'];
+  if (/^content-\[/u.test(utility)) return ['--tw-content', 'content'];
   if (/^content-/u.test(utility)) return ['align-content'];
   if (/^self-/u.test(utility)) return ['align-self'];
   if (/^gap-x-/u.test(utility)) return ['column-gap'];
@@ -157,36 +422,45 @@ function cssProperties(utility: string): readonly string[] {
   if (/^min-h-/u.test(utility)) return ['min-height'];
   if (/^max-w-/u.test(utility)) return ['max-width'];
   if (/^max-h-/u.test(utility)) return ['max-height'];
-  if (/^text-(?:xs|sm|base|lg|xl|[2-9]xl)(?:\/|$)/u.test(utility)) return ['font-size', 'line-height'];
+  const textValue = utility.match(/^text-([\s\S]+)$/u)?.[1];
+  const [textBaseValue] = textValue?.split('/') ?? [];
+  if (textBaseValue !== undefined && textSizes.has(textBaseValue)) return ['font-size', 'line-height'];
   const arbitraryText = utility.match(/^text-(\[[\s\S]+\])(?:\/[^\s]+)?$/u)?.[1];
   if (arbitraryText !== undefined) {
-    if (tailwindArbitraryTextKind(arbitraryText) === 'color') return ['color'];
-    return utility.includes(']/') ? ['font-size', 'line-height'] : ['font-size'];
+    const kind = tailwindArbitraryTextKind(arbitraryText);
+    if (kind === 'color') return ['color'];
+    if (kind === 'font-size') return utility.includes(']/') ? ['font-size', 'line-height'] : ['font-size'];
+    return 'unknown';
   }
-  if (/^text-/u.test(utility)) return ['color'];
+  if (/^text-(?:left|right|center|justify|start|end)$/u.test(utility)) return ['text-align'];
+  if (/^text-(?:wrap|nowrap|balance|pretty)$/u.test(utility)) return ['text-wrap'];
+  if (/^text-(?:ellipsis|clip)$/u.test(utility)) return ['text-overflow'];
+  if (textValue !== undefined && isPinnedTailwindColorToken(textValue)) return ['color'];
+  if (/^text-/u.test(utility)) return 'unknown';
   if (/^bg-\[(?:image:|url\(|(?:linear|radial|conic)-gradient\()/u.test(utility)) return ['background-image'];
-  if (/^bg-/u.test(utility)) return ['background-color'];
-  const arbitraryBorder = utility.match(/^border-(\[[\s\S]+\])$/u)?.[1];
-  if (
-    utility === 'border' ||
-    /^border-\d/u.test(utility) ||
-    (arbitraryBorder !== undefined && tailwindArbitraryBorderKind(arbitraryBorder) === 'border-width')
-  ) {
-    return ['border-style', 'border-width'];
+  if (/^bg-(?:auto|cover|contain)$/u.test(utility)) return ['background-size'];
+  if (/^bg-(?:fixed|local|scroll)$/u.test(utility)) return ['background-attachment'];
+  if (/^bg-clip-/u.test(utility)) return ['background-clip'];
+  if (/^bg-origin-/u.test(utility)) return ['background-origin'];
+  if (/^bg-(?:bottom|center|left|left-bottom|left-top|right|right-bottom|right-top|top)$/u.test(utility)) {
+    return ['background-position'];
   }
-  if (/^border-(?:solid|dashed|dotted|double|hidden|none)$/u.test(utility)) {
-    return ['--tw-border-style', 'border-style'];
+  if (/^bg-(?:repeat|no-repeat|repeat-x|repeat-y|repeat-round|repeat-space)$/u.test(utility)) {
+    return ['background-repeat'];
   }
-  if (/^border-/u.test(utility)) return ['border-color'];
+  if (/^bg-blend-/u.test(utility)) return ['background-blend-mode'];
+  if (utility === 'bg-none') return ['background-image'];
+  const backgroundValue = utility.match(/^bg-([\s\S]+)$/u)?.[1];
+  if (backgroundValue?.startsWith('[') || isCssVariableShorthand(backgroundValue ?? '')) return ['background-color'];
+  if (backgroundValue !== undefined && isPinnedTailwindColorToken(backgroundValue)) return ['background-color'];
+  if (/^bg-/u.test(utility)) return 'unknown';
+  const borderAuthority = borderCssAuthority(utility);
+  if (borderAuthority !== undefined) return borderAuthority;
   if (/^rounded(?:-|$)/u.test(utility)) return ['border-radius'];
-  const arbitraryShadow = utility.match(/^shadow-(\[[\s\S]+\])$/u)?.[1];
-  if (arbitraryShadow !== undefined) {
-    return tailwindArbitraryShadowKind(arbitraryShadow) === 'shadow-color'
-      ? ['--tw-shadow-color']
-      : ['--tw-shadow', 'box-shadow'];
-  }
-  if (/^shadow(?:-|$)/u.test(utility)) return ['--tw-shadow', 'box-shadow'];
-  if (/^ring(?:-|$)/u.test(utility)) return ['--tw-ring-shadow', 'box-shadow'];
+  const shadowAuthority = shadowCssAuthority(utility);
+  if (shadowAuthority !== undefined) return shadowAuthority;
+  const ringAuthority = ringCssAuthority(utility);
+  if (ringAuthority !== undefined) return ringAuthority;
   if (utility === 'truncate') return ['overflow', 'text-overflow', 'white-space'];
   if (/^opacity-/u.test(utility)) return ['opacity'];
   if (/^overflow(?:-|$)/u.test(utility)) return ['overflow'];
@@ -198,9 +472,12 @@ function cssProperties(utility: string): readonly string[] {
   if (/^-?right-/u.test(utility)) return ['right'];
   if (/^-?bottom-/u.test(utility)) return ['bottom'];
   if (/^-?left-/u.test(utility)) return ['left'];
+  if (/^-?rotate-(?:x|y)-/u.test(utility)) return 'unknown';
   if (/^-?rotate-/u.test(utility)) return ['rotate'];
+  if (/^scale-(?:x|y|z)-/u.test(utility)) return 'unknown';
   if (/^scale-(?:\[|\()/u.test(utility)) return ['scale'];
   if (/^scale-/u.test(utility)) return ['--tw-scale-x', '--tw-scale-y', '--tw-scale-z', 'scale'];
+  if (/^-?translate-z-/u.test(utility)) return 'unknown';
   if (/^-?translate-x-/u.test(utility)) return ['--tw-translate-x', 'translate'];
   if (/^-?translate-y-/u.test(utility)) return ['--tw-translate-y', 'translate'];
   if (/^-?translate-/u.test(utility)) return ['--tw-translate-x', '--tw-translate-y', 'translate'];
@@ -208,13 +485,19 @@ function cssProperties(utility: string): readonly string[] {
   if (/^transition(?:-|$)/u.test(utility)) {
     return ['transition-property', 'transition-timing-function', 'transition-duration'];
   }
-  if (/^duration-/u.test(utility)) return ['transition-duration'];
+  if (/^duration-/u.test(utility)) return ['--tw-duration', 'transition-duration'];
   if (/^delay-/u.test(utility)) return ['transition-delay'];
-  if (/^ease-/u.test(utility)) return ['transition-timing-function'];
-  if (/^(?:grid-cols|auto-cols)(?:-|$)/u.test(utility)) return ['grid-template-columns'];
-  if (/^(?:grid-rows|auto-rows)(?:-|$)/u.test(utility)) return ['grid-template-rows'];
-  if (/^col(?:-|$)/u.test(utility)) return ['grid-column-start', 'grid-column-end'];
-  if (/^row(?:-|$)/u.test(utility)) return ['grid-row-start', 'grid-row-end'];
+  if (/^ease-/u.test(utility)) return ['--tw-ease', 'transition-timing-function'];
+  if (/^grid-cols(?:-|$)/u.test(utility)) return ['grid-template-columns'];
+  if (/^auto-cols(?:-|$)/u.test(utility)) return ['grid-auto-columns'];
+  if (/^grid-rows(?:-|$)/u.test(utility)) return ['grid-template-rows'];
+  if (/^auto-rows(?:-|$)/u.test(utility)) return ['grid-auto-rows'];
+  if (/^col-(?:span-|auto$)/u.test(utility)) return ['grid-column'];
+  if (/^col-start-/u.test(utility)) return ['grid-column-start'];
+  if (/^col-end-/u.test(utility)) return ['grid-column-end'];
+  if (/^row-(?:span-|auto$)/u.test(utility)) return ['grid-row'];
+  if (/^row-start-/u.test(utility)) return ['grid-row-start'];
+  if (/^row-end-/u.test(utility)) return ['grid-row-end'];
   if (/^table-(?:auto|fixed)$/u.test(utility)) return ['table-layout'];
   if (/^list-(?:disc|decimal|none)$/u.test(utility)) return ['list-style-type'];
   if (/^list-(?:inside|outside)$/u.test(utility)) return ['list-style-position'];
@@ -229,7 +512,7 @@ function cssProperties(utility: string): readonly string[] {
   if (utility === 'not-sr-only') {
     return ['position', 'width', 'height', 'padding', 'margin', 'overflow', 'clip-path', 'white-space'];
   }
-  return [];
+  return isRecognizedTailwindAuthority(utility) ? 'unknown' : undefined;
 }
 
 export function describeTailwindUtility(token: string): TailwindUtilityDescriptor | undefined {
@@ -242,11 +525,13 @@ export function describeTailwindUtility(token: string): TailwindUtilityDescripto
   const utility = modifiedUtility.replace(/^!/u, '').replace(/!$/u, '');
   if (utility.length === 0) return undefined;
   const important = leadingImportant || trailingImportant || hasInternalDeclarationImportance(utility);
+  const authority = cssProperties(utility);
   return {
     token,
     variants,
     utility,
-    cssProperties: cssProperties(utility),
+    cssProperties: authority === undefined || authority === 'unknown' ? [] : authority,
+    ...(authority === 'unknown' ? { hasUnknownCssAuthority: true } : {}),
     activation: activation(variants),
     hasGeneratedMediaVariant: hasGeneratedMediaVariant(variants),
     important,
@@ -289,9 +574,11 @@ export function findTailwindClassConflicts(
       existing.some(
         current =>
           activationsIntersect(current.activation, generated.activation) &&
-          current.cssProperties.some(currentProperty =>
-            generatedProperties.some(generatedProperty => cssPropertiesOverlap(currentProperty, generatedProperty)),
-          ),
+          (current.hasUnknownCssAuthority === true ||
+            generated.hasUnknownCssAuthority === true ||
+            current.cssProperties.some(currentProperty =>
+              generatedProperties.some(generatedProperty => cssPropertiesOverlap(currentProperty, generatedProperty)),
+            )),
       )
     ) {
       conflicts.add(generated.token);

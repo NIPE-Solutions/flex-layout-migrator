@@ -28,6 +28,8 @@ Literal responsive `ngClass.<alias>` and `ngStyle.<alias>` values use the same 1
 
 Application classes, project plugin utilities, custom-theme-dependent candidates such as `bg-brand-500`, unsafe style values, bindings, interpolation, and deprecated `class.<alias>` or `style.<alias>` selectors remain in place with review diagnostics. The current mode does not inspect project styles or Tailwind configuration and does not generate a companion stylesheet.
 
+Existing literal classes use a broader conservative ownership check than generated-candidate admission. Compiler-modeled Tailwind utilities contribute every stable declaration they emit, including inferred arbitrary text sizes, directional border style/width pairs, and shadow color custom properties. A recognized pinned Tailwind utility whose complete property set is not modeled is treated as an unknown CSS authority and blocks an intersecting conversion instead of being silently ignored; ordinary application classes such as `card` remain additive.
+
 Literal `fxShow` and `fxHide` inputs are converted when the element's complete display behavior is provable. The conversion follows Angular Flex-Layout coercion: `fxShow="false"` hides, `fxHide="false"` shows, and other literal strings, including `"0"`, are truthy before `fxHide` inversion. Literal values use Angular-decoded text, so an entity-spelled value such as `fals&#101;` has the same semantics as `false`. Hiding uses `hidden`; a responsive shown state after base hiding restores only a display value proven by a converted `fxLayout` or one unambiguous base Tailwind display utility.
 
 ```html

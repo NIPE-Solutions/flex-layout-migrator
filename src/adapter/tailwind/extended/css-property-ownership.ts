@@ -10,9 +10,30 @@ function edgeLonghands(prefix: string, suffix?: string): readonly string[] {
   return edges.map(edge => `${prefix}-${edge}${suffix === undefined ? '' : `-${suffix}`}`);
 }
 
-const borderWidths = edgeLonghands('border', 'width');
-const borderStyles = edgeLonghands('border', 'style');
-const borderColors = edgeLonghands('border', 'color');
+const physicalBorderWidths = edgeLonghands('border', 'width');
+const physicalBorderStyles = edgeLonghands('border', 'style');
+const physicalBorderColors = edgeLonghands('border', 'color');
+const logicalBorderWidths = [
+  'border-inline-start-width',
+  'border-inline-end-width',
+  'border-block-start-width',
+  'border-block-end-width',
+] as const;
+const logicalBorderStyles = [
+  'border-inline-start-style',
+  'border-inline-end-style',
+  'border-block-start-style',
+  'border-block-end-style',
+] as const;
+const logicalBorderColors = [
+  'border-inline-start-color',
+  'border-inline-end-color',
+  'border-block-start-color',
+  'border-block-end-color',
+] as const;
+const borderWidths = [...physicalBorderWidths, ...logicalBorderWidths];
+const borderStyles = [...physicalBorderStyles, ...logicalBorderStyles];
+const borderColors = [...physicalBorderColors, ...logicalBorderColors];
 const borderImage = [
   'border-image-source',
   'border-image-slice',
@@ -85,8 +106,35 @@ const shorthandLonghands = new Map<string, readonly string[]>([
   ['border-bottom', ['border-bottom-width', 'border-bottom-style', 'border-bottom-color']],
   ['border-left', ['border-left-width', 'border-left-style', 'border-left-color']],
   ['border-width', borderWidths],
+  [
+    'border-inline-width',
+    ['border-inline-start-width', 'border-inline-end-width', 'border-left-width', 'border-right-width'],
+  ],
+  ['border-block-width', ['border-block-start-width', 'border-block-end-width', ...physicalBorderWidths]],
+  ['border-inline-start-width', ['border-inline-start-width', 'border-left-width', 'border-right-width']],
+  ['border-inline-end-width', ['border-inline-end-width', 'border-left-width', 'border-right-width']],
+  ['border-block-start-width', ['border-block-start-width', ...physicalBorderWidths]],
+  ['border-block-end-width', ['border-block-end-width', ...physicalBorderWidths]],
   ['border-style', borderStyles],
+  [
+    'border-inline-style',
+    ['border-inline-start-style', 'border-inline-end-style', 'border-left-style', 'border-right-style'],
+  ],
+  ['border-block-style', ['border-block-start-style', 'border-block-end-style', ...physicalBorderStyles]],
+  ['border-inline-start-style', ['border-inline-start-style', 'border-left-style', 'border-right-style']],
+  ['border-inline-end-style', ['border-inline-end-style', 'border-left-style', 'border-right-style']],
+  ['border-block-start-style', ['border-block-start-style', ...physicalBorderStyles]],
+  ['border-block-end-style', ['border-block-end-style', ...physicalBorderStyles]],
   ['border-color', borderColors],
+  [
+    'border-inline-color',
+    ['border-inline-start-color', 'border-inline-end-color', 'border-left-color', 'border-right-color'],
+  ],
+  ['border-block-color', ['border-block-start-color', 'border-block-end-color', ...physicalBorderColors]],
+  ['border-inline-start-color', ['border-inline-start-color', 'border-left-color', 'border-right-color']],
+  ['border-inline-end-color', ['border-inline-end-color', 'border-left-color', 'border-right-color']],
+  ['border-block-start-color', ['border-block-start-color', ...physicalBorderColors]],
+  ['border-block-end-color', ['border-block-end-color', ...physicalBorderColors]],
   [
     'border-radius',
     ['border-top-left-radius', 'border-top-right-radius', 'border-bottom-right-radius', 'border-bottom-left-radius'],
@@ -105,6 +153,8 @@ const shorthandLonghands = new Map<string, readonly string[]>([
     ],
   ],
   ['grid-template', ['grid-template-rows', 'grid-template-columns', 'grid-template-areas']],
+  ['grid-column', ['grid-column-start', 'grid-column-end']],
+  ['grid-row', ['grid-row-start', 'grid-row-end']],
   [
     'grid',
     [
@@ -151,6 +201,8 @@ const knownIndependentProperties = new Set([
   'box-sizing',
   'flex-direction',
   'flex-wrap',
+  'justify-items',
+  'justify-self',
   'width',
   'height',
   'min-width',
@@ -158,7 +210,15 @@ const knownIndependentProperties = new Set([
   'max-width',
   'max-height',
   'color',
+  'text-align',
+  'text-wrap',
   'background-blend-mode',
+  'background-size',
+  'background-attachment',
+  'background-clip',
+  'background-origin',
+  'background-position',
+  'background-repeat',
   'box-shadow',
   'opacity',
   'position',
@@ -172,6 +232,8 @@ const knownIndependentProperties = new Set([
   'grid-column-end',
   'grid-row-start',
   'grid-row-end',
+  'grid-auto-columns',
+  'grid-auto-rows',
   'table-layout',
   'object-fit',
   'object-position',
