@@ -140,6 +140,7 @@ describe('parseResponsiveStyleValue', () => {
     ['URL function', 'background-image: url("https://example.test/image.png")'],
     ['URL inside another function', 'background-image: image-set("https://example.test/image.png" 1x)'],
     ['relative URL inside image-set', 'background-image: image-set("card.png" 1x)'],
+    ['relative URL inside image', 'background-image: image("card.png")'],
     ['legacy expression function', 'width: EXPRESSION(alert(1))'],
     ['interpolation', 'color: {{ theme.color }}'],
     ['unsupported unit suffix', 'font-size.ch: 2'],
@@ -152,6 +153,15 @@ describe('parseResponsiveStyleValue', () => {
     ['unsupported property spelling', 'font size: 14px'],
     ['unencodable bracket value', 'content: "[unsafe]"'],
   ])('rejects the complete responsive value for %s', (_case, value) => {
+    expect(parseResponsiveStyleValue(input({ value }))).toMatchObject({ status: 'unverified' });
+  });
+
+  test.each([
+    ['--alpha()', 'color: --alpha(red/50%)'],
+    ['theme()', 'color: theme(colors.red.500)'],
+    ['--theme()', 'color: --theme(--color-brand)'],
+    ['--spacing()', 'margin: --spacing(4)'],
+  ])('leaves the complete style value unverified before Tailwind can resolve %s', (_case, value) => {
     expect(parseResponsiveStyleValue(input({ value }))).toMatchObject({ status: 'unverified' });
   });
 

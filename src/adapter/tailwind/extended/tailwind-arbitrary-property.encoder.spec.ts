@@ -2,9 +2,15 @@ import { compile } from 'tailwindcss';
 import type { LiteralStyleDeclaration } from '../visibility/literal-style-display';
 import { TailwindArbitraryPropertyEncoder } from './tailwind-arbitrary-property.encoder';
 
-async function compileCandidate(candidate: string): Promise<string> {
-  const compiler = await compile('@tailwind utilities;');
+async function compileCandidate(candidate: string, source = '@tailwind utilities;'): Promise<string> {
+  const compiler = await compile(source);
   return compiler.build([candidate]);
+}
+
+async function producesOutput(candidate: string, source = '@tailwind utilities;'): Promise<boolean> {
+  const compiler = await compile(source);
+  const emptyCss = compiler.build([]);
+  return compiler.build([candidate]) !== emptyCss;
 }
 
 const encoder = new TailwindArbitraryPropertyEncoder();
@@ -74,6 +80,54 @@ describe('TailwindArbitraryPropertyEncoder', () => {
     expect(await compileCandidate(sourceSpace)).toContain('  --label: one two;');
     expect(await compileCandidate(sourceUnderscore)).toContain('  --label: one_two;');
   });
+
+  test('shows that Tailwind rewrites --alpha() instead of preserving the source CSS value', async () => {
+    const candidate = encoder.encode({ property: 'color', value: '--alpha(red/50%)' });
+
+    expect(candidate).toBe('[color:--alpha(red/50%)]');
+    const css = await compileCandidate(candidate);
+    expect(css).toContain('  color: color-mix(in oklab, red 50%, transparent);');
+    expect(css).not.toContain('  color: --alpha(red/50%);');
+  });
+
+  test.each([
+    {
+      case: 'theme()',
+      declaration: { property: 'color', value: 'theme(colors.red.500)' },
+      candidate: '[color:theme(colors.red.500)]',
+      themedDeclaration: '  color: #ef4444;',
+    },
+    {
+      case: '--theme()',
+      declaration: { property: 'color', value: '--theme(--color-brand)' },
+      candidate: '[color:--theme(--color-brand)]',
+      themedDeclaration: '  color: var(--color-brand);',
+    },
+    {
+      case: '--spacing()',
+      declaration: { property: 'margin', value: '--spacing(4)' },
+      candidate: '[margin:--spacing(4)]',
+      themedDeclaration: '  margin: calc(var(--spacing) * 4);',
+    },
+  ] satisfies readonly {
+    readonly case: string;
+    readonly declaration: LiteralStyleDeclaration;
+    readonly candidate: string;
+    readonly themedDeclaration: string;
+  }[])(
+    'shows that $case is compiler-empty or theme-dependent',
+    async ({ declaration, candidate, themedDeclaration }) => {
+      expect(encoder.encode(declaration)).toBe(candidate);
+
+      expect(await producesOutput(candidate)).toBe(false);
+
+      const withTheme = await compileCandidate(
+        candidate,
+        '@theme { --color-red-500: #ef4444; --color-brand: #123456; --spacing: 0.25rem; } @tailwind utilities;',
+      );
+      expect(withTheme).toContain(themedDeclaration);
+    },
+  );
 
   test.each([
     ['backslashes', { property: 'color', value: 'r\\65 d' }],

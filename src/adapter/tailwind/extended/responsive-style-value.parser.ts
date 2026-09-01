@@ -9,7 +9,8 @@ const ordinaryProperty = /^-?[a-z][a-z\d-]*$/iu;
 const customProperty = /^--[a-z\d_-]+$/iu;
 const unitSuffixes = new Set(['px', '%', 'em', 'rem', 'vw', 'vh', 'vmin', 'vmax', 'deg', 's', 'ms']);
 const unitlessNumber = /^[+-]?(?:(?:\d+(?:\.\d*)?)|(?:\.\d+))(?:e[+-]?\d+)?$/iu;
-const sanitizerSensitiveFunction = /(?:^|[^a-z\d_-])(?:url|expression|(?:-webkit-)?image-set)\s*\(/iu;
+const sanitizerSensitiveFunction = /(?:^|[^a-z\d_-])(?:url|expression|image|(?:-webkit-)?image-set)\s*\(/iu;
+const tailwindBuildFunction = /(?:^|[^a-z\d_-])(?:--alpha|--theme|--spacing|theme)\s*\(/iu;
 const urlScheme = /(?:https?|data|blob|file|javascript):/iu;
 
 interface NormalizedProperty {
@@ -39,7 +40,13 @@ function normalizeDeclaration(
   const normalized = normalizeProperty(declaration.property);
   if (!normalized || !declaration.value) return undefined;
 
-  if (sanitizerSensitiveFunction.test(declaration.value) || urlScheme.test(declaration.value)) return undefined;
+  if (
+    sanitizerSensitiveFunction.test(declaration.value) ||
+    tailwindBuildFunction.test(declaration.value) ||
+    urlScheme.test(declaration.value)
+  ) {
+    return undefined;
+  }
 
   const value =
     normalized.unit === undefined
