@@ -1,6 +1,10 @@
 import { describeTailwindUtility, type TailwindUtilityDescriptor } from '../tailwind-class-conflict';
 import { hasValidTailwindArbitrarySyntax } from '../tailwind-arbitrary-syntax';
 import { isByteExactHtmlClassToken } from '../../../edit/html-attribute-value';
+import {
+  isConservativelyAdmittedBorderWidth,
+  isConservativelyAdmittedTextLength,
+} from './tailwind-arbitrary-value-ownership';
 
 export type TailwindCandidateClassification =
   | { readonly status: 'verified'; readonly descriptor: TailwindUtilityDescriptor }
@@ -205,9 +209,7 @@ function textCssProperties(value: string): readonly string[] | undefined {
   }
   const arbitrarySize = size ?? '';
   const hasUnambiguousArbitrarySize =
-    hasCompilerMeaningfulArbitraryValue(arbitrarySize) &&
-    (/^\[length:\d[^\]]*\]$/u.test(arbitrarySize) ||
-      /^\[(?:(?:\d+(?:\.\d*)?)|(?:\.\d+))(?:[a-z%]+)?\]$/iu.test(arbitrarySize));
+    hasCompilerMeaningfulArbitraryValue(arbitrarySize) && isConservativelyAdmittedTextLength(arbitrarySize);
   if (hasUnambiguousArbitrarySize) {
     if (!hasVerifiedLineHeight) return undefined;
     return lineHeight === undefined ? ['font-size'] : ['font-size', 'line-height'];
@@ -222,12 +224,7 @@ function acceptsText(value: string): boolean {
 }
 
 function borderCssProperties(value: string): readonly string[] | undefined {
-  if (
-    isInteger(value) ||
-    (hasCompilerMeaningfulArbitraryValue(value) &&
-      (/^\[length:(?:\d|\.\d)[^\]]*\]$/u.test(value) ||
-        /^\[(?:(?:\d+(?:\.\d*)?)|(?:\.\d+))(?:[a-z%]+)?\]$/iu.test(value)))
-  ) {
+  if (isInteger(value) || (hasCompilerMeaningfulArbitraryValue(value) && isConservativelyAdmittedBorderWidth(value))) {
     return ['border-style', 'border-width'];
   }
   if (oneOf(['solid', 'dashed', 'dotted', 'double', 'hidden', 'none'])(value)) {
@@ -356,10 +353,7 @@ const namespaceRegistry: readonly NamespaceRule[] = Object.freeze([
   {
     namespace: 'shadow',
     cssProperties: ['--tw-shadow', 'box-shadow'],
-    accepts: value =>
-      oneOf(['2xs', 'xs', 'sm', 'md', 'lg', 'xl', '2xl', 'none'])(value) ||
-      isCssVariableValue(value) ||
-      (hasCompilerMeaningfulArbitraryValue(value) && !isArbitraryColor(value)),
+    accepts: value => oneOf(['2xs', 'xs', 'sm', 'md', 'lg', 'xl', '2xl', 'none'])(value) || isCssVariableValue(value),
   },
   {
     namespace: 'opacity',

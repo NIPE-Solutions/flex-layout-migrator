@@ -87,6 +87,19 @@ describe('ExtendedFamilyPlanner', () => {
     });
   });
 
+  test('reports distinct cross-state style aliases before responsive precedence analysis', () => {
+    const plain = input('ngStyle.gt-xs', 'font-size: 20px');
+    const suffixed = input('ngStyle.sm', 'font-size.px: 20');
+
+    expect(planStyle([plain, suffixed])).toMatchObject({
+      status: 'unresolved',
+      plans: [
+        { input: suffixed, code: 'style-value-unverified' },
+        { input: plain, code: 'style-value-unverified' },
+      ],
+    });
+  });
+
   test('retains style-value-unverified on an unsafe style member and closes its sibling context', () => {
     const safe = input('ngStyle.sm', 'color: red');
     const unsafe = input('ngStyle.md', 'background-image: url("card.png")');

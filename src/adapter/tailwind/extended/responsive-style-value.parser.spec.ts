@@ -164,18 +164,25 @@ describe('parseResponsiveStyleValue', () => {
       status: 'parsed',
       value: { declarations: [{ property: '--Theme', value: 'blue' }] },
     });
+    expect(parseResponsiveStyleValue(input({ value: 'font-size.px: 10; font-size.px: 20' }))).toEqual({
+      status: 'parsed',
+      value: { declarations: [{ property: 'font-size', value: '20px' }] },
+    });
   });
 
   test.each([
     ['lowercase key inserted before its uppercase collision', 'font-size:10px; FONT-SIZE:20px; font-size:30px'],
     ['uppercase key inserted before its lowercase collision', 'FONT-SIZE:20px; font-size:10px; FONT-SIZE:30px'],
     ['unit-suffixed key casing collision', 'font-size.PX:10; FONT-SIZE.px:20'],
-  ])('preserves ordinary CSS keys whose exact spelling collides case-insensitively: %s', (_case, value) => {
+    ['plain and unit-suffixed aliases', 'font-size:10px; font-size.px:20'],
+    ['different unit-suffix aliases', 'font-size.rem:1; font-size.px:20'],
+    ['case and unit-suffix aliases', 'FONT-SIZE.rem:1; font-size.px:20'],
+  ])('preserves distinct exact ngStyle keys that apply to one ordinary CSS property: %s', (_case, value) => {
     const result = parseResponsiveStyleValue(input({ value }));
 
     expect(result).toMatchObject({ status: 'unverified' });
-    if (result.status !== 'unverified') throw new Error('Expected the case-colliding style value to be unverified.');
-    expect(result.reason).toMatch(/case|spelling|activation/iu);
+    if (result.status !== 'unverified') throw new Error('Expected the exact-key alias to be unverified.');
+    expect(result.reason).toMatch(/alias|exact key|activation/iu);
   });
 
   test.each(['margin-top:1px; MARGIN:2px; margin-top:3px', 'MARGIN:2px; margin-top:1px; MARGIN:3px'])(

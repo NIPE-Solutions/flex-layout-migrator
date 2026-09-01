@@ -1,6 +1,11 @@
 import { mediaRangesIntersect, type MediaRange } from '../../breakpoint/breakpoint-catalog';
 import { analyzeTailwindArbitrarySyntax } from './tailwind-arbitrary-syntax';
 import { cssPropertiesOverlap } from './extended/css-property-ownership';
+import {
+  tailwindArbitraryBorderKind,
+  tailwindArbitraryShadowKind,
+  tailwindArbitraryTextKind,
+} from './extended/tailwind-arbitrary-value-ownership';
 
 export type TailwindActivation = { readonly kind: 'base' } | { readonly kind: 'media'; readonly range: MediaRange };
 
@@ -153,13 +158,20 @@ function cssProperties(utility: string): readonly string[] {
   if (/^max-w-/u.test(utility)) return ['max-width'];
   if (/^max-h-/u.test(utility)) return ['max-height'];
   if (/^text-(?:xs|sm|base|lg|xl|[2-9]xl)(?:\/|$)/u.test(utility)) return ['font-size', 'line-height'];
-  if (/^text-\[(?:length:)?\d[^\]]*\](?:\/[^\s]+)?$/u.test(utility)) {
+  const arbitraryText = utility.match(/^text-(\[[\s\S]+\])(?:\/[^\s]+)?$/u)?.[1];
+  if (arbitraryText !== undefined) {
+    if (tailwindArbitraryTextKind(arbitraryText) === 'color') return ['color'];
     return utility.includes(']/') ? ['font-size', 'line-height'] : ['font-size'];
   }
   if (/^text-/u.test(utility)) return ['color'];
   if (/^bg-\[(?:image:|url\(|(?:linear|radial|conic)-gradient\()/u.test(utility)) return ['background-image'];
   if (/^bg-/u.test(utility)) return ['background-color'];
-  if (utility === 'border' || /^border-(?:\d|\[(?:length:)?\d)/u.test(utility)) {
+  const arbitraryBorder = utility.match(/^border-(\[[\s\S]+\])$/u)?.[1];
+  if (
+    utility === 'border' ||
+    /^border-\d/u.test(utility) ||
+    (arbitraryBorder !== undefined && tailwindArbitraryBorderKind(arbitraryBorder) === 'border-width')
+  ) {
     return ['border-style', 'border-width'];
   }
   if (/^border-(?:solid|dashed|dotted|double|hidden|none)$/u.test(utility)) {
@@ -167,6 +179,12 @@ function cssProperties(utility: string): readonly string[] {
   }
   if (/^border-/u.test(utility)) return ['border-color'];
   if (/^rounded(?:-|$)/u.test(utility)) return ['border-radius'];
+  const arbitraryShadow = utility.match(/^shadow-(\[[\s\S]+\])$/u)?.[1];
+  if (arbitraryShadow !== undefined) {
+    return tailwindArbitraryShadowKind(arbitraryShadow) === 'shadow-color'
+      ? ['--tw-shadow-color']
+      : ['--tw-shadow', 'box-shadow'];
+  }
   if (/^shadow(?:-|$)/u.test(utility)) return ['--tw-shadow', 'box-shadow'];
   if (/^ring(?:-|$)/u.test(utility)) return ['--tw-ring-shadow', 'box-shadow'];
   if (utility === 'truncate') return ['overflow', 'text-overflow', 'white-space'];

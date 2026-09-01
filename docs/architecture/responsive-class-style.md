@@ -87,7 +87,7 @@ Every token must be independently proven as a Tailwind CSS v4 candidate. If one 
 It accepts:
 
 - arbitrary properties such as `[color:#334155]` and `[--card-gap:1rem]`;
-- arbitrary values under a recognized built-in utility namespace;
+- arbitrary values under a recognized built-in utility namespace when Tailwind's selected property set is unambiguous and completely modeled;
 - built-in Tailwind v4 utility families represented by an explicit namespace and exact-token registry;
 - explicitly registered same-element state and media variants, important modifiers, and negative modifiers when their base utility is recognized.
 
@@ -99,13 +99,14 @@ It rejects:
 - unknown namespaces and project plugin utilities;
 - malformed arbitrary values or variants;
 - variants that retarget a pseudo-element, descendant, group/peer target, or another element, plus arbitrary selector and at-rule variants until selector ownership is modeled;
-- fractions whose numerator or denominator is not a canonical integer, and arbitrary typography, border, or shadow forms whose compiler-selected property is ambiguous;
+- fractions whose numerator or denominator is not a canonical integer;
+- bare-number, named-color, unknown-unit, or complex inferred arbitrary typography values; ambiguous arbitrary border values; and every bracketed arbitrary shadow value;
 - candidates containing ambiguous source escapes;
 - decoded candidates that require HTML entity serialization or otherwise differ from the raw bytes Tailwind scans;
 - source candidates containing a migrator-generated exact-media variant;
 - tokens whose Tailwind meaning depends on project configuration and cannot be distinguished from an application class.
 
-The registry is data, not a chain of directive-specific conditionals. Every accepted audit candidate is compiled with pinned Tailwind CSS v4 and its complete direct declaration-property list is compared with the modeled ownership set. Compiler-valid utilities such as `truncate`, `size-*`, `divide-*`, or `ring-*` remain unverified until their full stable output is admitted deliberately.
+The registry is data, not a chain of directive-specific conditionals. Every accepted audit candidate is compiled with pinned Tailwind CSS v4 and its complete direct declaration-property list is compared with the modeled ownership set. The test boundary parses generated CSS with PostCSS, so candidate declarations nested under constructs such as `@supports` are attributed to the candidate rule without treating global fallback declarations as utility ownership. Untyped arbitrary text sizes are admitted only for numeric known-length or percentage forms. Arbitrary border widths require numeric or known-length forms, while admitted arbitrary border colors require an explicit type, hash, color function, or CSS variable. Bracketed arbitrary shadows remain unverified; built-in sizes and the CSS-variable shorthand retain exact geometry ownership. Compiler-valid utilities such as `truncate`, `size-*`, `divide-*`, or `ring-*` remain unverified until their full stable output is admitted deliberately.
 
 ### Emission
 
@@ -125,7 +126,7 @@ becomes:
 
 Existing literal classes are retained byte-for-byte apart from the repository's established append behavior. Property-bound class authorities preserve any family that would generate classes.
 
-Existing Tailwind utilities are checked through the shared activation and CSS-ownership model. Shorthands, axis-specific utilities such as `gap-y-*`, universal properties such as `all`, and multi-property utilities such as `text-sm/5`, `sr-only`, transforms, transitions, and shadows participate through every declaration they emit. A conflicting utility in an intersecting activation range preserves the family with `class-conflict`. Identical output tokens are reused rather than duplicated.
+Existing Tailwind utilities are checked through the shared activation and CSS-ownership model. Shorthands, axis-specific utilities such as `gap-y-*`, universal properties such as `all`, and multi-property utilities such as `text-sm/5`, `sr-only`, transforms, transitions, and shadows participate through every declaration they emit. Arbitrary existing shadows distinguish `--tw-shadow-color` from the `--tw-shadow` and `box-shadow` geometry pair. A conflicting utility in an intersecting activation range preserves the family with `class-conflict`. Identical output tokens are reused rather than duplicated.
 
 An unsuffixed `ngClass` is part of the complete replacement family even though it is not reported as a responsive source occurrence. A bound fallback preserves every responsive sibling, including an empty sibling. An empty literal fallback is compatible. A non-empty literal fallback is redundant only when every responsive value is exactly the same normalized class list. Even then, its retained base tokens remain non-suppressible ownership evidence during class/style/layout/visibility composition; overlapping coupled families are preserved when conversion cannot remove or translate that base authority safely.
 
@@ -133,7 +134,7 @@ An unsuffixed `ngClass` is part of the complete replacement family even though i
 
 ### Literal style parsing
 
-`ResponsiveStyleValueParser` reproduces the final Flex-Layout raw-string transform before applying conservative safety checks. The decoded string is trimmed and split at every semicolon, including semicolons inside quotes or functions. Each entry is split at its first colon and all single- and double-quote characters are removed from its key and value. Flex-Layout first reduces exact keys into a JavaScript object: a duplicate exact key replaces its value without moving that key's first insertion position. A differently cased ordinary key remains a distinct `NgStyle` differ entry even though the browser normalizes both entries to the same CSS property. Such a collision is rejected both within one state and across the complete responsive family because removal/application order after an activation transition can depend on prior state. Custom properties are case-sensitive and do not collide under this rule. Remaining declarations then follow Angular 15 `NgStyle` property and optional unit handling.
+`ResponsiveStyleValueParser` reproduces the final Flex-Layout raw-string transform before applying conservative safety checks. The decoded string is trimmed and split at every semicolon, including semicolons inside quotes or functions. Each entry is split at its first colon and all single- and double-quote characters are removed from its key and value. Flex-Layout first reduces exact keys into a JavaScript object: a duplicate exact key replaces its value without moving that key's first insertion position. Distinct exact ordinary keys can still apply to the same CSS property after Angular removes a unit suffix and the browser normalizes the property name. Every such alias, including casing differences and `font-size` versus `font-size.px`, is rejected both within one state and across the complete responsive family because removal/application order after an activation transition can depend on prior state. Custom properties are case-sensitive and do not collide under this rule. Remaining declarations then follow Angular 15 `NgStyle` property and optional unit handling.
 
 Supported declarations include:
 
@@ -148,7 +149,7 @@ The parser rejects the complete family for:
 - URL-bearing or sanitizer-sensitive values whose upstream sanitized result cannot be reproduced statically;
 - Angular expression syntax or interpolation;
 - property/unit combinations without an exact CSS representation;
-- case-distinct ordinary keys that target the same browser CSS property within a state or across the responsive family;
+- distinct exact ordinary keys that apply to the same CSS property within a state or across the responsive family, including case and unit-suffix aliases;
 - declaration `!important` text, including case and trivia variants, because Angular `NgStyle` passes the text as a value without setting CSS priority;
 - values that cannot be encoded as byte-identical raw HTML source and compiler-proven without semantic change.
 
@@ -231,7 +232,7 @@ The compatibility corpus covers:
 - fallback inline-style overlap;
 - empty, literal, and bound unsuffixed `ngClass`/`ngStyle` fallback authority;
 - Flex-Layout raw-string quote removal and unconditional semicolon splitting;
-- exact-key duplicates plus atomic preservation of within-state and cross-state case collisions;
+- exact-key duplicates plus atomic preservation of within-state and cross-state aliases after case and unit normalization;
 - declaration-priority rejection;
 - raw Tailwind source discovery and complete multi-property ownership;
 - display interaction with visibility and layout;

@@ -1,4 +1,5 @@
 import { readFile } from 'node:fs/promises';
+import postcss, { CssSyntaxError } from 'postcss';
 import { compile } from 'tailwindcss';
 import { TailwindCandidateClassifier } from './tailwind-candidate-classifier';
 
@@ -40,7 +41,7 @@ const accepted = [
   ['border-(--card-border)', ['border-color']],
   ['rounded-lg', ['border-radius']],
   ['shadow-md', ['--tw-shadow', 'box-shadow']],
-  ['shadow-[1px_2px_3px_red]', ['--tw-shadow', 'box-shadow']],
+  ['shadow-(--card-shadow)', ['--tw-shadow', 'box-shadow']],
   ['opacity-50', ['opacity']],
   ['overflow-hidden', ['overflow']],
   ['absolute', ['position']],
@@ -151,9 +152,43 @@ const compilerToleratedPolicyRejected = [
   'peer-checked:flex',
   '[@supports(display:grid)]:flex',
   'text-[1px_2px_3px_red]',
+  'text-[0]',
+  'text-[1]',
+  'text-[.5]',
+  'text-[17foobar]',
+  'text-[1.px]',
+  'text-[1PX]',
+  'text-[1q]',
+  'text-[LENGTH:1px]',
+  'text-[COLOR:red]',
+  'text-[red]',
+  'text-[rebeccapurple]',
+  'text-[transparent]',
+  'text-[currentColor]',
   'border-[1px_2px_3px_red]',
+  'border-[50%]',
+  'border-[17foobar]',
+  'border-[1.]',
+  'border-[1.px]',
+  'border-[1PX]',
+  'border-[1q]',
+  'border-[LENGTH:1px]',
+  'border-[COLOR:red]',
+  'border-[red]',
+  'border-[rebeccapurple]',
+  'border-[transparent]',
+  'border-[currentColor]',
+  'shadow-[red]',
+  'shadow-[rebeccapurple]',
+  'shadow-[transparent]',
+  'shadow-[currentColor]',
   'shadow-[color:red]',
   'shadow-[#fff]',
+  'shadow-[rgb(1_2_3)]',
+  'shadow-[oklch(50%_0.2_10)]',
+  'shadow-[1px_2px_3px_red]',
+  'shadow-[0_1px_2px]',
+  'shadow-[var(--shadow)]',
 ] as const;
 
 const classifierRejected = [
@@ -183,15 +218,19 @@ async function compiles(candidate: string): Promise<boolean> {
 
 async function compiledCssProperties(candidate: string): Promise<readonly string[]> {
   const compiler = await compile(await tailwindSource);
-  const css = compiler.build([candidate]).replace(/^\/\*![\s\S]*?\*\/\s*/u, '');
+  const css = compiler.build([candidate]);
   const properties: string[] = [];
 
-  for (const block of css.matchAll(/([^{}]+)\{([^{}]*)\}/gu)) {
-    if (!block[1]?.includes('.')) continue;
-    for (const declaration of block[2]?.split(';') ?? []) {
-      const property = declaration.trim().match(/^(-{0,2}[a-z][a-z\d-]*)\s*:/iu)?.[1];
-      if (property !== undefined && !properties.includes(property)) properties.push(property);
-    }
+  try {
+    postcss.parse(css).walkRules(rule => {
+      if (!rule.selector.includes('.')) return;
+      rule.walkDecls(declaration => {
+        if (!properties.includes(declaration.prop)) properties.push(declaration.prop);
+      });
+    });
+  } catch (error) {
+    if (!(error instanceof CssSyntaxError)) throw error;
+    return [];
   }
   return properties;
 }
@@ -416,6 +455,83 @@ const admissionAuditCandidates = [
   ...variantAdmissionCandidates,
 ];
 
+const arbitraryCompilerOwnershipMatrix = [
+  { candidate: 'text-[17px]', cssProperties: ['font-size'], admission: 'verified' },
+  { candidate: 'text-[.5rem]', cssProperties: ['font-size'], admission: 'verified' },
+  { candidate: 'text-[50%]', cssProperties: ['font-size'], admission: 'verified' },
+  { candidate: 'text-[length:17px]', cssProperties: ['font-size'], admission: 'verified' },
+  { candidate: 'text-[color:red]', cssProperties: ['color'], admission: 'verified' },
+  { candidate: 'text-[#fff]', cssProperties: ['color'], admission: 'verified' },
+  { candidate: 'text-[rgb(1_2_3)]', cssProperties: ['color'], admission: 'verified' },
+  { candidate: 'text-[var(--text)]', cssProperties: ['color'], admission: 'verified' },
+  { candidate: 'text-[0]', cssProperties: ['color'], admission: 'unverified' },
+  { candidate: 'text-[1]', cssProperties: ['color'], admission: 'unverified' },
+  { candidate: 'text-[.5]', cssProperties: ['color'], admission: 'unverified' },
+  { candidate: 'text-[17foobar]', cssProperties: ['color'], admission: 'unverified' },
+  { candidate: 'text-[1.px]', cssProperties: ['color'], admission: 'unverified' },
+  { candidate: 'text-[1PX]', cssProperties: ['color'], admission: 'unverified' },
+  { candidate: 'text-[1q]', cssProperties: ['color'], admission: 'unverified' },
+  { candidate: 'text-[1Q]', cssProperties: ['font-size'], admission: 'verified' },
+  { candidate: 'text-[LENGTH:1px]', cssProperties: [], admission: 'unverified' },
+  { candidate: 'text-[COLOR:red]', cssProperties: [], admission: 'unverified' },
+  { candidate: 'text-[red]', cssProperties: ['color'], admission: 'unverified' },
+  { candidate: 'text-[rebeccapurple]', cssProperties: ['color'], admission: 'unverified' },
+  { candidate: 'text-[transparent]', cssProperties: ['color'], admission: 'unverified' },
+  { candidate: 'text-[currentColor]', cssProperties: ['color'], admission: 'unverified' },
+  { candidate: 'text-[calc(1rem+1px)]', cssProperties: ['font-size'], admission: 'unverified' },
+  { candidate: 'text-[length:var(--text)]', cssProperties: ['font-size'], admission: 'unverified' },
+  { candidate: 'text-[1px_2px_3px_red]', cssProperties: ['color'], admission: 'unverified' },
+  { candidate: 'border-[0]', cssProperties: ['border-style', 'border-width'], admission: 'verified' },
+  { candidate: 'border-[.5]', cssProperties: ['border-style', 'border-width'], admission: 'verified' },
+  { candidate: 'border-[3px]', cssProperties: ['border-style', 'border-width'], admission: 'verified' },
+  { candidate: 'border-[.5rem]', cssProperties: ['border-style', 'border-width'], admission: 'verified' },
+  { candidate: 'border-[length:3px]', cssProperties: ['border-style', 'border-width'], admission: 'verified' },
+  { candidate: 'border-[color:red]', cssProperties: ['border-color'], admission: 'verified' },
+  { candidate: 'border-[#fff]', cssProperties: ['border-color'], admission: 'verified' },
+  { candidate: 'border-[rgb(1_2_3)]', cssProperties: ['border-color'], admission: 'verified' },
+  { candidate: 'border-[var(--border)]', cssProperties: ['border-color'], admission: 'verified' },
+  { candidate: 'border-(--border)', cssProperties: ['border-color'], admission: 'verified' },
+  { candidate: 'border-[50%]', cssProperties: ['border-color'], admission: 'unverified' },
+  { candidate: 'border-[17foobar]', cssProperties: ['border-color'], admission: 'unverified' },
+  { candidate: 'border-[1.]', cssProperties: ['border-color'], admission: 'unverified' },
+  { candidate: 'border-[1.px]', cssProperties: ['border-color'], admission: 'unverified' },
+  { candidate: 'border-[1PX]', cssProperties: ['border-color'], admission: 'unverified' },
+  { candidate: 'border-[1q]', cssProperties: ['border-color'], admission: 'unverified' },
+  { candidate: 'border-[1Q]', cssProperties: ['border-style', 'border-width'], admission: 'verified' },
+  { candidate: 'border-[LENGTH:1px]', cssProperties: [], admission: 'unverified' },
+  { candidate: 'border-[COLOR:red]', cssProperties: [], admission: 'unverified' },
+  { candidate: 'border-[red]', cssProperties: ['border-color'], admission: 'unverified' },
+  { candidate: 'border-[rebeccapurple]', cssProperties: ['border-color'], admission: 'unverified' },
+  { candidate: 'border-[transparent]', cssProperties: ['border-color'], admission: 'unverified' },
+  { candidate: 'border-[currentColor]', cssProperties: ['border-color'], admission: 'unverified' },
+  {
+    candidate: 'border-[length:var(--border)]',
+    cssProperties: ['border-style', 'border-width'],
+    admission: 'unverified',
+  },
+  { candidate: 'border-[1px_2px_3px_red]', cssProperties: ['border-color'], admission: 'unverified' },
+  { candidate: 'shadow-(--shadow)', cssProperties: ['--tw-shadow', 'box-shadow'], admission: 'verified' },
+  { candidate: 'shadow-[red]', cssProperties: ['--tw-shadow-color'], admission: 'unverified' },
+  { candidate: 'shadow-[rebeccapurple]', cssProperties: ['--tw-shadow-color'], admission: 'unverified' },
+  { candidate: 'shadow-[transparent]', cssProperties: ['--tw-shadow-color'], admission: 'unverified' },
+  { candidate: 'shadow-[currentColor]', cssProperties: ['--tw-shadow-color'], admission: 'unverified' },
+  { candidate: 'shadow-[#fff]', cssProperties: ['--tw-shadow-color'], admission: 'unverified' },
+  { candidate: 'shadow-[rgb(1_2_3)]', cssProperties: ['--tw-shadow-color'], admission: 'unverified' },
+  { candidate: 'shadow-[oklch(50%_0.2_10)]', cssProperties: ['--tw-shadow-color'], admission: 'unverified' },
+  { candidate: 'shadow-[color:red]', cssProperties: ['--tw-shadow-color'], admission: 'unverified' },
+  {
+    candidate: 'shadow-[1px_2px_3px_red]',
+    cssProperties: ['--tw-shadow', 'box-shadow'],
+    admission: 'unverified',
+  },
+  { candidate: 'shadow-[0_1px_2px]', cssProperties: ['--tw-shadow', 'box-shadow'], admission: 'unverified' },
+  {
+    candidate: 'shadow-[var(--shadow)]',
+    cssProperties: ['--tw-shadow', 'box-shadow'],
+    admission: 'unverified',
+  },
+] as const;
+
 describe('TailwindCandidateClassifier', () => {
   test.each(accepted)(
     'verifies compiler-backed candidate %s with complete CSS ownership',
@@ -487,6 +603,17 @@ describe('TailwindCandidateClassifier', () => {
     async candidate => {
       expect(new TailwindCandidateClassifier().classify(candidate).status).toBe('unverified');
       await expect(compiles(candidate)).resolves.toBe(true);
+    },
+  );
+
+  test.each(arbitraryCompilerOwnershipMatrix)(
+    'uses compiler-exact arbitrary ownership for $candidate and keeps it $admission',
+    async ({ candidate, cssProperties, admission }) => {
+      const result = new TailwindCandidateClassifier().classify(candidate);
+
+      await expect(compiledCssProperties(candidate)).resolves.toEqual(cssProperties);
+      expect(result.status).toBe(admission);
+      if (result.status === 'verified') expect(result.descriptor.cssProperties).toEqual(cssProperties);
     },
   );
 

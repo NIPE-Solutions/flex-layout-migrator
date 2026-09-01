@@ -175,11 +175,31 @@ describe('ExtendedResponsivePlanner', () => {
     expect(result.plans.map(plan => plan.input)).toEqual([upper, lower]);
   });
 
+  test.each([
+    ['plain and unit-suffixed keys', 'font-size: 20px', 'font-size.px: 20'],
+    ['different unit suffixes', 'font-size.rem: 1.25', 'font-size.px: 20'],
+  ])('preserves a style family whose states use distinct exact aliases: %s', (_case, lowerValue, upperValue) => {
+    const lower = input('ngStyle', 'gt-xs', lowerValue);
+    const upper = input('ngStyle', 'sm', upperValue);
+
+    const result = stylePlan(producedStyleFamily([lower, upper]));
+
+    expectUnresolvedWithCode(result, 'style-value-unverified');
+    expect(result.plans.map(plan => plan.input)).toEqual([upper, lower]);
+  });
+
   test('allows exact duplicate key spelling across responsive style states', () => {
-    const lower = input('ngStyle', 'gt-xs', 'font-size: 20px');
-    const exact = input('ngStyle', 'sm', 'font-size: 20px');
+    const lower = input('ngStyle', 'gt-xs', 'font-size.px: 20');
+    const exact = input('ngStyle', 'sm', 'font-size.px: 20');
 
     expect(stylePlan(producedStyleFamily([lower, exact])).status).toBe('converted');
+  });
+
+  test('keeps differently cased CSS custom properties independent across responsive style states', () => {
+    const upper = input('ngStyle', 'xs', '--Theme: red');
+    const lower = input('ngStyle', 'sm', '--theme: blue');
+
+    expect(stylePlan(producedStyleFamily([upper, lower])).status).toBe('converted');
   });
 
   test('keeps ordinary base application classes compatible with responsive class output', () => {

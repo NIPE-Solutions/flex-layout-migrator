@@ -16,7 +16,8 @@ import { cssPropertiesOverlap } from './css-property-ownership';
 import { parseLiteralResponsiveClassValue } from './responsive-class-value.parser';
 import {
   parseLiteralResponsiveStyleValue,
-  responsiveStyleValuesHaveCaseCollidingProperties,
+  responsiveStyleExactKeyAliasReason,
+  responsiveStyleValuesHaveExactKeyAliases,
 } from './responsive-style-value.parser';
 
 interface ExtendedResponsiveRequestBase {
@@ -151,15 +152,15 @@ export class ExtendedResponsivePlanner {
     } else {
       const styleStates = this.canonicalStates(request.familyPlan.states);
       states = styleStates;
-      if (responsiveStyleValuesHaveCaseCollidingProperties(styleStates.map(state => state.input.value))) {
+      if (responsiveStyleValuesHaveExactKeyAliases(styleStates.map(state => state.input.value))) {
         return {
           status: 'unresolved',
           plans: styleStates.map(state =>
             diagnostic(
               state.input,
               'style-value-unverified',
-              'Case-distinct ngStyle keys target the same browser CSS property across this responsive family, whose activation-history removal order cannot be represented exactly.',
-              'Keep the complete responsive style family or normalize its property-key spelling before migration.',
+              responsiveStyleExactKeyAliasReason,
+              'Keep the complete responsive style family or normalize its exact property key before migration.',
             ),
           ),
         };

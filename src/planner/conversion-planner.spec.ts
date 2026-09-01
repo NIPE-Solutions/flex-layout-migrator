@@ -372,6 +372,12 @@ describe('ConversionPlanner', () => {
   test.each([
     ['cold case collision', '<div ngStyle.sm="font-size:10px; FONT-SIZE:20px; font-size:30px"></div>'],
     ['activation transition collision', '<div ngStyle.gt-xs="font-size:20px" ngStyle.sm="FONT-SIZE:20px"></div>'],
+    ['cold unit-suffix alias', '<div ngStyle.sm="font-size:10px; font-size.px:20"></div>'],
+    ['cross-breakpoint unit-suffix alias', '<div ngStyle.gt-xs="font-size:20px" ngStyle.sm="font-size.px:20"></div>'],
+    [
+      'cross-breakpoint multiple unit aliases',
+      '<div ngStyle.gt-xs="font-size.rem:1.25" ngStyle.sm="font-size.px:20"></div>',
+    ],
   ])('preserves an activation-history-dependent responsive ngStyle %s atomically', (_case, source) => {
     const first = migrate(source);
 
@@ -383,8 +389,8 @@ describe('ConversionPlanner', () => {
     expect(migrate(first.output)).toMatchObject({ output: source, edits: [] });
   });
 
-  test('preserves safe responsive style siblings when one state has case-colliding keys', () => {
-    const source = '<div ngStyle.xs="color:red" ngStyle.sm="font-size:10px; FONT-SIZE:20px"></div>';
+  test('preserves safe responsive style siblings when one state has exact-key aliases', () => {
+    const source = '<div ngStyle.xs="color:red" ngStyle.sm="font-size:10px; font-size.px:20"></div>';
     const result = migrate(source);
 
     expect(result.output).toBe(source);
@@ -393,6 +399,27 @@ describe('ConversionPlanner', () => {
       expect.objectContaining({ status: 'review', code: 'context-unverified' }),
       expect.objectContaining({ status: 'review', code: 'style-value-unverified' }),
     ]);
+  });
+
+  test('preserves an ownership-ambiguous arbitrary shadow beside an inline shadow-color writer', () => {
+    const source = '<div ngClass.sm="shadow-[red]" ngStyle.sm="--tw-shadow-color:blue"></div>';
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.edits).toEqual([]);
+    expect(result.results).toEqual([
+      expect.objectContaining({ status: 'review', code: 'tailwind-candidate-unverified' }),
+      expect.objectContaining({ status: 'review', code: 'context-unverified' }),
+    ]);
+  });
+
+  test('preserves a responsive shadow-color writer beside an existing arbitrary shadow color', () => {
+    const source = '<div class="shadow-[red]" ngStyle.sm="--tw-shadow-color:blue"></div>';
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.edits).toEqual([]);
+    expect(result.results).toEqual([expect.objectContaining({ status: 'review', code: 'class-conflict' })]);
   });
 
   test('preserves a multi-property responsive class when inline ownership covers only one declaration', () => {

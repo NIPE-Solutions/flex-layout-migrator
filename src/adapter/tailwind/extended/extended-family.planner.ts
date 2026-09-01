@@ -11,6 +11,10 @@ import type {
   ExtendedResponsiveKind,
   ExtendedResponsiveState,
 } from './responsive-class.model';
+import {
+  responsiveStyleExactKeyAliasReason,
+  responsiveStyleValuesHaveExactKeyAliases,
+} from './responsive-style-value.parser';
 
 type ClassifiedMember<T> =
   | { readonly input: LocatedFlexLayoutInput; readonly state: ExtendedResponsiveState<T> }
@@ -132,6 +136,14 @@ export class ExtendedFamilyPlanner {
     }
 
     const states = members.map(member => member.state);
+    if (request.kind === 'style' && responsiveStyleValuesHaveExactKeyAliases(states.map(state => state.input.value))) {
+      return {
+        status: 'unresolved',
+        plans: states.map(state =>
+          unverifiedValue(state.input, request.kind, undefined, responsiveStyleExactKeyAliasReason),
+        ),
+      };
+    }
     if (this.hasConflictingStates(states, request.equals)) {
       return {
         status: 'unresolved',

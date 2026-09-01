@@ -159,6 +159,23 @@ describe('describeTailwindUtility', () => {
     });
   });
 
+  test.each([
+    ['text-[.5rem]', ['font-size']],
+    ['text-[0]', ['color']],
+    ['border-[.5rem]', ['border-style', 'border-width']],
+    ['border-[50%]', ['border-color']],
+    ['shadow-[red]', ['--tw-shadow-color']],
+    ['shadow-[rebeccapurple]', ['--tw-shadow-color']],
+    ['shadow-[transparent]', ['--tw-shadow-color']],
+    ['shadow-[currentColor]', ['--tw-shadow-color']],
+    ['shadow-[#fff]', ['--tw-shadow-color']],
+    ['shadow-[rgb(1_2_3)]', ['--tw-shadow-color']],
+    ['shadow-[1px_2px_3px_red]', ['--tw-shadow', 'box-shadow']],
+    ['shadow-[var(--shadow)]', ['--tw-shadow', 'box-shadow']],
+  ])('describes compiler-selected arbitrary ownership for %s', (token, cssProperties) => {
+    expect(describeTailwindUtility(token)).toMatchObject({ cssProperties });
+  });
+
   test.each(['w-[17px', 'w-17px]', 'hover:', 'hover::flex', 'flex\\'])(
     'rejects malformed bracket, variant, or escape structure in %j',
     token => {
@@ -309,5 +326,11 @@ describe('findTailwindClassConflicts', () => {
 
     expect(findTailwindClassConflicts(['[--tw-scale-x:2]'], [generated])).toEqual(new Set());
     expect(findTailwindClassConflicts(['[scale:2]'], [generated])).toEqual(new Set([generated]));
+  });
+
+  test('finds an existing arbitrary shadow-color writer against a generated inline-color utility', () => {
+    const generated = sm('[--tw-shadow-color:blue]');
+
+    expect(findTailwindClassConflicts(['shadow-[red]'], [generated])).toEqual(new Set([generated]));
   });
 });

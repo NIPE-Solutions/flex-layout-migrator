@@ -20,6 +20,9 @@ interface NormalizedProperty {
   readonly unit?: string;
 }
 
+export const responsiveStyleExactKeyAliasReason =
+  "Distinct exact ngStyle keys alias the same browser CSS property, so Angular's activation-history-dependent removal order cannot be represented exactly.";
+
 function normalizeProperty(property: string): NormalizedProperty | undefined {
   if (property.startsWith('--')) {
     return customProperty.test(property) ? { property } : undefined;
@@ -77,43 +80,28 @@ function transformUpstreamRawList(value: string): ResponsiveStyleValueResult {
   return { status: 'parsed', value: { declarations: [...declarationsByExactProperty.values()] } };
 }
 
-function declarationsHaveCaseCollidingProperties(declarations: readonly LiteralStyleDeclaration[]): boolean {
-  const spellingsByBrowserProperty = new Map<
-    string,
-    { readonly sourceProperty: string; readonly sourceName: string }
-  >();
+function declarationsHaveExactKeyAliases(declarations: readonly LiteralStyleDeclaration[]): boolean {
+  const exactKeyByAppliedProperty = new Map<string, string>();
 
   for (const declaration of declarations) {
-    if (declaration.property.startsWith('--')) continue;
     const normalized = normalizeProperty(declaration.property);
     if (normalized === undefined) continue;
 
-    const sourceName = declaration.property.split('.')[0] ?? '';
-    const previous = spellingsByBrowserProperty.get(normalized.property);
-    if (
-      previous !== undefined &&
-      ((previous.sourceName.toLowerCase() === sourceName.toLowerCase() && previous.sourceName !== sourceName) ||
-        (previous.sourceProperty.toLowerCase() === declaration.property.toLowerCase() &&
-          previous.sourceProperty !== declaration.property))
-    ) {
-      return true;
-    }
-    spellingsByBrowserProperty.set(normalized.property, {
-      sourceProperty: declaration.property,
-      sourceName,
-    });
+    const previous = exactKeyByAppliedProperty.get(normalized.property);
+    if (previous !== undefined && previous !== declaration.property) return true;
+    exactKeyByAppliedProperty.set(normalized.property, declaration.property);
   }
 
   return false;
 }
 
-export function responsiveStyleValuesHaveCaseCollidingProperties(values: readonly string[]): boolean {
+export function responsiveStyleValuesHaveExactKeyAliases(values: readonly string[]): boolean {
   const declarations: LiteralStyleDeclaration[] = [];
   for (const value of values) {
     const transformed = transformUpstreamRawList(value);
     if (transformed.status === 'parsed') declarations.push(...transformed.value.declarations);
   }
-  return declarationsHaveCaseCollidingProperties(declarations);
+  return declarationsHaveExactKeyAliases(declarations);
 }
 
 function normalizeDeclaration(
@@ -153,11 +141,10 @@ function normalizeDeclaration(
 export function parseLiteralResponsiveStyleValue(value: string): ResponsiveStyleValueResult {
   const transformed = transformUpstreamRawList(value);
   if (transformed.status === 'unverified') return transformed;
-  if (declarationsHaveCaseCollidingProperties(transformed.value.declarations)) {
+  if (declarationsHaveExactKeyAliases(transformed.value.declarations)) {
     return {
       status: 'unverified',
-      reason:
-        'Case-distinct ngStyle keys target the same browser CSS property, whose activation-history removal order cannot be represented exactly.',
+      reason: responsiveStyleExactKeyAliasReason,
     };
   }
 
