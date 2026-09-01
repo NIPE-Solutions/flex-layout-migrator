@@ -93,13 +93,21 @@ function isNumber(value: string): boolean {
   return /^(?:0|[1-9]\d*)(?:\.\d+)?$/u.test(value);
 }
 
+function isInteger(value: string): boolean {
+  return /^(?:0|[1-9]\d*)$/u.test(value);
+}
+
 function isPercentage(value: string): boolean {
   if (!isNumber(value)) return false;
   const number = Number(value);
   return number >= 0 && number <= 100;
 }
 
-function isBalancedValue(value: string): boolean {
+function hasValidArbitrarySyntax(value: string): boolean {
+  if (!value.startsWith('[') || !value.endsWith(']')) return false;
+  const inner = value.slice(1, -1);
+  if (inner.trim().length === 0) return false;
+
   const closingByOpening = new Map([
     ['(', ')'],
     ['[', ']'],
@@ -107,8 +115,22 @@ function isBalancedValue(value: string): boolean {
   ]);
   const stack: string[] = [];
   let quote: '"' | "'" | undefined;
+  let escaped = false;
+  let typedSeparator = -1;
 
-  for (const character of value) {
+  for (let index = 0; index < inner.length; index += 1) {
+    const character = inner[index];
+    if (character === undefined) return false;
+    const codePoint = character.codePointAt(0);
+    if (codePoint === undefined || codePoint <= 0x1f || codePoint === 0x7f) return false;
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (character === '\\') {
+      escaped = true;
+      continue;
+    }
     if (quote !== undefined) {
       if (character === quote) quote = undefined;
       continue;
@@ -123,15 +145,15 @@ function isBalancedValue(value: string): boolean {
       continue;
     }
     if ([')', ']', '}'].includes(character) && stack.pop() !== character) return false;
+    if (character === ';') return false;
+    if (character === ':' && stack.length === 0 && typedSeparator < 0) typedSeparator = index;
   }
 
-  return quote === undefined && stack.length === 0;
-}
-
-function isArbitraryValue(value: string): boolean {
-  if (!value.startsWith('[') || !value.endsWith(']')) return false;
-  const inner = value.slice(1, -1);
-  return inner.trim().length > 0 && isBalancedValue(inner);
+  if (escaped || quote !== undefined || stack.length !== 0) return false;
+  if (typedSeparator >= 0) {
+    return inner.slice(0, typedSeparator).trim().length > 0 && inner.slice(typedSeparator + 1).trim().length > 0;
+  }
+  return true;
 }
 
 function isCssVariableValue(value: string): boolean {
@@ -139,7 +161,7 @@ function isCssVariableValue(value: string): boolean {
 }
 
 function isArbitraryOrVariable(value: string): boolean {
-  return isArbitraryValue(value) || isCssVariableValue(value);
+  return hasValidArbitrarySyntax(value) || isCssVariableValue(value);
 }
 
 function isFraction(value: string): boolean {
@@ -163,23 +185,26 @@ function isInset(value: string): boolean {
   return isFractionalSpacing(value) || value === 'auto';
 }
 
-function isSized(value: string): boolean {
+function isDimension(value: string): boolean {
   return (
     isFractionalSpacing(value) ||
     value === 'auto' ||
-    ['screen', 'dvh', 'dvw', 'lvh', 'lvw', 'svh', 'svw', 'min', 'max', 'fit'].includes(value) ||
-    /^(?:3xs|2xs|xs|sm|md|lg|xl|[2-7]xl)$/u.test(value)
+    ['screen', 'dvh', 'dvw', 'lvh', 'lvw', 'svh', 'svw', 'min', 'max', 'fit'].includes(value)
   );
 }
 
+function isWidth(value: string): boolean {
+  return isDimension(value) || /^(?:3xs|2xs|xs|sm|md|lg|xl|[2-7]xl)$/u.test(value);
+}
+
 function isArbitraryColor(value: string): boolean {
-  if (!isArbitraryValue(value)) return false;
+  if (!hasValidArbitrarySyntax(value)) return false;
   const color = value.slice(1, -1);
   return /^(?:color:|#|(?:rgb|rgba|hsl|hsla|hwb|lab|lch|oklab|oklch|color|light-dark|color-mix|var)\()/u.test(color);
 }
 
 function isBackgroundImage(value: string): boolean {
-  if (!isArbitraryValue(value)) return false;
+  if (!hasValidArbitrarySyntax(value)) return false;
   const image = value.slice(1, -1);
   return /^(?:image:|url\(|(?:linear|radial|conic)-gradient\()/u.test(image);
 }
@@ -281,12 +306,12 @@ const namespaceRegistry: readonly NamespaceRule[] = Object.freeze([
     propertyGroup: 'padding',
     accepts: value => isNumber(value) || value === 'px' || isArbitraryOrVariable(value),
   },
-  { namespace: 'w', propertyGroup: 'width', accepts: isSized },
-  { namespace: 'h', propertyGroup: 'height', accepts: isSized },
-  { namespace: 'min-w', propertyGroup: 'min-width', accepts: isSized },
-  { namespace: 'min-h', propertyGroup: 'min-height', accepts: isSized },
-  { namespace: 'max-w', propertyGroup: 'max-width', accepts: value => value !== 'auto' && isSized(value) },
-  { namespace: 'max-h', propertyGroup: 'max-height', accepts: value => value !== 'auto' && isSized(value) },
+  { namespace: 'w', propertyGroup: 'width', accepts: isWidth },
+  { namespace: 'h', propertyGroup: 'height', accepts: isDimension },
+  { namespace: 'min-w', propertyGroup: 'min-width', accepts: isWidth },
+  { namespace: 'min-h', propertyGroup: 'min-height', accepts: isDimension },
+  { namespace: 'max-w', propertyGroup: 'max-width', accepts: value => value !== 'auto' && isWidth(value) },
+  { namespace: 'max-h', propertyGroup: 'max-height', accepts: value => value !== 'auto' && isDimension(value) },
   { namespace: 'text', propertyGroup: textPropertyGroup, accepts: acceptsText },
   { namespace: 'bg', propertyGroup: 'background-color', accepts: isColor },
   { namespace: 'bg', propertyGroup: 'background-image', accepts: isBackgroundImage },
@@ -294,7 +319,7 @@ const namespaceRegistry: readonly NamespaceRule[] = Object.freeze([
     namespace: 'border',
     propertyGroup: 'border',
     accepts: value =>
-      isNumber(value) ||
+      isInteger(value) ||
       isColor(value) ||
       oneOf(['solid', 'dashed', 'dotted', 'double', 'hidden', 'none'])(value) ||
       isArbitraryOrVariable(value),
@@ -358,9 +383,13 @@ const namespaceRegistry: readonly NamespaceRule[] = Object.freeze([
     namespace: 'rotate',
     propertyGroup: 'transform',
     negative: true,
-    accepts: value => isNumber(value) || isArbitraryOrVariable(value),
+    accepts: value => isInteger(value) || isArbitraryOrVariable(value),
   },
-  { namespace: 'scale', propertyGroup: 'transform', accepts: value => isNumber(value) || isArbitraryOrVariable(value) },
+  {
+    namespace: 'scale',
+    propertyGroup: 'transform',
+    accepts: value => isInteger(value) || isArbitraryOrVariable(value),
+  },
   { namespace: 'translate', propertyGroup: 'transform', negative: true, accepts: isFractionalSpacing },
   {
     namespace: 'transition',
@@ -485,11 +514,11 @@ const exactVariantRegistry = Object.freeze([
 
 function variantIsVerified(variant: string): boolean {
   if (exactVariantRegistry.includes(variant as (typeof exactVariantRegistry)[number])) return true;
-  return isArbitraryValue(variant);
+  return hasValidArbitrarySyntax(variant);
 }
 
 function parseArbitraryProperty(utility: string): string | undefined {
-  if (!utility.startsWith('[') || !utility.endsWith(']')) return undefined;
+  if (!hasValidArbitrarySyntax(utility)) return undefined;
   const inner = utility.slice(1, -1);
   const separator = inner.indexOf(':');
   if (separator <= 0) return undefined;
@@ -497,7 +526,7 @@ function parseArbitraryProperty(utility: string): string | undefined {
   const property = inner.slice(0, separator);
   const value = inner.slice(separator + 1);
   if (!/^(?:--[A-Za-z_][A-Za-z0-9_-]*|[A-Za-z][A-Za-z0-9-]*)$/u.test(property)) return undefined;
-  if (value.trim().length === 0 || value.includes(';') || !isBalancedValue(value)) return undefined;
+  if (value.trim().length === 0) return undefined;
   return property;
 }
 
@@ -531,7 +560,7 @@ export class TailwindCandidateClassifier {
     if (descriptor === undefined) {
       return { status: 'unverified', reason: 'The Tailwind candidate has malformed variant or bracket structure.' };
     }
-    if (descriptor.activation.kind === 'media') {
+    if (descriptor.hasGeneratedMediaVariant) {
       return {
         status: 'unverified',
         reason: 'Generated exact-media variants cannot be supplied as source candidates.',

@@ -15,6 +15,7 @@ export interface TailwindUtilityDescriptor {
   readonly utility: string;
   readonly propertyGroup?: string;
   readonly activation: TailwindActivation;
+  readonly hasGeneratedMediaVariant: boolean;
   readonly important: boolean;
 }
 
@@ -95,6 +96,10 @@ function activation(variants: readonly string[]): TailwindActivation {
   return { kind: 'base' };
 }
 
+function hasGeneratedMediaVariant(variants: readonly string[]): boolean {
+  return variants.some(variant => variant.startsWith('[@media_screen_and_'));
+}
+
 function propertyGroup(utility: string): string | undefined {
   const arbitraryProperty = utility.match(/^\[([^:]+):/u)?.[1];
   if (arbitraryProperty) {
@@ -171,6 +176,7 @@ export function describeTailwindUtility(token: string): TailwindUtilityDescripto
     utility,
     propertyGroup: propertyGroup(utility),
     activation: activation(variants),
+    hasGeneratedMediaVariant: hasGeneratedMediaVariant(variants),
     important,
   };
 }

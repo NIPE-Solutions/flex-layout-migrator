@@ -93,6 +93,7 @@ describe('describeTailwindUtility', () => {
       utility: 'text-white',
       propertyGroup: 'color',
       activation: { kind: 'base' },
+      hasGeneratedMediaVariant: false,
       important: true,
     });
   });
@@ -106,7 +107,17 @@ describe('describeTailwindUtility', () => {
       utility: 'flex',
       propertyGroup: 'display',
       activation: { kind: 'media', range: { min: 600, max: 959.98 } },
+      hasGeneratedMediaVariant: true,
       important: false,
+    });
+  });
+
+  test('tracks inverted generated-media syntax without manufacturing a valid media activation', () => {
+    const token = '[@media_screen_and_(min-width:_700px)_and_(max-width:_600px)]:flex';
+
+    expect(describeTailwindUtility(token)).toMatchObject({
+      activation: { kind: 'base' },
+      hasGeneratedMediaVariant: true,
     });
   });
 

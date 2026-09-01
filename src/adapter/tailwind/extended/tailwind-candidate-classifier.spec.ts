@@ -55,24 +55,42 @@ const compilerRejected = [
   'gap-brand',
   'w-brand',
   'w-7xs',
+  'h-3xs',
+  'min-h-3xs',
+  'max-h-3xs',
   'text-sm/brand',
   'm-1/2',
   'm-full',
   '-m-auto',
   'max-w-auto',
   'translate-auto',
+  'border-0.5',
+  'rotate-0.5',
+  'scale-0.5',
   'flexible',
   'items-centered',
   'grid-cols-',
   'hover:',
   'w-[17px',
   'w-17px]',
+  'w-[1px;color:red]',
+  '[;]:flex',
+  'bg-[image:]',
+  'bg-[image:\n]',
+  'flex\\',
   '[color:]',
   '[:red]',
 ] as const;
 
+const compilerToleratedPolicyRejected = [
+  'w-[1px\u0007]',
+  'w-[1px\\]',
+  '[@media_screen_and_(min-width:_700px)_and_(max-width:_600px)]:flex',
+] as const;
+
 const classifierRejected = [
   ...compilerRejected,
+  ...compilerToleratedPolicyRejected,
   '',
   '!',
   'w-\\[17px\\]',
@@ -119,4 +137,12 @@ describe('TailwindCandidateClassifier', () => {
   test.each(compilerRejected)('has no Tailwind CSS v4 output for rejected candidate %j', async candidate => {
     await expect(compiles(candidate)).resolves.toBe(false);
   });
+
+  test.each(compilerToleratedPolicyRejected)(
+    'rejects compiler-tolerated unsafe arbitrary syntax in %j',
+    async candidate => {
+      expect(new TailwindCandidateClassifier().classify(candidate).status).toBe('unverified');
+      await expect(compiles(candidate)).resolves.toBe(true);
+    },
+  );
 });
