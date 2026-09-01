@@ -81,7 +81,49 @@ All grid directives are recognized and preserved. Target conversion has not been
 
 ## Extended responsive inputs
 
-Responsive `class`, `ngClass`, `style`, `ngStyle`, and `imgSrc` inputs are recognized and preserved. Literal, bracket, and `bind-` class/style forms also preserve a visibility family that would generate display classes, because the unsupported responsive authority may override them. Ordinary unsuffixed HTML and Angular `class` and `style` attributes are not treated as Flex-Layout inputs.
+| Input                      | Tailwind  | Notes                                                                                |
+| -------------------------- | --------- | ------------------------------------------------------------------------------------ |
+| literal `ngClass.<alias>`  | Limited   | Converts complete families whose class tokens are proven Tailwind CSS v4 candidates. |
+| literal `ngStyle.<alias>`  | Limited   | Converts complete, sanitizer-safe declaration lists with exact CSS ownership.        |
+| deprecated `class.<alias>` | Preserved | Version-dependent replacement and merge behavior is not inferred.                    |
+| deprecated `style.<alias>` | Preserved | Version-dependent replacement and merge behavior is not inferred.                    |
+| responsive `imgSrc`        | Planned   | Recognized and reported; no target conversion is implemented.                        |
+
+The supported aliases are `xs`, `sm`, `md`, `lg`, `xl`, `lt-sm`, `lt-md`, `lt-lg`, `lt-xl`, `gt-xs`, `gt-sm`, `gt-md`, and `gt-lg`. Each emitted class contains the exact Angular Flex-Layout media range rather than a project-defined Tailwind breakpoint.
+
+```html
+<!-- input -->
+<div ngClass.sm="flex items-center"></div>
+<div ngStyle.lt-md="font-size.px: 14; color: #334155"></div>
+
+<!-- output -->
+<div
+  class="[@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:flex [@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:items-center"
+></div>
+<div
+  class="[@media_screen_and_(max-width:_959.98px)]:[font-size:14px] [@media_screen_and_(max-width:_959.98px)]:[color:#334155]"
+></div>
+```
+
+Responsive class values may contain utilities from the supported built-in Tailwind v4 surface, ordinary variants, negative or important utilities, supported arbitrary values, and arbitrary properties. Every token must be proven without reading project configuration. A value containing an application class, a plugin utility, or a custom-theme-dependent candidate is preserved as one atomic family with `tailwind-candidate-unverified` on the originating occurrence.
+
+Responsive style values may contain ordinary and custom properties, balanced literal functions, CSS variables, quoted values, and exact unit suffixes: `px`, `%`, `em`, `rem`, `vw`, `vh`, `vmin`, `vmax`, `deg`, `s`, and `ms`. They are emitted as Tailwind arbitrary-property utilities. URL-bearing values, sanitizer-sensitive functions, Tailwind build-time functions, interpolation, malformed declarations, unsupported units, conflicting duplicates, and shorthand/longhand overlap are preserved with `style-value-unverified`.
+
+The complete class or style family is planned atomically. Disjoint ranges and identical overlaps can convert; conflicting overlaps remain unchanged with `responsive-precedence-unverified`. Existing utilities and inline fallback styles are checked by CSS property ownership. An intersecting class conflict or an inline fallback declaration for the same property preserves the family. A responsive `ngStyle` declaration retains inline-writer precedence over an overlapping normal `ngClass` utility when both can be converted safely.
+
+Display-producing class and style values are composed with responsive layout and visibility before edits are created. Hidden visibility can own an exactly covered normal display candidate. Partial overlaps, important ownership, unresolved display authorities, and an implicit shown base that cannot be restored exactly preserve the related families.
+
+The following inputs are always preserved:
+
+- property, two-way, and `bind-` forms, even when an expression appears constant;
+- interpolated values;
+- orientation, print, custom, and empty breakpoint suffixes;
+- deprecated `class.<alias>` and `style.<alias>` selectors;
+- project-specific classes, plugin utilities, and candidates whose meaning depends on custom Tailwind theme values;
+- style values that cannot be sanitized and encoded byte-equivalently;
+- complete families with precedence, existing-class, inline-style, layout, or visibility ownership that cannot be proven safe.
+
+Ordinary unsuffixed HTML and Angular `class`, `ngClass`, `style`, and `ngStyle` inputs are fallback authorities, not Flex-Layout inputs. The current conversion does not edit CSS, Sass, Less, or Tailwind configuration and does not generate companion CSS. A future project-aware mode may inspect those sources and emit companion styles for application classes; this release deliberately leaves that path separate from exact template-only conversion.
 
 ## Bindings and breakpoints
 
@@ -96,7 +138,7 @@ The current safety gate preserves these cases for review:
 - unknown aliases, because they may be registered as custom project breakpoints;
 - visibility whose shown state needs a display value that cannot be proven from template and layout semantics;
 - visibility on an element whose literal or bound style may control `display`;
-- generated visibility output beside an unsupported responsive class or style authority;
+- generated visibility output beside an unresolved responsive class or style authority;
 - partially overlapping responsive layout and hidden ranges without proven display ownership;
 - generated visibility output that cannot be merged safely with bound classes or existing display utilities;
 - every directive not implemented by the selected target adapter.
@@ -106,6 +148,8 @@ This is intentional. Angular Flex-Layout's bounded and overlapping aliases are n
 ## Reporting API
 
 `Migrator#migrate()` returns one immutable migration report for file and directory inputs. The report uses schema version `1`, contains path-sorted file results and a derived summary, and uses the statuses `converted`, `review`, `unsupported`, `invalid`, and `parse-error`. Unresolved results include a stable diagnostic code, reason, and suggested action.
+
+Every non-parse result represents one directive occurrence. To measure responsive class and style conversion, filter results whose `directive` is `ngClass`, `ngStyle`, `class`, or `style`, then count `converted` versus all preserved statuses. The extended compatibility fixture currently asserts 39 converted and 24 preserved report results, while also checking every standard alias, exact diagnostics, byte-for-byte output, source-order independence, and a zero-edit second run. Empty breakpoint suffixes remain unchanged but are not responsive selectors and therefore do not create report results. These figures describe this test corpus only; repository measurements depend on the inputs scanned and do not establish project-level semantic coverage.
 
 Report paths use forward slashes and are relative to the input root. A single-file input uses its basename. Reports do not expose absolute checkout paths or internal analyzer fields.
 

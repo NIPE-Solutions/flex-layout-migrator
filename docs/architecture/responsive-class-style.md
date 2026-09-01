@@ -89,7 +89,7 @@ It accepts:
 - arbitrary properties such as `[color:#334155]` and `[--card-gap:1rem]`;
 - arbitrary values under a recognized built-in utility namespace;
 - built-in Tailwind v4 utility families represented by an explicit namespace and exact-token registry;
-- ordinary Tailwind variants, important modifiers, negative modifiers, and generated exact-media variants when their base utility is recognized.
+- ordinary Tailwind variants, important modifiers, and negative modifiers when their base utility is recognized.
 
 The initial registry covers the common layout, spacing, sizing, typography, color, background, border, radius, shadow, opacity, overflow, position, inset, transform, transition, grid, table, list, object, cursor, pointer, visibility, and accessibility utility families.
 
@@ -99,6 +99,7 @@ It rejects:
 - unknown namespaces and project plugin utilities;
 - malformed arbitrary values or variants;
 - candidates containing ambiguous source escapes;
+- source candidates containing a migrator-generated exact-media variant;
 - tokens whose Tailwind meaning depends on project configuration and cannot be distinguished from an application class.
 
 The registry is data, not a chain of directive-specific conditionals. Its tests compile representative accepted candidates with Tailwind CSS v4 and assert that representative rejected candidates produce no generated utility.
@@ -222,6 +223,20 @@ The compatibility corpus covers:
 - source-order independence and second-run idempotence.
 
 Coverage is measured by directive occurrences, not by declaring an entire project converted or unconverted. Public reports already expose exact unresolved results; documentation will explain how teams can aggregate diagnostic counts across representative repositories. The project does not claim universal conversion of arbitrary runtime behavior.
+
+The byte-exact compatibility fixture produces 63 extended responsive report results. It asserts 39 converted and 24 preserved results, every standard alias for both directives, the complete diagnostic histogram, source-order independence, and a zero-edit second migration. Empty breakpoint suffixes remain unchanged without being classified as responsive inputs. Visibility inputs in the same fixture are counted separately by the public report contract.
+
+## Compiler-proven output examples
+
+The release suite compiles representative emitted candidates with the default Tailwind CSS v4 compiler and verifies their declarations and exact media ranges. The proven surface includes:
+
+| Source value                                        | Emitted candidate                                                                                         | Verified CSS effect                               |
+| --------------------------------------------------- | --------------------------------------------------------------------------------------------------------- | ------------------------------------------------- |
+| `ngClass.gt-xs="w-[17px]"`                          | `[@media_screen_and_(min-width:_600px)]:w-[17px]`                                                         | `width: 17px` inside the minimum-width range      |
+| `ngClass.gt-sm="hover:bg-blue-600"`                 | `[@media_screen_and_(min-width:_960px)]:hover:bg-blue-600`                                                | a hover background rule inside the range          |
+| `ngStyle.lt-md="font-size.px: 14"`                  | `[@media_screen_and_(max-width:_959.98px)]:[font-size:14px]`                                              | `font-size: 14px` inside the maximum-width range  |
+| `ngStyle.sm="--Card_Gap: 1rem"`                     | `[@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:[--Card_Gap:1rem]`                      | the custom property and spelling are retained     |
+| `ngStyle.md="width: calc(100% - var(--gap, 1rem))"` | `[@media_screen_and_(min-width:_960px)_and_(max-width:_1279.98px)]:[width:calc(100%_-_var(--gap,_1rem))]` | source spaces decode back to the same calculation |
 
 ## Release contract
 

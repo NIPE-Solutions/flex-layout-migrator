@@ -8,6 +8,21 @@ import { ConversionPlanner } from '../../src/planner/conversion-planner';
 import { AngularTemplateParser } from '../../src/template/angular-template.parser';
 
 const fixtureDirectory = new URL('../fixtures/compatibility/', import.meta.url);
+const standardAliases = [
+  'xs',
+  'sm',
+  'md',
+  'lg',
+  'xl',
+  'lt-sm',
+  'lt-md',
+  'lt-lg',
+  'lt-xl',
+  'gt-xs',
+  'gt-sm',
+  'gt-md',
+  'gt-lg',
+] as const;
 
 function migrate(source: string, fileName = 'fixture.html') {
   const parsed = new AngularTemplateParser().parse(source, fileName);
@@ -50,6 +65,17 @@ function equivalentResults(results: readonly ConversionResult[]) {
           },
     )
     .sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)));
+}
+
+function extendedOccurrenceCounts(results: readonly ConversionResult[]) {
+  const counts = { converted: 0, preserved: 0 };
+  for (const result of results) {
+    if (result.status === 'parse-error') continue;
+    if (!['class', 'ngClass', 'style', 'ngStyle'].includes(result.input.directive)) continue;
+    if (result.status === 'converted') counts.converted += 1;
+    else counts.preserved += 1;
+  }
+  return counts;
 }
 
 async function fixture(name: string, kind: 'input' | 'expected'): Promise<string> {
@@ -204,5 +230,63 @@ describe('Angular template engine compatibility', () => {
     const result = migrate(input);
 
     expect(unresolvedCodes(result.results)).toEqual(preservedCodes.unresolved);
+  });
+
+  test('matches the extended responsive fixture byte-for-byte and reports occurrence coverage', async () => {
+    const input = await fixture('extended-responsive', 'input');
+    const expected = await fixture('extended-responsive', 'expected');
+
+    const first = migrate(input, 'extended-responsive.html');
+    expect(first.output).toBe(expected);
+    expect(resultCounts(first.results)).toEqual({
+      converted: 41,
+      review: 27,
+      unsupported: 0,
+      invalid: 0,
+      parseError: 0,
+    });
+    expect(diagnosticCounts(first.results)).toEqual({
+      'responsive-precedence-unverified': 4,
+      'class-conflict': 3,
+      'tailwind-candidate-unverified': 2,
+      'dynamic-binding': 4,
+      'semantic-unsupported': 2,
+      'custom-breakpoint': 1,
+      'breakpoint-unverified': 3,
+      'style-value-unverified': 3,
+      'context-unverified': 3,
+      'display-restoration-unverified': 2,
+    });
+    expect(extendedOccurrenceCounts(first.results)).toEqual({ converted: 39, preserved: 24 });
+
+    for (const directive of ['ngClass', 'ngStyle'] as const) {
+      const convertedAliases = new Set(
+        first.results.flatMap(result =>
+          result.status === 'converted' && result.input.directive === directive && result.input.breakpoint
+            ? [result.input.breakpoint]
+            : [],
+        ),
+      );
+      expect(convertedAliases).toEqual(new Set(standardAliases));
+    }
+
+    const second = migrate(first.output, 'extended-responsive.html');
+    expect(second.output).toBe(expected);
+    expect(second.editCount).toBe(0);
+    expect(extendedOccurrenceCounts(second.results)).toEqual({ converted: 0, preserved: 24 });
+  });
+
+  test('emits equivalent extended output independently of source attribute order', () => {
+    const classFirst = migrate(
+      '<div ngClass.sm="flex items-center" ngStyle.xs="color:red"></div>',
+      'extended-order.html',
+    );
+    const styleFirst = migrate(
+      '<div ngStyle.xs="color:red" ngClass.sm="flex items-center"></div>',
+      'extended-order.html',
+    );
+
+    expect(classFirst.output).toBe(styleFirst.output);
+    expect(equivalentResults(classFirst.results)).toEqual(equivalentResults(styleFirst.results));
   });
 });

@@ -122,4 +122,30 @@ describe('FileMigrator', () => {
     expect(await migrator.migrate()).toMatchObject({ changed: false, results: [] });
     expect(await readFile(input, 'utf8')).toBe(once);
   });
+
+  test('writes converted responsive class and style occurrences while preserving review cases', async () => {
+    await writeFile(
+      input,
+      '<div ngClass.sm="flex items-center"></div>\n<div ngClass.sm="card"></div>\n<div ngStyle.lt-md="font-size.px: 14"></div>\n<div ngStyle.sm="background-image:url(card.png)"></div>',
+      'utf8',
+    );
+
+    const result = await new FileMigrator(new TailwindAdapter(), input, output).migrate();
+
+    expect(await readFile(output, 'utf8')).toBe(
+      '<div class="[@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:flex [@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:items-center"></div>\n<div ngClass.sm="card"></div>\n<div class="[@media_screen_and_(max-width:_959.98px)]:[font-size:14px]"></div>\n<div ngStyle.sm="background-image:url(card.png)"></div>',
+    );
+    expect(
+      result.results.map(item => ({
+        status: item.status,
+        sourceName: item.status === 'parse-error' ? undefined : item.input.sourceName,
+        code: item.status === 'converted' || item.status === 'parse-error' ? undefined : item.code,
+      })),
+    ).toEqual([
+      { status: 'converted', sourceName: 'ngClass.sm', code: undefined },
+      { status: 'review', sourceName: 'ngClass.sm', code: 'tailwind-candidate-unverified' },
+      { status: 'converted', sourceName: 'ngStyle.lt-md', code: undefined },
+      { status: 'review', sourceName: 'ngStyle.sm', code: 'style-value-unverified' },
+    ]);
+  });
 });

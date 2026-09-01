@@ -77,6 +77,38 @@ function visibilityReviewResult(
   };
 }
 
+function extendedReviewResult(
+  fileName: string,
+  directive: 'ngClass' | 'ngStyle',
+  code: 'tailwind-candidate-unverified' | 'style-value-unverified',
+  offset: number,
+): ConversionResult {
+  const sourceName = `${directive}.sm`;
+  const input: LocatedFlexLayoutInput = {
+    id: `${fileName}:${offset}`,
+    fileName,
+    elementId: 'extended-element',
+    sourceName,
+    directive,
+    value: directive === 'ngClass' ? 'dashboard-panel' : 'background-image:url(card.png)',
+    binding: 'literal',
+    breakpoint: 'sm',
+    source: { start: offset, end: offset + sourceName.length },
+    nameSource: { start: offset, end: offset + sourceName.length },
+  };
+
+  return {
+    status: 'review',
+    input,
+    code,
+    reason:
+      directive === 'ngClass'
+        ? 'The class may be application-defined or supplied by a Tailwind plugin.'
+        : 'The declaration cannot be sanitized and encoded exactly.',
+    suggestion: 'Review this occurrence and migrate it manually when its project-specific behavior is known.',
+  };
+}
+
 function file(inputPath: string): FileMigrationResult {
   return {
     inputPath,
@@ -200,6 +232,52 @@ describe('JsonReportWriter', () => {
                 status: 'review',
                 sourceName: 'fxShow.sm',
                 code: 'display-restoration-unverified',
+              },
+            ],
+          },
+        ],
+      });
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  test('preserves responsive class and style review diagnostics as occurrence-level report results', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'json-report-writer-'));
+    const inputRoot = '/private/checkout/templates';
+    const outputRoot = '/private/checkout/generated';
+    const inputPath = `${inputRoot}/extended.component.html`;
+    const report = new MigrationReportBuilder().build(inputRoot, outputRoot, 'tailwind', false, 0, [
+      {
+        ...file(inputPath),
+        changed: false,
+        results: [
+          extendedReviewResult(inputPath, 'ngClass', 'tailwind-candidate-unverified', 12),
+          extendedReviewResult(inputPath, 'ngStyle', 'style-value-unverified', 54),
+        ],
+      },
+    ]);
+    const target = join(directory, 'reports', 'migration.json');
+
+    try {
+      await new JsonReportWriter().write(target, report);
+
+      expect(JSON.parse(await readFile(target, 'utf8'))).toMatchObject({
+        summary: { converted: 0, review: 2, unsupported: 0, invalid: 0, parseErrors: 0 },
+        files: [
+          {
+            results: [
+              {
+                status: 'review',
+                directive: 'ngClass',
+                sourceName: 'ngClass.sm',
+                code: 'tailwind-candidate-unverified',
+              },
+              {
+                status: 'review',
+                directive: 'ngStyle',
+                sourceName: 'ngStyle.sm',
+                code: 'style-value-unverified',
               },
             ],
           },
