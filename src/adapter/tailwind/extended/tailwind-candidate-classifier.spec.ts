@@ -68,7 +68,6 @@ const accepted = [
   ['not-sr-only', ['position', 'width', 'height', 'padding', 'margin', 'overflow', 'clip-path', 'white-space']],
   ['hover:bg-blue-600', ['background-color']],
   ['dark:hover:text-white', ['color']],
-  ['[&>*]:p-4', ['padding']],
   ['![color:red]', ['color']],
   ['[color:red]!', ['color']],
   ['[color:red!important]', ['color']],
@@ -114,6 +113,8 @@ const compilerRejected = [
   'w-17px]',
   'w-[1px;color:red]',
   '[;]:flex',
+  '[{}]:flex',
+  '[>img]:flex',
   'bg-[image:]',
   'bg-[image:\n]',
   'text-[14px]junk',
@@ -137,6 +138,22 @@ const compilerToleratedPolicyRejected = [
   'size-4',
   'divide-x-2',
   'ring-2',
+  '[&>*]:p-4',
+  '[&:hover]:flex',
+  'before:flex',
+  'after:flex',
+  'placeholder:text-slate-700',
+  'selection:bg-blue-500',
+  'marker:text-slate-700',
+  'file:border',
+  'backdrop:bg-blue-500',
+  'group-hover:flex',
+  'peer-checked:flex',
+  '[@supports(display:grid)]:flex',
+  'text-[1px_2px_3px_red]',
+  'border-[1px_2px_3px_red]',
+  'shadow-[color:red]',
+  'shadow-[#fff]',
 ] as const;
 
 const classifierRejected = [
@@ -178,6 +195,226 @@ async function compiledCssProperties(candidate: string): Promise<readonly string
   }
   return properties;
 }
+
+const fractionNamespaces = [
+  'w',
+  'h',
+  'min-w',
+  'min-h',
+  'max-w',
+  'max-h',
+  'inset',
+  'inset-x',
+  'inset-y',
+  'top',
+  'right',
+  'bottom',
+  'left',
+  'translate',
+] as const;
+const negativeFractionNamespaces = [
+  'inset',
+  'inset-x',
+  'inset-y',
+  'top',
+  'right',
+  'bottom',
+  'left',
+  'translate',
+] as const;
+const validFractionCandidates = fractionNamespaces.flatMap(namespace =>
+  ['0/2', '1/2', '2/3', '10/12'].map(value => `${namespace}-${value}`),
+);
+const validNegativeFractionCandidates = negativeFractionNamespaces.flatMap(namespace =>
+  ['1/2', '2/3'].map(value => `-${namespace}-${value}`),
+);
+const invalidFractionCandidates = [
+  ...fractionNamespaces,
+  ...negativeFractionNamespaces.map(namespace => `-${namespace}`),
+].flatMap(namespace => ['0.5/2', '1.5/2', '01/2', '1/02'].map(value => `${namespace}-${value}`));
+
+const exactAdmissionCandidates = [
+  'inline',
+  'block',
+  'inline-block',
+  'flow-root',
+  'flex',
+  'inline-flex',
+  'grid',
+  'inline-grid',
+  'contents',
+  'table',
+  'inline-table',
+  'list-item',
+  'hidden',
+  'flex-row',
+  'flex-row-reverse',
+  'flex-col',
+  'flex-col-reverse',
+  'flex-wrap',
+  'flex-wrap-reverse',
+  'flex-nowrap',
+  'static',
+  'fixed',
+  'absolute',
+  'relative',
+  'sticky',
+  'border',
+  'shadow',
+  'transition',
+  'visible',
+  'invisible',
+  'collapse',
+  'sr-only',
+  'not-sr-only',
+] as const;
+const namespaceAdmissionPrefixes = [
+  'items',
+  'gap',
+  'gap-x',
+  'gap-y',
+  'm',
+  'mx',
+  'my',
+  'mt',
+  'mr',
+  'mb',
+  'ml',
+  'ms',
+  'me',
+  'p',
+  'px',
+  'py',
+  'pt',
+  'pr',
+  'pb',
+  'pl',
+  'ps',
+  'pe',
+  'w',
+  'h',
+  'min-w',
+  'min-h',
+  'max-w',
+  'max-h',
+  'text',
+  'bg',
+  'border',
+  'rounded',
+  'shadow',
+  'opacity',
+  'overflow',
+  'inset',
+  'inset-x',
+  'inset-y',
+  'top',
+  'right',
+  'bottom',
+  'left',
+  'rotate',
+  'scale',
+  'translate',
+  'transition',
+  'grid-cols',
+  'table',
+  'list',
+  'object',
+  'cursor',
+  'pointer-events',
+] as const;
+const namespaceAdmissionSuffixes = [
+  '0',
+  '0.5',
+  '1',
+  '2',
+  '4',
+  '50',
+  '100',
+  'px',
+  'auto',
+  'full',
+  'screen',
+  'dvh',
+  'min',
+  'max',
+  'fit',
+  '3xs',
+  '2xs',
+  'xs',
+  'sm',
+  'md',
+  'lg',
+  'xl',
+  '2xl',
+  '4xl',
+  '7xl',
+  'none',
+  'start',
+  'end',
+  'center',
+  'baseline',
+  'stretch',
+  'solid',
+  'dashed',
+  'hidden',
+  'visible',
+  'scroll',
+  'all',
+  'colors',
+  'transform',
+  'subgrid',
+  'fixed',
+  'disc',
+  'inside',
+  'cover',
+  'left-top',
+  'pointer',
+  'not-allowed',
+  'red-500',
+  'red-500/50',
+  '[17px]',
+  '[length:17px]',
+  '[color:red]',
+  '[#fff]',
+  '[url(hero.png)]',
+  '[linear-gradient(red,blue)]',
+  '[1px_2px_3px_red]',
+  '[var(--probe)]',
+  '[{}]',
+  '(--probe)',
+  '1/2',
+  '0.5/2',
+  '01/2',
+  '1/02',
+] as const;
+const namespaceAdmissionCandidates = namespaceAdmissionPrefixes.flatMap(namespace =>
+  namespaceAdmissionSuffixes.flatMap(value => [`${namespace}-${value}`, `-${namespace}-${value}`]),
+);
+const variantAdmissionCandidates = [
+  'hover',
+  'focus',
+  'dark',
+  'sm',
+  'before',
+  'after',
+  'placeholder',
+  'selection',
+  'marker',
+  'file',
+  'backdrop',
+  'group-hover',
+  'peer-checked',
+  '[&>*]',
+  '[&:hover]',
+  '[{}]',
+  '[>img]',
+  '[@supports(display:grid)]',
+].flatMap(variant => ['flex', 'p-4', 'text-sm'].map(utility => `${variant}:${utility}`));
+const admissionAuditCandidates = [
+  ...exactAdmissionCandidates,
+  ...namespaceAdmissionCandidates,
+  ...variantAdmissionCandidates,
+];
 
 describe('TailwindCandidateClassifier', () => {
   test.each(accepted)(
@@ -252,4 +489,40 @@ describe('TailwindCandidateClassifier', () => {
       await expect(compiles(candidate)).resolves.toBe(true);
     },
   );
+
+  test.each([...validFractionCandidates, ...validNegativeFractionCandidates])(
+    'admits integer Tailwind fraction grammar with compiler output for %s',
+    async candidate => {
+      expect(new TailwindCandidateClassifier().classify(candidate).status).toBe('verified');
+      await expect(compiles(candidate)).resolves.toBe(true);
+    },
+  );
+
+  test.each(invalidFractionCandidates)(
+    'rejects non-integer or non-canonical Tailwind fraction grammar with no compiler output for %s',
+    async candidate => {
+      expect(new TailwindCandidateClassifier().classify(candidate).status).toBe('unverified');
+      await expect(compiles(candidate)).resolves.toBe(false);
+    },
+  );
+
+  test('keeps every verified candidate in a parameterized namespace and variant audit compiler-backed', async () => {
+    const classifier = new TailwindCandidateClassifier();
+    const mismatches: {
+      readonly candidate: string;
+      readonly modeled: readonly string[];
+      readonly emitted: readonly string[];
+    }[] = [];
+
+    for (const candidate of admissionAuditCandidates) {
+      const result = classifier.classify(candidate);
+      if (result.status !== 'verified') continue;
+      const emitted = await compiledCssProperties(candidate);
+      if (emitted.join('\0') !== result.descriptor.cssProperties.join('\0')) {
+        mismatches.push({ candidate, modeled: result.descriptor.cssProperties, emitted });
+      }
+    }
+
+    expect(mismatches).toEqual([]);
+  }, 15_000);
 });

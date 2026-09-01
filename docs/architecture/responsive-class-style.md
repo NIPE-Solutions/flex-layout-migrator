@@ -76,7 +76,7 @@ Disjoint ranges may convert independently. Duplicate activations may convert onl
 
 ### Literal parsing
 
-A literal class value is decoded by the Angular template parser and split using HTML whitespace rules. Empty tokens are discarded and duplicates are removed in first-seen order.
+A literal class value is decoded by the Angular template parser and split with Angular 15 `NgClass`'s `/\s+/` expression. This includes non-breaking and the other ECMAScript whitespace characters, not only HTML whitespace. Empty tokens are discarded and duplicates are removed in first-seen order.
 
 Every token must be independently proven as a Tailwind CSS v4 candidate. If one token is unverified, the complete responsive class family is preserved.
 
@@ -89,7 +89,7 @@ It accepts:
 - arbitrary properties such as `[color:#334155]` and `[--card-gap:1rem]`;
 - arbitrary values under a recognized built-in utility namespace;
 - built-in Tailwind v4 utility families represented by an explicit namespace and exact-token registry;
-- ordinary Tailwind variants, important modifiers, and negative modifiers when their base utility is recognized.
+- explicitly registered same-element state and media variants, important modifiers, and negative modifiers when their base utility is recognized.
 
 The initial registry covers the common layout, spacing, sizing, typography, color, background, border, radius, shadow, opacity, overflow, position, inset, transform, transition, grid, table, list, object, cursor, pointer, visibility, and accessibility utility families.
 
@@ -98,6 +98,8 @@ It rejects:
 - bare application class names such as `card`, `selected`, or `dashboard-panel`;
 - unknown namespaces and project plugin utilities;
 - malformed arbitrary values or variants;
+- variants that retarget a pseudo-element, descendant, group/peer target, or another element, plus arbitrary selector and at-rule variants until selector ownership is modeled;
+- fractions whose numerator or denominator is not a canonical integer, and arbitrary typography, border, or shadow forms whose compiler-selected property is ambiguous;
 - candidates containing ambiguous source escapes;
 - decoded candidates that require HTML entity serialization or otherwise differ from the raw bytes Tailwind scans;
 - source candidates containing a migrator-generated exact-media variant;
@@ -131,7 +133,7 @@ An unsuffixed `ngClass` is part of the complete replacement family even though i
 
 ### Literal style parsing
 
-`ResponsiveStyleValueParser` reproduces the final Flex-Layout raw-string transform before applying conservative safety checks. The decoded string is trimmed and split at every semicolon, including semicolons inside quotes or functions. Each entry is split at its first colon and all single- and double-quote characters are removed from its key and value. Flex-Layout first reduces exact keys into a JavaScript object: a duplicate exact key replaces its value without moving its first insertion position, while a differently cased key remains a separate later renderer entry. Browser-normalized ownership is applied only after that exact-key order is retained. The result then follows Angular 15 `NgStyle` property and optional unit handling.
+`ResponsiveStyleValueParser` reproduces the final Flex-Layout raw-string transform before applying conservative safety checks. The decoded string is trimmed and split at every semicolon, including semicolons inside quotes or functions. Each entry is split at its first colon and all single- and double-quote characters are removed from its key and value. Flex-Layout first reduces exact keys into a JavaScript object: a duplicate exact key replaces its value without moving that key's first insertion position. A differently cased ordinary key remains a distinct `NgStyle` differ entry even though the browser normalizes both entries to the same CSS property. Such a collision is rejected both within one state and across the complete responsive family because removal/application order after an activation transition can depend on prior state. Custom properties are case-sensitive and do not collide under this rule. Remaining declarations then follow Angular 15 `NgStyle` property and optional unit handling.
 
 Supported declarations include:
 
@@ -146,6 +148,7 @@ The parser rejects the complete family for:
 - URL-bearing or sanitizer-sensitive values whose upstream sanitized result cannot be reproduced statically;
 - Angular expression syntax or interpolation;
 - property/unit combinations without an exact CSS representation;
+- case-distinct ordinary keys that target the same browser CSS property within a state or across the responsive family;
 - declaration `!important` text, including case and trivia variants, because Angular `NgStyle` passes the text as a value without setting CSS priority;
 - values that cannot be encoded as byte-identical raw HTML source and compiler-proven without semantic change.
 
@@ -196,7 +199,7 @@ An unresolved extended family retains its original attributes. It may force a re
 
 No empty `class` attribute or byte-identical class-value edit is created.
 
-The class editor never reserializes an existing value. Quoted values retain their delimiter and raw bytes; a physical separator and proven generated tokens are appended. A valid unquoted value is safely quoted as one attribute, a valueless `class` is replaced rather than duplicated, and an absent attribute is inserted normally. Generated candidates are admitted only when their raw bytes need no escaping under both supported quote delimiters and Angular reparses the same token. This preserves existing source such as `[&>*]:p-4` while rejecting quote or named-reference content that HTML escaping would hide from Tailwind's raw scanner.
+The class editor never reserializes an existing value. Quoted values retain their delimiter and raw bytes; a physical separator and proven generated tokens are appended. A valid unquoted value is safely quoted as one attribute, a valueless `class` is replaced rather than duplicated, and an absent attribute is inserted normally. Generated candidates are admitted only when their raw bytes need no escaping under both supported quote delimiters and Angular reparses the same token. Existing source such as `[&>*]:p-4` therefore remains byte-identical while other proven tokens are appended; the same token in responsive `ngClass` is preserved because its selector targets descendants. Quote or named-reference content is also rejected because HTML escaping would hide the decoded token from Tailwind's raw scanner.
 
 ## Diagnostics
 
@@ -221,14 +224,14 @@ The compatibility corpus covers:
 
 - all 13 aliases for class and style;
 - representative built-in Tailwind utility families and arbitrary properties;
-- decoded entities and whitespace;
+- decoded entities and Angular `NgClass` ECMAScript whitespace, including non-breaking space;
 - disjoint, duplicate, identical-overlap, and conflicting-overlap families;
 - existing literal and bound class/style evidence;
 - application classes and plugin-like utilities;
 - fallback inline-style overlap;
 - empty, literal, and bound unsuffixed `ngClass`/`ngStyle` fallback authority;
 - Flex-Layout raw-string quote removal and unconditional semicolon splitting;
-- exact-key duplicate and case-collision application order;
+- exact-key duplicates plus atomic preservation of within-state and cross-state case collisions;
 - declaration-priority rejection;
 - raw Tailwind source discovery and complete multi-property ownership;
 - display interaction with visibility and layout;
@@ -237,7 +240,7 @@ The compatibility corpus covers:
 
 Coverage is measured by directive occurrences, not by declaring an entire project converted or unconverted. Public reports already expose exact unresolved results; documentation will explain how teams can aggregate diagnostic counts across representative repositories. The project does not claim universal conversion of arbitrary runtime behavior.
 
-The byte-exact compatibility fixture produces 78 extended responsive report results. It asserts 42 converted and 36 preserved results, every standard alias for both directives, the complete diagnostic histogram, one raw Tailwind CSS v4 CLI proof covering every expected generated token, and a zero-edit second migration. A separate compatibility test asserts source-order independence within multi-state class and style families. Empty breakpoint suffixes remain unchanged without being classified as responsive inputs. Visibility and other non-extended inputs in the fixture are counted separately by the public report contract.
+The byte-exact compatibility fixture produces 78 extended responsive report results. It asserts 41 converted and 37 preserved results, every standard alias for both directives, the complete diagnostic histogram, one raw Tailwind CSS v4 CLI proof covering every expected generated token, and a zero-edit second migration. A separate compatibility test asserts source-order independence within multi-state class and style families. Empty breakpoint suffixes remain unchanged without being classified as responsive inputs. Visibility and other non-extended inputs in the fixture are counted separately by the public report contract.
 
 ## Compiler-proven output examples
 

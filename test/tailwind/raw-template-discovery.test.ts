@@ -66,7 +66,7 @@ describe('Tailwind raw template discovery', () => {
     await expect(scanRawTemplate(rawTemplate)).resolves.toBe(expectedCss.trimEnd());
   });
 
-  test('discovers an exact ampersand selector but does not decode HTML references into candidates', async () => {
+  test('sees existing raw ampersand selectors but does not decode HTML references into candidates', async () => {
     const theme = await readFile(tailwindTheme, 'utf8');
     const tailwindSource = `${theme}\n@tailwind utilities;`;
     const exactCandidate = '[&>*]:p-4';

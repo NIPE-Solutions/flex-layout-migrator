@@ -165,6 +165,23 @@ describe('ExtendedResponsivePlanner', () => {
     });
   });
 
+  test('preserves a style family whose states use case-distinct keys for the same browser property', () => {
+    const lower = input('ngStyle', 'gt-xs', 'font-size: 20px');
+    const upper = input('ngStyle', 'sm', 'FONT-SIZE: 20px');
+
+    const result = stylePlan(producedStyleFamily([lower, upper]));
+
+    expectUnresolvedWithCode(result, 'style-value-unverified');
+    expect(result.plans.map(plan => plan.input)).toEqual([upper, lower]);
+  });
+
+  test('allows exact duplicate key spelling across responsive style states', () => {
+    const lower = input('ngStyle', 'gt-xs', 'font-size: 20px');
+    const exact = input('ngStyle', 'sm', 'font-size: 20px');
+
+    expect(stylePlan(producedStyleFamily([lower, exact])).status).toBe('converted');
+  });
+
   test('keeps ordinary base application classes compatible with responsive class output', () => {
     const state = classState('sm', ['flex', 'items-center']);
 

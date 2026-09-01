@@ -14,7 +14,10 @@ import type { ResponsiveStyleValue } from './responsive-style.model';
 import { TailwindCandidateClassifier } from './tailwind-candidate-classifier';
 import { cssPropertiesOverlap } from './css-property-ownership';
 import { parseLiteralResponsiveClassValue } from './responsive-class-value.parser';
-import { parseLiteralResponsiveStyleValue } from './responsive-style-value.parser';
+import {
+  parseLiteralResponsiveStyleValue,
+  responsiveStyleValuesHaveCaseCollidingProperties,
+} from './responsive-style-value.parser';
 
 interface ExtendedResponsiveRequestBase {
   readonly existingClassNames: readonly string[];
@@ -148,6 +151,19 @@ export class ExtendedResponsivePlanner {
     } else {
       const styleStates = this.canonicalStates(request.familyPlan.states);
       states = styleStates;
+      if (responsiveStyleValuesHaveCaseCollidingProperties(styleStates.map(state => state.input.value))) {
+        return {
+          status: 'unresolved',
+          plans: styleStates.map(state =>
+            diagnostic(
+              state.input,
+              'style-value-unverified',
+              'Case-distinct ngStyle keys target the same browser CSS property across this responsive family, whose activation-history removal order cannot be represented exactly.',
+              'Keep the complete responsive style family or normalize its property-key spelling before migration.',
+            ),
+          ),
+        };
+      }
       const fallback = this.styleFallback(styleStates, request.attributes);
       if (fallback !== undefined) return fallback;
       emission = this.emitStyle(styleStates);

@@ -22,7 +22,7 @@ function input(overrides: Partial<LocatedFlexLayoutInput> = {}): LocatedFlexLayo
 const classifier = new TailwindCandidateClassifier();
 
 describe('parseResponsiveClassValue', () => {
-  test('splits decoded values on HTML whitespace and removes duplicate tokens in first-seen order', () => {
+  test('splits decoded values on Angular NgClass whitespace and removes duplicate tokens in first-seen order', () => {
     expect(
       parseResponsiveClassValue(input({ value: ' flex\titems-center\nflex\fgrid\ritems-center ' }), classifier),
     ).toEqual({
@@ -31,11 +31,27 @@ describe('parseResponsiveClassValue', () => {
     });
   });
 
-  test('classifies decoded entity characters instead of source entity spellings', () => {
-    expect(parseResponsiveClassValue(input({ value: '[&>*]:block' }), classifier)).toEqual({
-      status: 'parsed',
-      value: { tokens: ['[&>*]:block'] },
+  test('preserves an arbitrary selector whose CSS ownership targets a descendant', () => {
+    expect(parseResponsiveClassValue(input({ value: '[&>*]:block' }), classifier)).toMatchObject({
+      status: 'unverified',
+      token: '[&>*]:block',
     });
+  });
+
+  test.each(['\u000b', '\u00a0', '\u1680', '\u2007', '\u2028', '\u2029', '\u202f', '\u205f', '\u3000', '\ufeff'])(
+    'tokenizes literal classes with Angular NgClass ECMAScript whitespace %j',
+    separator => {
+      expect(parseResponsiveClassValue(input({ value: `flex${separator}items-center` }), classifier)).toEqual({
+        status: 'parsed',
+        value: { tokens: ['flex', 'items-center'] },
+      });
+    },
+  );
+
+  test('splits an arbitrary selector at a non-breaking space exactly as Angular NgClass does', () => {
+    const result = parseResponsiveClassValue(input({ value: '[&>\u00a0*]:flex' }), classifier);
+
+    expect(result).toMatchObject({ status: 'unverified', token: '[&>' });
   });
 
   test('accepts proven variant-bearing utilities and arbitrary properties', () => {

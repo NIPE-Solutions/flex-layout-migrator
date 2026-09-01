@@ -369,15 +369,30 @@ describe('ConversionPlanner', () => {
     expect(result.results.every(item => item.status === 'converted')).toBe(true);
   });
 
-  test('preserves upstream exact-key order before emitting a case-colliding responsive ngStyle property', () => {
-    const source = '<div ngStyle.sm="font-size:10px; FONT-SIZE:20px; font-size:30px"></div>';
-    const expected =
-      '<div class="[@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:[font-size:20px]"></div>';
+  test.each([
+    ['cold case collision', '<div ngStyle.sm="font-size:10px; FONT-SIZE:20px; font-size:30px"></div>'],
+    ['activation transition collision', '<div ngStyle.gt-xs="font-size:20px" ngStyle.sm="FONT-SIZE:20px"></div>'],
+  ])('preserves an activation-history-dependent responsive ngStyle %s atomically', (_case, source) => {
     const first = migrate(source);
 
-    expect(first.output).toBe(expected);
-    expect(first.results).toEqual([expect.objectContaining({ status: 'converted' })]);
-    expect(migrate(first.output)).toMatchObject({ output: expected, edits: [], results: [] });
+    expect(first.output).toBe(source);
+    expect(first.edits).toEqual([]);
+    expect(first.results.every(result => result.status === 'review' && result.code === 'style-value-unverified')).toBe(
+      true,
+    );
+    expect(migrate(first.output)).toMatchObject({ output: source, edits: [] });
+  });
+
+  test('preserves safe responsive style siblings when one state has case-colliding keys', () => {
+    const source = '<div ngStyle.xs="color:red" ngStyle.sm="font-size:10px; FONT-SIZE:20px"></div>';
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.edits).toEqual([]);
+    expect(result.results).toEqual([
+      expect.objectContaining({ status: 'review', code: 'context-unverified' }),
+      expect.objectContaining({ status: 'review', code: 'style-value-unverified' }),
+    ]);
   });
 
   test('preserves a multi-property responsive class when inline ownership covers only one declaration', () => {
@@ -870,20 +885,66 @@ describe('ConversionPlanner', () => {
     expect(result.results).toEqual([expect.objectContaining({ status: 'review', code })]);
   });
 
-  test('emits a byte-exact raw arbitrary-selector candidate whose ampersand is not an HTML reference', () => {
+  test('preserves a responsive arbitrary-selector candidate whose CSS target is not the host element', () => {
     const source = '<div ngClass.sm="[&>*]:p-4"></div>';
-    const expected = '<div class="[@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:[&>*]:p-4"></div>';
     const first = migrate(source);
 
-    expect(first.output).toBe(expected);
-    const parsed = new AngularTemplateParser().parse(first.output, 'fixture.html');
-    expect(parsed.status).toBe('parsed');
-    if (parsed.status !== 'parsed') throw new Error('Expected generated template to parse.');
-    expect(parsed.elements[0]?.attributes.find(attribute => attribute.name === 'class')).toMatchObject({
-      rawValue: '[@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:[&>*]:p-4',
-      value: '[@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:[&>*]:p-4',
-    });
-    expect(migrate(first.output)).toMatchObject({ output: expected, edits: [], results: [] });
+    expect(first.output).toBe(source);
+    expect(first.edits).toEqual([]);
+    expect(first.results).toEqual([
+      expect.objectContaining({ status: 'review', code: 'tailwind-candidate-unverified' }),
+    ]);
+  });
+
+  test.each([
+    'before:flex',
+    'after:flex',
+    'placeholder:text-slate-700',
+    'selection:bg-blue-500',
+    'marker:text-slate-700',
+    'file:border',
+    'backdrop:bg-blue-500',
+    'group-hover:flex',
+    'peer-checked:flex',
+    '[&:hover]:flex',
+    '[{}]:flex',
+    '[>img]:flex',
+  ])('preserves responsive target-changing or compiler-empty candidate %s', candidate => {
+    const source = `<div ngClass.sm="${candidate}"></div>`;
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.edits).toEqual([]);
+    expect(result.results).toEqual([
+      expect.objectContaining({ status: 'review', code: 'tailwind-candidate-unverified' }),
+    ]);
+  });
+
+  test('does not reserialize an existing arbitrary-selector class while preserving a target-changing candidate', () => {
+    const source = '<div class="[&>*]:p-4" ngClass.sm="before:flex"></div>';
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.edits).toEqual([]);
+  });
+
+  test('tokenizes responsive class strings with Angular NgClass ECMAScript whitespace', () => {
+    const source = '<div ngClass.sm="flex\u00a0items-center"></div>';
+    const expected =
+      '<div class="[@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:flex [@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:items-center"></div>';
+
+    expect(migrate(source).output).toBe(expected);
+  });
+
+  test('preserves a non-breaking-space-split arbitrary selector exactly as Angular NgClass tokenizes it', () => {
+    const source = '<div ngClass.sm="[&>\u00a0*]:flex"></div>';
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.edits).toEqual([]);
+    expect(result.results).toEqual([
+      expect.objectContaining({ status: 'review', code: 'tailwind-candidate-unverified' }),
+    ]);
   });
 
   test.each([

@@ -140,7 +140,7 @@ function isArbitraryOrVariable(value: string): boolean {
 
 function isFraction(value: string): boolean {
   const [numerator, denominator, remainder] = value.split('/');
-  return remainder === undefined && isNumber(numerator ?? '') && /^[1-9]\d*$/u.test(denominator ?? '');
+  return remainder === undefined && isInteger(numerator ?? '') && /^[1-9]\d*$/u.test(denominator ?? '');
 }
 
 function isSpacing(value: string): boolean {
@@ -203,7 +203,12 @@ function textCssProperties(value: string): readonly string[] | undefined {
   if (textSizes.includes((size ?? '') as (typeof textSizes)[number])) {
     return hasVerifiedLineHeight ? ['font-size', 'line-height'] : undefined;
   }
-  if (hasCompilerMeaningfulArbitraryValue(size ?? '') && /^\[(?:length:)?\d[^\]]*\]$/u.test(size ?? '')) {
+  const arbitrarySize = size ?? '';
+  const hasUnambiguousArbitrarySize =
+    hasCompilerMeaningfulArbitraryValue(arbitrarySize) &&
+    (/^\[length:\d[^\]]*\]$/u.test(arbitrarySize) ||
+      /^\[(?:(?:\d+(?:\.\d*)?)|(?:\.\d+))(?:[a-z%]+)?\]$/iu.test(arbitrarySize));
+  if (hasUnambiguousArbitrarySize) {
     if (!hasVerifiedLineHeight) return undefined;
     return lineHeight === undefined ? ['font-size'] : ['font-size', 'line-height'];
   }
@@ -217,7 +222,12 @@ function acceptsText(value: string): boolean {
 }
 
 function borderCssProperties(value: string): readonly string[] | undefined {
-  if (isInteger(value) || /^\[(?:length:)?(?:\d|\.\d)/u.test(value)) {
+  if (
+    isInteger(value) ||
+    (hasCompilerMeaningfulArbitraryValue(value) &&
+      (/^\[length:(?:\d|\.\d)[^\]]*\]$/u.test(value) ||
+        /^\[(?:(?:\d+(?:\.\d*)?)|(?:\.\d+))(?:[a-z%]+)?\]$/iu.test(value)))
+  ) {
     return ['border-style', 'border-width'];
   }
   if (oneOf(['solid', 'dashed', 'dotted', 'double', 'hidden', 'none'])(value)) {
@@ -347,7 +357,9 @@ const namespaceRegistry: readonly NamespaceRule[] = Object.freeze([
     namespace: 'shadow',
     cssProperties: ['--tw-shadow', 'box-shadow'],
     accepts: value =>
-      oneOf(['2xs', 'xs', 'sm', 'md', 'lg', 'xl', '2xl', 'none'])(value) || isArbitraryOrVariable(value),
+      oneOf(['2xs', 'xs', 'sm', 'md', 'lg', 'xl', '2xl', 'none'])(value) ||
+      isCssVariableValue(value) ||
+      (hasCompilerMeaningfulArbitraryValue(value) && !isArbitraryColor(value)),
   },
   {
     namespace: 'opacity',
@@ -522,10 +534,6 @@ const exactVariantRegistry = Object.freeze([
   'required',
   'valid',
   'invalid',
-  'before',
-  'after',
-  'placeholder',
-  'selection',
   'dark',
   'motion-safe',
   'motion-reduce',
@@ -542,8 +550,7 @@ const exactVariantRegistry = Object.freeze([
 ] as const);
 
 function variantIsVerified(variant: string): boolean {
-  if (exactVariantRegistry.includes(variant as (typeof exactVariantRegistry)[number])) return true;
-  return hasValidArbitrarySyntax(variant);
+  return exactVariantRegistry.includes(variant as (typeof exactVariantRegistry)[number]);
 }
 
 function parseArbitraryProperty(utility: string): string | undefined {
@@ -603,7 +610,10 @@ export class TailwindCandidateClassifier {
       };
     }
     if (!descriptor.variants.every(variantIsVerified)) {
-      return { status: 'unverified', reason: 'The Tailwind candidate contains an unverified variant.' };
+      return {
+        status: 'unverified',
+        reason: 'The Tailwind candidate contains an unverified or target-changing variant.',
+      };
     }
 
     const arbitraryProperty = parseArbitraryProperty(descriptor.utility);

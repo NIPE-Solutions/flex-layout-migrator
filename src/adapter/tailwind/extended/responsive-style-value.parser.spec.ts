@@ -77,18 +77,18 @@ describe('parseLiteralStyleDeclarations', () => {
 });
 
 describe('parseResponsiveStyleValue', () => {
-  test('normalizes dashed property names, preserves custom-property spelling, and applies upstream last-value wins', () => {
+  test('normalizes dashed property names, preserves custom-property spelling, and applies exact-key last-value wins', () => {
     expect(
       parseResponsiveStyleValue(
         input({
-          value: 'Z-INDEX: 1; color: red; z-index: 1; --Theme_Gap: 1rem; --theme_gap: 2rem; color: #334155',
+          value: 'Z-INDEX: 1; color: red; Z-INDEX: 2; --Theme_Gap: 1rem; --theme_gap: 2rem; color: #334155',
         }),
       ),
     ).toEqual({
       status: 'parsed',
       value: {
         declarations: [
-          { property: 'z-index', value: '1' },
+          { property: 'z-index', value: '2' },
           { property: 'color', value: '#334155' },
           { property: '--Theme_Gap', value: '1rem' },
           { property: '--theme_gap', value: '2rem' },
@@ -167,13 +167,15 @@ describe('parseResponsiveStyleValue', () => {
   });
 
   test.each([
-    ['lowercase key inserted before its uppercase collision', 'font-size:10px; FONT-SIZE:20px; font-size:30px', '20px'],
-    ['uppercase key inserted before its lowercase collision', 'FONT-SIZE:20px; font-size:10px; FONT-SIZE:30px', '10px'],
-  ])('reduces exact upstream keys before browser case normalization: %s', (_case, value, expected) => {
-    expect(parseResponsiveStyleValue(input({ value }))).toEqual({
-      status: 'parsed',
-      value: { declarations: [{ property: 'font-size', value: expected }] },
-    });
+    ['lowercase key inserted before its uppercase collision', 'font-size:10px; FONT-SIZE:20px; font-size:30px'],
+    ['uppercase key inserted before its lowercase collision', 'FONT-SIZE:20px; font-size:10px; FONT-SIZE:30px'],
+    ['unit-suffixed key casing collision', 'font-size.PX:10; FONT-SIZE.px:20'],
+  ])('preserves ordinary CSS keys whose exact spelling collides case-insensitively: %s', (_case, value) => {
+    const result = parseResponsiveStyleValue(input({ value }));
+
+    expect(result).toMatchObject({ status: 'unverified' });
+    if (result.status !== 'unverified') throw new Error('Expected the case-colliding style value to be unverified.');
+    expect(result.reason).toMatch(/case|spelling|activation/iu);
   });
 
   test.each(['margin-top:1px; MARGIN:2px; margin-top:3px', 'MARGIN:2px; margin-top:1px; MARGIN:3px'])(
