@@ -1,5 +1,4 @@
 import type { LocatedFlexLayoutInput } from '../../analyzer/flex-layout-attribute.analyzer';
-import { isKnownBreakpoint } from '../../analyzer/flex-layout.catalog';
 import type { ConversionAdapter, ConversionContext, PlannedConversion } from '../conversion-adapter';
 import { planLayoutGap } from './directives/layout-gap.strategy';
 import { planFlexItem } from './directives/flex-item.strategy';
@@ -9,12 +8,18 @@ import { planLayoutAlign } from './directives/layout-align.strategy';
 import { planIndependentDirective } from './independent-directive.registry';
 import type { TemplateAttribute } from '../../template/template.model';
 import { planLayout } from './directives/layout.strategy';
-import { hasTailwindClassConflict } from './tailwind-class-conflict';
+import { findTailwindClassConflicts } from './tailwind-class-conflict';
+import { BreakpointCatalog } from '../../breakpoint/breakpoint-catalog';
+import { ResponsiveVariantEmitter } from './responsive-variant.emitter';
+import { planResponsiveClasses } from './responsive-plan';
+import { ResponsiveFamilyPlanner } from './responsive-family.planner';
 
 const flexItemDirectives = new Set<LocatedFlexLayoutInput['directive']>(['fxFlex', 'fxGrow', 'fxShrink']);
 
 const supportedDirectives = new Set<LocatedFlexLayoutInput['directive']>([
   'fxFlex',
+  'fxGrow',
+  'fxShrink',
   'fxFlexAlign',
   'fxFlexFill',
   'fxFill',
@@ -39,23 +44,15 @@ function toPlannedConversion(input: LocatedFlexLayoutInput, result: TailwindStra
   return { ...result, input };
 }
 
-function preserveRequiredLayoutContext(plans: readonly PlannedConversion[]): readonly PlannedConversion[] {
-  const unresolvedDependent = plans.some(
-    plan =>
-      (plan.input.directive === 'fxLayoutGap' || plan.input.directive === 'fxLayoutAlign') &&
-      plan.status !== 'converted',
-  );
-  if (!unresolvedDependent) return plans;
-  return plans.map(plan =>
-    plan.input.directive === 'fxLayout' && plan.status === 'converted'
-      ? {
-          status: 'review',
-          input: plan.input,
-          code: 'context-unverified',
-          reason: 'This layout is required to preserve an unresolved context-dependent directive.',
-          suggestion: 'Migrate the layout and its dependent directives together after resolving their behavior.',
-        }
-      : plan,
+function toResponsivePlannedConversion(
+  input: LocatedFlexLayoutInput,
+  result: TailwindStrategyResult,
+  catalog: BreakpointCatalog,
+  emitter: ResponsiveVariantEmitter,
+): PlannedConversion {
+  return toPlannedConversion(
+    input,
+    result.status === 'converted' ? planResponsiveClasses(input, result.classNames, catalog, emitter) : result,
   );
 }
 
@@ -71,22 +68,31 @@ function staticLayoutContext(attributes: readonly TemplateAttribute[]): string |
 
 export class TailwindAdapter implements ConversionAdapter {
   readonly name = 'tailwind' as const;
+  private readonly breakpointCatalog = new BreakpointCatalog();
+  private readonly responsiveEmitter = new ResponsiveVariantEmitter();
+  private readonly responsiveFamilyPlanner = new ResponsiveFamilyPlanner(
+    this.breakpointCatalog,
+    this.responsiveEmitter,
+  );
 
   resolveClassConflicts(
     plans: readonly PlannedConversion[],
     existingClassNames: readonly string[],
   ): readonly PlannedConversion[] {
-    const conflictingIds = new Set(
-      plans
-        .filter(plan => plan.status === 'converted' && hasTailwindClassConflict(existingClassNames, plan.classNames))
-        .map(plan => plan.input.id),
+    const convertedPlans = plans.filter(
+      (plan): plan is Extract<PlannedConversion, { readonly status: 'converted' }> => plan.status === 'converted',
     );
-    const flexConflict = plans.some(
-      plan => conflictingIds.has(plan.input.id) && flexItemDirectives.has(plan.input.directive),
+    const conflictingTokens = findTailwindClassConflicts(
+      existingClassNames,
+      convertedPlans.flatMap(plan => plan.classNames),
+    );
+    const conflictingFamilies = new Set(
+      convertedPlans
+        .filter(plan => plan.classNames.some(className => conflictingTokens.has(className)))
+        .map(plan => this.directiveFamily(plan.input.directive)),
     );
     return plans.map(plan =>
-      plan.status === 'converted' &&
-      (conflictingIds.has(plan.input.id) || (flexConflict && flexItemDirectives.has(plan.input.directive)))
+      plan.status === 'converted' && conflictingFamilies.has(this.directiveFamily(plan.input.directive))
         ? {
             status: 'review',
             input: plan.input,
@@ -98,109 +104,47 @@ export class TailwindAdapter implements ConversionAdapter {
     );
   }
 
+  closePlanDependencies(
+    plans: readonly PlannedConversion[],
+    context: ConversionContext,
+    plansByInputId: ReadonlyMap<string, PlannedConversion>,
+  ): readonly PlannedConversion[] {
+    const inputs = plans.map(plan => plan.input);
+    const currentPlans = new Map(plans.map(plan => [plan.input.id, plan]));
+    return this.responsiveFamilyPlanner.closeDependencies(inputs, { ...context, inputs }, (input, itemContext) => {
+      return plansByInputId.get(input.id) ?? currentPlans.get(input.id) ?? this.planSemantic(input, itemContext);
+    });
+  }
+
+  private directiveFamily(directive: LocatedFlexLayoutInput['directive']): string {
+    if (flexItemDirectives.has(directive)) return 'flex-item';
+    if (directive === 'fxFlexFill' || directive === 'fxFill') return 'flex-fill';
+    return directive;
+  }
+
   planElement(inputs: readonly LocatedFlexLayoutInput[], context: ConversionContext): readonly PlannedConversion[] {
-    const flexInputs = inputs.filter(input => flexItemDirectives.has(input.directive));
-    if (!flexInputs.length) {
-      return preserveRequiredLayoutContext(inputs.map(input => this.plan(input, context)));
-    }
-
-    const flex = flexInputs.filter(input => input.directive === 'fxFlex');
-    let flexPlans: readonly PlannedConversion[];
-    if (flexInputs.some(input => input.binding !== 'literal' || input.breakpoint)) {
-      flexPlans = flexInputs.map(input => {
-        const ownPlan = this.plan(input, context);
-        return input.binding !== 'literal' || input.breakpoint
-          ? ownPlan
-          : {
-              status: 'review',
-              input,
-              code: 'context-unverified',
-              reason: 'The flex sizing group contains a dynamic or responsive member.',
-              suggestion: 'Make fxFlex, fxGrow, and fxShrink static or migrate them together manually.',
-            };
-      });
-    } else if (flex.length !== 1) {
-      flexPlans = flexInputs.map(input => ({
-        status: 'invalid',
-        input,
-        code: 'invalid-value',
-        reason: flex.length
-          ? 'Multiple fxFlex inputs cannot form one static flex item.'
-          : `${input.directive} requires fxFlex.`,
-        suggestion: 'Keep one static fxFlex directive or migrate this flex item manually.',
-      }));
-    } else {
-      const layout = staticLayoutContext(context.parent?.attributes ?? []);
-      const planned = planFlexItem({
-        basis: flex[0]?.value ?? '',
-        grow: flexInputs.find(input => input.directive === 'fxGrow')?.value,
-        shrink: flexInputs.find(input => input.directive === 'fxShrink')?.value,
-        layout,
-      });
-      flexPlans = flexInputs.map(input => {
-        if (planned.status === 'converted') {
-          return {
-            status: 'converted',
-            input,
-            classNames: input.directive === 'fxFlex' ? planned.classNames : [],
-          };
-        }
-        if (planned.status === 'invalid') {
-          return {
-            status: 'invalid',
-            input,
-            code: planned.code,
-            reason: `${input.value} is not a valid member of the flex sizing group.`,
-            suggestion: 'Correct the static flex value or migrate the group manually.',
-          };
-        }
-        return { ...planned, input };
-      });
-    }
-
-    const flexPlanById = new Map(flexPlans.map(plan => [plan.input.id, plan]));
-    return preserveRequiredLayoutContext(inputs.map(input => flexPlanById.get(input.id) ?? this.plan(input, context)));
+    return this.responsiveFamilyPlanner.plan(inputs, { ...context, inputs }, (input, itemContext) =>
+      this.planSemantic(input, itemContext),
+    );
   }
 
   plan(input: LocatedFlexLayoutInput, context: ConversionContext): PlannedConversion {
-    if (input.breakpoint && !isKnownBreakpoint(input.breakpoint)) {
-      return {
-        status: 'review',
-        input,
-        code: 'custom-breakpoint',
-        reason: `The breakpoint alias ${input.breakpoint} may be registered by the project.`,
-        suggestion: 'Provide its media query or migrate this responsive input manually.',
-      };
-    }
+    const semantic = this.planSemantic(input, context);
+    if (semantic.status !== 'converted') return semantic;
+    return toResponsivePlannedConversion(
+      input,
+      { status: 'converted', classNames: semantic.classNames },
+      this.breakpointCatalog,
+      this.responsiveEmitter,
+    );
+  }
 
+  private planSemantic(input: LocatedFlexLayoutInput, context: ConversionContext): PlannedConversion {
     if (input.binding === 'property') {
-      return {
-        status: 'review',
+      return toPlannedConversion(
         input,
-        code: 'dynamic-binding',
-        reason: 'Angular property bindings may depend on runtime state.',
-        suggestion: 'Replace the binding manually or make it a literal before migration.',
-      };
-    }
-
-    if (input.breakpoint) {
-      return {
-        status: 'review',
-        input,
-        code: 'breakpoint-unverified',
-        reason: `Exact media-query output for ${input.breakpoint} is not implemented.`,
-        suggestion: 'Keep the responsive directive until exact breakpoint support is available.',
-      };
-    }
-
-    if (input.directive === 'fxGrow' || input.directive === 'fxShrink') {
-      return {
-        status: 'invalid',
-        input,
-        code: 'invalid-value',
-        reason: `${input.directive} is owned by an fxFlex directive and cannot be converted independently.`,
-        suggestion: 'Add or retain fxFlex and migrate the complete sizing group.',
-      };
+        planResponsiveClasses(input, [], this.breakpointCatalog, this.responsiveEmitter),
+      );
     }
 
     if (!supportedDirectives.has(input.directive)) {
@@ -214,27 +158,46 @@ export class TailwindAdapter implements ConversionAdapter {
     }
 
     if (input.directive === 'fxLayoutGap') {
-      const layoutValue = staticLayoutContext(context.element.attributes);
+      const layoutValue = context.activeLayout ?? staticLayoutContext(context.element.attributes);
       const gap = planLayoutGap(input.value, layoutValue);
-      if (gap.status === 'converted') return { status: 'converted', input, classNames: gap.classNames };
-      if (gap.status === 'invalid') {
+      return toPlannedConversion(input, gap);
+    }
+
+    if (flexItemDirectives.has(input.directive)) {
+      const flexInputs = (context.inputs ?? [input]).filter(item => flexItemDirectives.has(item.directive));
+      const sameBreakpoint = (item: LocatedFlexLayoutInput) => item.breakpoint === input.breakpoint;
+      const atBreakpoint = (directive: LocatedFlexLayoutInput['directive']) =>
+        flexInputs.filter(item => item.directive === directive && sameBreakpoint(item));
+      const atBase = (directive: LocatedFlexLayoutInput['directive']) =>
+        flexInputs.filter(item => item.directive === directive && item.breakpoint === undefined);
+      const exactFlex = atBreakpoint('fxFlex');
+      const baseFlex = atBase('fxFlex');
+      const basis = exactFlex[0] ?? (input.breakpoint ? baseFlex[0] : undefined);
+      const exactGrow = atBreakpoint('fxGrow');
+      const exactShrink = atBreakpoint('fxShrink');
+      const grow = exactGrow[0] ?? (input.breakpoint ? atBase('fxGrow')[0] : undefined);
+      const shrink = exactShrink[0] ?? (input.breakpoint ? atBase('fxShrink')[0] : undefined);
+      const duplicateMember = [exactFlex, exactGrow, exactShrink].some(items => items.length > 1);
+      if (!basis || duplicateMember) {
         return {
           status: 'invalid',
           input,
-          code: gap.code,
-          reason: `${input.value} is not a supported ${input.directive} value.`,
-          suggestion: 'Correct the value or migrate this directive manually.',
+          code: 'invalid-value',
+          reason: basis
+            ? 'Multiple flex sizing inputs define the same responsive state.'
+            : `${input.directive} requires an active fxFlex value.`,
+          suggestion: 'Keep one flex sizing value per breakpoint or migrate this group manually.',
         };
       }
-      return { ...gap, input };
-    }
-
-    if (input.directive === 'fxFlex') {
       const flex = planFlexItem({
-        basis: input.value,
-        layout: staticLayoutContext(context.parent?.attributes ?? []),
+        basis: basis.value,
+        grow: grow?.value,
+        shrink: shrink?.value,
+        layout: context.activeParentLayout ?? staticLayoutContext(context.parent?.attributes ?? []),
       });
-      if (flex.status === 'converted') return { status: 'converted', input, classNames: flex.classNames };
+      if (flex.status === 'converted') {
+        return toPlannedConversion(input, flex);
+      }
       if (flex.status === 'invalid') {
         return {
           status: 'invalid',
@@ -250,11 +213,11 @@ export class TailwindAdapter implements ConversionAdapter {
     const independent = planIndependentDirective(input);
     if (independent) return toPlannedConversion(input, independent);
     if (input.directive === 'fxFlexOffset') {
-      const layout = staticLayoutContext(context.parent?.attributes ?? []);
+      const layout = context.activeParentLayout ?? staticLayoutContext(context.parent?.attributes ?? []);
       return toPlannedConversion(input, planFlexOffset(input.value, layout));
     }
     if (input.directive === 'fxLayoutAlign') {
-      const layout = staticLayoutContext(context.element.attributes);
+      const layout = context.activeLayout ?? staticLayoutContext(context.element.attributes);
       if (layout === undefined) {
         return {
           status: 'review',
@@ -265,7 +228,9 @@ export class TailwindAdapter implements ConversionAdapter {
         };
       }
       const alignment = planLayoutAlign(input.value, layout);
-      if (alignment.ok) return { status: 'converted', input, classNames: alignment.value.classNames };
+      if (alignment.ok) {
+        return toPlannedConversion(input, { status: 'converted', classNames: alignment.value.classNames });
+      }
       return {
         status: 'invalid',
         input,
@@ -277,7 +242,9 @@ export class TailwindAdapter implements ConversionAdapter {
 
     if (input.directive === 'fxLayout') {
       const layout = planLayout(input.value);
-      if (layout.ok) return { status: 'converted', input, classNames: layout.value.classNames };
+      if (layout.ok) {
+        return toPlannedConversion(input, { status: 'converted', classNames: layout.value.classNames });
+      }
     }
     return {
       status: 'invalid',

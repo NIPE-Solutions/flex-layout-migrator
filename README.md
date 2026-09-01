@@ -8,7 +8,7 @@ Version 2 is under active development and is not published to npm yet. It does n
 
 The v2 engine parses templates with the Angular compiler and applies validated source-range edits. It preserves comments, control-flow syntax, interpolation, line endings, and all unrelated source text instead of serializing the template as generic HTML.
 
-The current prerelease converts a documented set of static Flex-Layout inputs to Tailwind CSS v4. Dynamic bindings, responsive inputs, custom breakpoints, bound class values, and unsupported directives remain unchanged and receive structured review results. Ambiguous behavior is never approximated silently.
+The current prerelease converts documented static inputs and literal responsive inputs using the standard Angular Flex-Layout viewport aliases (`xs` through `xl`, `lt-*`, and `gt-*`) to exact Tailwind CSS v4 arbitrary media variants. For example, `fxLayout.sm="row"` becomes `[@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:flex-row` alongside the other layout utilities. Dynamic bindings, orientation, print, and custom breakpoints, bound class values, unsupported directives, and responsive families with conflicting overlapping values remain unchanged with structured review results. Ambiguous behavior is never approximated silently.
 
 ## CLI workflow
 

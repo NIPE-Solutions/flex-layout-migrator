@@ -5,6 +5,10 @@ import type { TemplateElement } from '../template/template.model';
 export interface ConversionContext {
   readonly element: TemplateElement;
   readonly parent?: TemplateElement;
+  readonly inputs?: readonly LocatedFlexLayoutInput[];
+  readonly parentInputs?: readonly LocatedFlexLayoutInput[];
+  readonly activeLayout?: string;
+  readonly activeParentLayout?: string;
 }
 
 export type PlannedConversion =
@@ -28,5 +32,10 @@ export interface ConversionAdapter {
   resolveClassConflicts?(
     plans: readonly PlannedConversion[],
     existingClassNames: readonly string[],
+  ): readonly PlannedConversion[];
+  closePlanDependencies?(
+    plans: readonly PlannedConversion[],
+    context: ConversionContext,
+    plansByInputId: ReadonlyMap<string, PlannedConversion>,
   ): readonly PlannedConversion[];
 }

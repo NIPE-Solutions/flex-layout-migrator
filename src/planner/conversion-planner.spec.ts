@@ -42,6 +42,13 @@ describe('ConversionPlanner', () => {
     expect(reversed.output).toBe(forward.output);
   });
 
+  test('orders responsive family classes independently of attribute source order', () => {
+    const forward = migrate('<div fxFlexAlign.sm="end" fxFlexAlign.xs="start"></div>');
+    const reversed = migrate('<div fxFlexAlign.xs="start" fxFlexAlign.sm="end"></div>');
+
+    expect(reversed.output).toBe(forward.output);
+  });
+
   test('inserts classes before the slash in a self-closing custom element', () => {
     const result = migrate('<app-card fxLayout="column"/>');
 
@@ -81,6 +88,68 @@ describe('ConversionPlanner', () => {
     expect(result.results).toEqual([
       expect.objectContaining({ status: 'review', code: 'class-conflict' }),
       expect.objectContaining({ status: 'review', code: 'class-conflict' }),
+    ]);
+  });
+
+  test('preserves the complete layout cluster when an existing utility conflicts with its gap', () => {
+    const source = '<div class="gap-2" fxLayout="row" fxLayoutGap="4"></div>';
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.results).toEqual([
+      expect.objectContaining({
+        status: 'review',
+        code: 'context-unverified',
+        input: expect.objectContaining({ directive: 'fxLayout' }),
+      }),
+      expect.objectContaining({
+        status: 'review',
+        code: 'class-conflict',
+        input: expect.objectContaining({ directive: 'fxLayoutGap' }),
+      }),
+    ]);
+  });
+
+  test('preserves layout and alignment together after an alignment class conflict', () => {
+    const source = '<div class="justify-center" fxLayout="row" fxLayoutAlign="end start"></div>';
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.results).toEqual([
+      expect.objectContaining({
+        status: 'review',
+        code: 'context-unverified',
+        input: expect.objectContaining({ directive: 'fxLayout' }),
+      }),
+      expect.objectContaining({
+        status: 'review',
+        code: 'class-conflict',
+        input: expect.objectContaining({ directive: 'fxLayoutAlign' }),
+      }),
+    ]);
+  });
+
+  test('preserves parent-context consumers after a parent layout class conflict', () => {
+    const source = '<div class="flex-col" fxLayout="row"><span fxFlex="50"></span><span fxFlexOffset="4"></span></div>';
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.results).toEqual([
+      expect.objectContaining({
+        status: 'review',
+        code: 'class-conflict',
+        input: expect.objectContaining({ directive: 'fxLayout' }),
+      }),
+      expect.objectContaining({
+        status: 'review',
+        code: 'context-unverified',
+        input: expect.objectContaining({ directive: 'fxFlex' }),
+      }),
+      expect.objectContaining({
+        status: 'review',
+        code: 'context-unverified',
+        input: expect.objectContaining({ directive: 'fxFlexOffset' }),
+      }),
     ]);
   });
 
@@ -143,15 +212,16 @@ describe('ConversionPlanner', () => {
     ]);
   });
 
-  test('preserves base and responsive fxFlex inputs as one unresolved group', () => {
-    const source = '<div fxFlex="50" fxFlex.sm="100"></div>';
+  test('converts responsive flex sizing members as one atomic semantic group', () => {
+    const source = '<div fxFlex="50" fxGrow="2" fxFlex.sm="100" fxShrink.sm="0"></div>';
     const result = migrate(source);
 
-    expect(result.output).toBe(source);
-    expect(result.results).toEqual([
-      expect.objectContaining({ status: 'review', code: 'context-unverified' }),
-      expect.objectContaining({ status: 'review', code: 'breakpoint-unverified' }),
-    ]);
+    expect(result.output).not.toContain('fxFlex');
+    expect(result.output).not.toContain('fxGrow');
+    expect(result.output).not.toContain('fxShrink');
+    expect(result.output).toContain('[flex:2_1_100%]');
+    expect(result.output).toContain('[@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:[flex:2_0_100%]');
+    expect(result.results.map(item => item.status)).toEqual(['converted', 'converted', 'converted', 'converted']);
   });
 
   test('rejects fxGrow without the fxFlex directive that owns the input', () => {
@@ -181,14 +251,97 @@ describe('ConversionPlanner', () => {
     expect(result.results.map(item => item.status)).toEqual(['review', 'review', 'review']);
   });
 
-  test('preserves a base layout required by unresolved responsive alignment', () => {
-    const source = '<div fxLayout="column" fxLayoutAlign.sm="center end"></div>';
+  test('converts responsive layout, gap, and alignment with matching layout context', () => {
+    const source =
+      '<div fxLayout="row" fxLayout.sm="column" fxLayoutGap="4" fxLayoutGap.sm="8" fxLayoutAlign="start stretch" fxLayoutAlign.sm="end stretch"></div>';
+    const result = migrate(source);
+
+    expect(result.output).not.toContain('fxLayout');
+    expect(result.output).toContain('gap-[4px]');
+    expect(result.output).toContain('[@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:gap-[8px]');
+    expect(result.output).toContain('[@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:max-w-full');
+    expect(result.results.every(item => item.status === 'converted')).toBe(true);
+  });
+
+  test('uses responsive parent layout context for child offsets', () => {
+    const source = '<div fxLayout="row" fxLayout.sm="column"><span fxFlexOffset="4" fxFlexOffset.sm="8"></span></div>';
+    const result = migrate(source);
+
+    expect(result.output).not.toContain('fxLayout');
+    expect(result.output).not.toContain('fxFlexOffset');
+    expect(result.output).toContain('ms-[4%]');
+    expect(result.output).toContain('[@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:mt-[8%]');
+    expect(result.results.every(item => item.status === 'converted')).toBe(true);
+  });
+
+  test('preserves a responsive child offset when the parent layout cluster has an unresolved gap', () => {
+    const source = '<div fxLayout="row" fxLayout.sm="row wrap" fxLayoutGap="4"><span fxFlexOffset.sm="8"></span></div>';
     const result = migrate(source);
 
     expect(result.output).toBe(source);
-    expect(result.results).toEqual([
-      expect.objectContaining({ status: 'review', code: 'context-unverified' }),
-      expect.objectContaining({ status: 'review', code: 'breakpoint-unverified' }),
-    ]);
+    expect(result.results).toContainEqual(
+      expect.objectContaining({
+        status: 'review',
+        code: 'context-unverified',
+        input: expect.objectContaining({ directive: 'fxFlexOffset' }),
+      }),
+    );
   });
+
+  test('preserves responsive child flex sizing when the parent layout cluster has unresolved alignment', () => {
+    const source = '<div fxLayout="row" [fxLayoutAlign.sm]="alignment"><span fxFlex.sm="50"></span></div>';
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.results).toContainEqual(
+      expect.objectContaining({
+        status: 'review',
+        code: 'context-unverified',
+        input: expect.objectContaining({ directive: 'fxFlex' }),
+      }),
+    );
+  });
+
+  test.each([
+    ['print gap', '<div fxLayoutGap.print="4"></div>', 'fxLayoutGap', 'breakpoint-unverified'],
+    ['optional alignment', '<div fxLayoutAlign.handset="center"></div>', 'fxLayoutAlign', 'breakpoint-unverified'],
+    ['custom offset', '<div><span fxFlexOffset.cinema="4"></span></div>', 'fxFlexOffset', 'custom-breakpoint'],
+  ] as const)('retains the intrinsic breakpoint diagnostic for contextual %s', (_case, source, directive, code) => {
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.results).toContainEqual(
+      expect.objectContaining({
+        status: 'review',
+        code,
+        input: expect.objectContaining({ directive }),
+      }),
+    );
+  });
+
+  test.each([
+    [
+      'print gap',
+      '<div [fxLayout]="direction" fxLayoutGap.print="4"></div>',
+      ['dynamic-binding', 'breakpoint-unverified'],
+    ],
+    [
+      'orientation alignment',
+      '<div [fxLayout]="direction" fxLayoutAlign.handset="center"></div>',
+      ['dynamic-binding', 'breakpoint-unverified'],
+    ],
+    [
+      'custom child offset',
+      '<div [fxLayout]="direction"><span fxFlexOffset.cinema="4"></span></div>',
+      ['dynamic-binding', 'custom-breakpoint'],
+    ],
+  ] as const)(
+    'retains exact intrinsic diagnostics for contextual %s under a dynamic layout',
+    (_case, source, expectedCodes) => {
+      const result = migrate(source);
+
+      expect(result.output).toBe(source);
+      expect(result.results.map(item => (item.status === 'converted' ? undefined : item.code))).toEqual(expectedCodes);
+    },
+  );
 });

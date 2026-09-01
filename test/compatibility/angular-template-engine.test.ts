@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { TailwindAdapter } from '../../src/adapter/tailwind/tailwind.adapter';
 import { TemplateAnalyzer } from '../../src/analyzer/template.analyzer';
+import type { ConversionResult } from '../../src/analyzer/conversion-result';
 import { SourceEditor } from '../../src/edit/source-editor';
 import { ConversionPlanner } from '../../src/planner/conversion-planner';
 import { AngularTemplateParser } from '../../src/template/angular-template.parser';
@@ -18,22 +19,71 @@ function migrate(source: string, fileName = 'fixture.html') {
   return { output: edited.output, results: plan.results };
 }
 
+function unresolvedCodes(results: readonly ConversionResult[]): readonly string[] {
+  return results.flatMap(result => (result.status === 'converted' ? [] : [result.code]));
+}
+
+function equivalentResults(results: readonly ConversionResult[]) {
+  return results
+    .map(result =>
+      result.status === 'parse-error'
+        ? { status: result.status, code: result.code }
+        : {
+            status: result.status,
+            sourceName: result.input.sourceName,
+            code: result.status === 'converted' ? undefined : result.code,
+          },
+    )
+    .sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)));
+}
+
 async function fixture(name: string, kind: 'input' | 'expected'): Promise<string> {
   const url = new URL(`${name}.${kind}.html`, fixtureDirectory);
   return readFile(fileURLToPath(url), 'utf8');
 }
 
 describe('Angular template engine compatibility', () => {
-  test.each(['static', 'angular-syntax', 'unresolved'])('matches the %s fixture and is idempotent', async name => {
-    const input = await fixture(name, 'input');
-    const expected = await fixture(name, 'expected');
+  const preservedCodes: Record<string, readonly string[]> = {
+    responsive: [
+      'responsive-precedence-unverified',
+      'responsive-precedence-unverified',
+      'dynamic-binding',
+      'breakpoint-unverified',
+      'breakpoint-unverified',
+      'custom-breakpoint',
+      'class-conflict',
+      'context-unverified',
+      'context-unverified',
+      'semantic-unsupported',
+      'context-unverified',
+    ],
+    unresolved: [
+      'dynamic-binding',
+      'custom-breakpoint',
+      'target-unsupported',
+      'bound-class',
+      'context-unverified',
+      'semantic-unsupported',
+      'semantic-unsupported',
+      'dynamic-binding',
+      'context-unverified',
+    ],
+  };
 
-    const first = migrate(input, `${name}.html`);
-    expect(first.output).toBe(expected);
-    const second = migrate(first.output, `${name}.html`);
-    expect(second.output).toBe(expected);
-    if (name !== 'unresolved') expect(second.results).toEqual([]);
-  });
+  test.each(['static', 'angular-syntax', 'responsive', 'unresolved'])(
+    'matches the %s fixture and is idempotent',
+    async name => {
+      const input = await fixture(name, 'input');
+      const expected = await fixture(name, 'expected');
+
+      const first = migrate(input, `${name}.html`);
+      expect(first.output).toBe(expected);
+      const second = migrate(first.output, `${name}.html`);
+      expect(second.output).toBe(expected);
+      expect(unresolvedCodes(first.results)).toEqual(preservedCodes[name] ?? []);
+      expect(unresolvedCodes(second.results)).toEqual(preservedCodes[name] ?? []);
+    },
+  );
 
   test('preserves CRLF and unrelated bytes', () => {
     const input = '<div data-label="a &amp; b" fxLayout="row">\r\n  {{ value | async }}\r\n</div>\r\n';
@@ -43,21 +93,18 @@ describe('Angular template engine compatibility', () => {
     );
   });
 
+  test('emits the same canonical responsive family for equivalent attribute orders', () => {
+    const baseFirst = migrate('<div fxLayout="row" fxLayout.sm="column" fxLayout.md="row"></div>');
+    const responsiveFirst = migrate('<div fxLayout.md="row" fxLayout="row" fxLayout.sm="column"></div>');
+
+    expect(baseFirst.output).toBe(responsiveFirst.output);
+    expect(equivalentResults(baseFirst.results)).toEqual(equivalentResults(responsiveFirst.results));
+  });
+
   test('classifies every unresolved syntax family without modifying it', async () => {
     const input = await fixture('unresolved', 'input');
     const result = migrate(input);
 
-    expect(result.results.map(item => item.status)).toEqual([
-      'review',
-      'review',
-      'review',
-      'unsupported',
-      'review',
-      'review',
-      'review',
-      'review',
-      'review',
-      'review',
-    ]);
+    expect(unresolvedCodes(result.results)).toEqual(preservedCodes.unresolved);
   });
 });

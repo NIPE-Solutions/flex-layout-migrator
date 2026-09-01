@@ -36,12 +36,40 @@ describe('TailwindAdapter', () => {
 
   test.each([
     [{ binding: 'property' }, 'review', 'dynamic-binding'],
-    [{ breakpoint: 'sm', sourceName: 'fxLayout.sm' }, 'review', 'breakpoint-unverified'],
     [{ breakpoint: 'cinema', sourceName: 'fxLayout.cinema' }, 'review', 'custom-breakpoint'],
     [{ directive: 'fxShow', sourceName: 'fxShow' }, 'unsupported', 'target-unsupported'],
     [{ value: 'diagonal' }, 'invalid', 'invalid-value'],
   ] as const)('classifies unresolved input %o', (overrides, status, code) => {
     expect(new TailwindAdapter().plan(input(overrides), { element })).toMatchObject({ status, code });
+  });
+
+  test('decorates verified responsive classes after planning their literal value semantics', () => {
+    expect(
+      new TailwindAdapter().plan(
+        input({ directive: 'fxFlexAlign', sourceName: 'fxFlexAlign.sm', breakpoint: 'sm', value: 'center' }),
+        {
+          element,
+        },
+      ),
+    ).toMatchObject({
+      status: 'converted',
+      classNames: ['[@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:self-center'],
+    });
+  });
+
+  test('classifies invalid property-bound values as dynamic bindings', () => {
+    expect(
+      new TailwindAdapter().plan(
+        input({
+          directive: 'fxFlexAlign',
+          sourceName: '[fxFlexAlign.sm]',
+          binding: 'property',
+          breakpoint: 'sm',
+          value: 'diagonal',
+        }),
+        { element },
+      ),
+    ).toMatchObject({ status: 'review', code: 'dynamic-binding' });
   });
 
   test('uses upstream px units instead of the Tailwind spacing scale for gaps', () => {
@@ -62,6 +90,54 @@ describe('TailwindAdapter', () => {
       status: 'converted',
       classNames: ['[flex:1_1_100%]', '[max-width:25%]', 'box-border'],
     });
+  });
+
+  test('preserves every responsive family member when one generated token conflicts', () => {
+    const adapter = new TailwindAdapter();
+    const inputs = [
+      input({
+        id: 'fixture:xs',
+        sourceName: 'fxFlexAlign.xs',
+        directive: 'fxFlexAlign',
+        breakpoint: 'xs',
+        value: 'start',
+      }),
+      input({
+        id: 'fixture:sm',
+        sourceName: 'fxFlexAlign.sm',
+        directive: 'fxFlexAlign',
+        breakpoint: 'sm',
+        value: 'end',
+      }),
+    ];
+    const plans = adapter.planElement(inputs, { element, inputs });
+
+    expect(
+      adapter.resolveClassConflicts(plans, [
+        '[@media_screen_and_(min-width:_0px)_and_(max-width:_599.98px)]:self-center',
+      ]),
+    ).toEqual([
+      expect.objectContaining({ status: 'review', code: 'class-conflict' }),
+      expect.objectContaining({ status: 'review', code: 'class-conflict' }),
+    ]);
+  });
+
+  test('keeps a responsive family converted when an existing bounded utility is disjoint', () => {
+    const adapter = new TailwindAdapter();
+    const responsive = input({
+      id: 'fixture:sm',
+      sourceName: 'fxFlexAlign.sm',
+      directive: 'fxFlexAlign',
+      breakpoint: 'sm',
+      value: 'end',
+    });
+    const plans = adapter.planElement([responsive], { element, inputs: [responsive] });
+
+    expect(
+      adapter.resolveClassConflicts(plans, [
+        '[@media_screen_and_(min-width:_0px)_and_(max-width:_599.98px)]:self-center',
+      ]),
+    ).toEqual([expect.objectContaining({ status: 'converted' })]);
   });
 
   test.each([

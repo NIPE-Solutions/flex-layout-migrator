@@ -11,6 +11,7 @@ export type DiagnosticCode =
   | 'dynamic-binding'
   | 'invalid-value'
   | 'context-unverified'
+  | 'responsive-precedence-unverified'
   | 'semantic-unsupported'
   | 'target-unsupported';
 

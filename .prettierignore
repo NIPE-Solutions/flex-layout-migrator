@@ -4,3 +4,5 @@ node_modules
 package-lock.json
 .superpowers/
 docs/superpowers/
+test/fixtures/compatibility/responsive.input.html
+test/fixtures/compatibility/responsive.expected.html

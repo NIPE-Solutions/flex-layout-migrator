@@ -6,7 +6,7 @@ The source contract and classification rules are documented in [Conversion safet
 
 ## Status definitions
 
-- **Limited**: unbound, non-responsive literal values are converted for the cases described below and covered by the compatibility corpus.
+- **Limited**: unbound literal values are converted for the cases described below and covered by the compatibility corpus. Standard responsive viewport aliases are supported when their complete semantic family is safe.
 - **Planned**: the analyzer recognizes the input, but no target adapter converts it yet.
 - **Preserved**: the input is intentionally left unchanged and reported for review.
 
@@ -60,15 +60,18 @@ Responsive `class`, `ngClass`, `style`, `ngStyle`, and `imgSrc` inputs are recog
 
 ## Bindings and breakpoints
 
+Literal responsive values using the standard Angular Flex-Layout viewport aliases are converted with their exact media-query range: `xs`, `sm`, `md`, `lg`, `xl`, `lt-sm`, `lt-md`, `lt-lg`, `lt-xl`, `gt-xs`, `gt-sm`, `gt-md`, and `gt-lg`. Generated Tailwind CSS v4 tokens use self-contained arbitrary media variants; for example, `fxFlexAlign.sm="center"` becomes `[@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:self-center`.
+
+Base values and disjoint responsive values may convert together. Overlapping responsive values convert only when they emit the same utility. A conflicting overlap preserves the entire directive family with `responsive-precedence-unverified`; an existing utility that controls the same property in an intersecting range preserves the family with `class-conflict`. See [Exact responsive breakpoint conversion](architecture/responsive-breakpoints.md) for the exact ranges, conflict rules, and diagnostic contract.
+
 The current safety gate preserves these cases for review:
 
 - every Angular property binding, including bindings whose expression appears constant;
-- every built-in responsive alias;
 - orientation and print aliases;
 - unknown aliases, because they may be registered as custom project breakpoints;
 - every directive not implemented by the selected target adapter.
 
-This is intentional. Angular Flex-Layout's `sm`, `md`, and other bounded aliases are not generally equivalent to Tailwind's mobile-first variants. Exact media-query support will be added before responsive attributes are converted.
+This is intentional. Angular Flex-Layout's bounded and overlapping aliases are not equivalent to Tailwind's named mobile-first variants, so the codemod emits exact arbitrary media ranges rather than substituting `sm:`, `md:`, or another named Tailwind variant.
 
 ## Reporting API
 

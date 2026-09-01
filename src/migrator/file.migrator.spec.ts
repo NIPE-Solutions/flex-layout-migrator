@@ -41,7 +41,6 @@ describe('FileMigrator', () => {
 
   test.each([
     ['<div [fxFlex]="basis"></div>', 'dynamic-binding'],
-    ['<div fxLayout.sm="row"></div>', 'breakpoint-unverified'],
     ['<div fxLayout.cinema="row"></div>', 'custom-breakpoint'],
   ])('returns unchanged for unresolved input %s', async (source, code) => {
     await writeFile(input, source, 'utf8');
@@ -51,6 +50,17 @@ describe('FileMigrator', () => {
     expect(result.changed).toBe(false);
     expect(result.results).toContainEqual(expect.objectContaining({ status: 'review', code }));
     await expect(access(output)).rejects.toThrow();
+  });
+
+  test('writes exact standard responsive variants without unresolved diagnostics', async () => {
+    await writeFile(input, '<div fxLayout.sm="row"></div>', 'utf8');
+
+    const result = await new FileMigrator(new TailwindAdapter(), input, output).migrate();
+
+    expect(await readFile(output, 'utf8')).toBe(
+      '<div class="[@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:flex [@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:flex-row [@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:box-border"></div>',
+    );
+    expect(result.results.map(item => item.status)).toEqual(['converted']);
   });
 
   test('returns an unchanged parse diagnostic and does not write malformed templates', async () => {

@@ -27,6 +27,29 @@ function convertedResult(fileName: string): ConversionResult {
   };
 }
 
+function reviewResult(fileName: string): ConversionResult {
+  const input: LocatedFlexLayoutInput = {
+    id: `${fileName}:31`,
+    fileName,
+    elementId: 'internal-element',
+    sourceName: 'fxFlexAlign.gt-xs',
+    directive: 'fxFlexAlign',
+    value: 'end',
+    binding: 'literal',
+    breakpoint: 'gt-xs',
+    source: { start: 31, end: 49 },
+    nameSource: { start: 31, end: 47 },
+  };
+
+  return {
+    status: 'review',
+    input,
+    code: 'responsive-precedence-unverified',
+    reason: 'Overlapping responsive ranges emit different utilities for the same directive family.',
+    suggestion: 'Simplify overlapping responsive declarations or migrate the family manually.',
+  };
+}
+
 function file(inputPath: string): FileMigrationResult {
   return {
     inputPath,
@@ -71,5 +94,42 @@ describe('JsonReportWriter', () => {
 
     await expect(new JsonReportWriter(writer).write('report.json', report)).rejects.toThrow('report failed');
     expect(writer.write).toHaveBeenCalledOnce();
+  });
+
+  test('preserves responsive safety diagnostic codes in the public report', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'json-report-writer-'));
+    const inputRoot = '/private/checkout/templates';
+    const outputRoot = '/private/checkout/generated';
+    const inputPath = `${inputRoot}/card.component.html`;
+    const report = new MigrationReportBuilder().build(inputRoot, outputRoot, 'tailwind', false, 0, [
+      {
+        ...file(inputPath),
+        changed: false,
+        results: [reviewResult(inputPath)],
+      },
+    ]);
+
+    const target = join(directory, 'reports', 'migration.json');
+
+    try {
+      await new JsonReportWriter().write(target, report);
+
+      expect(JSON.parse(await readFile(target, 'utf8'))).toMatchObject({
+        summary: { converted: 0, review: 1 },
+        files: [
+          {
+            results: [
+              {
+                status: 'review',
+                sourceName: 'fxFlexAlign.gt-xs',
+                code: 'responsive-precedence-unverified',
+              },
+            ],
+          },
+        ],
+      });
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
   });
 });
