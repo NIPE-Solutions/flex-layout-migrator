@@ -14,6 +14,7 @@ export type DiagnosticCode =
   | 'context-unverified'
   | 'responsive-precedence-unverified'
   | 'semantic-unsupported'
+  | 'style-value-unverified'
   | 'tailwind-candidate-unverified'
   | 'target-unsupported';
 

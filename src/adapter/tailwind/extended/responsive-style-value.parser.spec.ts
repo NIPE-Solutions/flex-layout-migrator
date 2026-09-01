@@ -1,0 +1,172 @@
+import type { LocatedFlexLayoutInput } from '../../../analyzer/flex-layout-attribute.analyzer';
+import { literalStyleMayControlDisplay, parseLiteralStyleDeclarations } from '../visibility/literal-style-display';
+import { parseResponsiveStyleValue } from './responsive-style-value.parser';
+
+function input(overrides: Partial<LocatedFlexLayoutInput> = {}): LocatedFlexLayoutInput {
+  return {
+    id: 'fixture:ngStyle.sm',
+    fileName: 'fixture.html',
+    elementId: '0',
+    sourceName: 'ngStyle.sm',
+    directive: 'ngStyle',
+    value: 'color: #334155',
+    binding: 'literal',
+    breakpoint: 'sm',
+    source: { start: 0, end: 32 },
+    nameSource: { start: 0, end: 10 },
+    valueSource: { start: 12, end: 30 },
+    ...overrides,
+  };
+}
+
+describe('parseLiteralStyleDeclarations', () => {
+  test('parses comments, decoded entities, quotes, and balanced nested values without splitting their delimiters', () => {
+    expect(
+      parseLiteralStyleDeclarations(
+        '/* lead */ color: rgb(1, 2, calc(3 + 4)); content: "Rock & Roll; key: value"; --Theme: {a:[b;c]};',
+      ),
+    ).toEqual({
+      status: 'parsed',
+      declarations: [
+        { property: 'color', value: 'rgb(1, 2, calc(3 + 4))' },
+        { property: 'content', value: '"Rock & Roll; key: value"' },
+        { property: '--Theme', value: '{a:[b;c]}' },
+      ],
+    });
+  });
+
+  test('decodes CSS identifier escapes before exposing declaration properties', () => {
+    expect(parseLiteralStyleDeclarations('D\\69 splay: block; c\\6flor: red')).toEqual({
+      status: 'parsed',
+      declarations: [
+        { property: 'Display', value: 'block' },
+        { property: 'color', value: 'red' },
+      ],
+    });
+  });
+
+  test('ignores empty declarations and preserves duplicate declarations in source order', () => {
+    expect(parseLiteralStyleDeclarations(' ; color: red;; COLOR: red; color: blue; ')).toEqual({
+      status: 'parsed',
+      declarations: [
+        { property: 'color', value: 'red' },
+        { property: 'COLOR', value: 'red' },
+        { property: 'color', value: 'blue' },
+      ],
+    });
+  });
+
+  test.each([
+    ['unterminated comment', 'color: red; /*'],
+    ['unterminated quote', 'content: "unfinished'],
+    ['unmatched closing delimiter', 'color: rgb(1, 2))'],
+    ['unmatched opening delimiter', 'color: calc(1px + 2px'],
+    ['missing declaration colon', 'color: red; broken'],
+    ['empty property', ': red'],
+    ['comment-split property', 'dis/**/play: block'],
+    ['dangling escape', 'color: red\\'],
+  ])('returns unverified for %s', (_case, value) => {
+    expect(parseLiteralStyleDeclarations(value)).toMatchObject({ status: 'unverified' });
+    expect(literalStyleMayControlDisplay(value)).toBe(true);
+  });
+
+  test('keeps the display compatibility wrapper conservative over parsed declarations', () => {
+    expect(literalStyleMayControlDisplay('color: red; --display: block')).toBe(false);
+    expect(literalStyleMayControlDisplay('color: red; d\\69 splay: block')).toBe(true);
+  });
+});
+
+describe('parseResponsiveStyleValue', () => {
+  test('normalizes ordinary property names, preserves custom-property spelling, and de-duplicates in first-seen order', () => {
+    expect(
+      parseResponsiveStyleValue(
+        input({
+          value: 'Z-INDEX: 1; color: #334155; z-index: 1; --Theme_Gap: 1rem; --theme_gap: 2rem; COLOR: #334155',
+        }),
+      ),
+    ).toEqual({
+      status: 'parsed',
+      value: {
+        declarations: [
+          { property: 'z-index', value: '1' },
+          { property: 'color', value: '#334155' },
+          { property: '--Theme_Gap', value: '1rem' },
+          { property: '--theme_gap', value: '2rem' },
+        ],
+      },
+    });
+  });
+
+  test.each([
+    ['width.%', '50', 'width', '50%'],
+    ['font-size.px', '14', 'font-size', '14px'],
+    ['letter-spacing.em', '0.1', 'letter-spacing', '0.1em'],
+    ['font-size.rem', '.875', 'font-size', '.875rem'],
+    ['width.vw', '80', 'width', '80vw'],
+    ['height.vh', '100', 'height', '100vh'],
+    ['width.vmin', '20', 'width', '20vmin'],
+    ['height.vmax', '30', 'height', '30vmax'],
+    ['rotate.deg', '-45', 'rotate', '-45deg'],
+    ['animation-duration.s', '0.2', 'animation-duration', '0.2s'],
+    ['transition-delay.ms', '150', 'transition-delay', '150ms'],
+  ])('normalizes the exact Angular unit suffix %s', (sourceProperty, sourceValue, property, value) => {
+    expect(parseResponsiveStyleValue(input({ value: `${sourceProperty}: ${sourceValue}` }))).toEqual({
+      status: 'parsed',
+      value: { declarations: [{ property, value }] },
+    });
+  });
+
+  test('preserves CSS variables, calc expressions, quoted spaces, and colons inside balanced functions', () => {
+    expect(
+      parseResponsiveStyleValue(
+        input({
+          value:
+            'width: calc(100% - var(--card-gap, 1rem)); content: "key: exact value"; color: rgb(var(--channels, 51 65 85) / 50%)',
+        }),
+      ),
+    ).toEqual({
+      status: 'parsed',
+      value: {
+        declarations: [
+          { property: 'width', value: 'calc(100% - var(--card-gap, 1rem))' },
+          { property: 'content', value: '"key: exact value"' },
+          { property: 'color', value: 'rgb(var(--channels, 51 65 85) / 50%)' },
+        ],
+      },
+    });
+  });
+
+  test.each([
+    ['URL function', 'background-image: url("https://example.test/image.png")'],
+    ['URL inside another function', 'background-image: image-set("https://example.test/image.png" 1x)'],
+    ['relative URL inside image-set', 'background-image: image-set("card.png" 1x)'],
+    ['legacy expression function', 'width: EXPRESSION(alert(1))'],
+    ['interpolation', 'color: {{ theme.color }}'],
+    ['unsupported unit suffix', 'font-size.ch: 2'],
+    ['unit-bearing suffixed value', 'font-size.px: 1rem'],
+    ['ambiguous value escape', 'color: r\\65 d'],
+    ['conflicting ordinary duplicate', 'COLOR: red; color: blue'],
+    ['conflicting custom-property duplicate', '--Theme: red; --Theme: blue'],
+    ['empty property', ': red'],
+    ['empty value', 'color: '],
+    ['unsupported property spelling', 'font size: 14px'],
+    ['unencodable bracket value', 'content: "[unsafe]"'],
+  ])('rejects the complete responsive value for %s', (_case, value) => {
+    expect(parseResponsiveStyleValue(input({ value }))).toMatchObject({ status: 'unverified' });
+  });
+
+  test('accepts an empty declaration list as the exact empty responsive style map', () => {
+    expect(parseResponsiveStyleValue(input({ value: ' ; ; ' }))).toEqual({
+      status: 'parsed',
+      value: { declarations: [] },
+    });
+  });
+
+  test.each([
+    ['deprecated style alias', { sourceName: 'style.sm', directive: 'style' }],
+    ['property-bound ngStyle alias', { sourceName: '[ngStyle.sm]', binding: 'property' }],
+    ['empty breakpoint suffix', { sourceName: 'ngStyle.', breakpoint: '' }],
+  ] as const)('leaves %s unverified', (_name, overrides) => {
+    expect(parseResponsiveStyleValue(input(overrides)).status).toBe('unverified');
+  });
+});
