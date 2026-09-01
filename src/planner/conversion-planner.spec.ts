@@ -218,6 +218,8 @@ describe('ConversionPlanner', () => {
     '<div style="display:block" fxShow></div>',
     '<div [style.display]="display" fxShow></div>',
     '<div [style.display]="display" fxHide></div>',
+    '<div [attr.style]="styles" fxShow></div>',
+    '<div bind-attr.style="styles" fxShow></div>',
   ])('preserves visibility when parser-provided style evidence controls display: %s', source => {
     const result = migrate(source);
 
@@ -227,12 +229,31 @@ describe('ConversionPlanner', () => {
     );
   });
 
-  test('preserves a hiding family when bound classes block generated output', () => {
-    const source = '<div [class]="classes" fxHide></div>';
+  test.each([
+    '<div [class]="classes" fxHide></div>',
+    '<div [attr.class]="classes" fxHide></div>',
+    '<div bind-attr.class="classes" fxHide></div>',
+  ])('preserves a hiding family when parser-produced bound classes block generated output: %s', source => {
     const result = migrate(source);
 
     expect(result.output).toBe(source);
     expect(result.results).toEqual([expect.objectContaining({ status: 'review', code: 'bound-class' })]);
+  });
+
+  test.each(['CLASS', 'Class'])('merges generated visibility output into the existing %s attribute', classKey => {
+    const result = migrate(`<div ${classKey}="card" fxHide></div>`);
+
+    expect(result.output).toBe(`<div ${classKey}="card hidden"></div>`);
+    expect(result.results).toEqual([expect.objectContaining({ status: 'converted' })]);
+  });
+
+  test('uses an uppercase literal CLASS display utility as restoration evidence', () => {
+    const result = migrate('<div CLASS="block" fxShow="false" fxShow.sm></div>');
+
+    expect(result.output).toBe(
+      '<div CLASS="block hidden [@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:block"></div>',
+    );
+    expect(result.results.every(item => item.status === 'converted')).toBe(true);
   });
 
   test('removes an all-shown no-op family beside a bound class without inserting an empty class', () => {

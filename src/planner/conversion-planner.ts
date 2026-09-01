@@ -2,6 +2,7 @@ import type { ConversionAdapter, ConversionContext, PlannedConversion } from '..
 import type { ConversionResult } from '../analyzer/conversion-result';
 import type { LocatedFlexLayoutInput } from '../analyzer/flex-layout-attribute.analyzer';
 import type { SourceEdit } from '../edit/source-edit';
+import { templateAttributeKeys } from '../template/template-attribute';
 import type { SourceRange, TemplateElement } from '../template/template.model';
 
 export interface FilePlan {
@@ -48,14 +49,15 @@ function boundClassBlocked(input: LocatedFlexLayoutInput): PlannedConversion {
 
 function isBoundClassAttribute(attribute: TemplateElement['attributes'][number]): boolean {
   if (attribute.binding !== 'property') return false;
-  const rawName = attribute.rawName.toLowerCase();
-  const key =
-    rawName.startsWith('[') && rawName.endsWith(']')
-      ? rawName.slice(1, -1)
-      : rawName.startsWith('bind-')
-        ? rawName.slice('bind-'.length)
-        : rawName;
-  return key === 'class' || key === 'ngclass' || key.startsWith('class.');
+  return [...templateAttributeKeys(attribute)].some(
+    key => key === 'class' || key === 'ngclass' || key.startsWith('class.'),
+  );
+}
+
+function literalClassAttribute(element: TemplateElement) {
+  return element.attributes.find(
+    attribute => attribute.binding === 'literal' && templateAttributeKeys(attribute).has('class'),
+  );
 }
 
 function removalRange(source: string, input: LocatedFlexLayoutInput): SourceRange {
@@ -90,9 +92,7 @@ export class ConversionPlanner {
       const elementInputs = inputsByElementId.get(element.id) ?? [];
       if (!elementInputs.length) continue;
       const parent = element.parentId ? elementById.get(element.parentId) : undefined;
-      const literalClass = element.attributes.find(
-        attribute => attribute.name === 'class' && attribute.binding === 'literal',
-      );
+      const literalClass = literalClassAttribute(element);
       const existingClassNames = literalClass?.value.split(/\s+/).filter(Boolean) ?? [];
       const context: ConversionContext = {
         element,
@@ -168,9 +168,7 @@ export class ConversionPlanner {
         })),
       );
 
-      const classAttribute = conversion.element.attributes.find(
-        attribute => attribute.name === 'class' && attribute.binding === 'literal',
-      );
+      const classAttribute = literalClassAttribute(conversion.element);
       if (classAttribute?.valueSource) {
         const classNames = [...new Set([...classAttribute.value.split(/\s+/).filter(Boolean), ...generatedClassNames])];
         edits.push({

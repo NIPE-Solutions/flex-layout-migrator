@@ -199,8 +199,10 @@ describe('VisibleDisplayResolver', () => {
     '<div [ngStyle]="styles"></div>',
     '<div [style.display]="display"></div>',
     '<div [style.display.important]="display"></div>',
+    '<div [attr.style]="styles"></div>',
     '<div bind-style="styles"></div>',
     '<div bind-style.display="display"></div>',
+    '<div bind-attr.style="styles"></div>',
   ])('blocks the parser-produced bound display-controlling attribute in %s', source => {
     expect(resolve({ existingClassNames: ['block'], attributes: parsedAttributes(source) })).toMatchObject({
       status: 'unverified',
@@ -211,9 +213,11 @@ describe('VisibleDisplayResolver', () => {
     '<div [class]="classes"></div>',
     '<div [ngClass]="classes"></div>',
     '<div [class.hidden]="isHidden"></div>',
+    '<div [attr.class]="classes"></div>',
     '<div bind-class="classes"></div>',
     '<div bind-ngClass="classes"></div>',
     '<div bind-class.hidden="isHidden"></div>',
+    '<div bind-attr.class="classes"></div>',
   ])('blocks parser-produced bound classes when hiding generates a class: %s', source => {
     expect(resolve({ states: [mediaState('hidden', 'sm')], attributes: parsedAttributes(source) })).toMatchObject({
       status: 'unverified',

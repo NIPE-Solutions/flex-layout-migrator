@@ -1,6 +1,7 @@
 import type { PlannedConversion } from '../../conversion-adapter';
 import { mediaRangesIntersect } from '../../../breakpoint/breakpoint-catalog';
 import type { TemplateAttribute } from '../../../template/template.model';
+import { templateAttributeKeys } from '../../../template/template-attribute';
 import {
   describeTailwindDisplay,
   type TailwindActivation,
@@ -46,26 +47,22 @@ const unverifiedStyleReason = 'A literal or bound style may control the element 
 const unverifiedClassReason = 'Generated visibility classes cannot be merged safely with a bound class value.';
 const unverifiedDisplayReason = 'The visible display value cannot be proven from one unambiguous source.';
 
-function attributeKey(attribute: TemplateAttribute): string {
-  const rawName = attribute.rawName.toLowerCase();
-  if (attribute.binding !== 'property') return rawName;
-  if (rawName.startsWith('[') && rawName.endsWith(']')) return rawName.slice(1, -1);
-  return rawName.startsWith('bind-') ? rawName.slice('bind-'.length) : rawName;
-}
-
 function controlsDisplay(attribute: TemplateAttribute): boolean {
-  const key = attributeKey(attribute);
+  const keys = templateAttributeKeys(attribute);
   if (attribute.binding === 'literal') {
-    return key === 'style' && /(?:^|;)\s*display\s*:/iu.test(attribute.value);
+    return keys.has('style') && /(?:^|;)\s*display\s*:/iu.test(attribute.value);
   }
 
-  return key === 'style' || key === 'ngstyle' || key === 'style.display' || key.startsWith('style.display.');
+  return [...keys].some(
+    key => key === 'style' || key === 'ngstyle' || key === 'style.display' || key.startsWith('style.display.'),
+  );
 }
 
 function controlsClasses(attribute: TemplateAttribute): boolean {
   if (attribute.binding !== 'property') return false;
-  const key = attributeKey(attribute);
-  return key === 'class' || key === 'ngclass' || key.startsWith('class.');
+  return [...templateAttributeKeys(attribute)].some(
+    key => key === 'class' || key === 'ngclass' || key.startsWith('class.'),
+  );
 }
 
 function sameActivation(left: TailwindActivation, right: VisibilityActivation): boolean {

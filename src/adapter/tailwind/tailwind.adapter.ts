@@ -7,6 +7,7 @@ import type { TailwindStrategyResult } from './tailwind-semantic.model';
 import { planLayoutAlign } from './directives/layout-align.strategy';
 import { planIndependentDirective } from './independent-directive.registry';
 import type { TemplateAttribute } from '../../template/template.model';
+import { templateAttributeKeys } from '../../template/template-attribute';
 import { planLayout } from './directives/layout.strategy';
 import { describeTailwindDisplay, findTailwindClassConflicts } from './tailwind-class-conflict';
 import { BreakpointCatalog } from '../../breakpoint/breakpoint-catalog';
@@ -72,14 +73,9 @@ function staticLayoutContext(attributes: readonly TemplateAttribute[]): string |
 
 function isBoundClassAttribute(attribute: TemplateAttribute): boolean {
   if (attribute.binding !== 'property') return false;
-  const rawName = attribute.rawName.toLowerCase();
-  const key =
-    rawName.startsWith('[') && rawName.endsWith(']')
-      ? rawName.slice(1, -1)
-      : rawName.startsWith('bind-')
-        ? rawName.slice('bind-'.length)
-        : rawName;
-  return key === 'class' || key === 'ngclass' || key.startsWith('class.');
+  return [...templateAttributeKeys(attribute)].some(
+    key => key === 'class' || key === 'ngclass' || key.startsWith('class.'),
+  );
 }
 
 function contextUnverified(input: LocatedFlexLayoutInput, reason: string): PlannedConversion {
