@@ -120,7 +120,7 @@ The following inputs are always preserved:
 - orientation, print, custom, and empty breakpoint suffixes;
 - deprecated `class.<alias>` and `style.<alias>` selectors;
 - project-specific classes, plugin utilities, and candidates whose meaning depends on custom Tailwind theme values;
-- style values that cannot be sanitized and encoded byte-equivalently;
+- style values that cannot be encoded with equivalent sanitized CSS semantics;
 - complete families with precedence, existing-class, inline-style, layout, or visibility ownership that cannot be proven safe.
 
 Ordinary unsuffixed HTML and Angular `class`, `ngClass`, `style`, and `ngStyle` inputs are fallback authorities, not Flex-Layout inputs. The current conversion does not edit CSS, Sass, Less, or Tailwind configuration and does not generate companion CSS. A future project-aware mode may inspect those sources and emit companion styles for application classes; this release deliberately leaves that path separate from exact template-only conversion.
@@ -149,7 +149,7 @@ This is intentional. Angular Flex-Layout's bounded and overlapping aliases are n
 
 `Migrator#migrate()` returns one immutable migration report for file and directory inputs. The report uses schema version `1`, contains path-sorted file results and a derived summary, and uses the statuses `converted`, `review`, `unsupported`, `invalid`, and `parse-error`. Unresolved results include a stable diagnostic code, reason, and suggested action.
 
-Every non-parse result represents one directive occurrence. To measure responsive class and style conversion, filter results whose `directive` is `ngClass`, `ngStyle`, `class`, or `style`, then count `converted` versus all preserved statuses. The extended compatibility fixture currently asserts 39 converted and 24 preserved report results, while also checking every standard alias, exact diagnostics, byte-for-byte output, source-order independence, and a zero-edit second run. Empty breakpoint suffixes remain unchanged but are not responsive selectors and therefore do not create report results. These figures describe this test corpus only; repository measurements depend on the inputs scanned and do not establish project-level semantic coverage.
+Every non-parse result represents one directive occurrence. To measure responsive class and style conversion, filter results whose `directive` is `ngClass`, `ngStyle`, `class`, or `style`, then count `converted` versus all preserved statuses. The extended compatibility fixture currently asserts 39 converted and 24 preserved report results, while also checking every standard alias, exact diagnostics, byte-for-byte output, and a zero-edit second run. A separate compatibility test checks source-order independence within multi-state class and style families. Empty breakpoint suffixes remain unchanged but are not responsive selectors and therefore do not create report results. These figures describe this test corpus only; repository measurements depend on the inputs scanned and do not establish project-level semantic coverage.
 
 Report paths use forward slashes and are relative to the input root. A single-file input uses its basename. Reports do not expose absolute checkout paths or internal analyzer fields.
 

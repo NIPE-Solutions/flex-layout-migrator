@@ -224,7 +224,7 @@ The compatibility corpus covers:
 
 Coverage is measured by directive occurrences, not by declaring an entire project converted or unconverted. Public reports already expose exact unresolved results; documentation will explain how teams can aggregate diagnostic counts across representative repositories. The project does not claim universal conversion of arbitrary runtime behavior.
 
-The byte-exact compatibility fixture produces 63 extended responsive report results. It asserts 39 converted and 24 preserved results, every standard alias for both directives, the complete diagnostic histogram, source-order independence, and a zero-edit second migration. Empty breakpoint suffixes remain unchanged without being classified as responsive inputs. Visibility inputs in the same fixture are counted separately by the public report contract.
+The byte-exact compatibility fixture produces 63 extended responsive report results. It asserts 39 converted and 24 preserved results, every standard alias for both directives, the complete diagnostic histogram, and a zero-edit second migration. A separate compatibility test asserts source-order independence within multi-state class and style families. Empty breakpoint suffixes remain unchanged without being classified as responsive inputs. Visibility inputs in the fixture are counted separately by the public report contract.
 
 ## Compiler-proven output examples
 

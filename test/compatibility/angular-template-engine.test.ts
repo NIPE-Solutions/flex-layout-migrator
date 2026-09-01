@@ -276,17 +276,19 @@ describe('Angular template engine compatibility', () => {
     expect(extendedOccurrenceCounts(second.results)).toEqual({ converted: 0, preserved: 24 });
   });
 
-  test('emits equivalent extended output independently of source attribute order', () => {
-    const classFirst = migrate(
-      '<div ngClass.sm="flex items-center" ngStyle.xs="color:red"></div>',
+  test('emits equivalent multi-state class and style families independently of source attribute order', () => {
+    const canonicalOrder = migrate(
+      '<div ngClass.xs="flex" ngClass.sm="grid" ngClass.gt-xs="grid" ngStyle.xs="color:red" ngStyle.sm="font-size.px:14" ngStyle.gt-xs="font-size.px:14"></div>',
       'extended-order.html',
     );
-    const styleFirst = migrate(
-      '<div ngStyle.xs="color:red" ngClass.sm="flex items-center"></div>',
+    const reverseOrder = migrate(
+      '<div ngStyle.gt-xs="font-size.px:14" ngStyle.sm="font-size.px:14" ngStyle.xs="color:red" ngClass.gt-xs="grid" ngClass.sm="grid" ngClass.xs="flex"></div>',
       'extended-order.html',
     );
 
-    expect(classFirst.output).toBe(styleFirst.output);
-    expect(equivalentResults(classFirst.results)).toEqual(equivalentResults(styleFirst.results));
+    expect(canonicalOrder.results).toHaveLength(6);
+    expect(canonicalOrder.results.every(result => result.status === 'converted')).toBe(true);
+    expect(reverseOrder.output).toBe(canonicalOrder.output);
+    expect(equivalentResults(reverseOrder.results)).toEqual(equivalentResults(canonicalOrder.results));
   });
 });

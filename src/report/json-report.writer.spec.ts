@@ -109,6 +109,29 @@ function extendedReviewResult(
   };
 }
 
+function extendedConvertedResult(
+  fileName: string,
+  directive: 'ngClass' | 'ngStyle',
+  alias: 'sm' | 'lt-md',
+  offset: number,
+): ConversionResult {
+  const sourceName = `${directive}.${alias}`;
+  const input: LocatedFlexLayoutInput = {
+    id: `${fileName}:${offset}`,
+    fileName,
+    elementId: 'extended-element',
+    sourceName,
+    directive,
+    value: directive === 'ngClass' ? 'flex items-center' : 'font-size.px: 14',
+    binding: 'literal',
+    breakpoint: alias,
+    source: { start: offset, end: offset + sourceName.length },
+    nameSource: { start: offset, end: offset + sourceName.length },
+  };
+
+  return { status: 'converted', input };
+}
+
 function file(inputPath: string): FileMigrationResult {
   return {
     inputPath,
@@ -242,7 +265,7 @@ describe('JsonReportWriter', () => {
     }
   });
 
-  test('preserves responsive class and style review diagnostics as occurrence-level report results', async () => {
+  test('writes mixed responsive class and style occurrence totals and public result fields', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'json-report-writer-'));
     const inputRoot = '/private/checkout/templates';
     const outputRoot = '/private/checkout/generated';
@@ -252,8 +275,10 @@ describe('JsonReportWriter', () => {
         ...file(inputPath),
         changed: false,
         results: [
-          extendedReviewResult(inputPath, 'ngClass', 'tailwind-candidate-unverified', 12),
-          extendedReviewResult(inputPath, 'ngStyle', 'style-value-unverified', 54),
+          extendedConvertedResult(inputPath, 'ngClass', 'sm', 12),
+          extendedConvertedResult(inputPath, 'ngStyle', 'lt-md', 54),
+          extendedReviewResult(inputPath, 'ngClass', 'tailwind-candidate-unverified', 96),
+          extendedReviewResult(inputPath, 'ngStyle', 'style-value-unverified', 138),
         ],
       },
     ]);
@@ -262,27 +287,47 @@ describe('JsonReportWriter', () => {
     try {
       await new JsonReportWriter().write(target, report);
 
-      expect(JSON.parse(await readFile(target, 'utf8'))).toMatchObject({
-        summary: { converted: 0, review: 2, unsupported: 0, invalid: 0, parseErrors: 0 },
-        files: [
-          {
-            results: [
-              {
-                status: 'review',
-                directive: 'ngClass',
-                sourceName: 'ngClass.sm',
-                code: 'tailwind-candidate-unverified',
-              },
-              {
-                status: 'review',
-                directive: 'ngStyle',
-                sourceName: 'ngStyle.sm',
-                code: 'style-value-unverified',
-              },
-            ],
-          },
-        ],
+      const contents = JSON.parse(await readFile(target, 'utf8')) as {
+        readonly summary: unknown;
+        readonly files: readonly unknown[];
+      };
+      expect(contents.summary).toEqual({
+        filesScanned: 1,
+        filesChanged: 0,
+        converted: 2,
+        review: 2,
+        unsupported: 0,
+        invalid: 0,
+        parseErrors: 0,
       });
+      expect(contents.files).toEqual([
+        {
+          path: 'extended.component.html',
+          changed: false,
+          results: [
+            { status: 'converted', directive: 'ngClass', sourceName: 'ngClass.sm', offset: 12 },
+            { status: 'converted', directive: 'ngStyle', sourceName: 'ngStyle.lt-md', offset: 54 },
+            {
+              status: 'review',
+              directive: 'ngClass',
+              sourceName: 'ngClass.sm',
+              offset: 96,
+              code: 'tailwind-candidate-unverified',
+              reason: 'The class may be application-defined or supplied by a Tailwind plugin.',
+              suggestion: 'Review this occurrence and migrate it manually when its project-specific behavior is known.',
+            },
+            {
+              status: 'review',
+              directive: 'ngStyle',
+              sourceName: 'ngStyle.sm',
+              offset: 138,
+              code: 'style-value-unverified',
+              reason: 'The declaration cannot be sanitized and encoded exactly.',
+              suggestion: 'Review this occurrence and migrate it manually when its project-specific behavior is known.',
+            },
+          ],
+        },
+      ]);
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
