@@ -107,7 +107,7 @@ export class VisibilityStatePlanner {
   private classify(input: LocatedFlexLayoutInput): ClassifiedMember {
     if (input.binding !== 'literal') return { input, plan: dynamicBinding(input) };
 
-    if (!input.breakpoint) {
+    if (input.breakpoint === undefined) {
       return {
         input,
         state: { input, intent: parseVisibilityValue(input), activation: { kind: 'base' } },
@@ -149,8 +149,10 @@ export class VisibilityStatePlanner {
   }
 
   private compare(left: LocatedFlexLayoutInput, right: LocatedFlexLayoutInput): number {
-    if (!left.breakpoint && right.breakpoint) return -1;
-    if (left.breakpoint && !right.breakpoint) return 1;
+    const leftIsBase = left.breakpoint === undefined;
+    const rightIsBase = right.breakpoint === undefined;
+    if (leftIsBase && !rightIsBase) return -1;
+    if (!leftIsBase && rightIsBase) return 1;
 
     const leftPriority = this.breakpointPriority(left.breakpoint);
     const rightPriority = this.breakpointPriority(right.breakpoint);
@@ -161,7 +163,7 @@ export class VisibilityStatePlanner {
   }
 
   private breakpointPriority(alias: string | undefined): number {
-    if (!alias) return Number.POSITIVE_INFINITY;
+    if (alias === undefined) return Number.POSITIVE_INFINITY;
     const classification = this.catalog.classify(alias);
     return classification.kind === 'verified' ? classification.definition.priority : Number.NEGATIVE_INFINITY;
   }

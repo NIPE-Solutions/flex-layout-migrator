@@ -182,6 +182,21 @@ describe('VisibilityStatePlanner', () => {
     });
   });
 
+  test('classifies an empty breakpoint alias as custom and preserves convertible siblings atomically', () => {
+    const base = input('fxShow', '', { id: 'fixture:z-base' });
+    const responsive = input('fxHide.sm', '', { id: 'fixture:responsive' });
+    const custom = input('fxShow.', '', { id: 'fixture:a-custom' });
+
+    expect(plan([custom, responsive, base])).toMatchObject({
+      status: 'unresolved',
+      plans: [
+        { input: base, code: 'context-unverified' },
+        { input: responsive, code: 'context-unverified' },
+        { input: custom, code: 'custom-breakpoint' },
+      ],
+    });
+  });
+
   test('classifies a dynamic member before its unsupported breakpoint', () => {
     const dynamic = input('[fxShow.cinema]', 'visible');
     const literal = input('fxHide.sm', '');
