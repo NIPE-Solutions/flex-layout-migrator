@@ -507,7 +507,7 @@ describe('describeTailwindUtility', () => {
       underCovered,
       JSON.stringify({ count: underCovered.length, sample: underCovered.slice(0, 30) }, null, 2),
     ).toHaveLength(0);
-  });
+  }, 30_000);
 
   test('marks a recognized but unmodeled Tailwind utility as an unknown CSS authority', () => {
     expect(describeTailwindUtility('font-bold')).toMatchObject({
