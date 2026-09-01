@@ -82,6 +82,16 @@ function restorationUnverified(input: LocatedFlexLayoutInput, reason: string): P
   };
 }
 
+function contextUnverified(input: LocatedFlexLayoutInput): PlannedConversion {
+  return {
+    status: 'review',
+    input,
+    code: 'context-unverified',
+    reason: 'Partially overlapping responsive layout and visibility displays have unverified cascade precedence.',
+    suggestion: 'Migrate the coupled layout and visibility ranges together manually.',
+  };
+}
+
 export class DisplayCompositionPlanner {
   constructor(
     private readonly catalog = new BreakpointCatalog(),
@@ -109,6 +119,18 @@ export class DisplayCompositionPlanner {
       };
     }
 
+    if (this.hasUnsafePartialOverlap(layoutPlans, states)) {
+      return {
+        status: 'unresolved',
+        plans: [
+          ...layoutPlans.map(plan =>
+            plan.status === 'converted' && plan.input.directive === 'fxLayout' ? contextUnverified(plan.input) : plan,
+          ),
+          ...states.map(state => contextUnverified(state.input)),
+        ],
+      };
+    }
+
     const composedLayouts = layoutPlans.map(plan => this.composeLayout(plan, states));
     const visibilityClassNames = [
       ...new Set(states.flatMap(state => this.emitter.emit(state, displayResolution.utility))),
@@ -123,6 +145,30 @@ export class DisplayCompositionPlanner {
       status: plans.every(plan => plan.status === 'converted') ? 'converted' : 'unresolved',
       plans,
     };
+  }
+
+  private hasUnsafePartialOverlap(
+    layoutPlans: readonly PlannedConversion[],
+    states: readonly VisibilityState[],
+  ): boolean {
+    const baseIsHidden = states.some(state => state.activation.kind === 'base' && state.intent === 'hidden');
+    if (baseIsHidden) return false;
+
+    const hiddenRanges = states.flatMap(state =>
+      state.intent === 'hidden' && state.activation.kind === 'media' ? [state.activation.definition.range] : [],
+    );
+    if (!hiddenRanges.length) return false;
+
+    return layoutPlans.some(plan => {
+      if (plan.status !== 'converted' || plan.input.directive !== 'fxLayout') return false;
+      return plan.classNames.some(className => {
+        if (!isConvertedLayoutDisplay(className)) return false;
+        const descriptor = describeTailwindDisplay(className);
+        if (!descriptor || descriptor.activation.kind !== 'media') return false;
+        const target = descriptor.activation.range;
+        return hiddenRanges.some(range => mediaRangesIntersect(target, range)) && !rangesCover(target, hiddenRanges);
+      });
+    });
   }
 
   private composeLayout(plan: PlannedConversion, states: readonly VisibilityState[]): PlannedConversion {

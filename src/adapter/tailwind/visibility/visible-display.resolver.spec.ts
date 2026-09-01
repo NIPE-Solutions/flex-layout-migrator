@@ -195,6 +195,31 @@ describe('VisibleDisplayResolver', () => {
   );
 
   test.each([
+    '<div style="/* leading */ display: block"></div>',
+    '<div style="color: red; /* before */ display/**/: block"></div>',
+    '<div style="d\\69 splay: block"></div>',
+  ])('blocks CSS-valid display declarations that simple declaration regexes miss in %s', source => {
+    expect(resolve({ states: [state('shown')], attributes: parsedAttributes(source) })).toMatchObject({
+      status: 'unverified',
+    });
+  });
+
+  test('allows a well-formed literal style declaration list proven not to control display', () => {
+    expect(
+      resolve({
+        states: [state('shown')],
+        attributes: parsedAttributes('<div style="color: red; opacity: 0.5"></div>'),
+      }),
+    ).toEqual({ status: 'resolved', utility: undefined });
+  });
+
+  test('preserves an ambiguous literal style declaration list that is not proven display-free', () => {
+    expect(
+      resolve({ states: [state('shown')], attributes: parsedAttributes('<div style="color: red; broken"></div>') }),
+    ).toMatchObject({ status: 'unverified' });
+  });
+
+  test.each([
     '<div [style]="styles"></div>',
     '<div [ngStyle]="styles"></div>',
     '<div [style.display]="display"></div>',

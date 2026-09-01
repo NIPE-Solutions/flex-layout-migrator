@@ -53,11 +53,13 @@ If an existing recognized Tailwind utility conflicts with a generated class in a
 
 The literal string `"0"` is truthy. Property-bound zero remains dynamic because the codemod does not evaluate Angular expressions.
 
+Literal semantics use the Angular compiler's decoded attribute value. HTML character references therefore behave exactly like their decoded spelling, while source edits retain the original raw spelling of existing class evidence.
+
 Base and responsive hiding emits `hidden` under the exact activation range. An all-shown family is a safe no-op: the visibility attributes are removed without generating a class. Disjoint responsive states and identical overlapping states may convert together. Conflicting base states or conflicting overlapping responsive states preserve the whole family with `responsive-precedence-unverified`, independent of attribute order.
 
-A shown override after base hiding converts only when its restoration display is proven by a safely converted `fxLayout` or one unambiguous, unmodified base Tailwind display utility. Otherwise the family is preserved with `display-restoration-unverified`. Literal or bound display styles always block conversion. Bound class inputs block generated visibility classes with `bound-class`, while an all-shown no-op may still be removed beside a bound class. An existing `hidden` utility is compatible only when every effective state is hidden; conflicting, multiple, important, or variant-prefixed display utilities do not provide safe restoration evidence.
+A shown override after base hiding converts only when its restoration display is proven by a safely converted `fxLayout` or one unambiguous, unmodified base Tailwind display utility. Otherwise the family is preserved with `display-restoration-unverified`. Literal or bound display styles always block conversion; literal declaration lists are parsed conservatively, including comments, CSS escapes, and decoded character references. Bound class inputs block generated visibility classes with `bound-class`, while an all-shown no-op may still be removed beside a bound class. An existing `hidden` utility is compatible only when every effective state is hidden; conflicting, multiple, important, or variant-prefixed display utilities do not provide safe restoration evidence.
 
-When layout and visibility both control `display`, the planner composes them before editing. Visibility owns hidden ranges, covered `flex` or `inline-flex` layout utilities are suppressed, and non-display layout utilities remain. If one family is needed to prove the other, unresolved state closes across both families. See [Exact visibility conversion semantics](architecture/visibility-semantics.md) for the complete composition and diagnostic contract.
+When layout and visibility both control `display`, the planner composes them before editing. Visibility owns hidden ranges, covered `flex` or `inline-flex` layout utilities are suppressed, and non-display layout utilities remain. A responsive layout display that only partially overlaps hiding is preserved with the visibility family when generated CSS cannot prove safe ownership. Exact, disjoint, fully covered, and base-layout cases retain their proven conversions. If one family is needed to prove the other, unresolved state closes across both families. See [Exact visibility conversion semantics](architecture/visibility-semantics.md) for the complete composition and diagnostic contract.
 
 ## Grid directives
 
@@ -79,7 +81,7 @@ All grid directives are recognized and preserved. Target conversion has not been
 
 ## Extended responsive inputs
 
-Responsive `class`, `ngClass`, `style`, `ngStyle`, and `imgSrc` inputs are recognized and preserved. Ordinary unsuffixed HTML and Angular `class` and `style` attributes are not treated as Flex-Layout inputs.
+Responsive `class`, `ngClass`, `style`, `ngStyle`, and `imgSrc` inputs are recognized and preserved. Literal, bracket, and `bind-` class/style forms also preserve a visibility family that would generate display classes, because the unsupported responsive authority may override them. Ordinary unsuffixed HTML and Angular `class` and `style` attributes are not treated as Flex-Layout inputs.
 
 ## Bindings and breakpoints
 
@@ -94,6 +96,8 @@ The current safety gate preserves these cases for review:
 - unknown aliases, because they may be registered as custom project breakpoints;
 - visibility whose shown state needs a display value that cannot be proven from template and layout semantics;
 - visibility on an element whose literal or bound style may control `display`;
+- generated visibility output beside an unsupported responsive class or style authority;
+- partially overlapping responsive layout and hidden ranges without proven display ownership;
 - generated visibility output that cannot be merged safely with bound classes or existing display utilities;
 - every directive not implemented by the selected target adapter.
 

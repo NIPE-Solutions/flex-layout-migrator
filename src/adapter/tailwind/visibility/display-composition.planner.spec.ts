@@ -159,21 +159,27 @@ describe('DisplayCompositionPlanner', () => {
     expect(classes.get(baseLayout.input.id)).toEqual(['flex-row', 'box-border']);
   });
 
-  test('retains a wider responsive layout display when hiding covers only a narrower subrange', () => {
-    const hidden = state('hidden', 'sm');
-    const widerLayout = layout(
-      [variant('lt-md', 'flex'), variant('lt-md', 'flex-row'), variant('lt-md', 'box-border')],
-      'lt-md',
-    );
+  test.each([
+    ['nested max-only ranges', 'lt-md', 'lt-sm'],
+    ['crossing min/max ranges', 'gt-xs', 'lt-md'],
+  ])(
+    'preserves coupled layout and visibility for unsafe partial overlap between %s',
+    (_case, layoutAlias, hideAlias) => {
+      const hidden = state('hidden', hideAlias);
+      const responsiveLayout = layout(
+        [variant(layoutAlias, 'flex'), variant(layoutAlias, 'flex-row'), variant(layoutAlias, 'box-border')],
+        layoutAlias,
+      );
 
-    const classes = convertedClasses(compose([hidden], { layoutPlans: [widerLayout] }));
+      const result = compose([hidden], { layoutPlans: [responsiveLayout] });
 
-    expect(classes.get(widerLayout.input.id)).toEqual([
-      variant('lt-md', 'flex'),
-      variant('lt-md', 'flex-row'),
-      variant('lt-md', 'box-border'),
-    ]);
-  });
+      expect(result).toMatchObject({ status: 'unresolved' });
+      expect(result.plans).toEqual([
+        expect.objectContaining({ input: responsiveLayout.input, status: 'review', code: 'context-unverified' }),
+        expect.objectContaining({ input: hidden.input, status: 'review', code: 'context-unverified' }),
+      ]);
+    },
+  );
 
   test('retains a responsive layout display when a shown override interrupts inherited base hiding', () => {
     const baseHidden = state('hidden');

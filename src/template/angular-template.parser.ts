@@ -1,4 +1,5 @@
 import {
+  BindingType,
   parseTemplate,
   TmplAstBoundAttribute,
   TmplAstElement,
@@ -29,20 +30,38 @@ function normalizeAttribute(
   const valueSource = attribute.valueSpan
     ? range(attribute.valueSpan.start.offset, attribute.valueSpan.end.offset)
     : undefined;
+  const rawValue = valueSource ? source.slice(valueSource.start, valueSource.end) : '';
 
   return {
     name: attribute.name,
     rawName: source.slice(nameSource.start, nameSource.end),
-    value: valueSource
-      ? source.slice(valueSource.start, valueSource.end)
-      : attribute instanceof TmplAstTextAttribute
-        ? attribute.value
-        : '',
+    rawValue,
+    value: attribute instanceof TmplAstTextAttribute ? attribute.value : rawValue,
     binding,
+    ...(attribute instanceof TmplAstBoundAttribute ? { bindingTarget: boundTarget(attribute.type) } : {}),
     source: range(attribute.sourceSpan.start.offset, attribute.sourceSpan.end.offset),
     nameSource,
     ...(valueSource ? { valueSource } : {}),
   };
+}
+
+function boundTarget(type: BindingType): NonNullable<TemplateAttribute['bindingTarget']> {
+  switch (type) {
+    case BindingType.Attribute:
+      return 'attribute';
+    case BindingType.Class:
+      return 'class';
+    case BindingType.Style:
+      return 'style';
+    case BindingType.LegacyAnimation:
+    case BindingType.Animation:
+      return 'animation';
+    case BindingType.TwoWay:
+      return 'two-way';
+    case BindingType.Property:
+    default:
+      return 'property';
+  }
 }
 
 class ElementCollector extends TmplAstRecursiveVisitor {

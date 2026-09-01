@@ -187,6 +187,56 @@ describe('ConversionPlanner', () => {
     expect(result.results).toEqual([expect.objectContaining({ status: 'converted' })]);
   });
 
+  test.each([
+    ['fxShow', '<div fxShow="fals&#101;"></div>', '<div class="hidden"></div>'],
+    ['fxHide', '<div fxHide="fals&#101;"></div>', '<div></div>'],
+  ])('uses Angular-decoded entity semantics for %s literals', (_case, source, expected) => {
+    const result = migrate(source);
+
+    expect(result.output).toBe(expected);
+    expect(result.results).toEqual([expect.objectContaining({ status: 'converted' })]);
+  });
+
+  test('uses a decoded entity class as restoration evidence while preserving its raw spelling', () => {
+    const result = migrate('<div class="bl&#111;ck" fxShow="false" fxShow.sm></div>');
+
+    expect(result.output).toBe(
+      '<div class="bl&#111;ck hidden [@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:block"></div>',
+    );
+    expect(result.results.every(item => item.status === 'converted')).toBe(true);
+  });
+
+  test('keeps generated classes separated after entity-encoded class whitespace', () => {
+    const result = migrate('<div class="bl&#111;ck&#32;" fxShow="false" fxShow.sm></div>');
+
+    expect(result.output).toBe(
+      '<div class="bl&#111;ck&#32;hidden [@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:block"></div>',
+    );
+  });
+
+  test('uses a decoded entity style declaration as blocking display evidence', () => {
+    const source = '<div style="displa&#121;:block" fxShow></div>';
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.results).toEqual([
+      expect.objectContaining({ status: 'review', code: 'display-restoration-unverified' }),
+    ]);
+  });
+
+  test.each([
+    '<div style="/* leading */ display:block" fxHide></div>',
+    '<div style="color:red; display/**/:block" fxHide></div>',
+    '<div style="d\\69 splay:block" fxHide></div>',
+  ])('preserves visibility when CSS-aware inline-style evidence controls display: %s', source => {
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.results).toEqual([
+      expect.objectContaining({ status: 'review', code: 'display-restoration-unverified' }),
+    ]);
+  });
+
   test('converts a responsive-only hide without guessing a restoration display', () => {
     const result = migrate('<div fxHide.sm></div>');
 
@@ -263,6 +313,23 @@ describe('ConversionPlanner', () => {
     expect(result.results).toEqual([expect.objectContaining({ status: 'converted' })]);
   });
 
+  test.each([
+    ['zero generated output', '<div class="card" fxShow></div>', '<div class="card"></div>'],
+    [
+      'replacement-identical generated output',
+      '<div class="flex flex-row box-border" fxLayout="row"></div>',
+      '<div class="flex flex-row box-border"></div>',
+    ],
+  ])('does not enqueue an identical literal class edit for %s', (_case, source, expected) => {
+    const result = migrate(source);
+
+    expect(result.output).toBe(expected);
+    expect(result.edits).toHaveLength(1);
+    expect(result.edits).toEqual([
+      expect.objectContaining({ text: '', inputId: expect.not.stringContaining(':classes') }),
+    ]);
+  });
+
   test('preserves layout and visibility atomically when visibility is dynamic', () => {
     const source = '<div fxLayout="row" [fxHide]="hidden"></div>';
     const result = migrate(source);
@@ -283,6 +350,44 @@ describe('ConversionPlanner', () => {
     expect(result.output).not.toContain(']:flex ');
     expect(result.results.every(item => item.status === 'converted')).toBe(true);
   });
+
+  test.each([
+    ['nested max-only ranges', '<div fxLayout.lt-md="row" fxHide.lt-sm></div>'],
+    ['crossing min/max ranges', '<div fxLayout.gt-xs="row" fxHide.lt-md></div>'],
+  ])('preserves coupled directives for unsafe partial layout/visibility overlap across %s', (_case, source) => {
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.results).toEqual([
+      expect.objectContaining({ status: 'review', code: 'context-unverified' }),
+      expect.objectContaining({ status: 'review', code: 'context-unverified' }),
+    ]);
+  });
+
+  test.each([
+    ['literal class', 'class.sm="hidden"', 'target-unsupported', 'context-unverified'],
+    ['literal style', 'style.sm="display:block"', 'target-unsupported', 'display-restoration-unverified'],
+    ['bound ngClass', '[ngClass.sm]="classes"', 'dynamic-binding', 'bound-class'],
+    ['bind ngClass', 'bind-ngClass.sm="classes"', 'dynamic-binding', 'bound-class'],
+    ['bound class target', '[class.sm]="flag"', 'dynamic-binding', 'bound-class'],
+    ['bind class target', 'bind-class.sm="flag"', 'dynamic-binding', 'bound-class'],
+    ['bound ngStyle', '[ngStyle.sm]="styles"', 'dynamic-binding', 'display-restoration-unverified'],
+    ['bind ngStyle', 'bind-ngStyle.sm="styles"', 'dynamic-binding', 'display-restoration-unverified'],
+    ['bound style target', '[style.sm]="value"', 'dynamic-binding', 'display-restoration-unverified'],
+    ['bind style target', 'bind-style.sm="value"', 'dynamic-binding', 'display-restoration-unverified'],
+  ])(
+    'preserves generated hiding beside unsupported responsive %s authority',
+    (_case, authority, authorityCode, visibilityCode) => {
+      const source = `<div ${authority} fxHide.sm></div>`;
+      const result = migrate(source);
+
+      expect(result.output).toBe(source);
+      expect(result.results).toEqual([
+        expect.objectContaining({ status: expect.not.stringMatching('converted'), code: authorityCode }),
+        expect.objectContaining({ status: 'review', code: visibilityCode }),
+      ]);
+    },
+  );
 
   test('preserves a competing existing display class and closes the layout dependency afterward', () => {
     const source = '<div class="block" fxLayout="row" fxHide></div>';

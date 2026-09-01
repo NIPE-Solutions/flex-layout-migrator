@@ -1,4 +1,5 @@
 import type { PlannedConversion } from '../../conversion-adapter';
+import type { LocatedFlexLayoutInput } from '../../../analyzer/flex-layout-attribute.analyzer';
 import { mediaRangesIntersect } from '../../../breakpoint/breakpoint-catalog';
 import type { TemplateAttribute } from '../../../template/template.model';
 import { templateAttributeKeys } from '../../../template/template-attribute';
@@ -8,6 +9,7 @@ import {
   type TailwindDisplayUtility,
 } from '../tailwind-class-conflict';
 import type { VisibilityActivation, VisibilityState } from './visibility.model';
+import { literalStyleMayControlDisplay } from './literal-style-display';
 
 export type VisibleDisplayResolution =
   | { readonly status: 'resolved'; readonly utility?: string }
@@ -18,6 +20,7 @@ export interface VisibleDisplayRequest {
   readonly layoutPlans: readonly PlannedConversion[];
   readonly existingClassNames: readonly string[];
   readonly attributes: readonly TemplateAttribute[];
+  readonly responsiveStyleInputs?: readonly LocatedFlexLayoutInput[];
 }
 
 const restorationUtilities = new Set([
@@ -50,7 +53,7 @@ const unverifiedDisplayReason = 'The visible display value cannot be proven from
 function controlsDisplay(attribute: TemplateAttribute): boolean {
   const keys = templateAttributeKeys(attribute);
   if (attribute.binding === 'literal') {
-    return keys.has('style') && /(?:^|;)\s*display\s*:/iu.test(attribute.value);
+    return keys.has('style') && literalStyleMayControlDisplay(attribute.value);
   }
 
   return [...keys].some(
@@ -61,7 +64,7 @@ function controlsDisplay(attribute: TemplateAttribute): boolean {
 function controlsClasses(attribute: TemplateAttribute): boolean {
   if (attribute.binding !== 'property') return false;
   return [...templateAttributeKeys(attribute)].some(
-    key => key === 'class' || key === 'ngclass' || key.startsWith('class.'),
+    key => key === 'class' || key === 'ngclass' || key.startsWith('class.') || key.startsWith('ngclass.'),
   );
 }
 
@@ -121,7 +124,7 @@ function existingRestorationUtility(descriptors: readonly TailwindDisplayUtility
 
 export class VisibleDisplayResolver {
   resolve(request: VisibleDisplayRequest): VisibleDisplayResolution {
-    if (request.attributes.some(controlsDisplay)) {
+    if (request.responsiveStyleInputs?.length || request.attributes.some(controlsDisplay)) {
       return { status: 'unverified', reason: unverifiedStyleReason };
     }
 

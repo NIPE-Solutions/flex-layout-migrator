@@ -50,7 +50,7 @@ function boundClassBlocked(input: LocatedFlexLayoutInput): PlannedConversion {
 function isBoundClassAttribute(attribute: TemplateElement['attributes'][number]): boolean {
   if (attribute.binding !== 'property') return false;
   return [...templateAttributeKeys(attribute)].some(
-    key => key === 'class' || key === 'ngclass' || key.startsWith('class.'),
+    key => key === 'class' || key === 'ngclass' || key.startsWith('class.') || key.startsWith('ngclass.'),
   );
 }
 
@@ -170,12 +170,24 @@ export class ConversionPlanner {
 
       const classAttribute = literalClassAttribute(conversion.element);
       if (classAttribute?.valueSource) {
-        const classNames = [...new Set([...classAttribute.value.split(/\s+/).filter(Boolean), ...generatedClassNames])];
-        edits.push({
-          range: classAttribute.valueSource,
-          text: classNames.join(' '),
-          inputId: `${conversion.element.id}:classes`,
-        });
+        const existingClassNames = classAttribute.value.split(/\s+/).filter(Boolean);
+        const classNames = [...new Set([...existingClassNames, ...generatedClassNames])];
+        const missingClassNames = generatedClassNames.filter(className => !existingClassNames.includes(className));
+        const text =
+          classAttribute.rawValue === classAttribute.value
+            ? classNames.join(' ')
+            : `${classAttribute.rawValue}${
+                classAttribute.value.length > 0 && !/\s$/u.test(classAttribute.value) && missingClassNames.length > 0
+                  ? ' '
+                  : ''
+              }${missingClassNames.join(' ')}`;
+        if (text !== classAttribute.rawValue) {
+          edits.push({
+            range: classAttribute.valueSource,
+            text,
+            inputId: `${conversion.element.id}:classes`,
+          });
+        }
       } else if (generatedClassNames.length > 0) {
         const startTag = source.slice(conversion.element.startTag.start, conversion.element.startTag.end);
         const selfClosing = startTag.endsWith('/>');

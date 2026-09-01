@@ -17,6 +17,7 @@ describe('AngularTemplateParser', () => {
             {
               name: 'fxLayout',
               rawName: 'fxLayout',
+              rawValue: 'row',
               value: 'row',
               binding: 'literal',
               source: { start: 5, end: 19 },
@@ -26,8 +27,10 @@ describe('AngularTemplateParser', () => {
             {
               name: 'fxFlex',
               rawName: '[fxFlex]',
+              rawValue: 'basis',
               value: 'basis',
               binding: 'property',
+              bindingTarget: 'property',
               source: { start: 20, end: 36 },
               nameSource: { start: 20, end: 28 },
               valueSource: { start: 30, end: 35 },
@@ -68,6 +71,46 @@ describe('AngularTemplateParser', () => {
             { name: 'display', rawName: '[style.display]', binding: 'property' },
             { name: 'display', rawName: '[style.display.important]', binding: 'property' },
             { name: 'hidden', rawName: '[class.hidden]', binding: 'property' },
+          ],
+        },
+      ],
+    });
+  });
+
+  test('keeps raw literal edit evidence separate from Angular-decoded semantic values', () => {
+    const source = '<div fxShow="fals&#101;" class="bl&#111;ck" style="displa&#121;: block"></div>';
+
+    const result = new AngularTemplateParser().parse(source, 'entities.component.html');
+
+    expect(result).toMatchObject({
+      status: 'parsed',
+      elements: [
+        {
+          attributes: [
+            { name: 'fxShow', value: 'false', rawValue: 'fals&#101;' },
+            { name: 'class', value: 'block', rawValue: 'bl&#111;ck' },
+            { name: 'style', value: 'display: block', rawValue: 'displa&#121;: block' },
+          ],
+        },
+      ],
+    });
+  });
+
+  test('retains Angular bound target types after normalized class, style, and attribute names', () => {
+    const result = new AngularTemplateParser().parse(
+      '<div [fxShow]="shown" [class.fxShow]="flag" [style.fxShow]="value" [attr.fxShow]="value"></div>',
+      'targets.component.html',
+    );
+
+    expect(result).toMatchObject({
+      status: 'parsed',
+      elements: [
+        {
+          attributes: [
+            { name: 'fxShow', rawName: '[fxShow]', bindingTarget: 'property' },
+            { name: 'fxShow', rawName: '[class.fxShow]', bindingTarget: 'class' },
+            { name: 'fxShow', rawName: '[style.fxShow]', bindingTarget: 'style' },
+            { name: 'fxShow', rawName: '[attr.fxShow]', bindingTarget: 'attribute' },
           ],
         },
       ],

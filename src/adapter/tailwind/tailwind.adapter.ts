@@ -20,6 +20,13 @@ import { VisibleDisplayResolver } from './visibility/visible-display.resolver';
 
 const flexItemDirectives = new Set<LocatedFlexLayoutInput['directive']>(['fxFlex', 'fxGrow', 'fxShrink']);
 const visibilityDirectives = new Set<LocatedFlexLayoutInput['directive']>(['fxShow', 'fxHide']);
+const responsiveDisplayAuthorityDirectives = new Set<LocatedFlexLayoutInput['directive']>([
+  'class',
+  'ngClass',
+  'style',
+  'ngStyle',
+]);
+const responsiveStyleAuthorityDirectives = new Set<LocatedFlexLayoutInput['directive']>(['style', 'ngStyle']);
 
 const supportedDirectives = new Set<LocatedFlexLayoutInput['directive']>([
   'fxFlex',
@@ -74,7 +81,7 @@ function staticLayoutContext(attributes: readonly TemplateAttribute[]): string |
 function isBoundClassAttribute(attribute: TemplateAttribute): boolean {
   if (attribute.binding !== 'property') return false;
   return [...templateAttributeKeys(attribute)].some(
-    key => key === 'class' || key === 'ngclass' || key.startsWith('class.'),
+    key => key === 'class' || key === 'ngclass' || key.startsWith('class.') || key.startsWith('ngclass.'),
   );
 }
 
@@ -210,6 +217,9 @@ export class TailwindAdapter implements ConversionAdapter {
     if (!visibilityInputs.length) return strategyPlans;
 
     const layoutPlans = strategyPlans.filter(plan => plan.input.directive === 'fxLayout');
+    const responsiveStyleInputs = strategyInputs.filter(input =>
+      responsiveStyleAuthorityDirectives.has(input.directive),
+    );
     const visibilityPlan = this.visibilityStatePlanner.plan(visibilityInputs);
     const displayResolution =
       visibilityPlan.status === 'converted'
@@ -220,6 +230,7 @@ export class TailwindAdapter implements ConversionAdapter {
             attributes: (context.attributeEvidence ?? context.element.attributes).filter(
               attribute => !isBoundClassAttribute(attribute),
             ),
+            responsiveStyleInputs,
           })
         : { status: 'resolved' as const, utility: undefined };
     const composed = this.displayCompositionPlanner.compose({
@@ -373,12 +384,15 @@ export class TailwindAdapter implements ConversionAdapter {
   private closeDisplayDependencies(plans: readonly PlannedConversion[]): readonly PlannedConversion[] {
     const layoutPlans = plans.filter(plan => plan.input.directive === 'fxLayout');
     const visibilityPlans = plans.filter(plan => visibilityDirectives.has(plan.input.directive));
+    const authorityPlans = plans.filter(plan => responsiveDisplayAuthorityDirectives.has(plan.input.directive));
     const visibilityIsNoOp =
       visibilityPlans.length > 0 &&
       visibilityPlans.every(plan => plan.status === 'converted' && plan.classNames.length === 0);
-    if (!layoutPlans.length || !visibilityPlans.length || visibilityIsNoOp) return plans;
+    if ((!layoutPlans.length && !authorityPlans.length) || !visibilityPlans.length || visibilityIsNoOp) return plans;
 
-    const displayContextIsUnresolved = [...layoutPlans, ...visibilityPlans].some(plan => plan.status !== 'converted');
+    const displayContextIsUnresolved = [...layoutPlans, ...visibilityPlans, ...authorityPlans].some(
+      plan => plan.status !== 'converted',
+    );
     if (!displayContextIsUnresolved) return plans;
     return plans.map(plan =>
       plan.status === 'converted' &&

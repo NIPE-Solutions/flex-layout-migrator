@@ -67,6 +67,14 @@ function composedCandidates(states: readonly VisibilityState[], layout: PlannedC
   return result.plans.flatMap(plan => (plan.status === 'converted' ? plan.classNames : []));
 }
 
+function compose(states: readonly VisibilityState[], layout: PlannedConversion) {
+  return new DisplayCompositionPlanner().compose({
+    visibilityPlan: { status: 'converted', states },
+    displayResolution: { status: 'resolved', utility: undefined },
+    layoutPlans: [layout],
+  });
+}
+
 function mediaBlock(css: string, query: string): string {
   const marker = `@media ${query} {`;
   const start = css.indexOf(marker);
@@ -138,4 +146,26 @@ describe('Tailwind CSS v4 arbitrary media variants', () => {
     expect(responsiveRule).toContain('flex-direction: row');
     expect(responsiveRule).not.toContain('display: flex');
   });
+
+  test.each([
+    ['nested max-only', 'lt-md', 'lt-sm', 'screen and (max-width: 959.98px)', 'screen and (max-width: 599.98px)'],
+    ['crossing min/max', 'gt-xs', 'lt-md', 'screen and (min-width: 600px)', 'screen and (max-width: 959.98px)'],
+  ])(
+    'preserves %s partial overlap when compiled layout display can override hiding',
+    async (_case, layoutAlias, hideAlias, layoutQuery, hideQuery) => {
+      const responsiveFlex = responsiveUtility(layoutAlias, 'flex');
+      const responsiveHidden = responsiveUtility(hideAlias, 'hidden');
+      const unsafeCss = await compileCandidates([responsiveFlex, responsiveHidden]);
+      const flexRule = mediaBlock(unsafeCss, layoutQuery);
+      const hiddenRule = mediaBlock(unsafeCss, hideQuery);
+
+      expect(flexRule).toContain('display: flex');
+      expect(hiddenRule).toContain('display: none');
+      expect(unsafeCss.indexOf(flexRule)).toBeGreaterThan(unsafeCss.indexOf(hiddenRule));
+
+      const result = compose([visibilityState('hidden', hideAlias)], layoutPlan(layoutAlias));
+      expect(result).toMatchObject({ status: 'unresolved' });
+      expect(result.plans.every(plan => plan.status === 'review' && plan.code === 'context-unverified')).toBe(true);
+    },
+  );
 });
