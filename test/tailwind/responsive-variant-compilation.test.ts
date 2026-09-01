@@ -3,6 +3,12 @@ import { BreakpointCatalog, type BreakpointDefinition } from '../../src/breakpoi
 import type { LocatedFlexLayoutInput } from '../../src/analyzer/flex-layout-attribute.analyzer';
 import type { PlannedConversion } from '../../src/adapter/conversion-adapter';
 import { ResponsiveVariantEmitter } from '../../src/adapter/tailwind/responsive-variant.emitter';
+import { ExtendedResponsiveEmitter } from '../../src/adapter/tailwind/extended/extended-responsive.emitter';
+import type {
+  ExtendedResponsiveState,
+  ResponsiveClassValue,
+} from '../../src/adapter/tailwind/extended/responsive-class.model';
+import type { ResponsiveStyleValue } from '../../src/adapter/tailwind/extended/responsive-style.model';
 import { DisplayCompositionPlanner } from '../../src/adapter/tailwind/visibility/display-composition.planner';
 import { VisibilityEmitter } from '../../src/adapter/tailwind/visibility/visibility.emitter';
 import type { VisibilityIntent, VisibilityState } from '../../src/adapter/tailwind/visibility/visibility.model';
@@ -103,6 +109,36 @@ describe('Tailwind CSS v4 arbitrary media variants', () => {
     expect(css).toContain('@media screen and (max-width: 599.98px)');
     expect(css).toContain('@media screen and (min-width: 600px) and (max-width: 959.98px)');
     expect(css).toContain('flex-direction: column');
+  });
+
+  test('compiles emitted responsive class candidates and arbitrary style declarations with exact ownership', async () => {
+    const emitter = new ExtendedResponsiveEmitter();
+    const classInput = visibilityState('shown', 'sm').input;
+    const classState: ExtendedResponsiveState<ResponsiveClassValue> = {
+      input: { ...classInput, directive: 'ngClass', sourceName: 'ngClass.sm', value: 'hover:flex w-[17px]' },
+      activation: { kind: 'media', definition: definition('sm') },
+      value: { tokens: ['hover:flex', 'w-[17px]'] },
+    };
+    const styleInput = visibilityState('shown', 'gt-xs').input;
+    const styleState: ExtendedResponsiveState<ResponsiveStyleValue> = {
+      input: { ...styleInput, directive: 'ngStyle', sourceName: 'ngStyle.gt-xs', value: 'font-size:14px' },
+      activation: { kind: 'media', definition: definition('gt-xs') },
+      value: {
+        declarations: [
+          { property: 'font-size', value: '14px' },
+          { property: '--card-gap', value: '1rem' },
+        ],
+      },
+    };
+
+    const css = await compileCandidates([...emitter.emitClass(classState), ...emitter.emitStyle(styleState)]);
+    const bounded = mediaBlock(css, 'screen and (min-width: 600px) and (max-width: 959.98px)');
+    const minOnly = mediaBlock(css, 'screen and (min-width: 600px)');
+
+    expect(bounded).toContain('display: flex');
+    expect(bounded).toContain('width: 17px');
+    expect(minOnly).toContain('font-size: 14px');
+    expect(minOnly).toContain('--card-gap: 1rem');
   });
 
   test('compiles visibility display ownership in base, bounded, min-only, and max-only activations', async () => {
