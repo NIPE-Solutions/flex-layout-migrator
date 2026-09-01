@@ -137,7 +137,16 @@ const shorthandLonghands = new Map<string, readonly string[]>([
   ['border-block-end-color', ['border-block-end-color', ...physicalBorderColors]],
   [
     'border-radius',
-    ['border-top-left-radius', 'border-top-right-radius', 'border-bottom-right-radius', 'border-bottom-left-radius'],
+    [
+      'border-top-left-radius',
+      'border-top-right-radius',
+      'border-bottom-right-radius',
+      'border-bottom-left-radius',
+      'border-start-start-radius',
+      'border-start-end-radius',
+      'border-end-start-radius',
+      'border-end-end-radius',
+    ],
   ],
   ['border-image', borderImage],
   ['overflow', ['overflow-x', 'overflow-y']],

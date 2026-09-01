@@ -229,6 +229,127 @@ export function tailwindArbitraryTextKind(value: string): 'color' | 'font-size' 
   return inferred !== undefined && inferred !== 'color' ? 'font-size' : 'color';
 }
 
+function isTailwindBackgroundPosition(value: string): boolean {
+  let recognized = 0;
+  for (const part of value.split(' ')) {
+    if (['center', 'top', 'right', 'bottom', 'left'].includes(part)) {
+      recognized += 1;
+      continue;
+    }
+    if (part.startsWith('var(')) continue;
+    if (!isTailwindLength(part) && !isTailwindPercentage(part)) return false;
+    recognized += 1;
+  }
+  return recognized > 0;
+}
+
+function isTailwindBackgroundSize(value: string): boolean {
+  let recognized = 0;
+  for (const layer of value.split(',')) {
+    if (layer === 'cover' || layer === 'contain') {
+      recognized += 1;
+      continue;
+    }
+    const parts = layer.split(' ');
+    if (
+      (parts.length !== 1 && parts.length !== 2) ||
+      !parts.every(part => part === 'auto' || isTailwindLength(part) || isTailwindPercentage(part))
+    ) {
+      return false;
+    }
+    recognized += 1;
+  }
+  return recognized > 0;
+}
+
+function splitTopLevelCommas(value: string): readonly string[] | undefined {
+  const closingByOpening = new Map([
+    ['(', ')'],
+    ['[', ']'],
+    ['{', '}'],
+  ]);
+  const stack: string[] = [];
+  const parts: string[] = [];
+  let quote: '"' | "'" | undefined;
+  let start = 0;
+
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value[index];
+    if (character === undefined) return undefined;
+    if (quote !== undefined) {
+      if (character === '\\') index += 1;
+      else if (character === quote) quote = undefined;
+      continue;
+    }
+    if (character === '\\') {
+      index += 1;
+      continue;
+    }
+    if (character === '"' || character === "'") {
+      quote = character;
+      continue;
+    }
+    const closing = closingByOpening.get(character);
+    if (closing !== undefined) {
+      stack.push(closing);
+      continue;
+    }
+    if ([')', ']', '}'].includes(character)) {
+      if (stack.pop() !== character) return undefined;
+      continue;
+    }
+    if (character === ',' && stack.length === 0) {
+      parts.push(value.slice(start, index));
+      start = index + 1;
+    }
+  }
+  if (quote !== undefined || stack.length > 0) return undefined;
+  parts.push(value.slice(start));
+  return parts;
+}
+
+function isTailwindBackgroundImage(value: string): boolean {
+  const layers = splitTopLevelCommas(value);
+  if (layers === undefined) return false;
+  let recognized = 0;
+  for (const layer of layers) {
+    const normalized = layer.trim();
+    if (normalized.startsWith('var(')) continue;
+    if (
+      !/^(?:url|(?:repeating-)?(?:linear|radial|conic)-gradient|element|image|cross-fade|image-set)\([\s\S]*\)$/u.test(
+        normalized,
+      )
+    ) {
+      return false;
+    }
+    recognized += 1;
+  }
+  return recognized > 0;
+}
+
+export function tailwindArbitraryBackgroundKind(
+  value: string,
+): 'background-color' | 'background-image' | 'background-position' | 'background-size' | 'unknown' {
+  const arbitrary = arbitraryValue(value);
+  if (arbitrary === undefined) return 'unknown';
+  if (arbitrary.hint === 'percentage' || arbitrary.hint === 'position') return 'background-position';
+  if (['bg-size', 'length', 'size'].includes(arbitrary.hint ?? '')) return 'background-size';
+  if (arbitrary.hint === 'image' || arbitrary.hint === 'url') return 'background-image';
+  if (arbitrary.hint === 'color') return 'background-color';
+  if (arbitrary.hint !== undefined) return 'unknown';
+
+  const payload = decodedInferenceValue(arbitrary.payload);
+  if (payload === undefined || payload.length === 0) return 'unknown';
+  if (payload.startsWith('var(')) return 'unknown';
+  if (isTailwindBackgroundImage(payload)) return 'background-image';
+  if (inferTailwindDataType(payload, ['color']) === 'color') return 'background-color';
+
+  const position = isTailwindBackgroundPosition(payload);
+  const size = isTailwindBackgroundSize(payload);
+  if (position === size) return 'unknown';
+  return position ? 'background-position' : 'background-size';
+}
+
 export function tailwindArbitraryBorderKind(value: string): 'border-color' | 'border-width' | 'unknown' {
   const arbitrary = arbitraryValue(value);
   if (arbitrary === undefined) return 'unknown';

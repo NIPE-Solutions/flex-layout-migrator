@@ -448,6 +448,63 @@ describe('ConversionPlanner', () => {
     expect(migrate(first.output)).toMatchObject({ output: expected, edits: [], results: [] });
   });
 
+  test.each([
+    ['generated content', 'focus-within:content-none', 'content:none'],
+    ['background position', 'focus-within:bg-[position:left_top]', 'background-position:center'],
+    ['background size', 'focus-within:bg-[length:50%_auto]', 'background-size:cover'],
+    ['background color', 'focus-within:bg-[color:red]', 'background-color:blue'],
+    ['untyped background position', 'focus-within:bg-[center]', 'background-position:left'],
+    ['untyped background size', 'focus-within:bg-[cover]', 'background-size:auto'],
+    ['untyped background color', 'focus-within:bg-[red]', 'background-color:blue'],
+    ['inset shadow geometry', 'focus-within:inset-shadow-sm', 'box-shadow:none'],
+    ['inset shadow color', 'focus-within:inset-shadow-red-500', '--tw-inset-shadow-color:blue'],
+    ['inset ring geometry', 'focus-within:inset-ring-2', '--tw-inset-ring-shadow:none'],
+    ['inset ring color', 'focus-within:inset-ring-red-500', '--tw-inset-ring-color:blue'],
+    ['z-axis rotation', 'focus-within:rotate-z-45', 'transform:none'],
+    ['discrete transition behavior', 'focus-within:transition-discrete', 'transition-behavior:normal'],
+    ['normal transition behavior', 'focus-within:transition-normal', 'transition-behavior:allow-discrete'],
+  ])('preserves an overlapping responsive style behind focus-within %s ownership', (_case, utility, style) => {
+    const source = `<div class="${utility}" ngStyle.sm="${style}"></div>`;
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.edits).toEqual([]);
+    expect(result.results).toEqual([expect.objectContaining({ status: 'review', code: 'class-conflict' })]);
+  });
+
+  test.each([
+    ['generated content', 'focus-within:content-none'],
+    ['background position', 'focus-within:bg-[position:left_top]'],
+    ['background size', 'focus-within:bg-[length:50%_auto]'],
+    ['background color', 'focus-within:bg-[color:red]'],
+    ['untyped background position', 'focus-within:bg-[center]'],
+    ['untyped background size', 'focus-within:bg-[cover]'],
+    ['untyped background color', 'focus-within:bg-[red]'],
+    ['inset shadow geometry', 'focus-within:inset-shadow-sm'],
+    ['inset shadow color', 'focus-within:inset-shadow-red-500'],
+    ['inset ring geometry', 'focus-within:inset-ring-2'],
+    ['inset ring color', 'focus-within:inset-ring-red-500'],
+    ['z-axis rotation', 'focus-within:rotate-z-45'],
+    ['discrete transition behavior', 'focus-within:transition-discrete'],
+    ['normal transition behavior', 'focus-within:transition-normal'],
+  ])('converts an unrelated responsive color beside focus-within %s ownership', (_case, utility) => {
+    const expected = `<div class="${utility} [@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:[color:red]"></div>`;
+    const first = migrate(`<div class="${utility}" ngStyle.sm="color:red"></div>`);
+
+    expect(first.output).toBe(expected);
+    expect(first.results.every(result => result.status === 'converted')).toBe(true);
+    expect(migrate(first.output)).toMatchObject({ output: expected, edits: [], results: [] });
+  });
+
+  test('preserves unrelated responsive ownership behind an untyped arbitrary background authority', () => {
+    const source = '<div class="focus-within:bg-[50%]" ngStyle.sm="color:red"></div>';
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.edits).toEqual([]);
+    expect(result.results).toEqual([expect.objectContaining({ status: 'review', code: 'class-conflict' })]);
+  });
+
   test('preserves a multi-property responsive class when inline ownership covers only one declaration', () => {
     const source = '<div ngClass.sm="text-sm/5" ngStyle.sm="font-size:14px"></div>';
     const result = migrate(source);

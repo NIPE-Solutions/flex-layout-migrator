@@ -18,9 +18,15 @@ const gtXs = (utility: string) => `[@media_screen_and_(min-width:_600px)]:${util
 
 async function compiledClassCssProperties(candidate: string): Promise<readonly string[]> {
   const compiler = await compile(await tailwindSource);
+  return classRuleCssProperties(compiler.build([candidate]));
+}
+
+function classRuleCssProperties(css: string): readonly string[] {
   const properties: string[] = [];
 
-  postcss.parse(compiler.build([candidate])).walkRules(rule => {
+  postcss.parse(css).walkRules(rule => {
+    // candidatesToCss also emits global registrations and keyframes; only
+    // declarations nested under a class selector belong to this utility.
     if (!rule.selector.includes('.')) return;
     rule.walkDecls(declaration => {
       if (!properties.includes(declaration.prop)) properties.push(declaration.prop);
@@ -379,9 +385,72 @@ describe('describeTailwindUtility', () => {
     ['shadow-red-500', ['--tw-shadow-color']],
     ['shadow-red-500/50', ['--tw-shadow-color']],
     ['shadow-sm', ['--tw-shadow', 'box-shadow']],
+    ['content-none', ['--tw-content', 'content']],
+    ['inset-shadow-sm', ['--tw-inset-shadow', 'box-shadow']],
+    ['inset-shadow-red-500', ['--tw-inset-shadow-color']],
+    ['inset-ring-2', ['--tw-inset-ring-shadow', 'box-shadow']],
+    ['inset-ring-red-500', ['--tw-inset-ring-color']],
+    ['rotate-z-45', ['--tw-rotate-z', 'transform']],
+    ['transition-discrete', ['transition-behavior']],
+    ['transition-normal', ['transition-behavior']],
   ] as const)('reports the exact pinned property set for existing utility %s', (token, cssProperties) => {
     expect(describeTailwindUtility(token)).toMatchObject({ cssProperties });
   });
+
+  test.each([
+    ['bg-[image:url(hero.png)]', 'background-image'],
+    ['bg-[url:url(hero.png)]', 'background-image'],
+    ['bg-[linear-gradient(red,blue)]', 'background-image'],
+    ['bg-[repeating-linear-gradient(red,blue)]', 'background-image'],
+    ['bg-[image-set(url(one.png)_1x,url(two.png)_2x)]', 'background-image'],
+    ['bg-[position:left_top]', 'background-position'],
+    ['bg-[percentage:50%]', 'background-position'],
+    ['bg-[length:50%_auto]', 'background-size'],
+    ['bg-[bg-size:cover]', 'background-size'],
+    ['bg-[size:cover]', 'background-size'],
+    ['bg-[color:red]', 'background-color'],
+    ['bg-[color:red]/50', 'background-color'],
+    ['bg-[center]', 'background-position'],
+    ['bg-[left_top]', 'background-position'],
+    ['bg-[right_10px_bottom_20px]', 'background-position'],
+    ['bg-[cover]', 'background-size'],
+    ['bg-[auto_50%]', 'background-size'],
+    ['bg-[auto_auto]', 'background-size'],
+    ['bg-[red]', 'background-color'],
+    ['bg-[rebeccapurple]', 'background-color'],
+    ['bg-[transparent]', 'background-color'],
+    ['bg-[#fff]', 'background-color'],
+    ['bg-[rgb(1_2_3)]', 'background-color'],
+    ['bg-[color-mix(in_oklab,_red,_blue)]', 'background-color'],
+  ] as const)(
+    'maps the typed or unambiguous arbitrary background %s to its compiler-selected property',
+    async (token, property) => {
+      expect(await compiledClassCssProperties(token)).toEqual([property]);
+      expect(describeTailwindUtility(token)).toMatchObject({ cssProperties: [property] });
+      expect(describeTailwindUtility(token)).not.toHaveProperty('hasUnknownCssAuthority');
+    },
+  );
+
+  test.each([
+    ['bg-[50%]', 'background-position'],
+    ['bg-[12px]', 'background-position'],
+    ['bg-[50%_50%]', 'background-position'],
+    ['bg-[calc(50%_-_1rem)]', 'background-position'],
+    ['bg-[var(--surface)]', 'background-color'],
+    ['bg-(--surface)', 'background-color'],
+    ['bg-[linear-gradient(red,blue),rgb(1_2_3)]', 'background-color'],
+    ['bg-[var(--layer),url(hero.png)]', 'background-color'],
+    ['bg-[url(hero.png),rgb(1_2_3)]', 'background-image'],
+  ] as const)(
+    'keeps the untyped arbitrary background %s conservative despite the pinned compiler choosing %s',
+    async (token, property) => {
+      expect(await compiledClassCssProperties(token)).toEqual([property]);
+      expect(describeTailwindUtility(token)).toMatchObject({
+        cssProperties: [],
+        hasUnknownCssAuthority: true,
+      });
+    },
+  );
 
   test.each(existingCompilerOwnershipMatrix)(
     'never under-reports parsed Tailwind declarations for compiler-valid existing utility %s',
@@ -402,20 +471,42 @@ describe('describeTailwindUtility', () => {
     },
   );
 
-  test('never silently ignores a pinned default-theme class-list utility', async () => {
+  test('covers every class-owned declaration from all 23,286 pinned default-theme utilities', async () => {
     const designSystem = await __unstable__loadDesignSystem(await tailwindSource);
-    const missing = designSystem
-      .getClassList()
-      .map(([candidate]) => candidate)
-      .filter(candidate => {
-        const descriptor = describeTailwindUtility(candidate);
-        return (
-          descriptor === undefined ||
-          (descriptor.cssProperties.length === 0 && descriptor.hasUnknownCssAuthority !== true)
-        );
-      });
+    const candidates = designSystem.getClassList().map(([candidate]) => candidate);
+    const compiled = designSystem.candidatesToCss(candidates);
+    const compilerEmpty: string[] = [];
+    const declarationEmpty: string[] = [];
+    const underCovered: Array<{
+      readonly candidate: string;
+      readonly emitted: readonly string[];
+      readonly owners: readonly string[];
+      readonly uncovered: readonly string[];
+    }> = [];
 
-    expect(missing).toEqual([]);
+    for (const [index, candidate] of candidates.entries()) {
+      const css = compiled[index];
+      if (css === null || css === undefined) {
+        compilerEmpty.push(candidate);
+        continue;
+      }
+
+      const emitted = classRuleCssProperties(css);
+      if (emitted.length === 0) declarationEmpty.push(candidate);
+      const descriptor = describeTailwindUtility(candidate);
+      if (descriptor?.hasUnknownCssAuthority === true) continue;
+      const owners = descriptor?.cssProperties ?? [];
+      const uncovered = emitted.filter(property => !owners.some(owner => cssPropertyOwnershipCovers(owner, property)));
+      if (uncovered.length > 0) underCovered.push({ candidate, emitted, owners, uncovered });
+    }
+
+    expect(candidates).toHaveLength(23_286);
+    expect(compilerEmpty).toEqual([]);
+    expect(declarationEmpty).toEqual([]);
+    expect(
+      underCovered,
+      JSON.stringify({ count: underCovered.length, sample: underCovered.slice(0, 30) }, null, 2),
+    ).toHaveLength(0);
   });
 
   test('marks a recognized but unmodeled Tailwind utility as an unknown CSS authority', () => {

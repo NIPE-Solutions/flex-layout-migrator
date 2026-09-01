@@ -51,4 +51,17 @@ describe('cssPropertiesOverlap', () => {
     expect(cssPropertyOwnershipCovers('all', 'display')).toBe(true);
     expect(cssPropertyOwnershipCovers('display', 'all')).toBe(false);
   });
+
+  test.each([
+    'border-start-start-radius',
+    'border-start-end-radius',
+    'border-end-start-radius',
+    'border-end-end-radius',
+    'border-top-left-radius',
+    'border-top-right-radius',
+    'border-bottom-left-radius',
+    'border-bottom-right-radius',
+  ])('treats border-radius as conservative ownership of %s', property => {
+    expect(cssPropertyOwnershipCovers('border-radius', property)).toBe(true);
+  });
 });

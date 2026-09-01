@@ -200,6 +200,13 @@ function isColor(value: string): boolean {
   return opacity === undefined || isPercentage(opacity) || isArbitraryOrVariable(opacity);
 }
 
+function isBackgroundColor(value: string): boolean {
+  const [color] = value.split('/');
+  if (isCssVariableValue(color ?? '')) return false;
+  if (/^\[var\(/u.test(color ?? '')) return false;
+  return isColor(value);
+}
+
 function textCssProperties(value: string): readonly string[] | undefined {
   const [size, lineHeight, remainder] = value.split('/');
   const hasVerifiedLineHeight =
@@ -337,7 +344,7 @@ const namespaceRegistry: readonly NamespaceRule[] = Object.freeze([
   { namespace: 'max-w', cssProperties: ['max-width'], accepts: value => value !== 'auto' && isWidth(value) },
   { namespace: 'max-h', cssProperties: ['max-height'], accepts: value => value !== 'auto' && isDimension(value) },
   { namespace: 'text', cssProperties: textCssProperties, accepts: acceptsText },
-  { namespace: 'bg', cssProperties: ['background-color'], accepts: isColor },
+  { namespace: 'bg', cssProperties: ['background-color'], accepts: isBackgroundColor },
   { namespace: 'bg', cssProperties: ['background-image'], accepts: isBackgroundImage },
   {
     namespace: 'border',

@@ -456,6 +456,15 @@ const admissionAuditCandidates = [
 ];
 
 const arbitraryCompilerOwnershipMatrix = [
+  { candidate: 'bg-[image:url(hero.png)]', cssProperties: ['background-image'], admission: 'verified' },
+  { candidate: 'bg-[url(hero.png)]', cssProperties: ['background-image'], admission: 'verified' },
+  { candidate: 'bg-[color:red]', cssProperties: ['background-color'], admission: 'verified' },
+  { candidate: 'bg-[#fff]', cssProperties: ['background-color'], admission: 'verified' },
+  { candidate: 'bg-[position:center]', cssProperties: ['background-position'], admission: 'unverified' },
+  { candidate: 'bg-[length:50%_auto]', cssProperties: ['background-size'], admission: 'unverified' },
+  { candidate: 'bg-[50%]', cssProperties: ['background-position'], admission: 'unverified' },
+  { candidate: 'bg-[var(--surface)]', cssProperties: ['background-color'], admission: 'unverified' },
+  { candidate: 'bg-(--surface)', cssProperties: ['background-color'], admission: 'unverified' },
   { candidate: 'text-[17px]', cssProperties: ['font-size'], admission: 'verified' },
   { candidate: 'text-[.5rem]', cssProperties: ['font-size'], admission: 'verified' },
   { candidate: 'text-[50%]', cssProperties: ['font-size'], admission: 'verified' },

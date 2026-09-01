@@ -3,6 +3,7 @@ import { analyzeTailwindArbitrarySyntax } from './tailwind-arbitrary-syntax';
 import { cssPropertiesOverlap } from './extended/css-property-ownership';
 import {
   isPinnedTailwindColorToken,
+  tailwindArbitraryBackgroundKind,
   tailwindArbitraryBorderKind,
   tailwindArbitraryShadowKind,
   tailwindArbitraryTextKind,
@@ -119,6 +120,7 @@ type CssAuthority = readonly string[] | 'unknown';
 
 const textSizes = new Set(['xs', 'sm', 'base', 'lg', 'xl', '2xl', '3xl', '4xl', '5xl', '6xl', '7xl', '8xl', '9xl']);
 const shadowGeometryNames = new Set(['2xs', 'xs', 'sm', 'md', 'lg', 'xl', '2xl', 'none']);
+const insetShadowGeometryNames = new Set(['2xs', 'xs', 'sm', 'none']);
 
 interface BorderFamilyOwnership {
   readonly namespace: string;
@@ -365,6 +367,31 @@ function ringCssAuthority(utility: string): CssAuthority | undefined {
   return 'unknown';
 }
 
+function insetShadowCssAuthority(utility: string): CssAuthority | undefined {
+  if (utility === 'inset-shadow') return 'unknown';
+  if (!utility.startsWith('inset-shadow-')) return undefined;
+  const suffix = utility.slice('inset-shadow-'.length);
+  if (insetShadowGeometryNames.has(suffix)) return ['--tw-inset-shadow', 'box-shadow'];
+  if (suffix === 'initial' || isPinnedTailwindColorToken(suffix)) return ['--tw-inset-shadow-color'];
+  return 'unknown';
+}
+
+function insetRingCssAuthority(utility: string): CssAuthority | undefined {
+  if (utility === 'inset-ring') return ['--tw-inset-ring-shadow', 'box-shadow'];
+  if (!utility.startsWith('inset-ring-')) return undefined;
+  const suffix = utility.slice('inset-ring-'.length);
+  if (isCanonicalInteger(suffix)) return ['--tw-inset-ring-shadow', 'box-shadow'];
+  if (isPinnedTailwindColorToken(suffix)) return ['--tw-inset-ring-color'];
+  return 'unknown';
+}
+
+function arbitraryBackgroundCssAuthority(value: string): CssAuthority {
+  const arbitrary = value.match(/^\[([\s\S]+)\](?:\/[\s\S]+)?$/u)?.[1];
+  if (arbitrary === undefined) return 'unknown';
+  const property = tailwindArbitraryBackgroundKind(`[${arbitrary}]`);
+  return property === 'unknown' ? property : [property];
+}
+
 function isRecognizedTailwindAuthority(utility: string): boolean {
   const normalized = utility.startsWith('-') ? utility.slice(1) : utility;
   return (
@@ -390,6 +417,7 @@ function cssProperties(utility: string): CssAuthority | undefined {
   if (/^justify-self-/u.test(utility)) return ['justify-self'];
   if (/^justify-/u.test(utility)) return ['justify-content'];
   if (/^items-/u.test(utility)) return ['align-items'];
+  if (utility === 'content-none') return ['--tw-content', 'content'];
   if (/^content-\[/u.test(utility)) return ['--tw-content', 'content'];
   if (/^content-/u.test(utility)) return ['align-content'];
   if (/^self-/u.test(utility)) return ['align-self'];
@@ -437,7 +465,6 @@ function cssProperties(utility: string): CssAuthority | undefined {
   if (/^text-(?:ellipsis|clip)$/u.test(utility)) return ['text-overflow'];
   if (textValue !== undefined && isPinnedTailwindColorToken(textValue)) return ['color'];
   if (/^text-/u.test(utility)) return 'unknown';
-  if (/^bg-\[(?:image:|url\(|(?:linear|radial|conic)-gradient\()/u.test(utility)) return ['background-image'];
   if (/^bg-(?:auto|cover|contain)$/u.test(utility)) return ['background-size'];
   if (/^bg-(?:fixed|local|scroll)$/u.test(utility)) return ['background-attachment'];
   if (/^bg-clip-/u.test(utility)) return ['background-clip'];
@@ -451,7 +478,8 @@ function cssProperties(utility: string): CssAuthority | undefined {
   if (/^bg-blend-/u.test(utility)) return ['background-blend-mode'];
   if (utility === 'bg-none') return ['background-image'];
   const backgroundValue = utility.match(/^bg-([\s\S]+)$/u)?.[1];
-  if (backgroundValue?.startsWith('[') || isCssVariableShorthand(backgroundValue ?? '')) return ['background-color'];
+  if (backgroundValue?.startsWith('[')) return arbitraryBackgroundCssAuthority(backgroundValue);
+  if (isCssVariableShorthand(backgroundValue ?? '')) return 'unknown';
   if (backgroundValue !== undefined && isPinnedTailwindColorToken(backgroundValue)) return ['background-color'];
   if (/^bg-/u.test(utility)) return 'unknown';
   const borderAuthority = borderCssAuthority(utility);
@@ -461,6 +489,10 @@ function cssProperties(utility: string): CssAuthority | undefined {
   if (shadowAuthority !== undefined) return shadowAuthority;
   const ringAuthority = ringCssAuthority(utility);
   if (ringAuthority !== undefined) return ringAuthority;
+  const insetShadowAuthority = insetShadowCssAuthority(utility);
+  if (insetShadowAuthority !== undefined) return insetShadowAuthority;
+  const insetRingAuthority = insetRingCssAuthority(utility);
+  if (insetRingAuthority !== undefined) return insetRingAuthority;
   if (utility === 'truncate') return ['overflow', 'text-overflow', 'white-space'];
   if (/^opacity-/u.test(utility)) return ['opacity'];
   if (/^overflow(?:-|$)/u.test(utility)) return ['overflow'];
@@ -472,6 +504,7 @@ function cssProperties(utility: string): CssAuthority | undefined {
   if (/^-?right-/u.test(utility)) return ['right'];
   if (/^-?bottom-/u.test(utility)) return ['bottom'];
   if (/^-?left-/u.test(utility)) return ['left'];
+  if (/^-?rotate-z-/u.test(utility)) return ['--tw-rotate-z', 'transform'];
   if (/^-?rotate-(?:x|y)-/u.test(utility)) return 'unknown';
   if (/^-?rotate-/u.test(utility)) return ['rotate'];
   if (/^scale-(?:x|y|z)-/u.test(utility)) return 'unknown';
@@ -482,6 +515,7 @@ function cssProperties(utility: string): CssAuthority | undefined {
   if (/^-?translate-y-/u.test(utility)) return ['--tw-translate-y', 'translate'];
   if (/^-?translate-/u.test(utility)) return ['--tw-translate-x', '--tw-translate-y', 'translate'];
   if (utility === 'transition-none') return ['transition-property'];
+  if (utility === 'transition-discrete' || utility === 'transition-normal') return ['transition-behavior'];
   if (/^transition(?:-|$)/u.test(utility)) {
     return ['transition-property', 'transition-timing-function', 'transition-duration'];
   }
