@@ -9,6 +9,7 @@ export type DiagnosticCode =
   | 'breakpoint-unverified'
   | 'custom-breakpoint'
   | 'dynamic-binding'
+  | 'display-restoration-unverified'
   | 'invalid-value'
   | 'context-unverified'
   | 'responsive-precedence-unverified'
