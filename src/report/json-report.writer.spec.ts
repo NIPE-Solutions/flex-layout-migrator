@@ -273,7 +273,7 @@ describe('JsonReportWriter', () => {
     const report = new MigrationReportBuilder().build(inputRoot, outputRoot, 'tailwind', false, 0, [
       {
         ...file(inputPath),
-        changed: false,
+        changed: true,
         results: [
           extendedConvertedResult(inputPath, 'ngClass', 'sm', 12),
           extendedConvertedResult(inputPath, 'ngStyle', 'lt-md', 54),
@@ -293,7 +293,7 @@ describe('JsonReportWriter', () => {
       };
       expect(contents.summary).toEqual({
         filesScanned: 1,
-        filesChanged: 0,
+        filesChanged: 1,
         converted: 2,
         review: 2,
         unsupported: 0,
@@ -303,7 +303,7 @@ describe('JsonReportWriter', () => {
       expect(contents.files).toEqual([
         {
           path: 'extended.component.html',
-          changed: false,
+          changed: true,
           results: [
             { status: 'converted', directive: 'ngClass', sourceName: 'ngClass.sm', offset: 12 },
             { status: 'converted', directive: 'ngStyle', sourceName: 'ngStyle.lt-md', offset: 54 },
