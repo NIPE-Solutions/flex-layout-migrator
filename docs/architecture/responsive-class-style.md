@@ -21,7 +21,7 @@ The design follows the final Angular Flex-Layout implementation at commit `84ac0
 - Converting arbitrary application classes or project-specific Tailwind plugin utilities.
 - Editing component or global CSS, Sass, Less, or Tailwind configuration files.
 - Converting responsive `imgSrc`, CSS Grid directives, orientation aliases, print aliases, or custom breakpoints.
-- Converting ordinary unsuffixed Angular `ngClass` and `ngStyle` inputs.
+- General standalone conversion of ordinary unsuffixed Angular `ngClass` and `ngStyle` inputs. When responsive siblings exist, these inputs are still inspected as runtime fallback authorities.
 - Replacing Angular sanitization with a less restrictive CSS interpretation.
 
 ## Source inputs
@@ -63,10 +63,10 @@ States use the existing verified breakpoint catalog and canonical order. Output 
 
 ### Upstream activation semantics
 
-Angular Flex-Layout selects one responsive value according to breakpoint priority and combines it with the unsuffixed fallback:
+Angular Flex-Layout selects one responsive value according to breakpoint priority and falls back to the unsuffixed extended input when no responsive value is active:
 
-- `ngClass`: the selected responsive class value is applied through `NgClass`; ordinary base classes remain fallback classes.
-- `ngStyle`: the selected responsive style map is merged over the element's fallback inline styles.
+- `ngClass`: an active responsive value replaces the unsuffixed `ngClass` value. A static HTML `class` value remains independently active through Angular `NgClass`'s initial-class channel.
+- `ngStyle`: an active responsive value replaces the unsuffixed `ngStyle` value. Static inline `style` declarations are captured separately and merged under whichever extended style value is selected.
 
 Responsive values are not treated as an additive union. Two intersecting ranges may convert together only when their normalized values are identical. Conflicting overlaps preserve the complete family with `responsive-precedence-unverified`.
 
@@ -122,34 +122,39 @@ becomes:
 
 Existing literal classes are retained byte-for-byte apart from the repository's established append behavior. Property-bound class authorities preserve any family that would generate classes.
 
-Existing Tailwind utilities are checked through the shared activation/property conflict model. A conflicting utility in an intersecting activation range preserves the family with `class-conflict`. Identical output tokens are reused rather than duplicated.
+Existing Tailwind utilities are checked through the shared activation and CSS-ownership model. Shorthands, axis-specific utilities such as `gap-y-*`, universal properties such as `all`, and multi-property utilities such as `sr-only` participate through their actual owned properties. A conflicting utility in an intersecting activation range preserves the family with `class-conflict`. Identical output tokens are reused rather than duplicated.
+
+An unsuffixed `ngClass` is part of the complete replacement family even though it is not reported as a responsive source occurrence. A bound fallback preserves every responsive sibling, including an empty sibling. An empty literal fallback is compatible. A non-empty literal fallback is removed from the responsive decision only when every responsive value is exactly the same normalized class list; otherwise the family is preserved because leaving the fallback active would turn replacement into an additive merge.
 
 ## Responsive style conversion
 
 ### Literal style parsing
 
-`ResponsiveStyleValueParser` extends the existing conservative declaration-list scanner. It returns a canonical ordered map only when the entire decoded value is structurally valid and safe.
+`ResponsiveStyleValueParser` reproduces the final Flex-Layout raw-string transform before applying conservative safety checks. The decoded string is trimmed and split at every semicolon, including semicolons inside quotes or functions. Each entry is split at its first colon, all single- and double-quote characters are removed from its key and value, and later duplicate keys replace earlier values. The result then follows Angular 15 `NgStyle` property and optional unit handling.
 
 Supported declarations include:
 
 - ordinary CSS properties with literal values;
 - custom properties;
 - Angular unit suffixes that have an exact CSS representation, such as `font-size.px: 14` becoming `font-size: 14px`;
-- values containing balanced functions, quoted strings, CSS variables, and calc expressions when they can be encoded losslessly as Tailwind arbitrary values.
+- quote-stripped scalar values, CSS variables, and calc expressions when the transformed browser-facing value can be encoded losslessly as a Tailwind arbitrary value.
 
 The parser rejects the complete family for:
 
-- malformed declarations, duplicate properties with conflicting values, or ambiguous escapes;
+- entries made ambiguous by upstream semicolon splitting, unsupported renderer property spelling, or ambiguous escapes;
 - URL-bearing or sanitizer-sensitive values whose upstream sanitized result cannot be reproduced statically;
 - Angular expression syntax or interpolation;
 - property/unit combinations without an exact CSS representation;
+- declaration `!important` text, including case and trivia variants, because Angular `NgStyle` passes the text as a value without setting CSS priority;
 - values that cannot be encoded and compiler-proven without semantic change.
 
 ### Fallback style authority
 
-Responsive `ngStyle` is merged over fallback inline styles at runtime. Tailwind classes cannot override an ordinary inline declaration with the same property without changing priority.
+Responsive `ngStyle` is merged over static fallback inline styles at runtime. Tailwind classes cannot override an ordinary inline declaration with the same property without changing priority.
 
-The style family therefore remains unchanged when any unsuffixed literal or bound style authority may control a property emitted by the responsive family. A literal fallback style is parsed property-by-property: non-overlapping properties are compatible, while an overlapping property preserves the family. A bound fallback style is treated as potentially controlling every property.
+The style family therefore remains unchanged when a static literal or bound style authority may control a property emitted by the responsive family. A static literal `style` value is parsed property-by-property: non-overlapping properties are compatible, while an overlapping property preserves the family. A bound style authority is treated as potentially controlling every property.
+
+An unsuffixed `ngStyle` has different semantics: it is the replaceable base value, not the static inline-style fallback. A bound unsuffixed value always preserves the responsive family. A non-empty literal raw-string fallback also preserves the family because leaving it behind would make it permanently active, while removing it would broaden this feature into standalone `ngStyle` conversion. Only an exact empty literal fallback is compatible with responsive emission.
 
 ### Emission
 
@@ -190,6 +195,8 @@ An unresolved extended family retains its original attributes. It may force a re
 
 No empty `class` attribute or byte-identical class-value edit is created.
 
+Generated class values are serialized for the surrounding HTML attribute delimiter. Ampersands and the active quote character are escaped before insertion, so Angular reparsing decodes the exact same Tailwind token; this applies to both existing quote styles and newly inserted attributes.
+
 ## Diagnostics
 
 Existing diagnostic codes are reused where their meaning is exact:
@@ -218,13 +225,16 @@ The compatibility corpus covers:
 - existing literal and bound class/style evidence;
 - application classes and plugin-like utilities;
 - fallback inline-style overlap;
+- empty, literal, and bound unsuffixed `ngClass`/`ngStyle` fallback authority;
+- Flex-Layout raw-string quote removal and unconditional semicolon splitting;
+- declaration-priority rejection;
 - display interaction with visibility and layout;
 - dynamic, interpolation, orientation, print, custom, and malformed inputs;
 - source-order independence and second-run idempotence.
 
 Coverage is measured by directive occurrences, not by declaring an entire project converted or unconverted. Public reports already expose exact unresolved results; documentation will explain how teams can aggregate diagnostic counts across representative repositories. The project does not claim universal conversion of arbitrary runtime behavior.
 
-The byte-exact compatibility fixture produces 63 extended responsive report results. It asserts 39 converted and 24 preserved results, every standard alias for both directives, the complete diagnostic histogram, and a zero-edit second migration. A separate compatibility test asserts source-order independence within multi-state class and style families. Empty breakpoint suffixes remain unchanged without being classified as responsive inputs. Visibility inputs in the fixture are counted separately by the public report contract.
+The byte-exact compatibility fixture produces 75 extended responsive report results. It asserts 42 converted and 33 preserved results, every standard alias for both directives, the complete diagnostic histogram, and a zero-edit second migration. A separate compatibility test asserts source-order independence within multi-state class and style families. Empty breakpoint suffixes remain unchanged without being classified as responsive inputs. Visibility inputs in the fixture are counted separately by the public report contract.
 
 ## Compiler-proven output examples
 

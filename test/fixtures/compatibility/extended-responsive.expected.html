@@ -17,7 +17,7 @@
 <div class="[@media_screen_and_(min-width:_0px)_and_(max-width:_599.98px)]:[font-size:14px]"></div>
 <div class="[@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:[color:#334155] [@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:[--Card_Gap:1rem]"></div>
 <div class="[@media_screen_and_(min-width:_960px)_and_(max-width:_1279.98px)]:[width:calc(100%_-_var(--card-gap,_1rem))]"></div>
-<div class="[@media_screen_and_(min-width:_1280px)_and_(max-width:_1919.98px)]:[content:'exact_value']"></div>
+<div class="[@media_screen_and_(min-width:_1280px)_and_(max-width:_1919.98px)]:[content:exact_value]"></div>
 <div class="[@media_screen_and_(min-width:_1920px)_and_(max-width:_4999.98px)]:[color:rgb(var(--channels,_51_65_85)_/_50%)]"></div>
 <div class="[@media_screen_and_(max-width:_599.98px)]:[border-radius:.5rem]"></div>
 <div class="[@media_screen_and_(max-width:_959.98px)]:[opacity:.5]"></div>
@@ -41,6 +41,15 @@
 <div class="text-blue-500" ngStyle.sm="color:red"></div>
 <div class="[@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:[color:blue]"></div>
 <div ngStyle.sm="margin:1rem;margin-top:2rem"></div>
+<div ngClass="flex"></div>
+<div ngClass="flex items-center" ngClass.sm="grid"></div>
+<div ngStyle="" class="[@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:[color:green]"></div>
+<div ngStyle="color:red" ngStyle.sm="color:red"></div>
+<div [ngClass]="classes" ngClass.sm=""></div>
+<div [ngStyle]="styles" ngStyle.sm=""></div>
+<div class="[row-gap:1rem]" ngClass.sm="gap-y-4"></div>
+<div class="sr-only" ngClass.sm="relative"></div>
+<div class='card [@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:[content:&#39;quoted&amp;copy;&#39;]'></div>
 
 <!-- preserved extended inputs -->
 <div ngClass.sm="dashboard-panel plugin-widget"></div>
@@ -59,6 +68,9 @@
 <div ngStyle.print="color:red"></div>
 <div ngStyle.="color:red"></div>
 <div></div>
+<div ngStyle.sm="color:red!important"></div>
+<div ngStyle.sm="content:'first;second'"></div>
+<div ngClass.sm="text-[14px]junk"></div>
 
 <!-- display ownership and mixed outcomes -->
 <div class="[@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:hidden"></div>

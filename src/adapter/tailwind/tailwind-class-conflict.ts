@@ -1,5 +1,6 @@
 import { mediaRangesIntersect, type MediaRange } from '../../breakpoint/breakpoint-catalog';
 import { analyzeTailwindArbitrarySyntax } from './tailwind-arbitrary-syntax';
+import { cssPropertiesOverlap } from './extended/css-property-ownership';
 
 export type TailwindActivation = { readonly kind: 'base' } | { readonly kind: 'media'; readonly range: MediaRange };
 
@@ -204,6 +205,15 @@ function activationsIntersect(left: TailwindActivation, right: TailwindActivatio
   return left.kind === 'base' || right.kind === 'base' || mediaRangesIntersect(left.range, right.range);
 }
 
+function ownedCssProperties(descriptor: TailwindUtilityDescriptor): readonly string[] {
+  if (descriptor.utility === 'sr-only' || descriptor.utility === 'not-sr-only') {
+    return ['position', 'width', 'height', 'padding', 'margin', 'overflow', 'clip-path', 'white-space', 'border-width'];
+  }
+  if (/^gap-x-/u.test(descriptor.utility)) return ['column-gap'];
+  if (/^gap-y-/u.test(descriptor.utility)) return ['row-gap'];
+  return descriptor.propertyGroup === undefined ? [] : [descriptor.propertyGroup];
+}
+
 export function findTailwindClassConflicts(
   existingClassNames: readonly string[],
   generatedClassNames: readonly string[],
@@ -218,12 +228,15 @@ export function findTailwindClassConflicts(
   for (const generated of generatedClassNames
     .map(describeTailwindUtility)
     .filter(descriptor => descriptor !== undefined)) {
-    if (generated.propertyGroup === undefined) continue;
+    const generatedProperties = ownedCssProperties(generated);
+    if (generatedProperties.length === 0) continue;
     if (
       existing.some(
         current =>
-          current.propertyGroup === generated.propertyGroup &&
-          activationsIntersect(current.activation, generated.activation),
+          activationsIntersect(current.activation, generated.activation) &&
+          ownedCssProperties(current).some(currentProperty =>
+            generatedProperties.some(generatedProperty => cssPropertiesOverlap(currentProperty, generatedProperty)),
+          ),
       )
     ) {
       conflicts.add(generated.token);

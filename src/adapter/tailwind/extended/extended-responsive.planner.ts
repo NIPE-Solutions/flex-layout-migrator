@@ -13,6 +13,8 @@ import type { ExtendedFamilyPlan, ExtendedResponsiveState, ResponsiveClassValue 
 import type { ResponsiveStyleValue } from './responsive-style.model';
 import { TailwindCandidateClassifier } from './tailwind-candidate-classifier';
 import { cssPropertiesOverlap } from './css-property-ownership';
+import { parseLiteralResponsiveClassValue } from './responsive-class-value.parser';
+import { parseLiteralResponsiveStyleValue } from './responsive-style-value.parser';
 
 interface ExtendedResponsiveRequestBase {
   readonly existingClassNames: readonly string[];
@@ -94,6 +96,19 @@ function literalStyleAuthority(attribute: TemplateAttribute): boolean {
   return attribute.binding === 'literal' && templateAttributeKeys(attribute).has('style');
 }
 
+function unsuffixedAuthority(
+  attributes: readonly TemplateAttribute[],
+  key: 'ngclass' | 'ngstyle',
+): TemplateAttribute | undefined {
+  return attributes.find(attribute => templateAttributeKeys(attribute).has(key));
+}
+
+function equalClassValues(left: ResponsiveClassValue, right: ResponsiveClassValue): boolean {
+  return (
+    left.tokens.length === right.tokens.length && left.tokens.every((token, index) => token === right.tokens[index])
+  );
+}
+
 function hasPropertyOwnership(
   descriptor: TailwindUtilityDescriptor | undefined,
 ): descriptor is OwnedTailwindUtilityDescriptor {
@@ -125,10 +140,14 @@ export class ExtendedResponsivePlanner {
     if (request.kind === 'class') {
       const classStates = this.canonicalStates(request.familyPlan.states);
       states = classStates;
+      const fallback = this.classFallback(classStates, request.attributes);
+      if (fallback !== undefined) return fallback;
       emission = this.emitClass(classStates);
     } else {
       const styleStates = this.canonicalStates(request.familyPlan.states);
       states = styleStates;
+      const fallback = this.styleFallback(styleStates, request.attributes);
+      if (fallback !== undefined) return fallback;
       emission = this.emitStyle(styleStates);
     }
     if (emission.status === 'unverified') {
@@ -247,6 +266,92 @@ export class ExtendedResponsivePlanner {
     }
 
     return { status: 'emitted', candidates };
+  }
+
+  private classFallback(
+    states: readonly ExtendedResponsiveState<ResponsiveClassValue>[],
+    attributes: readonly TemplateAttribute[],
+  ): ExtendedResponsivePlan | undefined {
+    const fallback = unsuffixedAuthority(attributes, 'ngclass');
+    if (fallback === undefined) return undefined;
+    if (fallback.binding !== 'literal') {
+      return this.unresolved(
+        states,
+        'bound-class',
+        'A bound unsuffixed ngClass value is the runtime fallback for this responsive family.',
+        'Make the complete ngClass family literal or migrate its replacement behavior manually.',
+      );
+    }
+
+    const parsed = parseLiteralResponsiveClassValue(fallback.value, this.classifier);
+    if (parsed.status === 'unverified') {
+      return {
+        status: 'unresolved',
+        plans: states.map(state =>
+          diagnostic(
+            state.input,
+            'tailwind-candidate-unverified',
+            `The unsuffixed ngClass fallback cannot be translated exactly. ${parsed.reason}`,
+            'Keep the complete ngClass family or replace the fallback with proven Tailwind candidates.',
+          ),
+        ),
+      };
+    }
+    if (parsed.value.tokens.length === 0) return undefined;
+    if (states.every(state => equalClassValues(state.value, parsed.value))) {
+      return this.convertedWithoutOutput(states);
+    }
+    return this.unresolved(
+      states,
+      'class-conflict',
+      'The literal unsuffixed ngClass fallback is replaced, not merged, when a responsive value activates.',
+      'Migrate the complete ngClass fallback and responsive replacement family manually.',
+    );
+  }
+
+  private styleFallback(
+    states: readonly ExtendedResponsiveState<ResponsiveStyleValue>[],
+    attributes: readonly TemplateAttribute[],
+  ): ExtendedResponsivePlan | undefined {
+    const fallback = unsuffixedAuthority(attributes, 'ngstyle');
+    if (fallback === undefined) return undefined;
+    if (fallback.binding !== 'literal') {
+      return this.unresolved(
+        states,
+        'class-conflict',
+        'A bound unsuffixed ngStyle value is the runtime fallback for this responsive family.',
+        'Make the complete ngStyle family literal or migrate its replacement behavior manually.',
+      );
+    }
+
+    const parsed = parseLiteralResponsiveStyleValue(fallback.value);
+    if (parsed.status === 'unverified') {
+      return {
+        status: 'unresolved',
+        plans: states.map(state =>
+          diagnostic(
+            state.input,
+            'style-value-unverified',
+            `The unsuffixed ngStyle fallback cannot be translated exactly. ${parsed.reason}`,
+            'Keep the complete ngStyle family or replace the fallback with an exact literal style map.',
+          ),
+        ),
+      };
+    }
+    if (parsed.value.declarations.length === 0 && fallback.value.length === 0) return undefined;
+    return this.unresolved(
+      states,
+      'class-conflict',
+      'The literal unsuffixed ngStyle raw-string fallback is replaced at runtime and cannot remain after Flex-Layout is removed.',
+      'Translate and remove the complete ngStyle fallback together with its responsive replacement family.',
+    );
+  }
+
+  private convertedWithoutOutput(states: readonly AnyExtendedState[]): ExtendedResponsivePlan {
+    return {
+      status: 'converted',
+      plans: states.map(state => ({ status: 'converted', input: state.input, classNames: [] })),
+    };
   }
 
   private emitStyle(states: readonly ExtendedResponsiveState<ResponsiveStyleValue>[]): EmissionResult {

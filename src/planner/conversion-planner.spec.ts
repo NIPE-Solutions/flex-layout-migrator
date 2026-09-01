@@ -444,13 +444,15 @@ describe('ConversionPlanner', () => {
     ]);
   });
 
-  test('keeps an important responsive inline style over a normal class property', () => {
-    const result = migrate('<div ngClass.sm="text-red-500" ngStyle.sm="color:blue!important"></div>');
+  test('preserves a normal class property beside ngStyle priority text that Angular does not apply', () => {
+    const source = '<div ngClass.sm="text-red-500" ngStyle.sm="color:blue!important"></div>';
+    const result = migrate(source);
 
-    expect(result.output).toBe(
-      '<div class="[@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:[color:blue!important]"></div>',
-    );
-    expect(result.results.every(item => item.status === 'converted')).toBe(true);
+    expect(result.output).toBe(source);
+    expect(result.results).toEqual([
+      expect.objectContaining({ status: 'review', code: 'context-unverified' }),
+      expect.objectContaining({ status: 'review', code: 'style-value-unverified' }),
+    ]);
   });
 
   test('preserves internal important display ownership beside all-shown visibility', () => {
@@ -803,6 +805,132 @@ describe('ConversionPlanner', () => {
     expect(second.edits).toEqual([]);
     expect(second.results).toEqual([]);
   });
+
+  test.each([
+    [
+      'double-quoted existing class',
+      '<div class="card" ngClass.sm="[content:&quot;quoted&amp;copy;&quot;]"></div>',
+      '<div class="card [@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:[content:&quot;quoted&amp;copy;&quot;]"></div>',
+      '[@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:[content:"quoted&copy;"]',
+    ],
+    [
+      'single-quoted existing class',
+      `<div class='card' ngClass.sm="[content:'quoted&amp;copy;']"></div>`,
+      `<div class='card [@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:[content:&#39;quoted&amp;copy;&#39;]'></div>`,
+      "[@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:[content:'quoted&copy;']",
+    ],
+    [
+      'inserted class attribute',
+      '<div ngClass.sm="[content:&quot;quoted&amp;copy;&quot;]"></div>',
+      '<div class="[@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:[content:&quot;quoted&amp;copy;&quot;]"></div>',
+      '[@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:[content:"quoted&copy;"]',
+    ],
+  ])('HTML-escapes generated tokens for a %s and reparses to the same class', (_case, source, expected, token) => {
+    const first = migrate(source);
+
+    expect(first.output).toBe(expected);
+    const parsed = new AngularTemplateParser().parse(first.output, 'fixture.html');
+    expect(parsed.status).toBe('parsed');
+    if (parsed.status !== 'parsed') throw new Error('Expected generated template to parse.');
+    expect(parsed.elements[0]?.attributes.find(attribute => attribute.name === 'class')?.value.split(/\s+/u)).toContain(
+      token,
+    );
+
+    const second = migrate(first.output);
+    expect(second.output).toBe(first.output);
+    expect(second.edits).toEqual([]);
+  });
+
+  test('removes a responsive class family whose literal unsuffixed fallback has the exact same value', () => {
+    const source = '<div ngClass="flex" ngClass.sm="flex"></div>';
+    const expected = '<div ngClass="flex"></div>';
+    const first = migrate(source);
+
+    expect(first.output).toBe(expected);
+    expect(first.results.every(result => result.status === 'converted')).toBe(true);
+    expect(migrate(first.output)).toMatchObject({ output: expected, edits: [], results: [] });
+  });
+
+  test.each([
+    [
+      'class',
+      '<div ngClass="" ngClass.sm="grid"></div>',
+      '<div ngClass="" class="[@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:grid"></div>',
+    ],
+    [
+      'style',
+      '<div ngStyle="" ngStyle.sm="color:red"></div>',
+      '<div ngStyle="" class="[@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:[color:red]"></div>',
+    ],
+  ])('converts responsive %s output beside an exact empty literal fallback', (_case, source, expected) => {
+    expect(migrate(source)).toMatchObject({ output: expected });
+  });
+
+  test.each([
+    ['class replacement', '<div ngClass="flex items-center" ngClass.sm="grid"></div>', 'class-conflict'],
+    ['class fallback candidate', '<div ngClass="card" ngClass.sm="flex"></div>', 'tailwind-candidate-unverified'],
+    ['bound class with empty state', '<div [ngClass]="classes" ngClass.sm=""></div>', 'bound-class'],
+    ['style replacement', '<div ngStyle="color:red" ngStyle.sm="margin:1rem"></div>', 'class-conflict'],
+    ['style override', '<div ngStyle="color:red" ngStyle.sm="color:blue"></div>', 'class-conflict'],
+    [
+      'equivalent raw-string style fallback',
+      `<div ngStyle="color:'red'" ngStyle.sm="color:red"></div>`,
+      'class-conflict',
+    ],
+    ['non-empty empty-map style fallback', '<div ngStyle=" ; ; " ngStyle.sm="color:red"></div>', 'class-conflict'],
+    ['style fallback parse', `<div ngStyle="content:'a;b'" ngStyle.sm="color:red"></div>`, 'style-value-unverified'],
+    ['bound style with empty state', '<div [ngStyle]="styles" ngStyle.sm=""></div>', 'class-conflict'],
+  ])('preserves the complete responsive family for unsafe unsuffixed %s authority', (_case, source, code) => {
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.results).toEqual([expect.objectContaining({ status: 'review', code })]);
+  });
+
+  test('preserves a multi-state family when only one state differs from the unsuffixed fallback', () => {
+    const source = '<div ngClass="flex" ngClass.xs="flex" ngClass.sm="grid"></div>';
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.results).toEqual([
+      expect.objectContaining({ status: 'review', code: 'class-conflict' }),
+      expect.objectContaining({ status: 'review', code: 'class-conflict' }),
+    ]);
+  });
+
+  test('plans equivalent unsuffixed fallback families independently of attribute source order', () => {
+    const classFirst = migrate('<div ngClass="flex" ngClass.sm="flex"></div>');
+    const responsiveFirst = migrate('<div ngClass.sm="flex" ngClass="flex"></div>');
+
+    expect(responsiveFirst.output).toBe(classFirst.output);
+    expect(responsiveFirst.results.map(result => result.status)).toEqual(
+      classFirst.results.map(result => result.status),
+    );
+  });
+
+  test.each([
+    '<div ngStyle.sm="color:red!important"></div>',
+    '<div ngStyle.sm="color:red ! IMPORTANT"></div>',
+    '<div ngStyle.sm="color:red!/**/important"></div>',
+  ])('preserves responsive ngStyle priority text instead of manufacturing an important utility: %s', source => {
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.results).toEqual([expect.objectContaining({ status: 'review', code: 'style-value-unverified' })]);
+  });
+
+  test.each([
+    '<div class="[row-gap:1rem]" ngClass.sm="gap-y-4"></div>',
+    '<div class="sr-only" ngClass.sm="relative"></div>',
+  ])(
+    'preserves responsive class output whose complete CSS ownership conflicts with an existing utility: %s',
+    source => {
+      const result = migrate(source);
+
+      expect(result.output).toBe(source);
+      expect(result.results).toEqual([expect.objectContaining({ status: 'review', code: 'class-conflict' })]);
+    },
+  );
 
   test('preserves layout and visibility atomically when visibility is dynamic', () => {
     const source = '<div fxLayout="row" [fxHide]="hidden"></div>';

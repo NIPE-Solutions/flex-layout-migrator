@@ -41,6 +41,15 @@
 <div class="text-blue-500" ngStyle.sm="color:red"></div>
 <div ngClass.sm="text-red-500" ngStyle.sm="color:blue"></div>
 <div ngStyle.sm="margin:1rem;margin-top:2rem"></div>
+<div ngClass="flex" ngClass.sm="flex"></div>
+<div ngClass="flex items-center" ngClass.sm="grid"></div>
+<div ngStyle="" ngStyle.sm="color:green"></div>
+<div ngStyle="color:red" ngStyle.sm="color:red"></div>
+<div [ngClass]="classes" ngClass.sm=""></div>
+<div [ngStyle]="styles" ngStyle.sm=""></div>
+<div class="[row-gap:1rem]" ngClass.sm="gap-y-4"></div>
+<div class="sr-only" ngClass.sm="relative"></div>
+<div class='card' ngClass.sm="[content:'quoted&amp;copy;']"></div>
 
 <!-- preserved extended inputs -->
 <div ngClass.sm="dashboard-panel plugin-widget"></div>
@@ -59,6 +68,9 @@
 <div ngStyle.print="color:red"></div>
 <div ngStyle.="color:red"></div>
 <div ngClass.sm="" ngStyle.sm=""></div>
+<div ngStyle.sm="color:red!important"></div>
+<div ngStyle.sm="content:'first;second'"></div>
+<div ngClass.sm="text-[14px]junk"></div>
 
 <!-- display ownership and mixed outcomes -->
 <div ngClass.sm="hidden" fxHide.sm></div>

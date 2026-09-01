@@ -77,11 +77,11 @@ describe('parseLiteralStyleDeclarations', () => {
 });
 
 describe('parseResponsiveStyleValue', () => {
-  test('normalizes ordinary property names, preserves custom-property spelling, and de-duplicates in first-seen order', () => {
+  test('normalizes dashed property names, preserves custom-property spelling, and applies upstream last-value wins', () => {
     expect(
       parseResponsiveStyleValue(
         input({
-          value: 'Z-INDEX: 1; color: #334155; z-index: 1; --Theme_Gap: 1rem; --theme_gap: 2rem; COLOR: #334155',
+          value: 'Z-INDEX: 1; color: red; z-index: 1; --Theme_Gap: 1rem; --theme_gap: 2rem; color: #334155',
         }),
       ),
     ).toEqual({
@@ -92,6 +92,18 @@ describe('parseResponsiveStyleValue', () => {
           { property: 'color', value: '#334155' },
           { property: '--Theme_Gap', value: '1rem' },
           { property: '--theme_gap', value: '2rem' },
+        ],
+      },
+    });
+  });
+
+  test('strips quote characters from upstream raw-string keys and values before Angular NgStyle applies them', () => {
+    expect(parseResponsiveStyleValue(input({ value: `'color': 'red'; "font-size".px: "14"` }))).toEqual({
+      status: 'parsed',
+      value: {
+        declarations: [
+          { property: 'color', value: 'red' },
+          { property: 'font-size', value: '14px' },
         ],
       },
     });
@@ -116,7 +128,7 @@ describe('parseResponsiveStyleValue', () => {
     });
   });
 
-  test('preserves CSS variables, calc expressions, quoted spaces, and colons inside balanced functions', () => {
+  test('preserves CSS variables and calc expressions while stripping quotes and retaining colons', () => {
     expect(
       parseResponsiveStyleValue(
         input({
@@ -129,12 +141,48 @@ describe('parseResponsiveStyleValue', () => {
       value: {
         declarations: [
           { property: 'width', value: 'calc(100% - var(--card-gap, 1rem))' },
-          { property: 'content', value: '"key: exact value"' },
+          { property: 'content', value: 'key: exact value' },
           { property: 'color', value: 'rgb(var(--channels, 51 65 85) / 50%)' },
         ],
       },
     });
   });
+
+  test.each([
+    ['quoted semicolon', `content: 'first; second'`],
+    ['function semicolon', 'width: var(--card; 10px)'],
+  ])('preserves the family when upstream semicolon splitting makes %s ambiguous', (_case, value) => {
+    expect(parseResponsiveStyleValue(input({ value }))).toMatchObject({ status: 'unverified' });
+  });
+
+  test('uses the last duplicate value exactly as the upstream raw-string map does', () => {
+    expect(parseResponsiveStyleValue(input({ value: 'color: red; color: blue' }))).toEqual({
+      status: 'parsed',
+      value: { declarations: [{ property: 'color', value: 'blue' }] },
+    });
+    expect(parseResponsiveStyleValue(input({ value: '--Theme: red; --Theme: blue' }))).toEqual({
+      status: 'parsed',
+      value: { declarations: [{ property: '--Theme', value: 'blue' }] },
+    });
+  });
+
+  test.each(['COLOR: red', 'backgroundColor: red'])(
+    'preserves undashed property spelling %s whose renderer outcome cannot be modeled as a CSS property',
+    value => {
+      expect(parseResponsiveStyleValue(input({ value }))).toMatchObject({ status: 'unverified' });
+    },
+  );
+
+  test.each(['color: red!important', 'color: red ! IMPORTANT', 'color: red!/**/important', `color: 'red!important'`])(
+    'preserves declaration priority text that Angular NgStyle does not apply: %s',
+    value => {
+      const result = parseResponsiveStyleValue(input({ value }));
+
+      expect(result).toMatchObject({ status: 'unverified' });
+      if (result.status !== 'unverified') throw new Error('Expected declaration priority to be unverified.');
+      expect(result.reason).toMatch(/important|priority/iu);
+    },
+  );
 
   test.each([
     ['longhand before shorthand', 'margin-top: 2rem; margin: 1rem'],
@@ -157,8 +205,6 @@ describe('parseResponsiveStyleValue', () => {
     ['unsupported unit suffix', 'font-size.ch: 2'],
     ['unit-bearing suffixed value', 'font-size.px: 1rem'],
     ['ambiguous value escape', 'color: r\\65 d'],
-    ['conflicting ordinary duplicate', 'COLOR: red; color: blue'],
-    ['conflicting custom-property duplicate', '--Theme: red; --Theme: blue'],
     ['empty property', ': red'],
     ['empty value', 'color: '],
     ['unsupported property spelling', 'font size: 14px'],

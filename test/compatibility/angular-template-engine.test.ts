@@ -239,25 +239,26 @@ describe('Angular template engine compatibility', () => {
     const first = migrate(input, 'extended-responsive.html');
     expect(first.output).toBe(expected);
     expect(resultCounts(first.results)).toEqual({
-      converted: 41,
-      review: 27,
+      converted: 44,
+      review: 36,
       unsupported: 0,
       invalid: 0,
       parseError: 0,
     });
     expect(diagnosticCounts(first.results)).toEqual({
       'responsive-precedence-unverified': 4,
-      'class-conflict': 3,
-      'tailwind-candidate-unverified': 2,
+      'class-conflict': 8,
+      'tailwind-candidate-unverified': 3,
       'dynamic-binding': 4,
       'semantic-unsupported': 2,
       'custom-breakpoint': 1,
       'breakpoint-unverified': 3,
-      'style-value-unverified': 3,
+      'style-value-unverified': 5,
       'context-unverified': 3,
       'display-restoration-unverified': 2,
+      'bound-class': 1,
     });
-    expect(extendedOccurrenceCounts(first.results)).toEqual({ converted: 39, preserved: 24 });
+    expect(extendedOccurrenceCounts(first.results)).toEqual({ converted: 42, preserved: 33 });
 
     for (const directive of ['ngClass', 'ngStyle'] as const) {
       const convertedAliases = new Set(
@@ -273,7 +274,7 @@ describe('Angular template engine compatibility', () => {
     const second = migrate(first.output, 'extended-responsive.html');
     expect(second.output).toBe(expected);
     expect(second.editCount).toBe(0);
-    expect(extendedOccurrenceCounts(second.results)).toEqual({ converted: 0, preserved: 24 });
+    expect(extendedOccurrenceCounts(second.results)).toEqual({ converted: 0, preserved: 33 });
   });
 
   test('emits equivalent multi-state class and style families independently of source attribute order', () => {

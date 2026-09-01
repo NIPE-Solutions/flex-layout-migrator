@@ -1,12 +1,13 @@
 import type { LocatedFlexLayoutInput } from '../../../analyzer/flex-layout-attribute.analyzer';
 import { BreakpointCatalog } from '../../../breakpoint/breakpoint-catalog';
-import { parseLiteralStyleDeclarations } from '../visibility/literal-style-display';
 import type { LiteralStyleDeclaration, ResponsiveStyleValueResult } from './responsive-style.model';
 import { TailwindArbitraryPropertyEncoder } from './tailwind-arbitrary-property.encoder';
 import { cssPropertiesOverlap } from './css-property-ownership';
+import { analyzeTailwindArbitrarySyntax } from '../tailwind-arbitrary-syntax';
 
 const interpolation = /\{\{[\s\S]*\}\}/u;
-const ordinaryProperty = /^-?[a-z][a-z\d-]*$/iu;
+const dashedOrdinaryProperty = /^-?[a-z][a-z\d-]*$/iu;
+const rendererProperty = /^[a-z][a-z\d]*$/u;
 const customProperty = /^--[a-z\d_-]+$/iu;
 const unitSuffixes = new Set(['px', '%', 'em', 'rem', 'vw', 'vh', 'vmin', 'vmax', 'deg', 's', 'ms']);
 const unitlessNumber = /^[+-]?(?:(?:\d+(?:\.\d*)?)|(?:\.\d+))(?:e[+-]?\d+)?$/iu;
@@ -24,14 +25,53 @@ function normalizeProperty(property: string): NormalizedProperty | undefined {
     return customProperty.test(property) ? { property } : undefined;
   }
 
-  const normalized = property.toLowerCase();
-  const separator = normalized.lastIndexOf('.');
-  if (separator < 0) return ordinaryProperty.test(normalized) ? { property: normalized } : undefined;
+  const parts = property.split('.');
+  if (parts.length > 2) return undefined;
+  const sourceName = parts[0] ?? '';
+  const name = sourceName.includes('-')
+    ? dashedOrdinaryProperty.test(sourceName)
+      ? sourceName.toLowerCase()
+      : undefined
+    : rendererProperty.test(sourceName)
+      ? sourceName
+      : undefined;
+  if (name === undefined) return undefined;
 
-  const base = normalized.slice(0, separator);
-  const unit = normalized.slice(separator + 1);
-  if (!ordinaryProperty.test(base) || !unitSuffixes.has(unit)) return undefined;
-  return { property: base, unit };
+  const unit = parts[1];
+  if (unit === undefined) return { property: name };
+  const normalizedUnit = unit.toLowerCase();
+  return unitSuffixes.has(normalizedUnit) ? { property: name, unit: normalizedUnit } : undefined;
+}
+
+function transformUpstreamRawList(value: string): ResponsiveStyleValueResult {
+  const rawDeclarations = String(value)
+    .trim()
+    .split(';')
+    .map(item => item.trim())
+    .filter(item => item !== '');
+  const declarations: LiteralStyleDeclaration[] = [];
+
+  for (const rawDeclaration of rawDeclarations) {
+    const [rawKey, ...rawValues] = rawDeclaration.split(':');
+    if (rawValues.length === 0) {
+      return {
+        status: 'unverified',
+        reason: 'Upstream semicolon splitting produced a style entry without a property separator.',
+      };
+    }
+
+    const property = (rawKey ?? '').replace(/['"]/gu, '').trim();
+    const transformedValue = rawValues.join(':').replace(/['"]/gu, '').trim().replace(/;/u, '');
+    if (!property || !transformedValue) {
+      return {
+        status: 'unverified',
+        reason: 'Upstream raw-string transformation produced an empty style key or value.',
+      };
+    }
+    declarations.push({ property, value: transformedValue });
+  }
+
+  return { status: 'parsed', value: { declarations } };
 }
 
 function normalizeDeclaration(
@@ -59,11 +99,56 @@ function normalizeDeclaration(
 
   const result = { property: normalized.property, value };
   try {
-    encoder.encode(result);
+    const candidate = encoder.encode(result);
+    const arbitrary = analyzeTailwindArbitrarySyntax(candidate);
+    if (arbitrary === undefined || arbitrary.important) return undefined;
   } catch {
     return undefined;
   }
   return result;
+}
+
+export function parseLiteralResponsiveStyleValue(value: string): ResponsiveStyleValueResult {
+  const transformed = transformUpstreamRawList(value);
+  if (transformed.status === 'unverified') return transformed;
+
+  const declarationsByProperty = new Map<string, LiteralStyleDeclaration>();
+  const encoder = new TailwindArbitraryPropertyEncoder();
+
+  for (const declaration of transformed.value.declarations) {
+    const normalized = normalizeDeclaration(declaration, encoder);
+    if (!normalized) {
+      const importantCandidate = (() => {
+        try {
+          return analyzeTailwindArbitrarySyntax(encoder.encode(declaration))?.important === true;
+        } catch {
+          return false;
+        }
+      })();
+      return {
+        status: 'unverified',
+        reason: importantCandidate
+          ? `The declaration for ${JSON.stringify(declaration.property)} contains priority text that Angular NgStyle does not apply.`
+          : `The declaration for ${JSON.stringify(declaration.property)} cannot be sanitized and encoded exactly.`,
+      };
+    }
+    declarationsByProperty.set(normalized.property, normalized);
+  }
+
+  const declarations = [...declarationsByProperty.values()];
+  for (const [index, declaration] of declarations.entries()) {
+    const overlapping = declarations
+      .slice(index + 1)
+      .find(candidate => cssPropertiesOverlap(declaration.property, candidate.property));
+    if (overlapping !== undefined) {
+      return {
+        status: 'unverified',
+        reason: `The properties ${JSON.stringify(declaration.property)} and ${JSON.stringify(overlapping.property)} have overlapping CSS property ownership.`,
+      };
+    }
+  }
+
+  return { status: 'parsed', value: { declarations } };
 }
 
 export function parseResponsiveStyleValue(input: LocatedFlexLayoutInput): ResponsiveStyleValueResult {
@@ -80,46 +165,5 @@ export function parseResponsiveStyleValue(input: LocatedFlexLayoutInput): Respon
     return { status: 'unverified', reason: 'Responsive style interpolation may depend on runtime state.' };
   }
 
-  const parsed = parseLiteralStyleDeclarations(input.value);
-  if (parsed.status === 'unverified') return parsed;
-
-  const declarations: LiteralStyleDeclaration[] = [];
-  const valuesByProperty = new Map<string, string>();
-  const encoder = new TailwindArbitraryPropertyEncoder();
-
-  for (const declaration of parsed.declarations) {
-    const normalized = normalizeDeclaration(declaration, encoder);
-    if (!normalized) {
-      return {
-        status: 'unverified',
-        reason: `The declaration for ${JSON.stringify(declaration.property)} cannot be sanitized and encoded exactly.`,
-      };
-    }
-
-    const previous = valuesByProperty.get(normalized.property);
-    if (previous !== undefined) {
-      if (previous !== normalized.value) {
-        return {
-          status: 'unverified',
-          reason: `The property ${JSON.stringify(normalized.property)} has conflicting duplicate values.`,
-        };
-      }
-      continue;
-    }
-
-    const overlapping = declarations.find(declaration =>
-      cssPropertiesOverlap(declaration.property, normalized.property),
-    );
-    if (overlapping !== undefined) {
-      return {
-        status: 'unverified',
-        reason: `The properties ${JSON.stringify(overlapping.property)} and ${JSON.stringify(normalized.property)} have overlapping CSS property ownership.`,
-      };
-    }
-
-    valuesByProperty.set(normalized.property, normalized.value);
-    declarations.push(normalized);
-  }
-
-  return { status: 'parsed', value: { declarations } };
+  return parseLiteralResponsiveStyleValue(input.value);
 }

@@ -115,12 +115,23 @@ function hasValidArbitrarySyntax(value: string): boolean {
   return hasValidTailwindArbitrarySyntax(value);
 }
 
+function hasCompilerMeaningfulArbitraryValue(value: string): boolean {
+  if (!hasValidArbitrarySyntax(value)) return false;
+
+  const payload = value
+    .slice(1, -1)
+    .replace(/\/\*[\s\S]*?\*\//gu, '')
+    .replace(/^[a-z][a-z-]*:/iu, '')
+    .replace(/[\s_()[\]{}'"`]/gu, '');
+  return payload.length > 0;
+}
+
 function isCssVariableValue(value: string): boolean {
   return /^\(--[A-Za-z_][A-Za-z0-9_-]*\)$/u.test(value);
 }
 
 function isArbitraryOrVariable(value: string): boolean {
-  return hasValidArbitrarySyntax(value) || isCssVariableValue(value);
+  return hasCompilerMeaningfulArbitraryValue(value) || isCssVariableValue(value);
 }
 
 function isFraction(value: string): boolean {
@@ -157,13 +168,13 @@ function isWidth(value: string): boolean {
 }
 
 function isArbitraryColor(value: string): boolean {
-  if (!hasValidArbitrarySyntax(value)) return false;
+  if (!hasCompilerMeaningfulArbitraryValue(value)) return false;
   const color = value.slice(1, -1);
   return /^(?:color:|#|(?:rgb|rgba|hsl|hsla|hwb|lab|lch|oklab|oklch|color|light-dark|color-mix|var)\()/u.test(color);
 }
 
 function isBackgroundImage(value: string): boolean {
-  if (!hasValidArbitrarySyntax(value)) return false;
+  if (!hasCompilerMeaningfulArbitraryValue(value)) return false;
   const image = value.slice(1, -1);
   return /^(?:image:|url\(|(?:linear|radial|conic)-gradient\()/u.test(image);
 }
@@ -188,8 +199,10 @@ function textPropertyGroup(value: string): string | undefined {
   if (textSizes.includes((size ?? '') as (typeof textSizes)[number])) {
     return hasVerifiedLineHeight ? 'font-size' : undefined;
   }
-  if (/^\[(?:length:)?\d/u.test(size ?? '')) return hasVerifiedLineHeight ? 'font-size' : undefined;
-  if (/^\[color:/u.test(value)) return 'color';
+  if (hasCompilerMeaningfulArbitraryValue(size ?? '') && /^\[(?:length:)?\d[^\]]*\]$/u.test(size ?? '')) {
+    return hasVerifiedLineHeight ? 'font-size' : undefined;
+  }
+  if (hasCompilerMeaningfulArbitraryValue(value) && /^\[color:[\s\S]+\]$/u.test(value)) return 'color';
   if (isColor(value)) return 'color';
   return undefined;
 }

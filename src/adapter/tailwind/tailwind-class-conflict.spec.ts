@@ -274,4 +274,14 @@ describe('findTailwindClassConflicts', () => {
   ])('normalizes arbitrary property %s against built-in family %s', (existing, generated) => {
     expect(findTailwindClassConflicts([existing], [generated])).toEqual(new Set([generated]));
   });
+
+  test.each([
+    ['[all:unset]', sm('flex')],
+    ['[row-gap:1rem]', sm('gap-y-4')],
+    ['gap-y-4', sm('[row-gap:2rem]')],
+    ['sr-only', sm('relative')],
+    ['relative', sm('sr-only')],
+  ])('uses complete CSS ownership for existing %s against generated %s', (existing, generated) => {
+    expect(findTailwindClassConflicts([existing], [generated])).toEqual(new Set([generated]));
+  });
 });
