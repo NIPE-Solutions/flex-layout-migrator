@@ -15,7 +15,7 @@ export interface TailwindUtilityDescriptor {
   readonly token: string;
   readonly variants: readonly string[];
   readonly utility: string;
-  readonly propertyGroup?: string;
+  readonly cssProperties: readonly string[];
   readonly activation: TailwindActivation;
   readonly hasGeneratedMediaVariant: boolean;
   readonly important: boolean;
@@ -108,64 +108,110 @@ function hasInternalDeclarationImportance(utility: string): boolean {
   return analyzeTailwindArbitrarySyntax(utility.slice(arbitraryStart))?.important ?? false;
 }
 
-function propertyGroup(utility: string): string | undefined {
+function cssProperties(utility: string): readonly string[] {
   const arbitraryProperty = utility.match(/^\[([^:]+):/u)?.[1];
-  if (arbitraryProperty) {
-    if (['flex', 'flex-grow', 'flex-shrink', 'flex-basis'].includes(arbitraryProperty)) return 'flex-sizing';
-    if (/^margin(?:-|$)/u.test(arbitraryProperty)) return 'margin';
-    if (/^padding(?:-|$)/u.test(arbitraryProperty)) return 'padding';
-    if (/^border(?:-|$)/u.test(arbitraryProperty)) return 'border';
-    if (['inset', 'top', 'right', 'bottom', 'left'].includes(arbitraryProperty)) return 'inset';
-    if (['transform', 'translate', 'rotate', 'scale'].includes(arbitraryProperty)) return 'transform';
-    if (/^transition(?:-|$)/u.test(arbitraryProperty)) return 'transition';
-    if (/^overflow(?:-|$)/u.test(arbitraryProperty)) return 'overflow';
-    return arbitraryProperty;
+  if (arbitraryProperty) return [arbitraryProperty];
+  if (displayUtilities.has(utility)) return ['display'];
+  if (/^flex-(?:row|row-reverse|col|col-reverse)$/u.test(utility)) return ['flex-direction'];
+  if (/^flex-(?:wrap|wrap-reverse|nowrap)$/u.test(utility)) return ['flex-wrap'];
+  if (/^flex-.+$/u.test(utility)) return ['flex'];
+  if (/^grow(?:-.+)?$/u.test(utility)) return ['flex-grow'];
+  if (/^shrink(?:-.+)?$/u.test(utility)) return ['flex-shrink'];
+  if (/^basis-.+$/u.test(utility)) return ['flex-basis'];
+  if (/^box-(?:border|content)$/u.test(utility)) return ['box-sizing'];
+  if (/^justify-/u.test(utility)) return ['justify-content'];
+  if (/^items-/u.test(utility)) return ['align-items'];
+  if (/^content-/u.test(utility)) return ['align-content'];
+  if (/^self-/u.test(utility)) return ['align-self'];
+  if (/^gap-x-/u.test(utility)) return ['column-gap'];
+  if (/^gap-y-/u.test(utility)) return ['row-gap'];
+  if (/^gap-/u.test(utility)) return ['gap'];
+  if (/^order-/u.test(utility)) return ['order'];
+  if (/^-?m-/u.test(utility)) return ['margin'];
+  if (/^-?mx-/u.test(utility)) return ['margin-inline'];
+  if (/^-?my-/u.test(utility)) return ['margin-block'];
+  if (/^-?mt-/u.test(utility)) return ['margin-top'];
+  if (/^-?mr-/u.test(utility)) return ['margin-right'];
+  if (/^-?mb-/u.test(utility)) return ['margin-bottom'];
+  if (/^-?ml-/u.test(utility)) return ['margin-left'];
+  if (/^-?ms-/u.test(utility)) return ['margin-inline-start'];
+  if (/^-?me-/u.test(utility)) return ['margin-inline-end'];
+  if (/^p-/u.test(utility)) return ['padding'];
+  if (/^px-/u.test(utility)) return ['padding-inline'];
+  if (/^py-/u.test(utility)) return ['padding-block'];
+  if (/^pt-/u.test(utility)) return ['padding-top'];
+  if (/^pr-/u.test(utility)) return ['padding-right'];
+  if (/^pb-/u.test(utility)) return ['padding-bottom'];
+  if (/^pl-/u.test(utility)) return ['padding-left'];
+  if (/^ps-/u.test(utility)) return ['padding-inline-start'];
+  if (/^pe-/u.test(utility)) return ['padding-inline-end'];
+  if (/^size-/u.test(utility)) return ['width', 'height'];
+  if (/^w-/u.test(utility)) return ['width'];
+  if (/^h-/u.test(utility)) return ['height'];
+  if (/^min-w-/u.test(utility)) return ['min-width'];
+  if (/^min-h-/u.test(utility)) return ['min-height'];
+  if (/^max-w-/u.test(utility)) return ['max-width'];
+  if (/^max-h-/u.test(utility)) return ['max-height'];
+  if (/^text-(?:xs|sm|base|lg|xl|[2-9]xl)(?:\/|$)/u.test(utility)) return ['font-size', 'line-height'];
+  if (/^text-\[(?:length:)?\d[^\]]*\](?:\/[^\s]+)?$/u.test(utility)) {
+    return utility.includes(']/') ? ['font-size', 'line-height'] : ['font-size'];
   }
-  if (displayUtilities.has(utility)) return 'display';
-  if (/^flex-(?:row|row-reverse|col|col-reverse)$/u.test(utility)) return 'flex-direction';
-  if (/^flex-(?:wrap|wrap-reverse|nowrap)$/u.test(utility)) return 'flex-wrap';
-  if (/^(?:flex-.+|grow(?:-.+)?|shrink(?:-.+)?|basis-.+)$/u.test(utility)) return 'flex-sizing';
-  if (/^box-(?:border|content)$/u.test(utility)) return 'box-sizing';
-  if (/^justify-/u.test(utility)) return 'justify-content';
-  if (/^items-/u.test(utility)) return 'align-items';
-  if (/^content-/u.test(utility)) return 'align-content';
-  if (/^self-/u.test(utility)) return 'align-self';
-  if (/^(?:gap|gap-x|gap-y)-/u.test(utility)) return 'gap';
-  if (/^order-/u.test(utility)) return 'order';
-  if (/^-?m(?:[trblxyse])?-/u.test(utility)) return 'margin';
-  if (/^p(?:[trblxyse])?-/u.test(utility)) return 'padding';
-  if (/^(?:size|w)-/u.test(utility)) return 'width';
-  if (/^(?:size|h)-/u.test(utility)) return 'height';
-  if (/^min-w-/u.test(utility)) return 'min-width';
-  if (/^min-h-/u.test(utility)) return 'min-height';
-  if (/^max-w-/u.test(utility)) return 'max-width';
-  if (/^max-h-/u.test(utility)) return 'max-height';
-  if (/^text-(?:xs|sm|base|lg|xl|[2-9]xl|\[length:|\[\d)/u.test(utility)) return 'font-size';
-  if (/^text-/u.test(utility)) return 'color';
-  if (/^bg-\[(?:image:|url\(|(?:linear|radial|conic)-gradient\()/u.test(utility)) return 'background-image';
-  if (/^bg-/u.test(utility)) return 'background-color';
-  if (/^(?:border|divide|ring|outline)(?:-|$)/u.test(utility)) return 'border';
-  if (/^rounded(?:-|$)/u.test(utility)) return 'border-radius';
-  if (/^shadow(?:-|$)/u.test(utility)) return 'box-shadow';
-  if (/^opacity-/u.test(utility)) return 'opacity';
-  if (/^overflow(?:-|$)/u.test(utility)) return 'overflow';
-  if (['static', 'fixed', 'absolute', 'relative', 'sticky'].includes(utility)) return 'position';
-  if (/^-?(?:inset|top|right|bottom|left)(?:-|$)/u.test(utility)) return 'inset';
-  if (/^(?:rotate|scale|translate|skew|transform)(?:-|$)/u.test(utility)) return 'transform';
-  if (/^(?:transition|duration|delay|ease)(?:-|$)/u.test(utility)) return 'transition';
-  if (/^(?:grid-cols|auto-cols)(?:-|$)/u.test(utility)) return 'grid-template-columns';
-  if (/^(?:grid-rows|auto-rows)(?:-|$)/u.test(utility)) return 'grid-template-rows';
-  if (/^(?:col|row)(?:-|$)/u.test(utility)) return 'grid-placement';
-  if (/^table-(?:auto|fixed)$/u.test(utility)) return 'table-layout';
-  if (/^list-(?:disc|decimal|none)$/u.test(utility)) return 'list-style-type';
-  if (/^list-(?:inside|outside)$/u.test(utility)) return 'list-style-position';
-  if (/^object-(?:contain|cover|fill|none|scale-down)$/u.test(utility)) return 'object-fit';
-  if (/^object-/u.test(utility)) return 'object-position';
-  if (/^cursor-/u.test(utility)) return 'cursor';
-  if (/^pointer-events-/u.test(utility)) return 'pointer-events';
-  if (['visible', 'invisible', 'collapse'].includes(utility)) return 'visibility';
-  if (['sr-only', 'not-sr-only'].includes(utility)) return 'accessibility';
-  return undefined;
+  if (/^text-/u.test(utility)) return ['color'];
+  if (/^bg-\[(?:image:|url\(|(?:linear|radial|conic)-gradient\()/u.test(utility)) return ['background-image'];
+  if (/^bg-/u.test(utility)) return ['background-color'];
+  if (utility === 'border' || /^border-(?:\d|\[(?:length:)?\d)/u.test(utility)) {
+    return ['border-style', 'border-width'];
+  }
+  if (/^border-(?:solid|dashed|dotted|double|hidden|none)$/u.test(utility)) {
+    return ['--tw-border-style', 'border-style'];
+  }
+  if (/^border-/u.test(utility)) return ['border-color'];
+  if (/^rounded(?:-|$)/u.test(utility)) return ['border-radius'];
+  if (/^shadow(?:-|$)/u.test(utility)) return ['--tw-shadow', 'box-shadow'];
+  if (/^ring(?:-|$)/u.test(utility)) return ['--tw-ring-shadow', 'box-shadow'];
+  if (utility === 'truncate') return ['overflow', 'text-overflow', 'white-space'];
+  if (/^opacity-/u.test(utility)) return ['opacity'];
+  if (/^overflow(?:-|$)/u.test(utility)) return ['overflow'];
+  if (['static', 'fixed', 'absolute', 'relative', 'sticky'].includes(utility)) return ['position'];
+  if (/^-?inset-x-/u.test(utility)) return ['inset-inline'];
+  if (/^-?inset-y-/u.test(utility)) return ['inset-block'];
+  if (/^-?inset-/u.test(utility)) return ['inset'];
+  if (/^-?top-/u.test(utility)) return ['top'];
+  if (/^-?right-/u.test(utility)) return ['right'];
+  if (/^-?bottom-/u.test(utility)) return ['bottom'];
+  if (/^-?left-/u.test(utility)) return ['left'];
+  if (/^-?rotate-/u.test(utility)) return ['rotate'];
+  if (/^scale-(?:\[|\()/u.test(utility)) return ['scale'];
+  if (/^scale-/u.test(utility)) return ['--tw-scale-x', '--tw-scale-y', '--tw-scale-z', 'scale'];
+  if (/^-?translate-x-/u.test(utility)) return ['--tw-translate-x', 'translate'];
+  if (/^-?translate-y-/u.test(utility)) return ['--tw-translate-y', 'translate'];
+  if (/^-?translate-/u.test(utility)) return ['--tw-translate-x', '--tw-translate-y', 'translate'];
+  if (utility === 'transition-none') return ['transition-property'];
+  if (/^transition(?:-|$)/u.test(utility)) {
+    return ['transition-property', 'transition-timing-function', 'transition-duration'];
+  }
+  if (/^duration-/u.test(utility)) return ['transition-duration'];
+  if (/^delay-/u.test(utility)) return ['transition-delay'];
+  if (/^ease-/u.test(utility)) return ['transition-timing-function'];
+  if (/^(?:grid-cols|auto-cols)(?:-|$)/u.test(utility)) return ['grid-template-columns'];
+  if (/^(?:grid-rows|auto-rows)(?:-|$)/u.test(utility)) return ['grid-template-rows'];
+  if (/^col(?:-|$)/u.test(utility)) return ['grid-column-start', 'grid-column-end'];
+  if (/^row(?:-|$)/u.test(utility)) return ['grid-row-start', 'grid-row-end'];
+  if (/^table-(?:auto|fixed)$/u.test(utility)) return ['table-layout'];
+  if (/^list-(?:disc|decimal|none)$/u.test(utility)) return ['list-style-type'];
+  if (/^list-(?:inside|outside)$/u.test(utility)) return ['list-style-position'];
+  if (/^object-(?:contain|cover|fill|none|scale-down)$/u.test(utility)) return ['object-fit'];
+  if (/^object-/u.test(utility)) return ['object-position'];
+  if (/^cursor-/u.test(utility)) return ['cursor'];
+  if (/^pointer-events-/u.test(utility)) return ['pointer-events'];
+  if (['visible', 'invisible', 'collapse'].includes(utility)) return ['visibility'];
+  if (utility === 'sr-only') {
+    return ['position', 'width', 'height', 'padding', 'margin', 'overflow', 'clip-path', 'white-space', 'border-width'];
+  }
+  if (utility === 'not-sr-only') {
+    return ['position', 'width', 'height', 'padding', 'margin', 'overflow', 'clip-path', 'white-space'];
+  }
+  return [];
 }
 
 export function describeTailwindUtility(token: string): TailwindUtilityDescriptor | undefined {
@@ -182,7 +228,7 @@ export function describeTailwindUtility(token: string): TailwindUtilityDescripto
     token,
     variants,
     utility,
-    propertyGroup: propertyGroup(utility),
+    cssProperties: cssProperties(utility),
     activation: activation(variants),
     hasGeneratedMediaVariant: hasGeneratedMediaVariant(variants),
     important,
@@ -192,7 +238,7 @@ export function describeTailwindUtility(token: string): TailwindUtilityDescripto
 export function describeTailwindDisplay(token: string): TailwindDisplayUtility | undefined {
   const descriptor = describeTailwindUtility(token);
   if (descriptor === undefined) return undefined;
-  if (descriptor.propertyGroup !== 'display') return undefined;
+  if (!descriptor.cssProperties.includes('display')) return undefined;
   return {
     token: descriptor.token,
     utility: descriptor.utility,
@@ -203,15 +249,6 @@ export function describeTailwindDisplay(token: string): TailwindDisplayUtility |
 
 function activationsIntersect(left: TailwindActivation, right: TailwindActivation): boolean {
   return left.kind === 'base' || right.kind === 'base' || mediaRangesIntersect(left.range, right.range);
-}
-
-function ownedCssProperties(descriptor: TailwindUtilityDescriptor): readonly string[] {
-  if (descriptor.utility === 'sr-only' || descriptor.utility === 'not-sr-only') {
-    return ['position', 'width', 'height', 'padding', 'margin', 'overflow', 'clip-path', 'white-space', 'border-width'];
-  }
-  if (/^gap-x-/u.test(descriptor.utility)) return ['column-gap'];
-  if (/^gap-y-/u.test(descriptor.utility)) return ['row-gap'];
-  return descriptor.propertyGroup === undefined ? [] : [descriptor.propertyGroup];
 }
 
 export function findTailwindClassConflicts(
@@ -228,13 +265,13 @@ export function findTailwindClassConflicts(
   for (const generated of generatedClassNames
     .map(describeTailwindUtility)
     .filter(descriptor => descriptor !== undefined)) {
-    const generatedProperties = ownedCssProperties(generated);
+    const generatedProperties = generated.cssProperties;
     if (generatedProperties.length === 0) continue;
     if (
       existing.some(
         current =>
           activationsIntersect(current.activation, generated.activation) &&
-          ownedCssProperties(current).some(currentProperty =>
+          current.cssProperties.some(currentProperty =>
             generatedProperties.some(generatedProperty => cssPropertiesOverlap(currentProperty, generatedProperty)),
           ),
       )

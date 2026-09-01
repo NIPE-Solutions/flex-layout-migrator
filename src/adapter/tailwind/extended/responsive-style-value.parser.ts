@@ -49,7 +49,7 @@ function transformUpstreamRawList(value: string): ResponsiveStyleValueResult {
     .split(';')
     .map(item => item.trim())
     .filter(item => item !== '');
-  const declarations: LiteralStyleDeclaration[] = [];
+  const declarationsByExactProperty = new Map<string, LiteralStyleDeclaration>();
 
   for (const rawDeclaration of rawDeclarations) {
     const [rawKey, ...rawValues] = rawDeclaration.split(':');
@@ -68,10 +68,13 @@ function transformUpstreamRawList(value: string): ResponsiveStyleValueResult {
         reason: 'Upstream raw-string transformation produced an empty style key or value.',
       };
     }
-    declarations.push({ property, value: transformedValue });
+    // Flex-Layout reduces its raw string into a plain object first. Updating an
+    // exact key keeps that key's original insertion position, while a
+    // differently-cased key is applied later as a distinct renderer entry.
+    declarationsByExactProperty.set(property, { property, value: transformedValue });
   }
 
-  return { status: 'parsed', value: { declarations } };
+  return { status: 'parsed', value: { declarations: [...declarationsByExactProperty.values()] } };
 }
 
 function normalizeDeclaration(

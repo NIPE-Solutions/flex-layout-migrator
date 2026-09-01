@@ -108,9 +108,11 @@ function displayIntent(descriptor: TailwindDisplayUtility): 'hidden' | 'shown' |
 
 function describeDisplayOwnership(token: string): TailwindUtilityDescriptor | undefined {
   const descriptor = describeTailwindUtility(token);
-  return descriptor?.propertyGroup !== undefined && cssPropertiesOverlap(descriptor.propertyGroup, 'display')
-    ? descriptor
-    : undefined;
+  return descriptor?.cssProperties.some(property => cssPropertiesOverlap(property, 'display')) ? descriptor : undefined;
+}
+
+function ownsOnlyDisplay(descriptor: TailwindUtilityDescriptor): boolean {
+  return descriptor.cssProperties.length === 1 && descriptor.cssProperties[0]?.toLowerCase() === 'display';
 }
 
 function contextUnverified(input: LocatedFlexLayoutInput, reason: string): PlannedConversion {
@@ -168,7 +170,7 @@ export class ExtendedDisplayCompositionPlanner {
       if (unresolvedLayout) affectedFamilies.add(family);
       for (const descriptor of displayDescriptors) {
         const target = activationRange(descriptor.activation);
-        if (descriptor.propertyGroup !== 'display' && layoutRanges.some(range => mediaRangesIntersect(target, range))) {
+        if (!ownsOnlyDisplay(descriptor) && layoutRanges.some(range => mediaRangesIntersect(target, range))) {
           layoutOverlapIsUnsafe = true;
           affectedFamilies.add(family);
           continue;
@@ -266,6 +268,17 @@ export class ExtendedDisplayCompositionPlanner {
       const family = this.extendedFamily(plan.input.directive);
       if (family === undefined) return plan;
 
+      const retainedDisplayOwners = (plan.retainedClassNames ?? [])
+        .map(describeDisplayOwnership)
+        .filter(owner => owner !== undefined);
+      if (
+        retainedDisplayOwners.some(owner =>
+          visibilityRanges.some(range => mediaRangesIntersect(activationRange(owner.activation), range)),
+        )
+      ) {
+        unsafeFamilies.add(family);
+      }
+
       const classNames = plan.classNames.filter(className => {
         const owner = describeDisplayOwnership(className);
         if (owner === undefined) return true;
@@ -274,7 +287,7 @@ export class ExtendedDisplayCompositionPlanner {
           unsafeFamilies.add(family);
           return true;
         }
-        if (owner.propertyGroup !== 'display') {
+        if (!ownsOnlyDisplay(owner)) {
           if (visibilityRanges.some(range => mediaRangesIntersect(target, range))) unsafeFamilies.add(family);
           return true;
         }
@@ -386,8 +399,7 @@ export class ExtendedDisplayCompositionPlanner {
         const classification = this.classifier.classify(token);
         return (
           classification.status === 'unverified' ||
-          (classification.descriptor.propertyGroup !== undefined &&
-            cssPropertiesOverlap(classification.descriptor.propertyGroup, 'display'))
+          classification.descriptor.cssProperties.some(property => cssPropertiesOverlap(property, 'display'))
         );
       });
     }

@@ -55,10 +55,16 @@ describe('ConversionPlanner', () => {
     expect(result.output).toBe('<app-card class="flex flex-col box-border"/>');
   });
 
-  test('deduplicates classes while preserving their first occurrence', () => {
+  test('preserves existing class bytes while avoiding duplicate generated classes', () => {
     const result = migrate('<div class="flex card flex" fxLayout="row"></div>');
 
-    expect(result.output).toBe('<div class="flex card flex-row box-border"></div>');
+    expect(result.output).toBe('<div class="flex card flex flex-row box-border"></div>');
+  });
+
+  test('appends a byte-exact generated token when only an entity-decoded equivalent exists', () => {
+    const result = migrate('<div class="fl&#101;x" fxLayout="row"></div>');
+
+    expect(result.output).toBe('<div class="fl&#101;x flex flex-row box-border"></div>');
   });
 
   test('preserves a directive when an existing Tailwind utility controls the same property', () => {
@@ -210,7 +216,7 @@ describe('ConversionPlanner', () => {
     const result = migrate('<div class="bl&#111;ck&#32;" fxShow="false" fxShow.sm></div>');
 
     expect(result.output).toBe(
-      '<div class="bl&#111;ck&#32;hidden [@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:block"></div>',
+      '<div class="bl&#111;ck&#32; hidden [@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:block"></div>',
     );
   });
 
@@ -361,6 +367,39 @@ describe('ConversionPlanner', () => {
       '<div class="[@media_screen_and_(min-width:_0px)_and_(max-width:_599.98px)]:flex [@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:grid [@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:[color:red] [@media_screen_and_(min-width:_600px)]:[color:red]"></div>',
     );
     expect(result.results.every(item => item.status === 'converted')).toBe(true);
+  });
+
+  test('preserves upstream exact-key order before emitting a case-colliding responsive ngStyle property', () => {
+    const source = '<div ngStyle.sm="font-size:10px; FONT-SIZE:20px; font-size:30px"></div>';
+    const expected =
+      '<div class="[@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:[font-size:20px]"></div>';
+    const first = migrate(source);
+
+    expect(first.output).toBe(expected);
+    expect(first.results).toEqual([expect.objectContaining({ status: 'converted' })]);
+    expect(migrate(first.output)).toMatchObject({ output: expected, edits: [], results: [] });
+  });
+
+  test('preserves a multi-property responsive class when inline ownership covers only one declaration', () => {
+    const source = '<div ngClass.sm="text-sm/5" ngStyle.sm="font-size:14px"></div>';
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.results).toEqual([
+      expect.objectContaining({ status: 'review', code: 'context-unverified' }),
+      expect.objectContaining({ status: 'review', code: 'context-unverified' }),
+    ]);
+  });
+
+  test('suppresses a multi-property responsive class only when inline ownership covers every declaration', () => {
+    const source = '<div ngClass.sm="text-sm/5" ngStyle.sm="font-size:14px;line-height:2"></div>';
+    const expected =
+      '<div class="[@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:[font-size:14px] [@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:[line-height:2]"></div>';
+    const first = migrate(source);
+
+    expect(first.output).toBe(expected);
+    expect(first.results.every(result => result.status === 'converted')).toBe(true);
+    expect(migrate(first.output)).toMatchObject({ output: expected, edits: [], results: [] });
   });
 
   test('preserves extended families with conflicting overlap values', () => {
@@ -808,37 +847,73 @@ describe('ConversionPlanner', () => {
 
   test.each([
     [
-      'double-quoted existing class',
+      'double-quoted class content',
       '<div class="card" ngClass.sm="[content:&quot;quoted&amp;copy;&quot;]"></div>',
-      '<div class="card [@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:[content:&quot;quoted&amp;copy;&quot;]"></div>',
-      '[@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:[content:"quoted&copy;"]',
+      'tailwind-candidate-unverified',
     ],
     [
-      'single-quoted existing class',
+      'single-quoted class content',
       `<div class='card' ngClass.sm="[content:'quoted&amp;copy;']"></div>`,
-      `<div class='card [@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:[content:&#39;quoted&amp;copy;&#39;]'></div>`,
-      "[@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:[content:'quoted&copy;']",
+      'tailwind-candidate-unverified',
     ],
     [
-      'inserted class attribute',
+      'new class content',
       '<div ngClass.sm="[content:&quot;quoted&amp;copy;&quot;]"></div>',
-      '<div class="[@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:[content:&quot;quoted&amp;copy;&quot;]"></div>',
-      '[@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:[content:"quoted&copy;"]',
+      'tailwind-candidate-unverified',
     ],
-  ])('HTML-escapes generated tokens for a %s and reparses to the same class', (_case, source, expected, token) => {
+    ['named-entity style content', '<div ngStyle.sm="content:&amp;copy;"></div>', 'style-value-unverified'],
+  ])('preserves responsive %s whose decoded candidate is absent from Tailwind raw source', (_case, source, code) => {
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.edits).toEqual([]);
+    expect(result.results).toEqual([expect.objectContaining({ status: 'review', code })]);
+  });
+
+  test('emits a byte-exact raw arbitrary-selector candidate whose ampersand is not an HTML reference', () => {
+    const source = '<div ngClass.sm="[&>*]:p-4"></div>';
+    const expected = '<div class="[@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:[&>*]:p-4"></div>';
     const first = migrate(source);
 
     expect(first.output).toBe(expected);
     const parsed = new AngularTemplateParser().parse(first.output, 'fixture.html');
     expect(parsed.status).toBe('parsed');
     if (parsed.status !== 'parsed') throw new Error('Expected generated template to parse.');
-    expect(parsed.elements[0]?.attributes.find(attribute => attribute.name === 'class')?.value.split(/\s+/u)).toContain(
-      token,
-    );
+    expect(parsed.elements[0]?.attributes.find(attribute => attribute.name === 'class')).toMatchObject({
+      rawValue: '[@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:[&>*]:p-4',
+      value: '[@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:[&>*]:p-4',
+    });
+    expect(migrate(first.output)).toMatchObject({ output: expected, edits: [], results: [] });
+  });
 
-    const second = migrate(first.output);
-    expect(second.output).toBe(first.output);
-    expect(second.edits).toEqual([]);
+  test.each([
+    [
+      'double-quoted value',
+      '<div class="[&>*]:p-4" fxLayout="row"></div>',
+      '<div class="[&>*]:p-4 flex flex-row box-border"></div>',
+    ],
+    [
+      'single-quoted value',
+      `<div class='[&>*]:p-4' fxLayout="row"></div>`,
+      `<div class='[&>*]:p-4 flex flex-row box-border'></div>`,
+    ],
+    ['unquoted value', '<div class=card fxLayout="row"></div>', '<div class="card flex flex-row box-border"></div>'],
+    [
+      'entity-bearing unquoted value',
+      '<div class=ca&#114;d fxLayout="row"></div>',
+      '<div class="ca&#114;d flex flex-row box-border"></div>',
+    ],
+    ['valueless attribute', '<div class fxLayout="row"></div>', '<div class="flex flex-row box-border"></div>'],
+    ['absent attribute', '<div fxLayout="row"></div>', '<div class="flex flex-row box-border"></div>'],
+  ])('appends generated classes through a valid %s without changing existing raw bytes', (_case, source, expected) => {
+    const first = migrate(source);
+
+    expect(first.output).toBe(expected);
+    const parsed = new AngularTemplateParser().parse(first.output, 'fixture.html');
+    expect(parsed.status).toBe('parsed');
+    if (parsed.status !== 'parsed') throw new Error('Expected edited class attribute to parse.');
+    expect(parsed.elements[0]?.attributes.filter(attribute => attribute.name === 'class')).toHaveLength(1);
+    expect(migrate(first.output)).toMatchObject({ output: expected, edits: [], results: [] });
   });
 
   test('removes a responsive class family whose literal unsuffixed fallback has the exact same value', () => {
@@ -849,6 +924,36 @@ describe('ConversionPlanner', () => {
     expect(first.output).toBe(expected);
     expect(first.results.every(result => result.status === 'converted')).toBe(true);
     expect(migrate(first.output)).toMatchObject({ output: expected, edits: [], results: [] });
+  });
+
+  test.each([
+    ['semantic gap replacement', '<div ngClass="gap-4" ngClass.sm="gap-4" fxLayoutGap.sm="8"></div>'],
+    [
+      'inline style replacement',
+      '<div ngClass="text-red-500" ngClass.sm="text-red-500" ngStyle.sm="color:blue"></div>',
+    ],
+    ['display replacement', '<div ngClass="block" ngClass.sm="block" fxLayout.sm="row"></div>'],
+    ['visibility replacement', '<div ngClass="block" ngClass.sm="block" fxHide.sm></div>'],
+  ])('retains identical ngClass fallback ownership during %s composition', (_case, source) => {
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.results).toHaveLength(2);
+    expect(result.results).toEqual([
+      expect.objectContaining({ status: 'review', code: 'context-unverified' }),
+      expect.objectContaining({ status: 'review', code: 'context-unverified' }),
+    ]);
+  });
+
+  test('keeps an identical ngStyle fallback authoritative during display composition', () => {
+    const source = '<div ngStyle="display:block" ngStyle.sm="display:block" fxLayout.sm="row"></div>';
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.results).toEqual([
+      expect.objectContaining({ status: 'review', code: 'class-conflict' }),
+      expect.objectContaining({ status: 'review', code: 'context-unverified' }),
+    ]);
   });
 
   test.each([
@@ -922,6 +1027,7 @@ describe('ConversionPlanner', () => {
   test.each([
     '<div class="[row-gap:1rem]" ngClass.sm="gap-y-4"></div>',
     '<div class="sr-only" ngClass.sm="relative"></div>',
+    '<div class="[line-height:2]" ngClass.sm="text-sm/5"></div>',
   ])(
     'preserves responsive class output whose complete CSS ownership conflicts with an existing utility: %s',
     source => {

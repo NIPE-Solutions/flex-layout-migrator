@@ -166,6 +166,23 @@ describe('parseResponsiveStyleValue', () => {
     });
   });
 
+  test.each([
+    ['lowercase key inserted before its uppercase collision', 'font-size:10px; FONT-SIZE:20px; font-size:30px', '20px'],
+    ['uppercase key inserted before its lowercase collision', 'FONT-SIZE:20px; font-size:10px; FONT-SIZE:30px', '10px'],
+  ])('reduces exact upstream keys before browser case normalization: %s', (_case, value, expected) => {
+    expect(parseResponsiveStyleValue(input({ value }))).toEqual({
+      status: 'parsed',
+      value: { declarations: [{ property: 'font-size', value: expected }] },
+    });
+  });
+
+  test.each(['margin-top:1px; MARGIN:2px; margin-top:3px', 'MARGIN:2px; margin-top:1px; MARGIN:3px'])(
+    'preserves case-colliding shorthand application order that classes cannot encode: %s',
+    value => {
+      expect(parseResponsiveStyleValue(input({ value }))).toMatchObject({ status: 'unverified' });
+    },
+  );
+
   test.each(['COLOR: red', 'backgroundColor: red'])(
     'preserves undashed property spelling %s whose renderer outcome cannot be modeled as a CSS property',
     value => {
@@ -209,6 +226,7 @@ describe('parseResponsiveStyleValue', () => {
     ['empty value', 'color: '],
     ['unsupported property spelling', 'font size: 14px'],
     ['unencodable bracket value', 'content: "[unsafe]"'],
+    ['raw-source HTML reference', 'content: &copy;'],
   ])('rejects the complete responsive value for %s', (_case, value) => {
     expect(parseResponsiveStyleValue(input({ value }))).toMatchObject({ status: 'unverified' });
   });

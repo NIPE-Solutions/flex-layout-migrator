@@ -86,12 +86,12 @@ describe('describeTailwindDisplay', () => {
 });
 
 describe('describeTailwindUtility', () => {
-  test('exposes ordinary variants, normalized importance, and a stable property group', () => {
+  test('exposes ordinary variants, normalized importance, and complete CSS ownership', () => {
     expect(describeTailwindUtility('dark:hover:!text-white')).toEqual({
       token: 'dark:hover:!text-white',
       variants: ['dark', 'hover'],
       utility: 'text-white',
-      propertyGroup: 'color',
+      cssProperties: ['color'],
       activation: { kind: 'base' },
       hasGeneratedMediaVariant: false,
       important: true,
@@ -143,7 +143,7 @@ describe('describeTailwindUtility', () => {
       token,
       variants: ['[@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]', 'hover'],
       utility: 'flex',
-      propertyGroup: 'display',
+      cssProperties: ['display'],
       activation: { kind: 'media', range: { min: 600, max: 959.98 } },
       hasGeneratedMediaVariant: true,
       important: false,
@@ -283,5 +283,31 @@ describe('findTailwindClassConflicts', () => {
     ['relative', sm('sr-only')],
   ])('uses complete CSS ownership for existing %s against generated %s', (existing, generated) => {
     expect(findTailwindClassConflicts([existing], [generated])).toEqual(new Set([generated]));
+  });
+
+  test('recognizes the line-height side effect of a responsive text-size utility', () => {
+    const generated = sm('text-sm/5');
+
+    expect(findTailwindClassConflicts(['[line-height:2]'], [generated])).toEqual(new Set([generated]));
+  });
+
+  test.each([
+    ['[--tw-shadow:none]', sm('shadow-md')],
+    ['[transition-duration:1s]', sm('transition-colors')],
+    ['[--tw-scale-x:2]', sm('scale-50')],
+    ['[border-width:1px]', sm('sr-only')],
+  ])('uses every modeled declaration of multi-property existing %s against %s', (existing, generated) => {
+    expect(findTailwindClassConflicts([existing], [generated])).toEqual(new Set([generated]));
+  });
+
+  test('does not manufacture border ownership for not-sr-only', () => {
+    expect(findTailwindClassConflicts(['[border-width:1px]'], [sm('not-sr-only')])).toEqual(new Set());
+  });
+
+  test('uses direct scale ownership for arbitrary scale values without theme-variable side effects', () => {
+    const generated = sm('scale-[1.2]');
+
+    expect(findTailwindClassConflicts(['[--tw-scale-x:2]'], [generated])).toEqual(new Set());
+    expect(findTailwindClassConflicts(['[scale:2]'], [generated])).toEqual(new Set([generated]));
   });
 });

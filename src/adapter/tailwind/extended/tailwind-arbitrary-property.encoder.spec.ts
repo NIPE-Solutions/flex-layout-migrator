@@ -24,12 +24,6 @@ describe('TailwindArbitraryPropertyEncoder', () => {
       cssValue: 'Open Sans',
     },
     {
-      case: 'quoted values, commas, and spaces',
-      declaration: { property: 'font-family', value: '"IBM Plex Sans", sans-serif' },
-      candidate: '[font-family:"IBM_Plex_Sans",_sans-serif]',
-      cssValue: '"IBM Plex Sans", sans-serif',
-    },
-    {
       case: 'slashes',
       declaration: { property: 'font', value: '14px/1.5 sans-serif' },
       candidate: '[font:14px/1.5_sans-serif]',
@@ -133,6 +127,8 @@ describe('TailwindArbitraryPropertyEncoder', () => {
     ['backslashes', { property: 'color', value: 'r\\65 d' }],
     ['square brackets', { property: 'content', value: '"[unsafe]"' }],
     ['line breaks', { property: 'content', value: 'one\ntwo' }],
+    ['raw-source quotes', { property: 'font-family', value: '"IBM Plex Sans", sans-serif' }],
+    ['raw-source references', { property: 'content', value: '&copy;' }],
   ] satisfies readonly [string, LiteralStyleDeclaration][])('refuses unprovable %s', (_case, declaration) => {
     expect(() => encoder.encode(declaration)).toThrow(/cannot be encoded/u);
   });

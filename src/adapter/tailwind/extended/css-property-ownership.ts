@@ -22,9 +22,31 @@ const borderImage = [
 ] as const;
 
 const shorthandLonghands = new Map<string, readonly string[]>([
-  ['margin', edgeLonghands('margin')],
-  ['padding', edgeLonghands('padding')],
-  ['inset', [...edges]],
+  [
+    'margin',
+    [...edgeLonghands('margin'), 'margin-inline-start', 'margin-inline-end', 'margin-block-start', 'margin-block-end'],
+  ],
+  ['margin-inline', ['margin-inline-start', 'margin-inline-end', 'margin-left', 'margin-right']],
+  ['margin-block', ['margin-block-start', 'margin-block-end', 'margin-top', 'margin-bottom']],
+  ['margin-inline-start', ['margin-inline-start', 'margin-left', 'margin-right']],
+  ['margin-inline-end', ['margin-inline-end', 'margin-left', 'margin-right']],
+  [
+    'padding',
+    [
+      ...edgeLonghands('padding'),
+      'padding-inline-start',
+      'padding-inline-end',
+      'padding-block-start',
+      'padding-block-end',
+    ],
+  ],
+  ['padding-inline', ['padding-inline-start', 'padding-inline-end', 'padding-left', 'padding-right']],
+  ['padding-block', ['padding-block-start', 'padding-block-end', 'padding-top', 'padding-bottom']],
+  ['padding-inline-start', ['padding-inline-start', 'padding-left', 'padding-right']],
+  ['padding-inline-end', ['padding-inline-end', 'padding-left', 'padding-right']],
+  ['inset', [...edges, 'inset-inline-start', 'inset-inline-end', 'inset-block-start', 'inset-block-end']],
+  ['inset-inline', ['inset-inline-start', 'inset-inline-end', 'left', 'right']],
+  ['inset-block', ['inset-block-start', 'inset-block-end', 'top', 'bottom']],
   ['gap', ['row-gap', 'column-gap']],
   [
     'font',
@@ -141,6 +163,9 @@ const knownIndependentProperties = new Set([
   'opacity',
   'position',
   'transform',
+  'translate',
+  'rotate',
+  'scale',
   'transform-origin',
   'order',
   'grid-column-start',
@@ -156,6 +181,7 @@ const knownIndependentProperties = new Set([
   'clip',
   'clip-path',
   'white-space',
+  'text-overflow',
   'content',
   'z-index',
 ]);

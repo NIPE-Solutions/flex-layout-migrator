@@ -21,7 +21,7 @@ export class ExtendedResponsiveEmitter {
       seen.add(token);
 
       const classification = this.classifier.classify(token);
-      if (classification.status !== 'verified' || classification.descriptor.propertyGroup === undefined) {
+      if (classification.status !== 'verified' || classification.descriptor.cssProperties.length === 0) {
         throw new Error('Cannot emit an unverified or ungrouped Tailwind class candidate.');
       }
       emitted.push(this.responsiveEmitter.emitCandidate(state.activation.definition, token));
@@ -40,7 +40,7 @@ export class ExtendedResponsiveEmitter {
       seen.add(candidate);
 
       const descriptor = describeTailwindUtility(candidate);
-      if (descriptor?.propertyGroup === undefined) {
+      if (descriptor === undefined || descriptor.cssProperties.length === 0) {
         throw new Error('Cannot emit an ungrouped Tailwind arbitrary-property candidate.');
       }
       emitted.push(this.responsiveEmitter.emitCandidate(state.activation.definition, candidate));

@@ -1,4 +1,5 @@
 import type { LiteralStyleDeclaration } from '../visibility/literal-style-display';
+import { isByteExactHtmlClassToken } from '../../../edit/html-attribute-value';
 
 const ordinaryProperty = /^-?[a-z][a-z\d-]*$/iu;
 const customProperty = /^--[a-z\d_-]+$/iu;
@@ -27,6 +28,10 @@ export class TailwindArbitraryPropertyEncoder {
     }
 
     const value = declaration.value.replaceAll('_', '\\_').replaceAll(' ', '_');
-    return `[${declaration.property}:${value}]`;
+    const candidate = `[${declaration.property}:${value}]`;
+    if (!isByteExactHtmlClassToken(candidate)) {
+      throw new Error('The style declaration cannot be encoded as a byte-exact HTML source candidate.');
+    }
+    return candidate;
   }
 }

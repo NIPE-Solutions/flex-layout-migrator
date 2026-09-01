@@ -1,54 +1,58 @@
 import { describeTailwindUtility, type TailwindUtilityDescriptor } from '../tailwind-class-conflict';
 import { hasValidTailwindArbitrarySyntax } from '../tailwind-arbitrary-syntax';
+import { isByteExactHtmlClassToken } from '../../../edit/html-attribute-value';
 
 export type TailwindCandidateClassification =
   | { readonly status: 'verified'; readonly descriptor: TailwindUtilityDescriptor }
   | { readonly status: 'unverified'; readonly reason: string };
 
-type PropertyGroup = string | ((value: string) => string | undefined);
+type CssProperties = readonly string[] | ((value: string) => readonly string[] | undefined);
 
 interface NamespaceRule {
   readonly namespace: string;
-  readonly propertyGroup: PropertyGroup;
+  readonly cssProperties: CssProperties;
   readonly negative?: boolean;
   readonly accepts: (value: string) => boolean;
   readonly acceptsNegative?: (value: string) => boolean;
 }
 
 const exactTokenRegistry = Object.freeze([
-  ['inline', 'display'],
-  ['block', 'display'],
-  ['inline-block', 'display'],
-  ['flow-root', 'display'],
-  ['flex', 'display'],
-  ['inline-flex', 'display'],
-  ['grid', 'display'],
-  ['inline-grid', 'display'],
-  ['contents', 'display'],
-  ['table', 'display'],
-  ['inline-table', 'display'],
-  ['list-item', 'display'],
-  ['hidden', 'display'],
-  ['flex-row', 'flex-direction'],
-  ['flex-row-reverse', 'flex-direction'],
-  ['flex-col', 'flex-direction'],
-  ['flex-col-reverse', 'flex-direction'],
-  ['flex-wrap', 'flex-wrap'],
-  ['flex-wrap-reverse', 'flex-wrap'],
-  ['flex-nowrap', 'flex-wrap'],
-  ['static', 'position'],
-  ['fixed', 'position'],
-  ['absolute', 'position'],
-  ['relative', 'position'],
-  ['sticky', 'position'],
-  ['border', 'border'],
-  ['shadow', 'box-shadow'],
-  ['transition', 'transition'],
-  ['visible', 'visibility'],
-  ['invisible', 'visibility'],
-  ['collapse', 'visibility'],
-  ['sr-only', 'accessibility'],
-  ['not-sr-only', 'accessibility'],
+  ['inline', ['display']],
+  ['block', ['display']],
+  ['inline-block', ['display']],
+  ['flow-root', ['display']],
+  ['flex', ['display']],
+  ['inline-flex', ['display']],
+  ['grid', ['display']],
+  ['inline-grid', ['display']],
+  ['contents', ['display']],
+  ['table', ['display']],
+  ['inline-table', ['display']],
+  ['list-item', ['display']],
+  ['hidden', ['display']],
+  ['flex-row', ['flex-direction']],
+  ['flex-row-reverse', ['flex-direction']],
+  ['flex-col', ['flex-direction']],
+  ['flex-col-reverse', ['flex-direction']],
+  ['flex-wrap', ['flex-wrap']],
+  ['flex-wrap-reverse', ['flex-wrap']],
+  ['flex-nowrap', ['flex-wrap']],
+  ['static', ['position']],
+  ['fixed', ['position']],
+  ['absolute', ['position']],
+  ['relative', ['position']],
+  ['sticky', ['position']],
+  ['border', ['border-style', 'border-width']],
+  ['shadow', ['--tw-shadow', 'box-shadow']],
+  ['transition', ['transition-property', 'transition-timing-function', 'transition-duration']],
+  ['visible', ['visibility']],
+  ['invisible', ['visibility']],
+  ['collapse', ['visibility']],
+  [
+    'sr-only',
+    ['position', 'width', 'height', 'padding', 'margin', 'overflow', 'clip-path', 'white-space', 'border-width'],
+  ],
+  ['not-sr-only', ['position', 'width', 'height', 'padding', 'margin', 'overflow', 'clip-path', 'white-space']],
 ] as const);
 
 const defaultColorNames = Object.freeze([
@@ -192,23 +196,48 @@ function isColor(value: string): boolean {
   return opacity === undefined || isPercentage(opacity) || isArbitraryOrVariable(opacity);
 }
 
-function textPropertyGroup(value: string): string | undefined {
+function textCssProperties(value: string): readonly string[] | undefined {
   const [size, lineHeight, remainder] = value.split('/');
   const hasVerifiedLineHeight =
     remainder === undefined && (lineHeight === undefined || isNumber(lineHeight) || isArbitraryOrVariable(lineHeight));
   if (textSizes.includes((size ?? '') as (typeof textSizes)[number])) {
-    return hasVerifiedLineHeight ? 'font-size' : undefined;
+    return hasVerifiedLineHeight ? ['font-size', 'line-height'] : undefined;
   }
   if (hasCompilerMeaningfulArbitraryValue(size ?? '') && /^\[(?:length:)?\d[^\]]*\]$/u.test(size ?? '')) {
-    return hasVerifiedLineHeight ? 'font-size' : undefined;
+    if (!hasVerifiedLineHeight) return undefined;
+    return lineHeight === undefined ? ['font-size'] : ['font-size', 'line-height'];
   }
-  if (hasCompilerMeaningfulArbitraryValue(value) && /^\[color:[\s\S]+\]$/u.test(value)) return 'color';
-  if (isColor(value)) return 'color';
+  if (hasCompilerMeaningfulArbitraryValue(value) && /^\[color:[\s\S]+\]$/u.test(value)) return ['color'];
+  if (isColor(value)) return ['color'];
   return undefined;
 }
 
 function acceptsText(value: string): boolean {
-  return textPropertyGroup(value) !== undefined;
+  return textCssProperties(value) !== undefined;
+}
+
+function borderCssProperties(value: string): readonly string[] | undefined {
+  if (isInteger(value) || /^\[(?:length:)?(?:\d|\.\d)/u.test(value)) {
+    return ['border-style', 'border-width'];
+  }
+  if (oneOf(['solid', 'dashed', 'dotted', 'double', 'hidden', 'none'])(value)) {
+    return ['--tw-border-style', 'border-style'];
+  }
+  if (isColor(value) || isCssVariableValue(value) || /^\[(?:color:|var\()/u.test(value)) {
+    return ['border-color'];
+  }
+  return undefined;
+}
+
+function transitionCssProperties(value: string): readonly string[] {
+  return value === 'none'
+    ? ['transition-property']
+    : ['transition-property', 'transition-timing-function', 'transition-duration'];
+}
+
+function scaleCssProperties(value: string): readonly string[] | undefined {
+  if (isInteger(value)) return ['--tw-scale-x', '--tw-scale-y', '--tw-scale-z', 'scale'];
+  return isArbitraryOrVariable(value) ? ['scale'] : undefined;
 }
 
 function oneOf(values: readonly string[]): (value: string) => boolean {
@@ -218,171 +247,199 @@ function oneOf(values: readonly string[]): (value: string) => boolean {
 const namespaceRegistry: readonly NamespaceRule[] = Object.freeze([
   {
     namespace: 'items',
-    propertyGroup: 'align-items',
+    cssProperties: ['align-items'],
     accepts: oneOf(['start', 'end', 'center', 'baseline', 'stretch']),
   },
-  { namespace: 'gap', propertyGroup: 'gap', accepts: value => isNumber(value) || isArbitraryOrVariable(value) },
-  { namespace: 'gap-x', propertyGroup: 'gap', accepts: value => isNumber(value) || isArbitraryOrVariable(value) },
-  { namespace: 'gap-y', propertyGroup: 'gap', accepts: value => isNumber(value) || isArbitraryOrVariable(value) },
-  { namespace: 'm', propertyGroup: 'margin', negative: true, accepts: isMargin, acceptsNegative: isSpacing },
-  { namespace: 'mx', propertyGroup: 'margin', negative: true, accepts: isMargin, acceptsNegative: isSpacing },
-  { namespace: 'my', propertyGroup: 'margin', negative: true, accepts: isMargin, acceptsNegative: isSpacing },
-  { namespace: 'mt', propertyGroup: 'margin', negative: true, accepts: isMargin, acceptsNegative: isSpacing },
-  { namespace: 'mr', propertyGroup: 'margin', negative: true, accepts: isMargin, acceptsNegative: isSpacing },
-  { namespace: 'mb', propertyGroup: 'margin', negative: true, accepts: isMargin, acceptsNegative: isSpacing },
-  { namespace: 'ml', propertyGroup: 'margin', negative: true, accepts: isMargin, acceptsNegative: isSpacing },
-  { namespace: 'ms', propertyGroup: 'margin', negative: true, accepts: isMargin, acceptsNegative: isSpacing },
-  { namespace: 'me', propertyGroup: 'margin', negative: true, accepts: isMargin, acceptsNegative: isSpacing },
+  { namespace: 'gap', cssProperties: ['gap'], accepts: value => isNumber(value) || isArbitraryOrVariable(value) },
+  {
+    namespace: 'gap-x',
+    cssProperties: ['column-gap'],
+    accepts: value => isNumber(value) || isArbitraryOrVariable(value),
+  },
+  { namespace: 'gap-y', cssProperties: ['row-gap'], accepts: value => isNumber(value) || isArbitraryOrVariable(value) },
+  { namespace: 'm', cssProperties: ['margin'], negative: true, accepts: isMargin, acceptsNegative: isSpacing },
+  { namespace: 'mx', cssProperties: ['margin-inline'], negative: true, accepts: isMargin, acceptsNegative: isSpacing },
+  { namespace: 'my', cssProperties: ['margin-block'], negative: true, accepts: isMargin, acceptsNegative: isSpacing },
+  { namespace: 'mt', cssProperties: ['margin-top'], negative: true, accepts: isMargin, acceptsNegative: isSpacing },
+  { namespace: 'mr', cssProperties: ['margin-right'], negative: true, accepts: isMargin, acceptsNegative: isSpacing },
+  { namespace: 'mb', cssProperties: ['margin-bottom'], negative: true, accepts: isMargin, acceptsNegative: isSpacing },
+  { namespace: 'ml', cssProperties: ['margin-left'], negative: true, accepts: isMargin, acceptsNegative: isSpacing },
+  {
+    namespace: 'ms',
+    cssProperties: ['margin-inline-start'],
+    negative: true,
+    accepts: isMargin,
+    acceptsNegative: isSpacing,
+  },
+  {
+    namespace: 'me',
+    cssProperties: ['margin-inline-end'],
+    negative: true,
+    accepts: isMargin,
+    acceptsNegative: isSpacing,
+  },
   {
     namespace: 'p',
-    propertyGroup: 'padding',
+    cssProperties: ['padding'],
     accepts: value => isNumber(value) || value === 'px' || isArbitraryOrVariable(value),
   },
   {
     namespace: 'px',
-    propertyGroup: 'padding',
+    cssProperties: ['padding-inline'],
     accepts: value => isNumber(value) || value === 'px' || isArbitraryOrVariable(value),
   },
   {
     namespace: 'py',
-    propertyGroup: 'padding',
+    cssProperties: ['padding-block'],
     accepts: value => isNumber(value) || value === 'px' || isArbitraryOrVariable(value),
   },
   {
     namespace: 'pt',
-    propertyGroup: 'padding',
+    cssProperties: ['padding-top'],
     accepts: value => isNumber(value) || value === 'px' || isArbitraryOrVariable(value),
   },
   {
     namespace: 'pr',
-    propertyGroup: 'padding',
+    cssProperties: ['padding-right'],
     accepts: value => isNumber(value) || value === 'px' || isArbitraryOrVariable(value),
   },
   {
     namespace: 'pb',
-    propertyGroup: 'padding',
+    cssProperties: ['padding-bottom'],
     accepts: value => isNumber(value) || value === 'px' || isArbitraryOrVariable(value),
   },
   {
     namespace: 'pl',
-    propertyGroup: 'padding',
+    cssProperties: ['padding-left'],
     accepts: value => isNumber(value) || value === 'px' || isArbitraryOrVariable(value),
   },
   {
     namespace: 'ps',
-    propertyGroup: 'padding',
+    cssProperties: ['padding-inline-start'],
     accepts: value => isNumber(value) || value === 'px' || isArbitraryOrVariable(value),
   },
   {
     namespace: 'pe',
-    propertyGroup: 'padding',
+    cssProperties: ['padding-inline-end'],
     accepts: value => isNumber(value) || value === 'px' || isArbitraryOrVariable(value),
   },
-  { namespace: 'w', propertyGroup: 'width', accepts: isWidth },
-  { namespace: 'h', propertyGroup: 'height', accepts: isDimension },
-  { namespace: 'min-w', propertyGroup: 'min-width', accepts: isWidth },
-  { namespace: 'min-h', propertyGroup: 'min-height', accepts: isDimension },
-  { namespace: 'max-w', propertyGroup: 'max-width', accepts: value => value !== 'auto' && isWidth(value) },
-  { namespace: 'max-h', propertyGroup: 'max-height', accepts: value => value !== 'auto' && isDimension(value) },
-  { namespace: 'text', propertyGroup: textPropertyGroup, accepts: acceptsText },
-  { namespace: 'bg', propertyGroup: 'background-color', accepts: isColor },
-  { namespace: 'bg', propertyGroup: 'background-image', accepts: isBackgroundImage },
+  { namespace: 'w', cssProperties: ['width'], accepts: isWidth },
+  { namespace: 'h', cssProperties: ['height'], accepts: isDimension },
+  { namespace: 'min-w', cssProperties: ['min-width'], accepts: isWidth },
+  { namespace: 'min-h', cssProperties: ['min-height'], accepts: isDimension },
+  { namespace: 'max-w', cssProperties: ['max-width'], accepts: value => value !== 'auto' && isWidth(value) },
+  { namespace: 'max-h', cssProperties: ['max-height'], accepts: value => value !== 'auto' && isDimension(value) },
+  { namespace: 'text', cssProperties: textCssProperties, accepts: acceptsText },
+  { namespace: 'bg', cssProperties: ['background-color'], accepts: isColor },
+  { namespace: 'bg', cssProperties: ['background-image'], accepts: isBackgroundImage },
   {
     namespace: 'border',
-    propertyGroup: 'border',
-    accepts: value =>
-      isInteger(value) ||
-      isColor(value) ||
-      oneOf(['solid', 'dashed', 'dotted', 'double', 'hidden', 'none'])(value) ||
-      isArbitraryOrVariable(value),
+    cssProperties: borderCssProperties,
+    accepts: value => borderCssProperties(value) !== undefined,
   },
   {
     namespace: 'rounded',
-    propertyGroup: 'border-radius',
+    cssProperties: ['border-radius'],
     accepts: value =>
       oneOf(['none', 'xs', 'sm', 'md', 'lg', 'xl', '2xl', '3xl', '4xl', 'full'])(value) || isArbitraryOrVariable(value),
   },
   {
     namespace: 'shadow',
-    propertyGroup: 'box-shadow',
+    cssProperties: ['--tw-shadow', 'box-shadow'],
     accepts: value =>
       oneOf(['2xs', 'xs', 'sm', 'md', 'lg', 'xl', '2xl', 'none'])(value) || isArbitraryOrVariable(value),
   },
   {
     namespace: 'opacity',
-    propertyGroup: 'opacity',
+    cssProperties: ['opacity'],
     accepts: value => isPercentage(value) || isArbitraryOrVariable(value),
   },
-  { namespace: 'overflow', propertyGroup: 'overflow', accepts: oneOf(['auto', 'hidden', 'clip', 'visible', 'scroll']) },
+  {
+    namespace: 'overflow',
+    cssProperties: ['overflow'],
+    accepts: oneOf(['auto', 'hidden', 'clip', 'visible', 'scroll']),
+  },
   {
     namespace: 'inset',
-    propertyGroup: 'inset',
+    cssProperties: ['inset'],
     negative: true,
     accepts: isInset,
     acceptsNegative: isFractionalSpacing,
   },
   {
     namespace: 'inset-x',
-    propertyGroup: 'inset',
+    cssProperties: ['inset-inline'],
     negative: true,
     accepts: isInset,
     acceptsNegative: isFractionalSpacing,
   },
   {
     namespace: 'inset-y',
-    propertyGroup: 'inset',
+    cssProperties: ['inset-block'],
     negative: true,
     accepts: isInset,
     acceptsNegative: isFractionalSpacing,
   },
-  { namespace: 'top', propertyGroup: 'inset', negative: true, accepts: isInset, acceptsNegative: isFractionalSpacing },
+  { namespace: 'top', cssProperties: ['top'], negative: true, accepts: isInset, acceptsNegative: isFractionalSpacing },
   {
     namespace: 'right',
-    propertyGroup: 'inset',
+    cssProperties: ['right'],
     negative: true,
     accepts: isInset,
     acceptsNegative: isFractionalSpacing,
   },
   {
     namespace: 'bottom',
-    propertyGroup: 'inset',
+    cssProperties: ['bottom'],
     negative: true,
     accepts: isInset,
     acceptsNegative: isFractionalSpacing,
   },
-  { namespace: 'left', propertyGroup: 'inset', negative: true, accepts: isInset, acceptsNegative: isFractionalSpacing },
+  {
+    namespace: 'left',
+    cssProperties: ['left'],
+    negative: true,
+    accepts: isInset,
+    acceptsNegative: isFractionalSpacing,
+  },
   {
     namespace: 'rotate',
-    propertyGroup: 'transform',
+    cssProperties: ['rotate'],
     negative: true,
     accepts: value => isInteger(value) || isArbitraryOrVariable(value),
   },
   {
     namespace: 'scale',
-    propertyGroup: 'transform',
-    accepts: value => isInteger(value) || isArbitraryOrVariable(value),
+    cssProperties: scaleCssProperties,
+    accepts: value => scaleCssProperties(value) !== undefined,
   },
-  { namespace: 'translate', propertyGroup: 'transform', negative: true, accepts: isFractionalSpacing },
+  {
+    namespace: 'translate',
+    cssProperties: ['--tw-translate-x', '--tw-translate-y', 'translate'],
+    negative: true,
+    accepts: isFractionalSpacing,
+  },
   {
     namespace: 'transition',
-    propertyGroup: 'transition',
+    cssProperties: transitionCssProperties,
     accepts: oneOf(['all', 'colors', 'opacity', 'shadow', 'transform', 'none']),
   },
   {
     namespace: 'grid-cols',
-    propertyGroup: 'grid-template-columns',
+    cssProperties: ['grid-template-columns'],
     accepts: value => /^[1-9]\d*$/u.test(value) || oneOf(['none', 'subgrid'])(value) || isArbitraryOrVariable(value),
   },
-  { namespace: 'table', propertyGroup: 'table-layout', accepts: oneOf(['auto', 'fixed']) },
+  { namespace: 'table', cssProperties: ['table-layout'], accepts: oneOf(['auto', 'fixed']) },
   {
     namespace: 'list',
-    propertyGroup: value => (['disc', 'decimal', 'none'].includes(value) ? 'list-style-type' : 'list-style-position'),
+    cssProperties: value => [['disc', 'decimal', 'none'].includes(value) ? 'list-style-type' : 'list-style-position'],
     accepts: oneOf(['disc', 'decimal', 'none', 'inside', 'outside']),
   },
   {
     namespace: 'object',
-    propertyGroup: value =>
+    cssProperties: value => [
       ['contain', 'cover', 'fill', 'none', 'scale-down'].includes(value) ? 'object-fit' : 'object-position',
+    ],
     accepts: oneOf([
       'contain',
       'cover',
@@ -402,7 +459,7 @@ const namespaceRegistry: readonly NamespaceRule[] = Object.freeze([
   },
   {
     namespace: 'cursor',
-    propertyGroup: 'cursor',
+    cssProperties: ['cursor'],
     accepts: oneOf([
       'auto',
       'default',
@@ -442,7 +499,7 @@ const namespaceRegistry: readonly NamespaceRule[] = Object.freeze([
       'zoom-out',
     ]),
   },
-  { namespace: 'pointer-events', propertyGroup: 'pointer-events', accepts: oneOf(['auto', 'none']) },
+  { namespace: 'pointer-events', cssProperties: ['pointer-events'], accepts: oneOf(['auto', 'none']) },
 ]);
 
 const exactVariantRegistry = Object.freeze([
@@ -502,7 +559,7 @@ function parseArbitraryProperty(utility: string): string | undefined {
   return property;
 }
 
-function registryPropertyGroup(utility: string): string | undefined {
+function registryCssProperties(utility: string): readonly string[] | undefined {
   const exact = exactTokenRegistry.find(([token]) => token === utility);
   if (exact !== undefined) return exact[1];
 
@@ -516,7 +573,7 @@ function registryPropertyGroup(utility: string): string | undefined {
     if (negative) {
       if (rule.negative !== true || !(rule.acceptsNegative ?? rule.accepts)(suffix)) continue;
     } else if (!rule.accepts(suffix)) continue;
-    return typeof rule.propertyGroup === 'string' ? rule.propertyGroup : rule.propertyGroup(suffix);
+    return typeof rule.cssProperties === 'function' ? rule.cssProperties(suffix) : rule.cssProperties;
   }
 
   return undefined;
@@ -524,6 +581,13 @@ function registryPropertyGroup(utility: string): string | undefined {
 
 export class TailwindCandidateClassifier {
   classify(token: string): TailwindCandidateClassification {
+    if (!isByteExactHtmlClassToken(token)) {
+      return {
+        status: 'unverified',
+        reason: 'The decoded candidate cannot be emitted as the same raw HTML source token.',
+      };
+    }
+
     if (token.includes('\\')) {
       return { status: 'unverified', reason: 'Source escapes make the Tailwind candidate ambiguous.' };
     }
@@ -543,12 +607,12 @@ export class TailwindCandidateClassifier {
     }
 
     const arbitraryProperty = parseArbitraryProperty(descriptor.utility);
-    const group =
-      arbitraryProperty === undefined ? registryPropertyGroup(descriptor.utility) : descriptor.propertyGroup;
-    if (group === undefined || descriptor.propertyGroup !== group) {
+    const cssProperties =
+      arbitraryProperty === undefined ? registryCssProperties(descriptor.utility) : [arbitraryProperty];
+    if (cssProperties === undefined || cssProperties.length === 0) {
       return { status: 'unverified', reason: 'The utility is not in the compiler-proven built-in registry.' };
     }
 
-    return { status: 'verified', descriptor };
+    return { status: 'verified', descriptor: { ...descriptor, cssProperties } };
   }
 }

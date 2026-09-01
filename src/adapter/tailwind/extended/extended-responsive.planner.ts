@@ -35,9 +35,7 @@ export type ExtendedResponsivePlan =
   | { readonly status: 'converted'; readonly plans: readonly PlannedConversion[] }
   | { readonly status: 'unresolved'; readonly plans: readonly PlannedConversion[] };
 
-type OwnedTailwindUtilityDescriptor = Omit<TailwindUtilityDescriptor, 'propertyGroup'> & {
-  readonly propertyGroup: string;
-};
+type OwnedTailwindUtilityDescriptor = TailwindUtilityDescriptor;
 
 interface EmittedCandidate {
   readonly token: string;
@@ -112,7 +110,11 @@ function equalClassValues(left: ResponsiveClassValue, right: ResponsiveClassValu
 function hasPropertyOwnership(
   descriptor: TailwindUtilityDescriptor | undefined,
 ): descriptor is OwnedTailwindUtilityDescriptor {
-  return descriptor?.propertyGroup !== undefined;
+  return descriptor !== undefined && descriptor.cssProperties.length > 0;
+}
+
+function sameCssProperties(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((property, index) => property === right[index]);
 }
 
 function diagnostic(
@@ -252,7 +254,7 @@ export class ExtendedResponsivePlanner {
         if (
           sourceDescriptor === undefined ||
           !hasPropertyOwnership(generatedDescriptor) ||
-          generatedDescriptor.propertyGroup !== sourceDescriptor.propertyGroup
+          !sameCssProperties(generatedDescriptor.cssProperties, sourceDescriptor.cssProperties)
         ) {
           return {
             status: 'unverified',
@@ -299,7 +301,7 @@ export class ExtendedResponsivePlanner {
     }
     if (parsed.value.tokens.length === 0) return undefined;
     if (states.every(state => equalClassValues(state.value, parsed.value))) {
-      return this.convertedWithoutOutput(states);
+      return this.convertedWithoutOutput(states, parsed.value.tokens);
     }
     return this.unresolved(
       states,
@@ -347,10 +349,18 @@ export class ExtendedResponsivePlanner {
     );
   }
 
-  private convertedWithoutOutput(states: readonly AnyExtendedState[]): ExtendedResponsivePlan {
+  private convertedWithoutOutput(
+    states: readonly AnyExtendedState[],
+    retainedClassNames: readonly string[] = [],
+  ): ExtendedResponsivePlan {
     return {
       status: 'converted',
-      plans: states.map(state => ({ status: 'converted', input: state.input, classNames: [] })),
+      plans: states.map((state, index) => ({
+        status: 'converted',
+        input: state.input,
+        classNames: [],
+        ...(index === 0 && retainedClassNames.length > 0 ? { retainedClassNames } : {}),
+      })),
     };
   }
 

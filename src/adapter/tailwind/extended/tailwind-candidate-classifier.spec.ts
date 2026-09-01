@@ -8,54 +8,80 @@ const tailwindSource = readFile(
 ).then(theme => `${theme}\n@tailwind utilities;`);
 
 const accepted = [
-  ['flex', 'display'],
-  ['grid', 'display'],
-  ['hidden', 'display'],
-  ['flex-row', 'flex-direction'],
-  ['flex-wrap', 'flex-wrap'],
-  ['items-center', 'align-items'],
-  ['gap-4', 'gap'],
-  ['-mt-2', 'margin'],
-  ['w-[17px]', 'width'],
-  ['p-4', 'padding'],
-  ['text-sm', 'font-size'],
-  ['text-[17px]', 'font-size'],
-  ['text-slate-700', 'color'],
-  ['bg-blue-500', 'background-color'],
-  ['bg-[url(hero.png)]', 'background-image'],
-  ['bg-[url(data:image/svg+xml;base64,AAAA)]', 'background-image'],
-  ['border', 'border'],
-  ['rounded-lg', 'border-radius'],
-  ['shadow-md', 'box-shadow'],
-  ['opacity-50', 'opacity'],
-  ['overflow-hidden', 'overflow'],
-  ['absolute', 'position'],
-  ['inset-x-0', 'inset'],
-  ['rotate-45', 'transform'],
-  ['transition-colors', 'transition'],
-  ['grid-cols-3', 'grid-template-columns'],
-  ['table-auto', 'table-layout'],
-  ['list-disc', 'list-style-type'],
-  ['object-cover', 'object-fit'],
-  ['cursor-pointer', 'cursor'],
-  ['pointer-events-none', 'pointer-events'],
-  ['visible', 'visibility'],
-  ['sr-only', 'accessibility'],
-  ['hover:bg-blue-600', 'background-color'],
-  ['dark:hover:text-white', 'color'],
-  ['![color:red]', 'color'],
-  ['[color:red]!', 'color'],
-  ['[color:red!important]', 'color'],
-  ['[color:red!important_]', 'color'],
-  ['[color:red!important/**/]', 'color'],
-  ['[color:red!/**/important]', 'color'],
-  ['[color:red_!_important_]', 'color'],
-  ['text-[color:red!important]', 'color'],
-  ['text-[color:red!important_]', 'color'],
-  ['w-[17px!important]', 'width'],
-  ['w-[17px!important/**/]', 'width'],
-  ['[--card-gap:1rem]', '--card-gap'],
-  ['w-(--card-width)', 'width'],
+  ['flex', ['display']],
+  ['grid', ['display']],
+  ['hidden', ['display']],
+  ['flex-row', ['flex-direction']],
+  ['flex-wrap', ['flex-wrap']],
+  ['items-center', ['align-items']],
+  ['gap-4', ['gap']],
+  ['gap-x-4', ['column-gap']],
+  ['gap-y-4', ['row-gap']],
+  ['-mt-2', ['margin-top']],
+  ['mx-4', ['margin-inline']],
+  ['ms-4', ['margin-inline-start']],
+  ['w-[17px]', ['width']],
+  ['p-4', ['padding']],
+  ['px-4', ['padding-inline']],
+  ['ps-4', ['padding-inline-start']],
+  ['text-sm', ['font-size', 'line-height']],
+  ['text-sm/5', ['font-size', 'line-height']],
+  ['text-[17px]', ['font-size']],
+  ['text-[length:17px]/5', ['font-size', 'line-height']],
+  ['text-slate-700', ['color']],
+  ['bg-blue-500', ['background-color']],
+  ['bg-[url(hero.png)]', ['background-image']],
+  ['bg-[url(data:image/svg+xml;base64,AAAA)]', ['background-image']],
+  ['border', ['border-style', 'border-width']],
+  ['border-solid', ['--tw-border-style', 'border-style']],
+  ['border-red-500', ['border-color']],
+  ['border-[3px]', ['border-style', 'border-width']],
+  ['border-[#fff]', ['border-color']],
+  ['border-(--card-border)', ['border-color']],
+  ['rounded-lg', ['border-radius']],
+  ['shadow-md', ['--tw-shadow', 'box-shadow']],
+  ['shadow-[1px_2px_3px_red]', ['--tw-shadow', 'box-shadow']],
+  ['opacity-50', ['opacity']],
+  ['overflow-hidden', ['overflow']],
+  ['absolute', ['position']],
+  ['inset-x-0', ['inset-inline']],
+  ['inset-y-0', ['inset-block']],
+  ['top-0', ['top']],
+  ['rotate-45', ['rotate']],
+  ['scale-50', ['--tw-scale-x', '--tw-scale-y', '--tw-scale-z', 'scale']],
+  ['scale-[1.2]', ['scale']],
+  ['scale-(--factor)', ['scale']],
+  ['translate-4', ['--tw-translate-x', '--tw-translate-y', 'translate']],
+  ['transition-colors', ['transition-property', 'transition-timing-function', 'transition-duration']],
+  ['transition-none', ['transition-property']],
+  ['grid-cols-3', ['grid-template-columns']],
+  ['table-auto', ['table-layout']],
+  ['list-disc', ['list-style-type']],
+  ['object-cover', ['object-fit']],
+  ['cursor-pointer', ['cursor']],
+  ['pointer-events-none', ['pointer-events']],
+  ['visible', ['visibility']],
+  [
+    'sr-only',
+    ['position', 'width', 'height', 'padding', 'margin', 'overflow', 'clip-path', 'white-space', 'border-width'],
+  ],
+  ['not-sr-only', ['position', 'width', 'height', 'padding', 'margin', 'overflow', 'clip-path', 'white-space']],
+  ['hover:bg-blue-600', ['background-color']],
+  ['dark:hover:text-white', ['color']],
+  ['[&>*]:p-4', ['padding']],
+  ['![color:red]', ['color']],
+  ['[color:red]!', ['color']],
+  ['[color:red!important]', ['color']],
+  ['[color:red!important_]', ['color']],
+  ['[color:red!important/**/]', ['color']],
+  ['[color:red!/**/important]', ['color']],
+  ['[color:red_!_important_]', ['color']],
+  ['text-[color:red!important]', ['color']],
+  ['text-[color:red!important_]', ['color']],
+  ['w-[17px!important]', ['width']],
+  ['w-[17px!important/**/]', ['width']],
+  ['[--card-gap:1rem]', ['--card-gap']],
+  ['w-(--card-width)', ['width']],
 ] as const;
 
 const compilerRejected = [
@@ -101,15 +127,22 @@ const compilerRejected = [
 ] as const;
 
 const compilerToleratedPolicyRejected = [
+  '[content:"quoted&copy;"]',
+  "[content:'quoted&copy;']",
   'w-[1px\u0007]',
   'w-[1px\\]',
   '[color:red!important/*unterminated]',
   '[@media_screen_and_(min-width:_700px)_and_(max-width:_600px)]:flex',
+  'truncate',
+  'size-4',
+  'divide-x-2',
+  'ring-2',
 ] as const;
 
 const classifierRejected = [
   ...compilerRejected,
   ...compilerToleratedPolicyRejected,
+  '[content:&copy;]',
   '',
   '!',
   'w-\\[17px\\]',
@@ -131,17 +164,35 @@ async function compiles(candidate: string): Promise<boolean> {
   }
 }
 
-describe('TailwindCandidateClassifier', () => {
-  test.each(accepted)('verifies compiler-backed candidate %s in property group %s', (candidate, propertyGroup) => {
-    const result = new TailwindCandidateClassifier().classify(candidate);
+async function compiledCssProperties(candidate: string): Promise<readonly string[]> {
+  const compiler = await compile(await tailwindSource);
+  const css = compiler.build([candidate]).replace(/^\/\*![\s\S]*?\*\/\s*/u, '');
+  const properties: string[] = [];
 
-    expect(result.status).toBe('verified');
-    if (result.status !== 'verified') return;
-    expect(result.descriptor).toMatchObject({
-      token: candidate,
-      propertyGroup,
-    });
-  });
+  for (const block of css.matchAll(/([^{}]+)\{([^{}]*)\}/gu)) {
+    if (!block[1]?.includes('.')) continue;
+    for (const declaration of block[2]?.split(';') ?? []) {
+      const property = declaration.trim().match(/^(-{0,2}[a-z][a-z\d-]*)\s*:/iu)?.[1];
+      if (property !== undefined && !properties.includes(property)) properties.push(property);
+    }
+  }
+  return properties;
+}
+
+describe('TailwindCandidateClassifier', () => {
+  test.each(accepted)(
+    'verifies compiler-backed candidate %s with complete CSS ownership',
+    (candidate, cssProperties) => {
+      const result = new TailwindCandidateClassifier().classify(candidate);
+
+      expect(result.status).toBe('verified');
+      if (result.status !== 'verified') return;
+      expect(result.descriptor).toMatchObject({
+        token: candidate,
+        cssProperties,
+      });
+    },
+  );
 
   test.each(classifierRejected)('leaves unproven or unsafe source candidate %j unverified', candidate => {
     const result = new TailwindCandidateClassifier().classify(candidate);
@@ -154,6 +205,13 @@ describe('TailwindCandidateClassifier', () => {
   test.each(accepted)('has Tailwind CSS v4 compiler evidence for accepted candidate %s', async candidate => {
     await expect(compiles(candidate)).resolves.toBe(true);
   });
+
+  test.each(accepted)(
+    'models every Tailwind CSS v4 declaration property emitted by accepted candidate %s',
+    async (candidate, cssProperties) => {
+      await expect(compiledCssProperties(candidate)).resolves.toEqual(cssProperties);
+    },
+  );
 
   test.each([
     '[color:red!important]',
