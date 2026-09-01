@@ -428,6 +428,9 @@ describe('ConversionPlanner', () => {
     ['arbitrary property', '[color:red!important]', 'color:blue'],
     ['arbitrary color value', 'text-[color:red!important]', 'color:blue'],
     ['arbitrary width value', 'w-[17px!important]', 'width:20px'],
+    ['trivia-terminated arbitrary property', '[color:red!important_]', 'color:blue'],
+    ['comment-terminated arbitrary property', '[color:red!important/**/]', 'color:blue'],
+    ['comment-separated arbitrary property', '[color:red!/**/important]', 'color:blue'],
     ['leading important modifier', '![color:red]', 'color:blue'],
     ['trailing important modifier', '[color:red]!', 'color:blue'],
   ])('preserves %s ownership against a normal responsive inline style', (_case, className, style) => {
@@ -658,11 +661,37 @@ describe('ConversionPlanner', () => {
     ]);
   });
 
-  test('keeps disjoint responsive class display and all-shown visibility independent', () => {
-    const result = migrate('<span ngClass.sm="block" fxShow.md></span>');
+  test('preserves disjoint explicit ranges coupled through the implicit shown visibility base', () => {
+    const source = '<span ngClass.sm="block" fxShow.md></span>';
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.results.every(item => item.status === 'review')).toBe(true);
+    expect(result.results).toContainEqual(expect.objectContaining({ code: 'display-restoration-unverified' }));
+  });
+
+  test('preserves an inner display variant coupled through implicit shown restoration', () => {
+    const source = '<span ngClass.sm="hover:block" fxHide.md></span>';
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.results.every(item => item.status === 'review')).toBe(true);
+    expect(result.results).toContainEqual(expect.objectContaining({ code: 'display-restoration-unverified' }));
+  });
+
+  test('preserves a responsive style writer coupled through implicit shown restoration', () => {
+    const source = '<span ngStyle.sm="display:block" fxHide.md></span>';
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.results.every(item => item.status === 'review')).toBe(true);
+  });
+
+  test('lets exact hidden-only visibility own a normal responsive class display', () => {
+    const result = migrate('<span ngClass.md="block" fxHide.md></span>');
 
     expect(result.output).toBe(
-      '<span class="[@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:block"></span>',
+      '<span class="[@media_screen_and_(min-width:_960px)_and_(max-width:_1279.98px)]:hidden"></span>',
     );
     expect(result.results.every(item => item.status === 'converted')).toBe(true);
   });

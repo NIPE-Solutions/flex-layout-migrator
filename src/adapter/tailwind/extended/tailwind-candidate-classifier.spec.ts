@@ -46,8 +46,14 @@ const accepted = [
   ['![color:red]', 'color'],
   ['[color:red]!', 'color'],
   ['[color:red!important]', 'color'],
+  ['[color:red!important_]', 'color'],
+  ['[color:red!important/**/]', 'color'],
+  ['[color:red!/**/important]', 'color'],
+  ['[color:red_!_important_]', 'color'],
   ['text-[color:red!important]', 'color'],
+  ['text-[color:red!important_]', 'color'],
   ['w-[17px!important]', 'width'],
+  ['w-[17px!important/**/]', 'width'],
   ['[--card-gap:1rem]', '--card-gap'],
   ['w-(--card-width)', 'width'],
 ] as const;
@@ -92,6 +98,7 @@ const compilerRejected = [
 const compilerToleratedPolicyRejected = [
   'w-[1px\u0007]',
   'w-[1px\\]',
+  '[color:red!important/*unterminated]',
   '[@media_screen_and_(min-width:_700px)_and_(max-width:_600px)]:flex',
 ] as const;
 
@@ -103,6 +110,8 @@ const classifierRejected = [
   'w-\\[17px\\]',
   'hover\\:flex',
   '[color:red\\]',
+  '[color:red\\!important]',
+  '[color:red!important\\_]',
   '[@media_screen_and_(min-width:_600px)]:flex',
 ] as const;
 
@@ -141,14 +150,33 @@ describe('TailwindCandidateClassifier', () => {
     await expect(compiles(candidate)).resolves.toBe(true);
   });
 
-  test.each(['[color:red!important]', 'text-[color:red!important]', 'w-[17px!important]'])(
-    'has Tailwind CSS v4 declaration-importance evidence for %s',
-    async candidate => {
-      const compiler = await compile(await tailwindSource);
+  test.each([
+    '[color:red!important]',
+    '[color:red!important_]',
+    '[color:red!important/**/]',
+    '[color:red!/**/important]',
+    '[color:red_!_important_]',
+    'text-[color:red!important_]',
+    'w-[17px!important/**/]',
+  ])('has Tailwind CSS v4 declaration-importance evidence for %s', async candidate => {
+    const compiler = await compile(await tailwindSource);
+    const cssWithoutComments = compiler.build([candidate]).replace(/\/\*[\s\S]*?\*\//gu, ' ');
 
-      expect(compiler.build([candidate])).toMatch(/!important;/iu);
-    },
-  );
+    expect(cssWithoutComments).toMatch(/!\s*important\s*;/iu);
+  });
+
+  test.each([
+    '[color:"red!important"]',
+    "[color:'red!important']",
+    '[color:var(--fallback!important)]',
+    '[color:var(--fallback_!important)]',
+    '[color:oklch(50%_0.2_10_!important)]',
+  ])('has Tailwind CSS v4 normal-declaration evidence for nested or quoted %s', async candidate => {
+    const compiler = await compile(await tailwindSource);
+    const cssWithoutComments = compiler.build([candidate]).replace(/\/\*[\s\S]*?\*\//gu, ' ');
+
+    expect(cssWithoutComments).not.toMatch(/!\s*important\s*;/iu);
+  });
 
   test.each(compilerRejected)('has no Tailwind CSS v4 output for rejected candidate %j', async candidate => {
     await expect(compiles(candidate)).resolves.toBe(false);

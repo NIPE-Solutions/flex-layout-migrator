@@ -1,4 +1,5 @@
 import { describeTailwindUtility, type TailwindUtilityDescriptor } from '../tailwind-class-conflict';
+import { hasValidTailwindArbitrarySyntax } from '../tailwind-arbitrary-syntax';
 
 export type TailwindCandidateClassification =
   | { readonly status: 'verified'; readonly descriptor: TailwindUtilityDescriptor }
@@ -111,56 +112,7 @@ function isPercentage(value: string): boolean {
 }
 
 function hasValidArbitrarySyntax(value: string): boolean {
-  if (!value.startsWith('[') || !value.endsWith(']')) return false;
-  const inner = value.slice(1, -1);
-  if (inner.trim().length === 0) return false;
-
-  const closingByOpening = new Map([
-    ['(', ')'],
-    ['[', ']'],
-    ['{', '}'],
-  ]);
-  const stack: string[] = [];
-  let quote: '"' | "'" | undefined;
-  let escaped = false;
-  let typedSeparator = -1;
-
-  for (let index = 0; index < inner.length; index += 1) {
-    const character = inner[index];
-    if (character === undefined) return false;
-    const codePoint = character.codePointAt(0);
-    if (codePoint === undefined || codePoint <= 0x1f || codePoint === 0x7f) return false;
-    if (escaped) {
-      escaped = false;
-      continue;
-    }
-    if (character === '\\') {
-      escaped = true;
-      continue;
-    }
-    if (quote !== undefined) {
-      if (character === quote) quote = undefined;
-      continue;
-    }
-    if (character === '"' || character === "'") {
-      quote = character;
-      continue;
-    }
-    const closing = closingByOpening.get(character);
-    if (closing !== undefined) {
-      stack.push(closing);
-      continue;
-    }
-    if ([')', ']', '}'].includes(character) && stack.pop() !== character) return false;
-    if (character === ';' && stack.length === 0) return false;
-    if (character === ':' && stack.length === 0 && typedSeparator < 0) typedSeparator = index;
-  }
-
-  if (escaped || quote !== undefined || stack.length !== 0) return false;
-  if (typedSeparator >= 0) {
-    return inner.slice(0, typedSeparator).trim().length > 0 && inner.slice(typedSeparator + 1).trim().length > 0;
-  }
-  return true;
+  return hasValidTailwindArbitrarySyntax(value);
 }
 
 function isCssVariableValue(value: string): boolean {

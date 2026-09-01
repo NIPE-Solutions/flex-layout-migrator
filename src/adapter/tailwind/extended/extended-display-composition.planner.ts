@@ -58,6 +58,15 @@ function activationRange(activation: TailwindActivation): MediaRange {
   return activation.kind === 'base' ? {} : activation.range;
 }
 
+function stateRange(state: VisibilityState): MediaRange {
+  return state.activation.kind === 'base' ? {} : state.activation.definition.range;
+}
+
+function shownVisibilityRanges(states: readonly VisibilityState[]): readonly MediaRange[] {
+  const ranges = states.filter(state => state.intent === 'shown').map(stateRange);
+  return states.some(state => state.activation.kind === 'base') ? ranges : [{}, ...ranges];
+}
+
 function numericRange(range: MediaRange): NumericRange {
   return {
     min: range.min ?? Number.NEGATIVE_INFINITY,
@@ -248,14 +257,8 @@ export class ExtendedDisplayCompositionPlanner {
     const responsiveHiddenRanges = states.flatMap(state =>
       state.intent === 'hidden' && state.activation.kind === 'media' ? [state.activation.definition.range] : [],
     );
-    const shownRanges = states.flatMap(state =>
-      state.intent === 'shown'
-        ? [state.activation.kind === 'base' ? ({} satisfies MediaRange) : state.activation.definition.range]
-        : [],
-    );
-    const visibilityRanges = states.map(state =>
-      state.activation.kind === 'base' ? ({} satisfies MediaRange) : state.activation.definition.range,
-    );
+    const shownRanges = states.filter(state => state.intent === 'shown').map(stateRange);
+    const visibilityRanges = states.map(stateRange);
     const unsafeFamilies = new Set<'extended-class' | 'extended-style'>();
 
     const strategyPlans = layoutComposed.map(plan => {
@@ -331,20 +334,28 @@ export class ExtendedDisplayCompositionPlanner {
         (plan): plan is Extract<PlannedConversion, { readonly status: 'converted' }> =>
           plan.status === 'converted' && extendedDirectives.has(plan.input.directive),
       )
-      .flatMap(plan => plan.classNames.map(describeTailwindDisplay).filter(descriptor => descriptor !== undefined));
+      .flatMap(plan => {
+        const family = this.extendedFamily(plan.input.directive);
+        if (family === undefined) return [];
+        return plan.classNames
+          .map(describeTailwindDisplay)
+          .filter(descriptor => descriptor !== undefined)
+          .map(descriptor => ({ descriptor, family }));
+      })
+      .filter(
+        ({ descriptor, family }) =>
+          family === 'extended-style' ||
+          descriptor.important ||
+          !this.visibilityOwnsHiddenRange(activationRange(descriptor.activation), visibilityPlan.states),
+      );
     if (!descriptors.length) return current;
 
-    const shownStates = visibilityPlan.states.filter(state => state.intent === 'shown');
+    const shownRanges = shownVisibilityRanges(visibilityPlan.states);
     if (
       descriptors.some(
-        descriptor =>
+        ({ descriptor }) =>
           displayIntent(descriptor) !== 'shown' &&
-          shownStates.some(state =>
-            mediaRangesIntersect(
-              activationRange(descriptor.activation),
-              state.activation.kind === 'base' ? {} : state.activation.definition.range,
-            ),
-          ),
+          shownRanges.some(range => mediaRangesIntersect(activationRange(descriptor.activation), range)),
       )
     ) {
       return {
@@ -354,13 +365,8 @@ export class ExtendedDisplayCompositionPlanner {
     }
 
     if (
-      descriptors.some(descriptor =>
-        shownStates.some(state =>
-          mediaRangesIntersect(
-            activationRange(descriptor.activation),
-            state.activation.kind === 'base' ? {} : state.activation.definition.range,
-          ),
-        ),
+      descriptors.some(({ descriptor }) =>
+        shownRanges.some(range => mediaRangesIntersect(activationRange(descriptor.activation), range)),
       )
     ) {
       return {

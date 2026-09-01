@@ -103,10 +103,30 @@ describe('describeTailwindUtility', () => {
     ['[color:red]!', '[color:red]'],
     ['[color:red!important]', '[color:red!important]'],
     ['[color:red_!important]', '[color:red_!important]'],
+    ['[color:red!important_]', '[color:red!important_]'],
+    ['[color:red!important/**/]', '[color:red!important/**/]'],
+    ['[color:red!/**/important]', '[color:red!/**/important]'],
+    ['[color:red_!_important_]', '[color:red_!_important_]'],
     ['text-[color:red!important]', 'text-[color:red!important]'],
+    ['text-[color:red!important_]', 'text-[color:red!important_]'],
     ['w-[17px!important]', 'w-[17px!important]'],
+    ['w-[17px!important/**/]', 'w-[17px!important/**/]'],
+    ['[color:var(--fallback,_red)!important_]', '[color:var(--fallback,_red)!important_]'],
+    ['[color:oklch(50%_0.2_10)!important/**/]', '[color:oklch(50%_0.2_10)!important/**/]'],
   ])('reports canonical declaration importance for %s', (token, utility) => {
     expect(describeTailwindUtility(token)).toMatchObject({ utility, important: true });
+  });
+
+  test.each([
+    '[color:"red!important"]',
+    "[color:'red!important']",
+    '[color:var(--fallback!important)]',
+    '[color:var(--fallback_!important)]',
+    '[color:oklch(50%_0.2_10_!important)]',
+    '[color:red\\!important]',
+    '[color:red!important\\_]',
+  ])('does not mistake quoted, nested, or escaped content for declaration importance in %s', token => {
+    expect(describeTailwindUtility(token)).toMatchObject({ important: false });
   });
 
   test('reports internal importance for an arbitrary display declaration', () => {

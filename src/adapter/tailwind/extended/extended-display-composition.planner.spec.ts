@@ -71,35 +71,64 @@ describe('ExtendedDisplayCompositionPlanner', () => {
   test.each([
     {
       name: 'all-shown exact class display',
-      className: responsive('sm', 'block'),
+      plan: converted('ngClass', 'sm', 'block', [responsive('sm', 'block')]),
       states: [visibility('shown', 'sm')],
       expectedStatus: 'unverified',
     },
     {
       name: 'all-shown inner variant class display',
-      className: responsiveExtended('sm', 'hover:block'),
+      plan: converted('ngClass', 'sm', 'hover:block', [responsiveExtended('sm', 'hover:block')]),
       states: [visibility('shown', 'sm')],
       expectedStatus: 'unverified',
     },
     {
       name: 'base-hidden responsive-shown class display',
-      className: responsive('sm', 'block'),
+      plan: converted('ngClass', 'sm', 'block', [responsive('sm', 'block')]),
       states: [visibility('hidden'), visibility('shown', 'sm')],
       expectedStatus: 'unverified',
     },
     {
-      name: 'disjoint all-shown range',
-      className: responsive('sm', 'block'),
+      name: 'implicit-base shown state outside an explicit shown range',
+      plan: converted('ngClass', 'sm', 'block', [responsive('sm', 'block')]),
       states: [visibility('shown', 'md')],
+      expectedStatus: 'unverified',
+    },
+    {
+      name: 'implicit-base shown state outside an explicit hidden range with an inner variant',
+      plan: converted('ngClass', 'sm', 'hover:block', [responsiveExtended('sm', 'hover:block')]),
+      states: [visibility('hidden', 'md')],
+      expectedStatus: 'unverified',
+    },
+    {
+      name: 'implicit-base shown state beside a disjoint style writer',
+      plan: converted('ngStyle', 'sm', 'display:block', [responsive('sm', '[display:block]')]),
+      states: [visibility('hidden', 'md')],
+      expectedStatus: 'unverified',
+    },
+    {
+      name: 'explicit-base hidden state owning a disjoint class range',
+      plan: converted('ngClass', 'sm', 'block', [responsive('sm', 'block')]),
+      states: [visibility('hidden'), visibility('shown', 'md')],
       expectedStatus: 'resolved',
     },
-  ] as const)('resolves $name conservatively', ({ className, states, expectedStatus }) => {
+    {
+      name: 'exact hidden-only class ownership',
+      plan: converted('ngClass', 'md', 'block', [responsive('md', 'block')]),
+      states: [visibility('hidden', 'md')],
+      expectedStatus: 'resolved',
+    },
+    {
+      name: 'exact hidden state competing with a style writer',
+      plan: converted('ngStyle', 'md', 'display:block', [responsive('md', '[display:block]')]),
+      states: [visibility('hidden', 'md')],
+      expectedStatus: 'unverified',
+    },
+  ] as const)('resolves $name conservatively', ({ plan, states, expectedStatus }) => {
     const current: VisibleDisplayResolution = { status: 'resolved', utility: undefined };
-    const plans = [converted('ngClass', 'sm', 'block', [className])];
 
     const result = new ExtendedDisplayCompositionPlanner().resolveVisibleDisplay(
       current,
-      plans,
+      [plan],
       visibilityPlan(...states),
     );
 
@@ -112,6 +141,30 @@ describe('ExtendedDisplayCompositionPlanner', () => {
       name: 'class display under exact hidden inline ownership',
       plan: converted('ngClass', 'sm', 'block', [responsive('sm', 'block')]),
       states: [visibility('hidden', 'sm')],
+      strategyStatus: 'converted',
+      classNames: [],
+      visibilityStatus: 'converted',
+    },
+    {
+      name: 'inner-variant class display under exact hidden inline ownership',
+      plan: converted('ngClass', 'md', 'hover:block', [responsiveExtended('md', 'hover:block')]),
+      states: [visibility('hidden', 'md')],
+      strategyStatus: 'converted',
+      classNames: [],
+      visibilityStatus: 'converted',
+    },
+    {
+      name: 'style display remains a competing writer under exact hidden inline ownership',
+      plan: converted('ngStyle', 'md', 'display:block', [responsive('md', '[display:block]')]),
+      states: [visibility('hidden', 'md')],
+      strategyStatus: 'review',
+      classNames: undefined,
+      visibilityStatus: 'unresolved',
+    },
+    {
+      name: 'explicit hidden base owns a disjoint class range',
+      plan: converted('ngClass', 'sm', 'block', [responsive('sm', 'block')]),
+      states: [visibility('hidden'), visibility('shown', 'md')],
       strategyStatus: 'converted',
       classNames: [],
       visibilityStatus: 'converted',

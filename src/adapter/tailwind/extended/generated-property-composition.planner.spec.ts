@@ -84,6 +84,24 @@ describe('GeneratedPropertyCompositionPlanner', () => {
       classNames: [undefined, undefined],
     },
     {
+      name: 'trivia-terminated important class declaration is not suppressed by normal ngStyle',
+      plans: [
+        converted('ngClass', 'sm', '[color:red!important_]', [responsive('sm', '[color:red!important_]')], 0),
+        converted('ngStyle', 'sm', 'color:blue', [responsive('sm', '[color:blue]')], 1),
+      ],
+      statuses: ['review', 'review'],
+      classNames: [undefined, undefined],
+    },
+    {
+      name: 'comment-terminated important class declaration is not suppressed by normal ngStyle',
+      plans: [
+        converted('ngClass', 'sm', '[color:red!important/**/]', [responsive('sm', '[color:red!important/**/]')], 0),
+        converted('ngStyle', 'sm', 'color:blue', [responsive('sm', '[color:blue]')], 1),
+      ],
+      statuses: ['review', 'review'],
+      classNames: [undefined, undefined],
+    },
+    {
       name: 'responsive layout owns an exactly covered ngClass property',
       plans: [
         converted('fxLayout', 'sm', 'column', [responsive('sm', 'flex-col')], 0),

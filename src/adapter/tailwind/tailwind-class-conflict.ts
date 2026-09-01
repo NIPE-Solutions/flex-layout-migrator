@@ -1,4 +1,5 @@
 import { mediaRangesIntersect, type MediaRange } from '../../breakpoint/breakpoint-catalog';
+import { analyzeTailwindArbitrarySyntax } from './tailwind-arbitrary-syntax';
 
 export type TailwindActivation = { readonly kind: 'base' } | { readonly kind: 'media'; readonly range: MediaRange };
 
@@ -101,7 +102,9 @@ function hasGeneratedMediaVariant(variants: readonly string[]): boolean {
 }
 
 function hasInternalDeclarationImportance(utility: string): boolean {
-  return /!important\]$/iu.test(utility);
+  const arbitraryStart = utility.indexOf('[');
+  if (arbitraryStart < 0) return false;
+  return analyzeTailwindArbitrarySyntax(utility.slice(arbitraryStart))?.important ?? false;
 }
 
 function propertyGroup(utility: string): string | undefined {
