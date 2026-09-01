@@ -1,4 +1,5 @@
 type CssPropertyOwnership =
+  | { readonly kind: 'universal' }
   | { readonly kind: 'known'; readonly longhands: ReadonlySet<string> }
   | { readonly kind: 'unknown'; readonly property: string }
   | { readonly kind: 'custom'; readonly property: string };
@@ -126,6 +127,8 @@ const knownIndependentProperties = new Set([
   ...[...shorthandLonghands.values()].flatMap(longhands => [...longhands]),
   'display',
   'box-sizing',
+  'flex-direction',
+  'flex-wrap',
   'width',
   'height',
   'min-width',
@@ -161,6 +164,7 @@ function ownership(property: string): CssPropertyOwnership {
   if (property.startsWith('--')) return { kind: 'custom', property };
 
   const normalized = property.toLowerCase();
+  if (normalized === 'all') return { kind: 'universal' };
   const expanded = shorthandLonghands.get(normalized);
   if (expanded !== undefined) return { kind: 'known', longhands: new Set(expanded) };
   if (knownIndependentProperties.has(normalized)) {
@@ -176,6 +180,22 @@ export function cssPropertiesOverlap(leftProperty: string, rightProperty: string
   if (left.kind === 'custom' || right.kind === 'custom') {
     return left.kind === 'custom' && right.kind === 'custom' && left.property === right.property;
   }
+  if (left.kind === 'universal' || right.kind === 'universal') return true;
   if (left.kind === 'unknown' || right.kind === 'unknown') return true;
   return [...left.longhands].some(longhand => right.longhands.has(longhand));
+}
+
+export function cssPropertyOwnershipCovers(ownerProperty: string, targetProperty: string): boolean {
+  const owner = ownership(ownerProperty);
+  const target = ownership(targetProperty);
+
+  if (owner.kind === 'custom' || target.kind === 'custom') {
+    return owner.kind === 'custom' && target.kind === 'custom' && owner.property === target.property;
+  }
+  if (owner.kind === 'universal') return true;
+  if (target.kind === 'universal') return false;
+  if (owner.kind === 'unknown' || target.kind === 'unknown') {
+    return owner.kind === 'unknown' && target.kind === 'unknown' && owner.property === target.property;
+  }
+  return [...target.longhands].every(longhand => owner.longhands.has(longhand));
 }

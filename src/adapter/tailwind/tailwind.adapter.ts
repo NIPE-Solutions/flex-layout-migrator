@@ -25,6 +25,7 @@ import type { ResponsiveClassValue } from './extended/responsive-class.model';
 import { parseResponsiveStyleValue } from './extended/responsive-style-value.parser';
 import type { ResponsiveStyleValue } from './extended/responsive-style.model';
 import { TailwindCandidateClassifier } from './extended/tailwind-candidate-classifier';
+import { GeneratedPropertyCompositionPlanner } from './extended/generated-property-composition.planner';
 
 const flexItemDirectives = new Set<LocatedFlexLayoutInput['directive']>(['fxFlex', 'fxGrow', 'fxShrink']);
 const visibilityDirectives = new Set<LocatedFlexLayoutInput['directive']>(['fxShow', 'fxHide']);
@@ -176,6 +177,10 @@ export class TailwindAdapter implements ConversionAdapter {
     this.breakpointCatalog,
     this.tailwindCandidateClassifier,
   );
+  private readonly generatedPropertyCompositionPlanner = new GeneratedPropertyCompositionPlanner(
+    this.breakpointCatalog,
+    this.tailwindCandidateClassifier,
+  );
 
   resolveClassConflicts(
     plans: readonly PlannedConversion[],
@@ -249,12 +254,13 @@ export class TailwindAdapter implements ConversionAdapter {
   planElement(inputs: readonly LocatedFlexLayoutInput[], context: ConversionContext): readonly PlannedConversion[] {
     const visibilityInputs = inputs.filter(input => visibilityDirectives.has(input.directive));
     const strategyInputs = inputs.filter(input => !visibilityDirectives.has(input.directive));
-    const initialStrategyPlans = this.responsiveFamilyPlanner.plan(
+    const plannedStrategies = this.responsiveFamilyPlanner.plan(
       strategyInputs,
       { ...context, inputs },
       (input, itemContext) => this.planSemantic(input, itemContext),
       (family, familyInputs, itemContext) => this.planExtendedFamily(family, familyInputs, itemContext),
     );
+    const initialStrategyPlans = this.generatedPropertyCompositionPlanner.compose(plannedStrategies);
     if (!visibilityInputs.length) {
       return this.extendedDisplayCompositionPlanner.composeWithLayout(initialStrategyPlans);
     }
@@ -290,7 +296,6 @@ export class TailwindAdapter implements ConversionAdapter {
       baseDisplayResolution,
       strategyPlans,
       visibilityPlan,
-      context.existingClassNames ?? [],
     );
     const composed = this.displayCompositionPlanner.compose({
       visibilityPlan,

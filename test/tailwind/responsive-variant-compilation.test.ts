@@ -143,6 +143,49 @@ describe('Tailwind CSS v4 arbitrary media variants', () => {
   });
 
   test.each([
+    ['flex direction', 'flex-col', 'flex-row', 'flex-direction: column', 'flex-direction: row'],
+    ['arbitrary color', '[color:red]', '[color:blue]', 'color: red', 'color: blue'],
+  ])(
+    'canonicalizes competing responsive %s rules independently of candidate order',
+    async (_case, left, right, leftDeclaration, rightDeclaration) => {
+      const candidates = [responsiveUtility('sm', left), responsiveUtility('sm', right)];
+      const forward = await compileCandidates(candidates);
+      const reverse = await compileCandidates([...candidates].reverse());
+      const responsiveRule = mediaBlock(forward, 'screen and (min-width: 600px) and (max-width: 959.98px)');
+
+      expect(reverse).toBe(forward);
+      expect(responsiveRule).toContain(leftDeclaration);
+      expect(responsiveRule).toContain(rightDeclaration);
+    },
+  );
+
+  test('emits universal ownership after responsive display regardless of candidate order', async () => {
+    const universal = responsiveUtility('sm', '[all:unset]');
+    const display = responsiveUtility('sm', 'flex');
+    const forward = await compileCandidates([universal, display]);
+    const reverse = await compileCandidates([display, universal]);
+    const responsiveRule = mediaBlock(forward, 'screen and (min-width: 600px) and (max-width: 959.98px)');
+
+    expect(reverse).toBe(forward);
+    expect(responsiveRule.indexOf('all: unset')).toBeGreaterThan(responsiveRule.indexOf('display: flex'));
+  });
+
+  test('keeps an inner hover variant conditional inside the exact responsive wrapper', async () => {
+    const input = visibilityState('shown', 'sm').input;
+    const state: ExtendedResponsiveState<ResponsiveClassValue> = {
+      input: { ...input, directive: 'ngClass', sourceName: 'ngClass.sm', value: 'hover:block' },
+      activation: { kind: 'media', definition: definition('sm') },
+      value: { tokens: ['hover:block'] },
+    };
+    const css = await compileCandidates(new ExtendedResponsiveEmitter().emitClass(state));
+    const responsiveRule = mediaBlock(css, 'screen and (min-width: 600px) and (max-width: 959.98px)');
+
+    expect(responsiveRule).toContain('@media (hover: hover)');
+    expect(responsiveRule).toContain(':hover');
+    expect(responsiveRule).toContain('display: block');
+  });
+
+  test.each([
     [
       'longhand before shorthand',
       'margin-top: 2rem; margin: 1rem',

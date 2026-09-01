@@ -11,6 +11,8 @@ const accepted = [
   ['flex', 'display'],
   ['grid', 'display'],
   ['hidden', 'display'],
+  ['flex-row', 'flex-direction'],
+  ['flex-wrap', 'flex-wrap'],
   ['items-center', 'align-items'],
   ['gap-4', 'gap'],
   ['-mt-2', 'margin'],

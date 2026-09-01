@@ -1,4 +1,4 @@
-import { cssPropertiesOverlap } from './css-property-ownership';
+import { cssPropertiesOverlap, cssPropertyOwnershipCovers } from './css-property-ownership';
 
 describe('cssPropertiesOverlap', () => {
   test.each([
@@ -42,5 +42,13 @@ describe('cssPropertiesOverlap', () => {
     expect(cssPropertiesOverlap('--card-gap', '--card-color')).toBe(false);
     expect(cssPropertiesOverlap('--card-gap', '--card-gap')).toBe(true);
     expect(cssPropertiesOverlap('--card-gap', 'gap')).toBe(false);
+  });
+
+  test('treats all as universal ordinary-property ownership without claiming custom properties', () => {
+    expect(cssPropertiesOverlap('all', 'display')).toBe(true);
+    expect(cssPropertiesOverlap('color', 'all')).toBe(true);
+    expect(cssPropertiesOverlap('all', '--card-color')).toBe(false);
+    expect(cssPropertyOwnershipCovers('all', 'display')).toBe(true);
+    expect(cssPropertyOwnershipCovers('display', 'all')).toBe(false);
   });
 });

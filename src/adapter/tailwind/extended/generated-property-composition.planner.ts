@@ -1,0 +1,231 @@
+import type { LocatedFlexLayoutInput } from '../../../analyzer/flex-layout-attribute.analyzer';
+import { BreakpointCatalog, mediaRangesIntersect, type MediaRange } from '../../../breakpoint/breakpoint-catalog';
+import type { PlannedConversion } from '../../conversion-adapter';
+import { describeTailwindUtility, type TailwindActivation } from '../tailwind-class-conflict';
+import { parseLiteralStyleDeclarations } from '../visibility/literal-style-display';
+import { cssPropertiesOverlap, cssPropertyOwnershipCovers } from './css-property-ownership';
+import { TailwindCandidateClassifier } from './tailwind-candidate-classifier';
+
+const extendedClassDirectives = new Set<LocatedFlexLayoutInput['directive']>(['class', 'ngClass']);
+const extendedStyleDirectives = new Set<LocatedFlexLayoutInput['directive']>(['style', 'ngStyle']);
+const extendedDirectives = new Set<LocatedFlexLayoutInput['directive']>([
+  ...extendedClassDirectives,
+  ...extendedStyleDirectives,
+]);
+
+interface NumericRange {
+  readonly min: number;
+  readonly max: number;
+}
+
+interface GeneratedCandidate {
+  readonly plan: Extract<PlannedConversion, { readonly status: 'converted' }>;
+  readonly token: string;
+  readonly property: string;
+  readonly range: MediaRange;
+  readonly important: boolean;
+  readonly family: string;
+  readonly authority: 'class' | 'inline';
+}
+
+function activationRange(activation: TailwindActivation): MediaRange {
+  return activation.kind === 'base' ? {} : activation.range;
+}
+
+function numericRange(range: MediaRange): NumericRange {
+  return {
+    min: range.min ?? Number.NEGATIVE_INFINITY,
+    max: range.max ?? Number.POSITIVE_INFINITY,
+  };
+}
+
+function rangesCover(target: MediaRange, ranges: readonly MediaRange[]): boolean {
+  const numericTarget = numericRange(target);
+  const clipped = ranges
+    .filter(range => mediaRangesIntersect(target, range))
+    .map(range => {
+      const numeric = numericRange(range);
+      return {
+        min: Math.max(numericTarget.min, numeric.min),
+        max: Math.min(numericTarget.max, numeric.max),
+      };
+    })
+    .sort((left, right) => left.min - right.min);
+  const first = clipped[0];
+  if (!first || first.min !== numericTarget.min) return false;
+
+  let coveredUntil = first.max;
+  for (const range of clipped.slice(1)) {
+    if (range.min > coveredUntil) return false;
+    coveredUntil = Math.max(coveredUntil, range.max);
+  }
+  return coveredUntil >= numericTarget.max;
+}
+
+function contextUnverified(input: LocatedFlexLayoutInput): PlannedConversion {
+  return {
+    status: 'review',
+    input,
+    code: 'context-unverified',
+    reason: 'Generated responsive families have overlapping CSS ownership without one provable precedence.',
+    suggestion: 'Migrate the coupled responsive families together manually.',
+  };
+}
+
+export class GeneratedPropertyCompositionPlanner {
+  constructor(
+    private readonly breakpointCatalog = new BreakpointCatalog(),
+    private readonly classifier = new TailwindCandidateClassifier(),
+  ) {}
+
+  compose(plans: readonly PlannedConversion[]): readonly PlannedConversion[] {
+    const candidates = this.generatedCandidates(plans);
+    const unsafeFamilies = new Set<string>();
+    const suppressedTokensByPlan = new Map<string, Set<string>>();
+
+    this.closeUnresolvedAuthorities(plans, candidates, unsafeFamilies);
+
+    for (const candidate of candidates.filter(candidate => candidate.authority === 'class')) {
+      const owners = candidates.filter(
+        owner =>
+          owner.authority === 'inline' &&
+          owner.family !== candidate.family &&
+          mediaRangesIntersect(owner.range, candidate.range) &&
+          cssPropertiesOverlap(owner.property, candidate.property),
+      );
+      if (!owners.length) continue;
+
+      const ownerFamilies = new Set(owners.map(owner => owner.family));
+      const ownershipIsProven =
+        !candidate.important &&
+        ownerFamilies.size === 1 &&
+        owners.every(owner => cssPropertyOwnershipCovers(owner.property, candidate.property)) &&
+        rangesCover(
+          candidate.range,
+          owners
+            .filter(owner => cssPropertyOwnershipCovers(owner.property, candidate.property))
+            .map(owner => owner.range),
+        );
+      if (ownershipIsProven) {
+        const suppressed = suppressedTokensByPlan.get(candidate.plan.input.id) ?? new Set<string>();
+        suppressed.add(candidate.token);
+        suppressedTokensByPlan.set(candidate.plan.input.id, suppressed);
+        continue;
+      }
+
+      unsafeFamilies.add(candidate.family);
+      for (const owner of owners) unsafeFamilies.add(owner.family);
+    }
+
+    this.closeCompetingInlineWriters(candidates, unsafeFamilies);
+
+    return plans.map(plan => {
+      if (plan.status !== 'converted') return plan;
+      if (unsafeFamilies.has(this.planFamily(plan.input.directive))) return contextUnverified(plan.input);
+      const suppressed = suppressedTokensByPlan.get(plan.input.id);
+      return suppressed?.size ? { ...plan, classNames: plan.classNames.filter(token => !suppressed.has(token)) } : plan;
+    });
+  }
+
+  private generatedCandidates(plans: readonly PlannedConversion[]): readonly GeneratedCandidate[] {
+    return plans
+      .filter(
+        (plan): plan is Extract<PlannedConversion, { readonly status: 'converted' }> => plan.status === 'converted',
+      )
+      .flatMap(plan => {
+        const family = this.planFamily(plan.input.directive);
+        const authority = family === 'extended-class' ? 'class' : 'inline';
+        return plan.classNames.flatMap(token => {
+          const descriptor = describeTailwindUtility(token);
+          return descriptor?.propertyGroup === undefined
+            ? []
+            : [
+                {
+                  plan,
+                  token,
+                  property: descriptor.propertyGroup,
+                  range: activationRange(descriptor.activation),
+                  important: descriptor.important,
+                  family,
+                  authority,
+                } satisfies GeneratedCandidate,
+              ];
+        });
+      });
+  }
+
+  private closeUnresolvedAuthorities(
+    plans: readonly PlannedConversion[],
+    candidates: readonly GeneratedCandidate[],
+    unsafeFamilies: Set<string>,
+  ): void {
+    for (const unresolved of plans.filter(
+      plan => plan.status !== 'converted' && extendedDirectives.has(plan.input.directive),
+    )) {
+      const properties = this.unresolvedProperties(unresolved.input);
+      const range = this.inputRange(unresolved.input);
+      for (const candidate of candidates) {
+        if (
+          mediaRangesIntersect(range, candidate.range) &&
+          (properties === undefined || properties.some(property => cssPropertiesOverlap(property, candidate.property)))
+        ) {
+          unsafeFamilies.add(candidate.family);
+        }
+      }
+    }
+  }
+
+  private closeCompetingInlineWriters(candidates: readonly GeneratedCandidate[], unsafeFamilies: Set<string>): void {
+    const inlineCandidates = candidates.filter(candidate => candidate.authority === 'inline');
+    for (let leftIndex = 0; leftIndex < inlineCandidates.length; leftIndex += 1) {
+      const left = inlineCandidates[leftIndex];
+      if (left === undefined) continue;
+      for (const right of inlineCandidates.slice(leftIndex + 1)) {
+        if (
+          left.family === right.family ||
+          (!left.family.startsWith('extended-') && !right.family.startsWith('extended-')) ||
+          left.token === right.token ||
+          !mediaRangesIntersect(left.range, right.range) ||
+          !cssPropertiesOverlap(left.property, right.property)
+        ) {
+          continue;
+        }
+        unsafeFamilies.add(left.family);
+        unsafeFamilies.add(right.family);
+      }
+    }
+  }
+
+  private planFamily(directive: LocatedFlexLayoutInput['directive']): string {
+    if (['fxFlex', 'fxGrow', 'fxShrink'].includes(directive)) return 'flex-item';
+    if (directive === 'fxFlexFill' || directive === 'fxFill') return 'flex-fill';
+    if (extendedClassDirectives.has(directive)) return 'extended-class';
+    if (extendedStyleDirectives.has(directive)) return 'extended-style';
+    return directive;
+  }
+
+  private inputRange(input: LocatedFlexLayoutInput): MediaRange {
+    if (input.breakpoint === undefined) return {};
+    const classification = this.breakpointCatalog.classify(input.breakpoint);
+    return classification.kind === 'verified' ? classification.definition.range : {};
+  }
+
+  private unresolvedProperties(input: LocatedFlexLayoutInput): readonly string[] | undefined {
+    if (input.binding !== 'literal') return undefined;
+    if (extendedClassDirectives.has(input.directive)) {
+      const classifications = input.value
+        .split(/[\t\n\f\r ]+/u)
+        .filter(Boolean)
+        .map(token => this.classifier.classify(token));
+      if (classifications.some(classification => classification.status === 'unverified')) return undefined;
+      return classifications.flatMap(classification =>
+        classification.status === 'verified' && classification.descriptor.propertyGroup !== undefined
+          ? [classification.descriptor.propertyGroup]
+          : [],
+      );
+    }
+    if (!extendedStyleDirectives.has(input.directive)) return [];
+    const parsed = parseLiteralStyleDeclarations(input.value);
+    return parsed.status === 'parsed' ? parsed.declarations.map(declaration => declaration.property) : undefined;
+  }
+}

@@ -3,14 +3,17 @@ import { BreakpointCatalog, mediaRangesIntersect, type MediaRange } from '../../
 import type { PlannedConversion } from '../../conversion-adapter';
 import {
   describeTailwindDisplay,
+  describeTailwindUtility,
   type TailwindActivation,
   type TailwindDisplayUtility,
+  type TailwindUtilityDescriptor,
 } from '../tailwind-class-conflict';
 import { parseLiteralStyleDeclarations } from '../visibility/literal-style-display';
 import type { VisibilityState } from '../visibility/visibility.model';
 import type { VisibilityFamilyPlan } from '../visibility/visibility-state.planner';
 import type { VisibleDisplayResolution } from '../visibility/visible-display.resolver';
 import { TailwindCandidateClassifier } from './tailwind-candidate-classifier';
+import { cssPropertiesOverlap } from './css-property-ownership';
 
 const extendedClassDirectives = new Set<LocatedFlexLayoutInput['directive']>(['class', 'ngClass']);
 const extendedStyleDirectives = new Set<LocatedFlexLayoutInput['directive']>(['style', 'ngStyle']);
@@ -85,10 +88,6 @@ function rangesCover(target: MediaRange, ranges: readonly MediaRange[]): boolean
   return coveredUntil >= numericTarget.max;
 }
 
-function sameRange(left: MediaRange, right: MediaRange): boolean {
-  return left.min === right.min && left.max === right.max;
-}
-
 function displayIntent(descriptor: TailwindDisplayUtility): 'hidden' | 'shown' | 'unverified' {
   if (descriptor.utility === 'hidden') return 'hidden';
   if (visibleDisplayUtilities.has(descriptor.utility)) return 'shown';
@@ -98,13 +97,20 @@ function displayIntent(descriptor: TailwindDisplayUtility): 'hidden' | 'shown' |
   return arbitraryValue !== undefined && visibleDisplayUtilities.has(arbitraryValue) ? 'shown' : 'unverified';
 }
 
+function describeDisplayOwnership(token: string): TailwindUtilityDescriptor | undefined {
+  const descriptor = describeTailwindUtility(token);
+  return descriptor?.propertyGroup !== undefined && cssPropertiesOverlap(descriptor.propertyGroup, 'display')
+    ? descriptor
+    : undefined;
+}
+
 function contextUnverified(input: LocatedFlexLayoutInput, reason: string): PlannedConversion {
   return {
     status: 'review',
     input,
     code: 'context-unverified',
     reason,
-    suggestion: 'Migrate the coupled display-producing families together manually.',
+    suggestion: 'Migrate the coupled responsive families together manually.',
   };
 }
 
@@ -145,7 +151,7 @@ export class ExtendedDisplayCompositionPlanner {
       if (plan.status !== 'converted' || !extendedDirectives.has(plan.input.directive)) return plan;
 
       const displayDescriptors = plan.classNames
-        .map(describeTailwindDisplay)
+        .map(describeDisplayOwnership)
         .filter(descriptor => descriptor !== undefined);
       if (displayDescriptors.length === 0) return plan;
 
@@ -153,6 +159,11 @@ export class ExtendedDisplayCompositionPlanner {
       if (unresolvedLayout) affectedFamilies.add(family);
       for (const descriptor of displayDescriptors) {
         const target = activationRange(descriptor.activation);
+        if (descriptor.propertyGroup !== 'display' && layoutRanges.some(range => mediaRangesIntersect(target, range))) {
+          layoutOverlapIsUnsafe = true;
+          affectedFamilies.add(family);
+          continue;
+        }
         if (family === 'extended-style' && layoutRanges.some(range => mediaRangesIntersect(target, range))) {
           layoutOverlapIsUnsafe = true;
           affectedFamilies.add(family);
@@ -213,7 +224,7 @@ export class ExtendedDisplayCompositionPlanner {
     const extendedDisplayFamilies = new Set<'extended-class' | 'extended-style'>();
     for (const plan of layoutComposed) {
       if (plan.status !== 'converted') continue;
-      if (plan.classNames.some(className => describeTailwindDisplay(className) !== undefined)) {
+      if (plan.classNames.some(className => describeDisplayOwnership(className) !== undefined)) {
         const family = this.extendedFamily(plan.input.directive);
         if (family !== undefined) extendedDisplayFamilies.add(family);
       }
@@ -253,9 +264,19 @@ export class ExtendedDisplayCompositionPlanner {
       if (family === undefined) return plan;
 
       const classNames = plan.classNames.filter(className => {
+        const owner = describeDisplayOwnership(className);
+        if (owner === undefined) return true;
+        const target = activationRange(owner.activation);
+        if (family === 'extended-style' && visibilityRanges.some(range => mediaRangesIntersect(target, range))) {
+          unsafeFamilies.add(family);
+          return true;
+        }
+        if (owner.propertyGroup !== 'display') {
+          if (visibilityRanges.some(range => mediaRangesIntersect(target, range))) unsafeFamilies.add(family);
+          return true;
+        }
         const descriptor = describeTailwindDisplay(className);
         if (descriptor === undefined) return true;
-        const target = activationRange(descriptor.activation);
         if (descriptor.important && visibilityRanges.some(range => mediaRangesIntersect(target, range))) {
           unsafeFamilies.add(family);
           return true;
@@ -302,7 +323,6 @@ export class ExtendedDisplayCompositionPlanner {
     current: VisibleDisplayResolution,
     plans: readonly PlannedConversion[],
     visibilityPlan: VisibilityFamilyPlan,
-    existingClassNames: readonly string[],
   ): VisibleDisplayResolution {
     if (visibilityPlan.status === 'unresolved') return current;
 
@@ -336,41 +356,24 @@ export class ExtendedDisplayCompositionPlanner {
     const baseIsHidden = visibilityPlan.states.some(
       state => state.activation.kind === 'base' && state.intent === 'hidden',
     );
-    if (!baseIsHidden || (current.status === 'resolved' && current.utility !== undefined)) return current;
     if (
-      current.status === 'unverified' &&
-      (current.reason !== 'The visible display value cannot be proven from one unambiguous source.' ||
-        existingClassNames.some(className => describeTailwindDisplay(className) !== undefined))
+      baseIsHidden &&
+      descriptors.some(descriptor =>
+        shownStates.some(state =>
+          mediaRangesIntersect(
+            activationRange(descriptor.activation),
+            state.activation.kind === 'base' ? {} : state.activation.definition.range,
+          ),
+        ),
+      )
     ) {
-      return current;
+      return {
+        status: 'unverified',
+        reason:
+          'Flex-Layout captures the original display during initialization, before responsive ownership is stable.',
+      };
     }
-    const shownOverrides = visibilityPlan.states.filter(
-      (
-        state,
-      ): state is VisibilityState & {
-        readonly activation: Extract<VisibilityState['activation'], { readonly kind: 'media' }>;
-      } => state.activation.kind === 'media' && state.intent === 'shown',
-    );
-    if (!shownOverrides.length) return current;
-
-    const utilities = shownOverrides.map(state => {
-      const exact = descriptors.filter(
-        descriptor =>
-          displayIntent(descriptor) === 'shown' &&
-          descriptor.activation.kind === 'media' &&
-          sameRange(descriptor.activation.range, state.activation.definition.range),
-      );
-      const values = [...new Set(exact.map(descriptor => descriptor.utility))];
-      return values.length === 1 ? values[0] : undefined;
-    });
-    const distinct = [...new Set(utilities)];
-    const utility = distinct[0];
-    return distinct.length === 1 && utility !== undefined
-      ? { status: 'resolved', utility }
-      : {
-          status: 'unverified',
-          reason: 'The extended responsive display value cannot provide one exact visibility restoration utility.',
-        };
+    return current;
   }
 
   inputMayControlDisplay(input: LocatedFlexLayoutInput): boolean {
@@ -379,7 +382,11 @@ export class ExtendedDisplayCompositionPlanner {
       const tokens = input.value.split(/[\t\n\f\r ]+/u).filter(Boolean);
       return tokens.some(token => {
         const classification = this.classifier.classify(token);
-        return classification.status === 'unverified' || classification.descriptor.propertyGroup === 'display';
+        return (
+          classification.status === 'unverified' ||
+          (classification.descriptor.propertyGroup !== undefined &&
+            cssPropertiesOverlap(classification.descriptor.propertyGroup, 'display'))
+        );
       });
     }
 
@@ -388,7 +395,7 @@ export class ExtendedDisplayCompositionPlanner {
     const parsed = parseLiteralStyleDeclarations(input.value);
     return (
       parsed.status === 'unverified' ||
-      parsed.declarations.some(declaration => declaration.property.toLowerCase() === 'display')
+      parsed.declarations.some(declaration => cssPropertiesOverlap(declaration.property, 'display'))
     );
   }
 
