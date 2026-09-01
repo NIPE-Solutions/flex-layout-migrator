@@ -12,6 +12,29 @@ const extendedDirectives = new Set<LocatedFlexLayoutInput['directive']>([
   ...extendedClassDirectives,
   ...extendedStyleDirectives,
 ]);
+const inlineWriterDirectives = new Set<LocatedFlexLayoutInput['directive']>([
+  'style',
+  'ngStyle',
+  'fxLayout',
+  'fxLayoutAlign',
+  'fxFlex',
+  'fxGrow',
+  'fxShrink',
+  'fxFlexAlign',
+  'fxFlexFill',
+  'fxFill',
+  'fxFlexOffset',
+  'fxFlexOrder',
+  'fxShow',
+  'fxHide',
+]);
+
+export type GeneratedPropertyAuthority = 'source-class' | 'source-inline' | 'semantic-replacement';
+
+export function generatedPropertyAuthority(directive: LocatedFlexLayoutInput['directive']): GeneratedPropertyAuthority {
+  if (extendedClassDirectives.has(directive)) return 'source-class';
+  return inlineWriterDirectives.has(directive) ? 'source-inline' : 'semantic-replacement';
+}
 
 interface NumericRange {
   readonly min: number;
@@ -25,7 +48,7 @@ interface GeneratedCandidate {
   readonly range: MediaRange;
   readonly important: boolean;
   readonly family: string;
-  readonly authority: 'class' | 'inline';
+  readonly authority: GeneratedPropertyAuthority;
 }
 
 function activationRange(activation: TailwindActivation): MediaRange {
@@ -85,24 +108,30 @@ export class GeneratedPropertyCompositionPlanner {
 
     this.closeUnresolvedAuthorities(plans, candidates, unsafeFamilies);
 
-    for (const candidate of candidates.filter(candidate => candidate.authority === 'class')) {
-      const owners = candidates.filter(
-        owner =>
-          owner.authority === 'inline' &&
-          owner.family !== candidate.family &&
-          mediaRangesIntersect(owner.range, candidate.range) &&
-          cssPropertiesOverlap(owner.property, candidate.property),
+    for (const candidate of candidates.filter(candidate => candidate.authority === 'source-class')) {
+      const writers = candidates.filter(
+        writer =>
+          writer.authority !== 'source-class' &&
+          writer.family !== candidate.family &&
+          mediaRangesIntersect(writer.range, candidate.range) &&
+          cssPropertiesOverlap(writer.property, candidate.property),
       );
-      if (!owners.length) continue;
+      if (!writers.length) continue;
 
-      const ownerFamilies = new Set(owners.map(owner => owner.family));
+      if (writers.some(writer => writer.authority === 'semantic-replacement')) {
+        unsafeFamilies.add(candidate.family);
+        for (const writer of writers) unsafeFamilies.add(writer.family);
+        continue;
+      }
+
+      const ownerFamilies = new Set(writers.map(owner => owner.family));
       const ownershipIsProven =
         !candidate.important &&
         ownerFamilies.size === 1 &&
-        owners.every(owner => cssPropertyOwnershipCovers(owner.property, candidate.property)) &&
+        writers.every(owner => cssPropertyOwnershipCovers(owner.property, candidate.property)) &&
         rangesCover(
           candidate.range,
-          owners
+          writers
             .filter(owner => cssPropertyOwnershipCovers(owner.property, candidate.property))
             .map(owner => owner.range),
         );
@@ -114,10 +143,10 @@ export class GeneratedPropertyCompositionPlanner {
       }
 
       unsafeFamilies.add(candidate.family);
-      for (const owner of owners) unsafeFamilies.add(owner.family);
+      for (const owner of writers) unsafeFamilies.add(owner.family);
     }
 
-    this.closeCompetingInlineWriters(candidates, unsafeFamilies);
+    this.closeCompetingWriters(candidates, unsafeFamilies);
 
     return plans.map(plan => {
       if (plan.status !== 'converted') return plan;
@@ -134,7 +163,7 @@ export class GeneratedPropertyCompositionPlanner {
       )
       .flatMap(plan => {
         const family = this.planFamily(plan.input.directive);
-        const authority = family === 'extended-class' ? 'class' : 'inline';
+        const authority = generatedPropertyAuthority(plan.input.directive);
         return plan.classNames.flatMap(token => {
           const descriptor = describeTailwindUtility(token);
           return descriptor?.propertyGroup === undefined
@@ -175,18 +204,18 @@ export class GeneratedPropertyCompositionPlanner {
     }
   }
 
-  private closeCompetingInlineWriters(candidates: readonly GeneratedCandidate[], unsafeFamilies: Set<string>): void {
-    const inlineCandidates = candidates.filter(candidate => candidate.authority === 'inline');
-    for (let leftIndex = 0; leftIndex < inlineCandidates.length; leftIndex += 1) {
-      const left = inlineCandidates[leftIndex];
+  private closeCompetingWriters(candidates: readonly GeneratedCandidate[], unsafeFamilies: Set<string>): void {
+    const writers = candidates.filter(candidate => candidate.authority !== 'source-class');
+    for (let leftIndex = 0; leftIndex < writers.length; leftIndex += 1) {
+      const left = writers[leftIndex];
       if (left === undefined) continue;
-      for (const right of inlineCandidates.slice(leftIndex + 1)) {
+      for (const right of writers.slice(leftIndex + 1)) {
         if (
           left.family === right.family ||
           (!left.family.startsWith('extended-') && !right.family.startsWith('extended-')) ||
-          left.token === right.token ||
           !mediaRangesIntersect(left.range, right.range) ||
-          !cssPropertiesOverlap(left.property, right.property)
+          !cssPropertiesOverlap(left.property, right.property) ||
+          (left.authority === 'source-inline' && right.authority === 'source-inline' && left.token === right.token)
         ) {
           continue;
         }

@@ -98,6 +98,24 @@ describe('describeTailwindUtility', () => {
     });
   });
 
+  test.each([
+    ['![color:red]', '[color:red]'],
+    ['[color:red]!', '[color:red]'],
+    ['[color:red!important]', '[color:red!important]'],
+    ['[color:red_!important]', '[color:red_!important]'],
+    ['text-[color:red!important]', 'text-[color:red!important]'],
+    ['w-[17px!important]', 'w-[17px!important]'],
+  ])('reports canonical declaration importance for %s', (token, utility) => {
+    expect(describeTailwindUtility(token)).toMatchObject({ utility, important: true });
+  });
+
+  test('reports internal importance for an arbitrary display declaration', () => {
+    expect(describeTailwindDisplay('[display:block!important]')).toMatchObject({
+      utility: '[display:block!important]',
+      important: true,
+    });
+  });
+
   test('finds a generated media activation before an ordinary variant', () => {
     const token = `${sm('hover:flex')}`;
 

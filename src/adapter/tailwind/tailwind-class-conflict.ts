@@ -100,6 +100,10 @@ function hasGeneratedMediaVariant(variants: readonly string[]): boolean {
   return variants.some(variant => variant.startsWith('[@media_screen_and_'));
 }
 
+function hasInternalDeclarationImportance(utility: string): boolean {
+  return /!important\]$/iu.test(utility);
+}
+
 function propertyGroup(utility: string): string | undefined {
   const arbitraryProperty = utility.match(/^\[([^:]+):/u)?.[1];
   if (arbitraryProperty) {
@@ -167,9 +171,9 @@ export function describeTailwindUtility(token: string): TailwindUtilityDescripto
   const leadingImportant = modifiedUtility.startsWith('!');
   const trailingImportant = modifiedUtility.endsWith('!');
   if (leadingImportant && trailingImportant) return undefined;
-  const important = leadingImportant || trailingImportant;
   const utility = modifiedUtility.replace(/^!/u, '').replace(/!$/u, '');
   if (utility.length === 0) return undefined;
+  const important = leadingImportant || trailingImportant || hasInternalDeclarationImportance(utility);
   return {
     token,
     variants,

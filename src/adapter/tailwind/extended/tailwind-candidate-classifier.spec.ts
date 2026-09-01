@@ -44,6 +44,10 @@ const accepted = [
   ['hover:bg-blue-600', 'background-color'],
   ['dark:hover:text-white', 'color'],
   ['![color:red]', 'color'],
+  ['[color:red]!', 'color'],
+  ['[color:red!important]', 'color'],
+  ['text-[color:red!important]', 'color'],
+  ['w-[17px!important]', 'width'],
   ['[--card-gap:1rem]', '--card-gap'],
   ['w-(--card-width)', 'width'],
 ] as const;
@@ -136,6 +140,15 @@ describe('TailwindCandidateClassifier', () => {
   test.each(accepted)('has Tailwind CSS v4 compiler evidence for accepted candidate %s', async candidate => {
     await expect(compiles(candidate)).resolves.toBe(true);
   });
+
+  test.each(['[color:red!important]', 'text-[color:red!important]', 'w-[17px!important]'])(
+    'has Tailwind CSS v4 declaration-importance evidence for %s',
+    async candidate => {
+      const compiler = await compile(await tailwindSource);
+
+      expect(compiler.build([candidate])).toMatch(/!important;/iu);
+    },
+  );
 
   test.each(compilerRejected)('has no Tailwind CSS v4 output for rejected candidate %j', async candidate => {
     await expect(compiles(candidate)).resolves.toBe(false);

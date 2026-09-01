@@ -2,7 +2,10 @@ import type { LocatedFlexLayoutInput } from '../../../analyzer/flex-layout-attri
 import { BreakpointCatalog } from '../../../breakpoint/breakpoint-catalog';
 import type { PlannedConversion } from '../../conversion-adapter';
 import { ResponsiveVariantEmitter } from '../responsive-variant.emitter';
-import { GeneratedPropertyCompositionPlanner } from './generated-property-composition.planner';
+import {
+  generatedPropertyAuthority,
+  GeneratedPropertyCompositionPlanner,
+} from './generated-property-composition.planner';
 
 const catalog = new BreakpointCatalog();
 const emitter = new ResponsiveVariantEmitter();
@@ -40,6 +43,28 @@ function converted(
 
 describe('GeneratedPropertyCompositionPlanner', () => {
   test.each([
+    ['class', 'source-class'],
+    ['ngClass', 'source-class'],
+    ['style', 'source-inline'],
+    ['ngStyle', 'source-inline'],
+    ['fxLayout', 'source-inline'],
+    ['fxLayoutAlign', 'source-inline'],
+    ['fxFlex', 'source-inline'],
+    ['fxGrow', 'source-inline'],
+    ['fxShrink', 'source-inline'],
+    ['fxFlexAlign', 'source-inline'],
+    ['fxFlexFill', 'source-inline'],
+    ['fxFill', 'source-inline'],
+    ['fxFlexOffset', 'source-inline'],
+    ['fxFlexOrder', 'source-inline'],
+    ['fxShow', 'source-inline'],
+    ['fxHide', 'source-inline'],
+    ['fxLayoutGap', 'semantic-replacement'],
+  ] as const)('classifies %s as %s ownership', (directive, authority) => {
+    expect(generatedPropertyAuthority(directive)).toBe(authority);
+  });
+
+  test.each([
     {
       name: 'responsive ngStyle owns an exactly covered ngClass property',
       plans: [
@@ -48,6 +73,15 @@ describe('GeneratedPropertyCompositionPlanner', () => {
       ],
       statuses: ['converted', 'converted'],
       classNames: [[], [responsive('sm', '[color:blue]')]],
+    },
+    {
+      name: 'important arbitrary class declaration is not suppressed by normal ngStyle',
+      plans: [
+        converted('ngClass', 'sm', '[color:red!important]', [responsive('sm', '[color:red!important]')], 0),
+        converted('ngStyle', 'sm', 'color:blue', [responsive('sm', '[color:blue]')], 1),
+      ],
+      statuses: ['review', 'review'],
+      classNames: [undefined, undefined],
     },
     {
       name: 'responsive layout owns an exactly covered ngClass property',
@@ -76,6 +110,33 @@ describe('GeneratedPropertyCompositionPlanner', () => {
       ],
       statuses: ['review', 'review', 'review'],
       classNames: [undefined, undefined, undefined],
+    },
+    {
+      name: 'semantic gap replacement preserves native class coexistence',
+      plans: [
+        converted('fxLayoutGap', 'sm', '8', [responsive('sm', 'gap-[8px]')], 0),
+        converted('ngClass', 'sm', 'gap-4', [responsive('sm', 'gap-4')], 1),
+      ],
+      statuses: ['review', 'review'],
+      classNames: [undefined, undefined],
+    },
+    {
+      name: 'identical semantic replacement and class candidates still preserve additive source behavior',
+      plans: [
+        converted('fxLayoutGap', 'sm', '16px', [responsive('sm', 'gap-[16px]')], 0),
+        converted('ngClass', 'sm', 'gap-[16px]', [responsive('sm', 'gap-[16px]')], 1),
+      ],
+      statuses: ['review', 'review'],
+      classNames: [undefined, undefined],
+    },
+    {
+      name: 'semantic gap replacement remains independent from an unrelated class property',
+      plans: [
+        converted('fxLayoutGap', 'sm', '8', [responsive('sm', 'gap-[8px]')], 0),
+        converted('ngClass', 'sm', 'text-red-500', [responsive('sm', 'text-red-500')], 1),
+      ],
+      statuses: ['converted', 'converted'],
+      classNames: [[responsive('sm', 'gap-[8px]')], [responsive('sm', 'text-red-500')]],
     },
   ] as const)('$name', ({ plans, statuses, classNames }) => {
     const result = new GeneratedPropertyCompositionPlanner().compose(plans);

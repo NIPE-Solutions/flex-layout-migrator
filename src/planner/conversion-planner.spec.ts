@@ -424,6 +424,43 @@ describe('ConversionPlanner', () => {
     expect(result.results.every(item => item.status === 'converted')).toBe(true);
   });
 
+  test.each([
+    ['arbitrary property', '[color:red!important]', 'color:blue'],
+    ['arbitrary color value', 'text-[color:red!important]', 'color:blue'],
+    ['arbitrary width value', 'w-[17px!important]', 'width:20px'],
+    ['leading important modifier', '![color:red]', 'color:blue'],
+    ['trailing important modifier', '[color:red]!', 'color:blue'],
+  ])('preserves %s ownership against a normal responsive inline style', (_case, className, style) => {
+    const source = `<div ngClass.sm="${className}" ngStyle.sm="${style}"></div>`;
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.results).toEqual([
+      expect.objectContaining({ status: 'review', code: 'context-unverified' }),
+      expect.objectContaining({ status: 'review', code: 'context-unverified' }),
+    ]);
+  });
+
+  test('keeps an important responsive inline style over a normal class property', () => {
+    const result = migrate('<div ngClass.sm="text-red-500" ngStyle.sm="color:blue!important"></div>');
+
+    expect(result.output).toBe(
+      '<div class="[@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:[color:blue!important]"></div>',
+    );
+    expect(result.results.every(item => item.status === 'converted')).toBe(true);
+  });
+
+  test('preserves internal important display ownership beside all-shown visibility', () => {
+    const source = '<div ngClass.sm="[display:block!important]" fxShow.sm></div>';
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.results.every(item => item.status === 'review')).toBe(true);
+    expect(result.results.map(item => (item.status === 'converted' ? undefined : item.code))).toContain(
+      'context-unverified',
+    );
+  });
+
   test('keeps the proven responsive layout winner for overlapping responsive class direction', () => {
     const result = migrate('<div fxLayout.sm="column" ngClass.sm="flex-row"></div>');
 
@@ -435,6 +472,20 @@ describe('ConversionPlanner', () => {
 
   test('preserves overlapping responsive layout and ngStyle direction inline writers', () => {
     const source = '<div fxLayout.sm="column" ngStyle.sm="flex-direction:row;color:blue"></div>';
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.results).toEqual([
+      expect.objectContaining({ status: 'review', code: 'context-unverified' }),
+      expect.objectContaining({ status: 'review', code: 'context-unverified' }),
+    ]);
+  });
+
+  test.each([
+    ['different native gap', '8', 'gap-4'],
+    ['identical native gap', '16px', 'gap-[16px]'],
+  ])('preserves responsive fxLayoutGap replacement beside %s', (_case, gap, className) => {
+    const source = `<div fxLayoutGap.sm="${gap}" ngClass.sm="${className}"></div>`;
     const result = migrate(source);
 
     expect(result.output).toBe(source);
@@ -591,6 +642,29 @@ describe('ConversionPlanner', () => {
     expect(result.output).toBe(source);
     expect(result.results.every(item => item.status === 'review')).toBe(true);
     expect(result.results).toContainEqual(expect.objectContaining({ status: 'review', code: expectedCode }));
+  });
+
+  test.each([
+    ['exact', 'block'],
+    ['inner variant', 'hover:block'],
+  ])('preserves %s all-shown responsive class display initialization', (_case, className) => {
+    const source = `<span ngClass.sm="${className}" fxShow.sm></span>`;
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.results).toEqual([
+      expect.objectContaining({ status: 'review', code: 'context-unverified' }),
+      expect.objectContaining({ status: 'review', code: 'display-restoration-unverified' }),
+    ]);
+  });
+
+  test('keeps disjoint responsive class display and all-shown visibility independent', () => {
+    const result = migrate('<span ngClass.sm="block" fxShow.md></span>');
+
+    expect(result.output).toBe(
+      '<span class="[@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:block"></span>',
+    );
+    expect(result.results.every(item => item.status === 'converted')).toBe(true);
   });
 
   test('preserves an extended display when it cannot restore the exact shown range', () => {

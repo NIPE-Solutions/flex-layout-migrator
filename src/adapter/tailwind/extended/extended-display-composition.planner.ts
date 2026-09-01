@@ -353,11 +353,7 @@ export class ExtendedDisplayCompositionPlanner {
       };
     }
 
-    const baseIsHidden = visibilityPlan.states.some(
-      state => state.activation.kind === 'base' && state.intent === 'hidden',
-    );
     if (
-      baseIsHidden &&
       descriptors.some(descriptor =>
         shownStates.some(state =>
           mediaRangesIntersect(
