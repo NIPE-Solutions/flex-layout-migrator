@@ -1,0 +1,231 @@
+import { readFileSync } from 'node:fs';
+import { basename, join, relative } from 'node:path';
+import ts from 'typescript';
+
+import { inspectTypeScript, productionTypeScriptFiles, type TypeScriptInspection } from './typescript-boundary';
+
+const stylesheetRoot = join(process.cwd(), 'src', 'adapter', 'css', 'stylesheet');
+const fixturePath = join(stylesheetRoot, 'fixture.ts');
+
+const nodeIoModule = /^(?:node:)?(?:fs|path)(?:\/|$)/u;
+const forbiddenLayer = /(?:^|\/)(?:analyzer|cli|migrator|planner|tailwind|template)(?:\/|$)/u;
+const atomicFileWriterModule = /(?:^|\/)atomic-file\.writer(?:\.[cm]?[jt]s)?$/u;
+const absolutePath = /^(?:\/(?![*/])(?=.)|[a-z]:[\\/]|\\\\)/iu;
+const packageVersionIdentifier = /^(?:PACKAGE_VERSION|npm_package_version|packageVersion)$/u;
+const packageManifestModule = /(?:^|\/)package\.json$/u;
+const generatedMarkerForms = new Set([
+  '/* flex-layout-codemod:start schema=1 */',
+  '/* flex-layout-codemod:rule id=${} */',
+  '/* flex-layout-codemod:end */',
+]);
+
+function forbiddenDependency(inspection: TypeScriptInspection): string | undefined {
+  return (
+    inspection.moduleReferences.find(
+      reference =>
+        nodeIoModule.test(reference) || forbiddenLayer.test(reference) || atomicFileWriterModule.test(reference),
+    ) ?? inspection.identifiers.find(identifier => identifier === 'AtomicFileWriter')
+  );
+}
+
+function sourceFile(source: string, sourcePath: string): ts.SourceFile {
+  return ts.createSourceFile(sourcePath, source, ts.ScriptTarget.Latest, false, ts.ScriptKind.TS);
+}
+
+function stringFragments(source: string, sourcePath: string): readonly string[] {
+  const fragments: string[] = [];
+
+  function visit(node: ts.Node): void {
+    if (
+      ts.isStringLiteralLike(node) ||
+      ts.isTemplateHead(node) ||
+      ts.isTemplateMiddle(node) ||
+      ts.isTemplateTail(node)
+    ) {
+      fragments.push(node.text);
+    }
+    ts.forEachChild(node, visit);
+  }
+
+  visit(sourceFile(source, sourcePath));
+  return fragments;
+}
+
+function generatedMarkers(source: string, sourcePath: string): readonly string[] {
+  const markers: string[] = [];
+
+  function visit(node: ts.Node): void {
+    if (ts.isStringLiteralLike(node) && node.text.startsWith('/* flex-layout-codemod:')) {
+      markers.push(node.text);
+    } else if (ts.isTemplateExpression(node) && node.head.text.startsWith('/* flex-layout-codemod:')) {
+      markers.push(node.head.text + node.templateSpans.map(span => '${}' + span.literal.text).join(''));
+    }
+    ts.forEachChild(node, visit);
+  }
+
+  visit(sourceFile(source, sourcePath));
+  return markers;
+}
+
+function absolutePathLiteral(source: string, sourcePath: string): string | undefined {
+  return stringFragments(source, sourcePath).find(fragment => absolutePath.test(fragment));
+}
+
+function packageVersionRead(inspection: TypeScriptInspection): string | undefined {
+  return (
+    inspection.moduleReferences.find(reference => packageManifestModule.test(reference)) ??
+    [...inspection.identifiers, ...inspection.literalTexts].find(token => packageVersionIdentifier.test(token))
+  );
+}
+
+function containsIdentifier(node: ts.Node, name: string): boolean {
+  let found = false;
+
+  function visit(current: ts.Node): void {
+    if (found) return;
+    if (ts.isIdentifier(current) && current.text === name) {
+      found = true;
+      return;
+    }
+    ts.forEachChild(current, visit);
+  }
+
+  visit(node);
+  return found;
+}
+
+function composesExistingWithGeneratedOutput(source: string, sourcePath: string): boolean {
+  let serializesOwnedBlock = false;
+  let concatenatesExistingAndBlock = false;
+
+  function visit(node: ts.Node): void {
+    if (
+      ts.isCallExpression(node) &&
+      ts.isIdentifier(node.expression) &&
+      node.expression.text === 'serializeOwnedCssBlock'
+    ) {
+      serializesOwnedBlock = true;
+    }
+    if (
+      ts.isBinaryExpression(node) &&
+      node.operatorToken.kind === ts.SyntaxKind.PlusToken &&
+      containsIdentifier(node, 'existing') &&
+      containsIdentifier(node, 'block')
+    ) {
+      concatenatesExistingAndBlock = true;
+    }
+    ts.forEachChild(node, visit);
+  }
+
+  visit(sourceFile(source, sourcePath));
+  return serializesOwnedBlock && concatenatesExistingAndBlock;
+}
+
+describe('native CSS stylesheet architecture boundary', () => {
+  test.each([
+    ['Node filesystem import', "import { readFileSync } from 'node:fs';"],
+    ['Node path re-export', "export { join } from 'node:path';"],
+    ['CLI dynamic import', "const cli = import('../../../cli/run-cli');"],
+    ['migrator require', "const migrator = require('../../../migrator/file.migrator');"],
+    ['planner import-equals', "import planner = require('../../../planner/native-css.planner');"],
+    ['template type import', "import type { Template } from '../../../template/template.model';"],
+    ['Tailwind side-effect import', "import '../../tailwind/tailwind.adapter';"],
+    ['analyzer re-export', "export * from '../../../analyzer/flex-layout-attribute.analyzer';"],
+    ['AtomicFileWriter import', "import { AtomicFileWriter } from '../../../lib/atomic-file.writer';"],
+  ])('rejects the %s dependency mutation', (_label, source) => {
+    expect(forbiddenDependency(inspectTypeScript(source, fixturePath))).toBeDefined();
+  });
+
+  test('recursively keeps stylesheet production modules independent from I/O and application layers', () => {
+    for (const path of productionTypeScriptFiles(stylesheetRoot)) {
+      expect(
+        forbiddenDependency(inspectTypeScript(readFileSync(path, 'utf8'), path)),
+        relative(process.cwd(), path),
+      ).toBeUndefined();
+    }
+  });
+
+  test.each([
+    ['POSIX', "const target = '/tmp/owned.css';"],
+    ['Windows drive', String.raw`const target = 'C:\\temp\\owned.css';`],
+    ['Windows UNC', String.raw`const target = '\\\\server\\share\\owned.css';`],
+  ])('rejects a %s absolute-path mutation', (_label, source) => {
+    expect(absolutePathLiteral(source, fixturePath)).toBeDefined();
+  });
+
+  test.each([
+    ['package manifest import', "import manifest from '../../../../package.json';"],
+    ['npm package environment read', 'const value = process.env.npm_package_version;'],
+    ['package-version identifier', "const packageVersion = '2.0.0';"],
+  ])('rejects a %s mutation', (_label, source) => {
+    expect(packageVersionRead(inspectTypeScript(source, fixturePath))).toBeDefined();
+  });
+
+  test('keeps absolute paths and package-version reads out of stylesheet production modules', () => {
+    for (const path of productionTypeScriptFiles(stylesheetRoot)) {
+      const source = readFileSync(path, 'utf8');
+      const inspection = inspectTypeScript(source, path);
+      const sourcePath = relative(process.cwd(), path);
+
+      expect(absolutePathLiteral(source, path), sourcePath).toBeUndefined();
+      expect(packageVersionRead(inspection), sourcePath).toBeUndefined();
+    }
+  });
+
+  test.each([
+    ['schema drift', "const marker = '/* flex-layout-codemod:start schema=2 */';"],
+    ['rule grammar drift', 'const marker = `/* flex-layout-codemod:rule id=${id} generated */`;'],
+    ['end-marker drift', "const marker = '/* flex-layout-codemod:end schema=1 */';"],
+  ])('rejects a %s mutation', (_label, source) => {
+    expect(generatedMarkers(source, fixturePath).some(marker => !generatedMarkerForms.has(marker))).toBe(true);
+  });
+
+  test('permits exactly the three schema-1 generated marker forms in production', () => {
+    const markers = productionTypeScriptFiles(stylesheetRoot).flatMap(path =>
+      generatedMarkers(readFileSync(path, 'utf8'), path),
+    );
+
+    expect([...new Set(markers)].sort()).toEqual([...generatedMarkerForms].sort());
+  });
+
+  test('detects a non-merger module composing handwritten input with a generated owned block', () => {
+    const source = `
+      import { serializeOwnedCssBlock } from './owned-css-block.serializer';
+      export function compose(existing: string, rules: readonly OwnedCssRule[]): string {
+        const block = serializeOwnedCssBlock(rules, '\\n');
+        return existing + block;
+      }
+    `;
+
+    expect(composesExistingWithGeneratedOutput(source, fixturePath)).toBe(true);
+  });
+
+  test('makes the merger the only stylesheet module that composes existing CSS with generated output', () => {
+    const composers = productionTypeScriptFiles(stylesheetRoot).flatMap(path => {
+      const source = readFileSync(path, 'utf8');
+      return composesExistingWithGeneratedOutput(source, path) ? [basename(path)] : [];
+    });
+
+    expect(composers).toEqual(['owned-stylesheet.merger.ts']);
+  });
+
+  test('ignores prohibited dependency, marker, path, version, and composition text in comments', () => {
+    const source = `
+      // import { readFileSync } from 'node:fs';
+      // export * from '../../../planner/native-css.planner';
+      // const target = '/tmp/owned.css';
+      // const packageVersion = process.env.npm_package_version;
+      // const marker = '/* flex-layout-codemod:start schema=2 */';
+      // const block = serializeOwnedCssBlock(rules, '\\n');
+      // return existing + block;
+      export const harmless = 'relative.css';
+    `;
+    const inspection = inspectTypeScript(source, fixturePath);
+
+    expect(forbiddenDependency(inspection)).toBeUndefined();
+    expect(absolutePathLiteral(source, fixturePath)).toBeUndefined();
+    expect(packageVersionRead(inspection)).toBeUndefined();
+    expect(generatedMarkers(source, fixturePath)).toEqual([]);
+    expect(composesExistingWithGeneratedOutput(source, fixturePath)).toBe(false);
+  });
+});
