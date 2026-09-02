@@ -9,6 +9,28 @@ const execFileAsync = promisify(execFile);
 const repository = resolve(import.meta.dirname, '../..');
 
 describe('release policy', () => {
+  it('keeps the release pull request workflow inside the preparation trust boundary', async () => {
+    const workflow = await readFile(new URL('../../.github/workflows/release-pr.yml', import.meta.url), 'utf8');
+
+    expect(workflow).toContain('contents: write');
+    expect(workflow).toContain('pull-requests: write');
+    expect(workflow).toContain('version: npm run release:version');
+
+    for (const forbiddenCapability of [
+      'id-token: write',
+      'npm publish',
+      'npm stage',
+      'NODE_AUTH_TOKEN',
+      'secrets.NPM',
+      'git tag',
+      'gh release',
+      'releases: write',
+      'actions/create-release',
+    ]) {
+      expect(workflow).not.toContain(forbiddenCapability);
+    }
+  });
+
   it('publishes public packages from main without automated release commits', async () => {
     const config = JSON.parse(await readFile(new URL('../../.changeset/config.json', import.meta.url), 'utf8'));
 
