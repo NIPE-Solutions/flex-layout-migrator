@@ -28,6 +28,7 @@ import { TailwindCandidateClassifier } from './extended/tailwind-candidate-class
 import { GeneratedPropertyCompositionPlanner } from './extended/generated-property-composition.planner';
 import { parseGridValue } from '../../grid/grid-value.parser';
 import { TailwindGridRenderer } from './grid/tailwind-grid.renderer';
+import type { BreakpointMigrationConfig } from '../../config/breakpoint-migration-config';
 
 const flexItemDirectives = new Set<LocatedFlexLayoutInput['directive']>(['fxFlex', 'fxGrow', 'fxShrink']);
 const visibilityDirectives = new Set<LocatedFlexLayoutInput['directive']>(['fxShow', 'fxHide']);
@@ -192,27 +193,34 @@ function equalStyleValues(left: ResponsiveStyleValue, right: ResponsiveStyleValu
 
 export class TailwindAdapter implements ConversionAdapter {
   readonly name = 'tailwind' as const;
-  private readonly breakpointCatalog = new BreakpointCatalog();
+  private readonly breakpointCatalog: BreakpointCatalog;
   private readonly responsiveEmitter = new ResponsiveVariantEmitter();
-  private readonly responsiveFamilyPlanner = new ResponsiveFamilyPlanner(
-    this.breakpointCatalog,
-    this.responsiveEmitter,
-  );
-  private readonly visibilityStatePlanner = new VisibilityStatePlanner(this.breakpointCatalog);
+  private readonly responsiveFamilyPlanner: ResponsiveFamilyPlanner;
+  private readonly visibilityStatePlanner: VisibilityStatePlanner;
   private readonly visibleDisplayResolver = new VisibleDisplayResolver();
-  private readonly displayCompositionPlanner = new DisplayCompositionPlanner(this.breakpointCatalog);
-  private readonly extendedFamilyPlanner = new ExtendedFamilyPlanner(this.breakpointCatalog);
+  private readonly displayCompositionPlanner: DisplayCompositionPlanner;
+  private readonly extendedFamilyPlanner: ExtendedFamilyPlanner;
   private readonly extendedResponsivePlanner = new ExtendedResponsivePlanner();
   private readonly tailwindCandidateClassifier = new TailwindCandidateClassifier();
-  private readonly extendedDisplayCompositionPlanner = new ExtendedDisplayCompositionPlanner(
-    this.breakpointCatalog,
-    this.tailwindCandidateClassifier,
-  );
-  private readonly generatedPropertyCompositionPlanner = new GeneratedPropertyCompositionPlanner(
-    this.breakpointCatalog,
-    this.tailwindCandidateClassifier,
-  );
+  private readonly extendedDisplayCompositionPlanner: ExtendedDisplayCompositionPlanner;
+  private readonly generatedPropertyCompositionPlanner: GeneratedPropertyCompositionPlanner;
   private readonly gridRenderer = new TailwindGridRenderer();
+
+  constructor(config: BreakpointMigrationConfig = { orientationBreakpoints: false }) {
+    this.breakpointCatalog = new BreakpointCatalog(config);
+    this.responsiveFamilyPlanner = new ResponsiveFamilyPlanner(this.breakpointCatalog, this.responsiveEmitter);
+    this.visibilityStatePlanner = new VisibilityStatePlanner(this.breakpointCatalog);
+    this.displayCompositionPlanner = new DisplayCompositionPlanner(this.breakpointCatalog);
+    this.extendedFamilyPlanner = new ExtendedFamilyPlanner(this.breakpointCatalog);
+    this.extendedDisplayCompositionPlanner = new ExtendedDisplayCompositionPlanner(
+      this.breakpointCatalog,
+      this.tailwindCandidateClassifier,
+    );
+    this.generatedPropertyCompositionPlanner = new GeneratedPropertyCompositionPlanner(
+      this.breakpointCatalog,
+      this.tailwindCandidateClassifier,
+    );
+  }
 
   resolveClassConflicts(
     plans: readonly PlannedConversion[],

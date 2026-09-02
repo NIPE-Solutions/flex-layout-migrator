@@ -49,4 +49,14 @@ describe('planResponsiveClasses', () => {
   ] as const)('preserves the unverified %s breakpoint alias', (breakpoint, code) => {
     expect(plan({ sourceName: `fxFlexAlign.${breakpoint}`, breakpoint })).toMatchObject({ status: 'review', code });
   });
+
+  test.each([
+    ['handset', '--orientation-breakpoints'],
+    ['print', '--print-with-breakpoints'],
+  ])('identifies the required configuration evidence for %s', (breakpoint, option) => {
+    expect(plan({ sourceName: `fxFlexAlign.${breakpoint}`, breakpoint })).toMatchObject({
+      status: 'review',
+      suggestion: expect.stringContaining(option),
+    });
+  });
 });

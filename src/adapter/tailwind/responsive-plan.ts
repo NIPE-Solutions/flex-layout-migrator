@@ -24,7 +24,7 @@ export function planResponsiveClasses(
   if (classification.kind === 'verified') {
     return {
       status: 'converted',
-      classNames: classNames.map(className => emitter.emit(classification.definition, className)),
+      classNames: classNames.flatMap(className => emitter.emit(classification.definition, className)),
     };
   }
 
@@ -42,7 +42,10 @@ export function planResponsiveClasses(
   return {
     status: 'review',
     code: 'breakpoint-unverified',
-    reason: `Exact media-query output for the ${kind} breakpoint alias ${alias} is not implemented.`,
-    suggestion: 'Keep the responsive directive until exact breakpoint support is available.',
+    reason: `The ${kind} breakpoint alias ${alias} is not enabled by explicit migration configuration.`,
+    suggestion:
+      classification.kind === 'print'
+        ? 'Verify the source printWithBreakpoints value, then rerun with --print-with-breakpoints.'
+        : 'Verify that the source enables orientation breakpoints, then rerun with --orientation-breakpoints.',
   };
 }

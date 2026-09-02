@@ -8,6 +8,6 @@ export class VisibilityEmitter {
     const utility = state.intent === 'hidden' ? 'hidden' : restorationUtility;
     if (utility === undefined) return [];
     if (state.activation.kind === 'base') return [utility];
-    return [this.responsiveEmitter.emit(state.activation.definition, utility)];
+    return this.responsiveEmitter.emit(state.activation.definition, utility);
   }
 }

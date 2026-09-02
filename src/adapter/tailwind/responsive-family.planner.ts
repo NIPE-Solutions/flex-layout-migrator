@@ -1,5 +1,10 @@
 import type { LocatedFlexLayoutInput } from '../../analyzer/flex-layout-attribute.analyzer';
-import { BreakpointCatalog, mediaRangesIntersect, type MediaRange } from '../../breakpoint/breakpoint-catalog';
+import {
+  BreakpointCatalog,
+  mediaDefinitionsIntersect,
+  mediaRangesIntersect,
+  type MediaRange,
+} from '../../breakpoint/breakpoint-catalog';
 import type { ConversionContext, PlannedConversion } from '../conversion-adapter';
 import { planResponsiveClasses } from './responsive-plan';
 import { ResponsiveVariantEmitter } from './responsive-variant.emitter';
@@ -118,6 +123,15 @@ function sameClasses(left: PlannedConversion, right: PlannedConversion): boolean
     leftClasses.length === rightClasses.length &&
     leftClasses.every((className, index) => className === rightClasses[index])
   );
+}
+
+function printCandidate(candidate: string): string {
+  if (candidate.startsWith('[@media_print]:')) return candidate;
+  if (candidate.startsWith('[@media_')) {
+    const variantEnd = candidate.indexOf(']:');
+    if (variantEnd >= 0) return `[@media_print]${candidate.slice(variantEnd + 1)}`;
+  }
+  return `[@media_print]:${candidate}`;
 }
 
 function numericRange(range: MediaRange): NumericRange {
@@ -324,7 +338,11 @@ export class ResponsiveFamilyPlanner {
     const plansById = new Map<string, PlannedConversion>();
     for (const [family, plans] of rawPlansByFamily) {
       const shouldDecorate = decorate && family !== 'extended-class' && family !== 'extended-style';
-      for (const plan of plans) plansById.set(plan.input.id, shouldDecorate ? this.decorate(plan) : plan);
+      const decoratedPlans = plans.map(plan => (shouldDecorate ? this.decorate(plan) : plan));
+      const printAwarePlans = decorate
+        ? this.addPrintFallback(groups.get(family) ?? [], decoratedPlans)
+        : decoratedPlans;
+      for (const plan of printAwarePlans) plansById.set(plan.input.id, plan);
     }
     for (const input of ungrouped) {
       const plan = planOne(input, completeContext);
@@ -335,6 +353,49 @@ export class ResponsiveFamilyPlanner {
       if (planned) return planned;
       const plan = planOne(input, completeContext);
       return decorate ? this.decorate(plan) : plan;
+    });
+  }
+
+  private addPrintFallback(
+    inputs: readonly LocatedFlexLayoutInput[],
+    plans: readonly PlannedConversion[],
+  ): readonly PlannedConversion[] {
+    const configuredAliases = this.catalog.printWithBreakpoints;
+    if (configuredAliases === undefined || plans.some(plan => plan.status !== 'converted')) return plans;
+    if (inputs.some(input => input.breakpoint === 'print')) return plans;
+
+    const configured = inputs
+      .map((input, index) => ({
+        input,
+        index,
+        classification: input.breakpoint === undefined ? undefined : this.catalog.classify(input.breakpoint),
+      }))
+      .filter(
+        (
+          item,
+        ): item is typeof item & {
+          readonly classification: Extract<ReturnType<BreakpointCatalog['classify']>, { readonly kind: 'verified' }>;
+        } =>
+          item.input.breakpoint !== undefined &&
+          configuredAliases.includes(item.input.breakpoint) &&
+          item.classification !== undefined &&
+          item.classification.kind === 'verified',
+      )
+      .sort(
+        (left, right) =>
+          right.classification.definition.priority - left.classification.definition.priority ||
+          configuredAliases.indexOf(left.input.breakpoint ?? '') -
+            configuredAliases.indexOf(right.input.breakpoint ?? ''),
+      );
+    const selected = configured[0];
+    if (!selected) return plans;
+
+    return plans.map((plan, index) => {
+      if (index !== selected.index || plan.status !== 'converted') return plan;
+      return {
+        ...plan,
+        classNames: [...new Set([...plan.classNames, ...plan.classNames.map(printCandidate)])],
+      };
     });
   }
 
@@ -514,7 +575,7 @@ export class ResponsiveFamilyPlanner {
         const rightClassification = this.catalog.classify(rightInput.breakpoint);
         if (
           rightClassification.kind === 'verified' &&
-          mediaRangesIntersect(leftClassification.definition.range, rightClassification.definition.range) &&
+          mediaDefinitionsIntersect(leftClassification.definition.media, rightClassification.definition.media) &&
           !sameClasses(leftPlan, rightPlan)
         ) {
           return inputs.map(input => ({

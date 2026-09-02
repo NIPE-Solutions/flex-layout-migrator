@@ -11,7 +11,7 @@ describe('smokePackageTarball', () => {
       if (args.includes('--help')) {
         return {
           stdout:
-            '--dry-run --report <path> --allow-unresolved path must end in .json single-file output must end in .html',
+            '--dry-run --report <path> --allow-unresolved --orientation-breakpoints --print-with-breakpoints <aliases> path must\n end in .json single-file\n output must end\n in .html',
           stderr: '',
         };
       }
@@ -41,7 +41,7 @@ describe('smokePackageTarball', () => {
       if (args.includes('--help')) {
         return {
           stdout:
-            '--dry-run --report <path> --allow-unresolved path must end in .json single-file output must end in .html',
+            '--dry-run --report <path> --allow-unresolved --orientation-breakpoints --print-with-breakpoints <aliases> path must end in .json single-file output must end in .html',
           stderr: '',
         };
       }

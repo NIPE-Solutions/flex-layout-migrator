@@ -90,6 +90,239 @@ describe('TailwindAdapter', () => {
     });
   });
 
+  test('converts explicitly enabled composite orientation breakpoints', () => {
+    const member = input({ sourceName: 'fxLayout.handset', breakpoint: 'handset', value: 'column' });
+
+    expect(
+      new TailwindAdapter({ orientationBreakpoints: true }).planElement([member], {
+        element,
+        inputs: [member],
+      }),
+    ).toEqual([
+      {
+        status: 'converted',
+        input: member,
+        classNames: [
+          '[@media_(orientation:_portrait)_and_(max-width:_599.98px)]:flex',
+          '[@media_(orientation:_landscape)_and_(max-width:_959.98px)]:flex',
+          '[@media_(orientation:_portrait)_and_(max-width:_599.98px)]:flex-col',
+          '[@media_(orientation:_landscape)_and_(max-width:_959.98px)]:flex-col',
+          '[@media_(orientation:_portrait)_and_(max-width:_599.98px)]:box-border',
+          '[@media_(orientation:_landscape)_and_(max-width:_959.98px)]:box-border',
+        ],
+      },
+    ]);
+  });
+
+  test('converts different values in disjoint portrait and landscape activations', () => {
+    const portrait = input({
+      id: 'fixture:portrait',
+      sourceName: 'fxLayout.handset.portrait',
+      breakpoint: 'handset.portrait',
+      value: 'column',
+    });
+    const landscape = input({
+      id: 'fixture:landscape',
+      sourceName: 'fxLayout.handset.landscape',
+      breakpoint: 'handset.landscape',
+      value: 'row',
+    });
+
+    const plans = new TailwindAdapter({ orientationBreakpoints: true }).planElement([portrait, landscape], {
+      element,
+      inputs: [portrait, landscape],
+    });
+
+    expect(plans).toEqual([
+      expect.objectContaining({ status: 'converted' }),
+      expect.objectContaining({ status: 'converted' }),
+    ]);
+  });
+
+  test('preserves differing values in intersecting composite and specific orientation aliases', () => {
+    const handset = input({
+      id: 'fixture:handset',
+      sourceName: 'fxLayout.handset',
+      breakpoint: 'handset',
+      value: 'column',
+    });
+    const portrait = input({
+      id: 'fixture:portrait',
+      sourceName: 'fxLayout.handset.portrait',
+      breakpoint: 'handset.portrait',
+      value: 'row',
+    });
+
+    expect(
+      new TailwindAdapter({ orientationBreakpoints: true }).planElement([handset, portrait], {
+        element,
+        inputs: [handset, portrait],
+      }),
+    ).toEqual([
+      expect.objectContaining({ status: 'review', code: 'responsive-precedence-unverified' }),
+      expect.objectContaining({ status: 'review', code: 'responsive-precedence-unverified' }),
+    ]);
+  });
+
+  test('converts orientation visibility, responsive class, and responsive style families', () => {
+    const hidden = input({
+      id: 'fixture:hidden',
+      directive: 'fxShow',
+      sourceName: 'fxShow',
+      value: 'false',
+    });
+    const shown = input({
+      id: 'fixture:shown',
+      directive: 'fxShow',
+      sourceName: 'fxShow.handset.portrait',
+      breakpoint: 'handset.portrait',
+      value: '',
+    });
+    const responsiveClass = input({
+      id: 'fixture:class',
+      directive: 'ngClass',
+      sourceName: 'ngClass.handset.landscape',
+      breakpoint: 'handset.landscape',
+      value: 'flex',
+    });
+    const responsiveStyle = input({
+      id: 'fixture:style',
+      directive: 'ngStyle',
+      sourceName: 'ngStyle.web.portrait',
+      breakpoint: 'web.portrait',
+      value: 'color:red',
+    });
+
+    const adapter = new TailwindAdapter({ orientationBreakpoints: true });
+
+    expect(
+      adapter.planElement([hidden, shown], {
+        element,
+        inputs: [hidden, shown],
+        existingClassNames: ['block'],
+      }),
+    ).toEqual([
+      expect.objectContaining({
+        status: 'converted',
+        classNames: ['hidden', '[@media_(orientation:_portrait)_and_(max-width:_599.98px)]:block'],
+      }),
+      expect.objectContaining({ status: 'converted', classNames: [] }),
+    ]);
+    expect(adapter.planElement([responsiveClass], { element, inputs: [responsiveClass] })).toEqual([
+      expect.objectContaining({
+        status: 'converted',
+        classNames: ['[@media_(orientation:_landscape)_and_(max-width:_959.98px)]:flex'],
+      }),
+    ]);
+    expect(adapter.planElement([responsiveStyle], { element, inputs: [responsiveStyle] })).toEqual([
+      expect.objectContaining({
+        status: 'converted',
+        classNames: ['[@media_(orientation:_portrait)_and_(min-width:_840px)]:[color:red]'],
+      }),
+    ]);
+  });
+
+  test('emits a configured responsive value as the effective print fallback', () => {
+    const base = input({ id: 'fixture:base', value: 'row' });
+    const md = input({
+      id: 'fixture:md',
+      sourceName: 'fxLayout.md',
+      breakpoint: 'md',
+      value: 'column',
+    });
+
+    const plans = new TailwindAdapter({
+      orientationBreakpoints: false,
+      printWithBreakpoints: ['md'],
+    }).planElement([base, md], { element, inputs: [base, md] });
+
+    expect(plans[0]).toMatchObject({ status: 'converted', classNames: ['flex', 'flex-row', 'box-border'] });
+    expect(plans[1]).toMatchObject({
+      status: 'converted',
+      classNames: expect.arrayContaining([
+        '[@media_print]:flex',
+        '[@media_print]:flex-col',
+        '[@media_print]:box-border',
+      ]),
+    });
+  });
+
+  test('lets an explicit print value override configured responsive fallbacks', () => {
+    const md = input({ id: 'fixture:md', sourceName: 'fxLayout.md', breakpoint: 'md', value: 'column' });
+    const print = input({ id: 'fixture:print', sourceName: 'fxLayout.print', breakpoint: 'print', value: 'row' });
+
+    const plans = new TailwindAdapter({
+      orientationBreakpoints: false,
+      printWithBreakpoints: ['md'],
+    }).planElement([md, print], { element, inputs: [md, print] });
+
+    expect(plans[0]).toMatchObject({ status: 'converted' });
+    expect(plans[0]?.status === 'converted' ? plans[0].classNames : []).not.toContain('[@media_print]:flex-col');
+    expect(plans[1]).toMatchObject({
+      status: 'converted',
+      classNames: ['[@media_print]:flex', '[@media_print]:flex-row', '[@media_print]:box-border'],
+    });
+  });
+
+  test('uses the highest-priority configured responsive value during print', () => {
+    const md = input({ id: 'fixture:md', sourceName: 'fxLayout.md', breakpoint: 'md', value: 'row' });
+    const handset = input({
+      id: 'fixture:handset',
+      sourceName: 'fxLayout.handset',
+      breakpoint: 'handset',
+      value: 'column',
+    });
+
+    const plans = new TailwindAdapter({
+      orientationBreakpoints: true,
+      printWithBreakpoints: ['md', 'handset'],
+    }).planElement([md, handset], { element, inputs: [md, handset] });
+
+    expect(plans[1]).toMatchObject({
+      status: 'converted',
+      classNames: expect.arrayContaining(['[@media_print]:flex-col']),
+    });
+    expect(plans[0]?.status === 'converted' ? plans[0].classNames : []).not.toContain('[@media_print]:flex-row');
+  });
+
+  test('adds print fallbacks for responsive class, style, and Grid families', () => {
+    const responsiveClass = input({
+      id: 'fixture:class',
+      directive: 'ngClass',
+      sourceName: 'ngClass.md',
+      breakpoint: 'md',
+      value: 'flex',
+    });
+    const responsiveStyle = input({
+      id: 'fixture:style',
+      directive: 'ngStyle',
+      sourceName: 'ngStyle.md',
+      breakpoint: 'md',
+      value: 'color:red',
+    });
+    const columns = input({
+      id: 'fixture:columns',
+      directive: 'gdColumns',
+      sourceName: 'gdColumns.md',
+      breakpoint: 'md',
+      value: '1fr',
+    });
+    const adapter = new TailwindAdapter({ orientationBreakpoints: false, printWithBreakpoints: ['md'] });
+
+    expect(adapter.planElement([responsiveClass], { element, inputs: [responsiveClass] })[0]).toMatchObject({
+      status: 'converted',
+      classNames: expect.arrayContaining(['[@media_print]:flex']),
+    });
+    expect(adapter.planElement([responsiveStyle], { element, inputs: [responsiveStyle] })[0]).toMatchObject({
+      status: 'converted',
+      classNames: expect.arrayContaining(['[@media_print]:[color:red]']),
+    });
+    expect(adapter.planElement([columns], { element, inputs: [columns] })[0]).toMatchObject({
+      status: 'converted',
+      classNames: expect.arrayContaining(['[@media_print]:grid', '[@media_print]:[grid-template-columns:1fr]']),
+    });
+  });
+
   test('encodes quoted gdAreas rows without introducing an HTML delimiter collision', () => {
     const gridInput = input({ directive: 'gdAreas', sourceName: 'gdAreas', value: 'header | main' });
 

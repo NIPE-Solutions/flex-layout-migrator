@@ -8,6 +8,7 @@ import { TerminalPresenter, type TextOutput } from '../report/terminal.presenter
 import { getErrorMessage } from '../util/error.util';
 import { resolveExitCode } from './exit-policy';
 import { validateReportPath } from './report-path.validator';
+import { parsePrintWithBreakpoints } from '../config/breakpoint-migration-config';
 
 interface ProgramOptions {
   readonly output?: string;
@@ -16,6 +17,8 @@ interface ProgramOptions {
   readonly report?: string;
   readonly allowUnresolved: boolean;
   readonly debug: boolean;
+  readonly orientationBreakpoints: boolean;
+  readonly printWithBreakpoints?: string;
 }
 
 export interface CliOutput {
@@ -55,13 +58,25 @@ export async function runCli(argv: readonly string[], output: CliOutput = proces
     .option('--dry-run', 'analyze and plan without writing templates', false)
     .option('--report <path>', 'atomically write a JSON report; path must end in .json')
     .option('--allow-unresolved', 'return success when unresolved inputs remain', false)
+    .option('--orientation-breakpoints', 'confirm the source enables the archived orientation breakpoints', false)
+    .option(
+      '--print-with-breakpoints <aliases>',
+      'confirm the source printWithBreakpoints list; comma-separated aliases or none',
+    )
     .option('-d, --debug', 'enable debug logging', false)
     .action(async (input: string, options: ProgramOptions) => {
       debug = options.debug;
       logger.level = debug ? 'debug' : 'warn';
 
       const destination = options.output ?? input;
-      const adapter = AdapterFactory.create(options.target);
+      const printWithBreakpoints =
+        options.printWithBreakpoints === undefined
+          ? undefined
+          : parsePrintWithBreakpoints(options.printWithBreakpoints, options.orientationBreakpoints);
+      const adapter = AdapterFactory.create(options.target, {
+        orientationBreakpoints: options.orientationBreakpoints,
+        printWithBreakpoints,
+      });
       if (options.report !== undefined) {
         validateReportPath(options.report);
       }

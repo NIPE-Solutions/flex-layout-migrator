@@ -47,7 +47,9 @@ function visibilityState(intent: VisibilityIntent, alias?: string): VisibilitySt
 }
 
 function responsiveUtility(alias: string, utility: string): string {
-  return new ResponsiveVariantEmitter().emit(definition(alias), utility);
+  const emitted = new ResponsiveVariantEmitter().emit(definition(alias), utility)[0];
+  if (!emitted) throw new Error(`Expected ${alias} to emit one responsive utility`);
+  return emitted;
 }
 
 function layoutPlan(alias: string): PlannedConversion {
@@ -101,15 +103,39 @@ describe('Tailwind CSS v4 arbitrary media variants', () => {
   test('compiles representative exact viewport ranges', async () => {
     const emitter = new ResponsiveVariantEmitter();
     const css = await compileCandidates([
-      emitter.emit(definition('gt-xs'), 'flex-col'),
-      emitter.emit(definition('lt-sm'), 'flex-col'),
-      emitter.emit(definition('sm'), 'flex-col'),
+      ...emitter.emit(definition('gt-xs'), 'flex-col'),
+      ...emitter.emit(definition('lt-sm'), 'flex-col'),
+      ...emitter.emit(definition('sm'), 'flex-col'),
     ]);
 
     expect(css).toContain('@media screen and (min-width: 600px)');
     expect(css).toContain('@media screen and (max-width: 599.98px)');
     expect(css).toContain('@media screen and (min-width: 600px) and (max-width: 959.98px)');
     expect(css).toContain('flex-direction: column');
+  });
+
+  test('compiles exact composite orientation and print variants', async () => {
+    const catalog = new BreakpointCatalog({
+      orientationBreakpoints: true,
+      printWithBreakpoints: [],
+    });
+    const handset = catalog.classify('handset');
+    const print = catalog.classify('print');
+    if (handset.kind !== 'verified' || print.kind !== 'verified') {
+      throw new Error('Expected configured orientation and print aliases');
+    }
+
+    const emitter = new ResponsiveVariantEmitter();
+    const css = await compileCandidates([
+      ...emitter.emit(handset.definition, 'flex-col'),
+      ...emitter.emit(print.definition, 'hidden'),
+    ]);
+
+    expect(css).toContain('@media (orientation: portrait) and (max-width: 599.98px)');
+    expect(css).toContain('@media (orientation: landscape) and (max-width: 959.98px)');
+    expect(css).toContain('@media print');
+    expect(css).toContain('flex-direction: column');
+    expect(css).toContain('display: none');
   });
 
   test('compiles emitted responsive class candidates and arbitrary style declarations with exact ownership', async () => {

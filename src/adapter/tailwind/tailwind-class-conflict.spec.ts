@@ -579,6 +579,21 @@ describe('findTailwindClassConflicts', () => {
     expect(findTailwindClassConflicts([xs('flex-row')], [sm('flex-col')])).toEqual(new Set());
   });
 
+  test('does not conflict when generated orientation conditions are disjoint', () => {
+    const portrait = '[@media_(orientation:_portrait)_and_(max-width:_599.98px)]:flex-row';
+    const landscape = '[@media_(orientation:_landscape)_and_(max-width:_959.98px)]:flex-col';
+
+    expect(findTailwindClassConflicts([portrait], [landscape])).toEqual(new Set());
+  });
+
+  test('keeps print ownership disjoint from screen media ownership', () => {
+    const screen = '[@media_screen_and_(min-width:_600px)]:flex-row';
+    const print = '[@media_print]:flex-col';
+
+    expect(findTailwindClassConflicts([screen], [print])).toEqual(new Set());
+    expect(findTailwindClassConflicts(['[@media_print]:flex-row'], [print])).toEqual(new Set([print]));
+  });
+
   test('returns the generated token when responsive ranges overlap', () => {
     const generated = sm('flex-col');
 

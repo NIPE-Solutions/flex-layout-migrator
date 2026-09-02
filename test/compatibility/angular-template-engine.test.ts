@@ -6,6 +6,7 @@ import type { ConversionResult } from '../../src/analyzer/conversion-result';
 import { SourceEditor } from '../../src/edit/source-editor';
 import { ConversionPlanner } from '../../src/planner/conversion-planner';
 import { AngularTemplateParser } from '../../src/template/angular-template.parser';
+import type { BreakpointMigrationConfig } from '../../src/config/breakpoint-migration-config';
 
 const fixtureDirectory = new URL('../fixtures/compatibility/', import.meta.url);
 const standardAliases = [
@@ -24,11 +25,15 @@ const standardAliases = [
   'gt-lg',
 ] as const;
 
-function migrate(source: string, fileName = 'fixture.html') {
+function migrate(
+  source: string,
+  fileName = 'fixture.html',
+  config: BreakpointMigrationConfig = { orientationBreakpoints: false },
+) {
   const parsed = new AngularTemplateParser().parse(source, fileName);
   if (parsed.status !== 'parsed') throw new Error(parsed.diagnostics.map(item => item.message).join('\n'));
   const inputs = new TemplateAnalyzer().analyze(fileName, parsed.elements);
-  const plan = new ConversionPlanner().plan(source, parsed.elements, inputs, new TailwindAdapter());
+  const plan = new ConversionPlanner().plan(source, parsed.elements, inputs, new TailwindAdapter(config));
   const edited = new SourceEditor().apply(source, plan.edits);
   if (edited.status !== 'applied') throw new Error(edited.diagnostics.map(item => item.message).join('\n'));
   return { output: edited.output, results: plan.results, editCount: plan.edits.length };
@@ -188,6 +193,25 @@ describe('Angular template engine compatibility', () => {
     expect(migrate(input).output).toBe(
       '<div data-label="a &amp; b" class="flex flex-row box-border">\r\n  {{ value | async }}\r\n</div>\r\n',
     );
+  });
+
+  test('converts configured orientation and print behavior byte-for-byte and idempotently', () => {
+    const input =
+      '<div fxLayout.handset="column"></div>\n' +
+      '<section fxLayout="row" fxLayout.md="column"></section>\n' +
+      '<main fxLayout.print="column"></main>\n';
+    const config = { orientationBreakpoints: true, printWithBreakpoints: ['md'] } as const;
+    const expected =
+      '<div class="[@media_(orientation:_portrait)_and_(max-width:_599.98px)]:flex [@media_(orientation:_landscape)_and_(max-width:_959.98px)]:flex [@media_(orientation:_portrait)_and_(max-width:_599.98px)]:flex-col [@media_(orientation:_landscape)_and_(max-width:_959.98px)]:flex-col [@media_(orientation:_portrait)_and_(max-width:_599.98px)]:box-border [@media_(orientation:_landscape)_and_(max-width:_959.98px)]:box-border"></div>\n' +
+      '<section class="flex flex-row box-border [@media_screen_and_(min-width:_960px)_and_(max-width:_1279.98px)]:flex [@media_screen_and_(min-width:_960px)_and_(max-width:_1279.98px)]:flex-col [@media_screen_and_(min-width:_960px)_and_(max-width:_1279.98px)]:box-border [@media_print]:flex [@media_print]:flex-col [@media_print]:box-border"></section>\n' +
+      '<main class="[@media_print]:flex [@media_print]:flex-col [@media_print]:box-border"></main>\n';
+
+    const first = migrate(input, 'orientation-print.html', config);
+    expect(first.output).toBe(expected);
+    expect(first.results.every(result => result.status === 'converted')).toBe(true);
+    const second = migrate(first.output, 'orientation-print.html', config);
+    expect(second.output).toBe(expected);
+    expect(second.editCount).toBe(0);
   });
 
   test('emits the same canonical responsive family for equivalent attribute orders', () => {

@@ -72,6 +72,18 @@ Literal Grid containers and children use compiler-verified arbitrary properties 
 <section class="grid [grid-template-columns:12rem_1fr] [grid-gap:1rem]"><div class="[grid-column:2]"></div></section>
 ```
 
+Orientation and print conversion require explicit source-configuration evidence. These flags assert settings you have already verified in the Angular application's Flex-Layout configuration; the codemod does not discover them:
+
+```bash
+# Source uses addOrientationBps: true and printWithBreakpoints: ['md', 'handset']
+npx flex-layout-codemod ./src --orientation-breakpoints --print-with-breakpoints md,handset
+
+# Source explicitly uses printWithBreakpoints: []
+npx flex-layout-codemod ./src --print-with-breakpoints none
+```
+
+With orientation enabled, all nine archived aliases are available: `handset`, `handset.portrait`, `handset.landscape`, `tablet`, `tablet.portrait`, `tablet.landscape`, `web`, `web.portrait`, and `web.landscape`. Print conversion reproduces configured responsive fallback values, while an explicit `.print` value takes precedence.
+
 This fixture is intentionally preserved because the value is a runtime Angular expression. The report records a `dynamic-binding` review diagnostic and the source remains unchanged:
 
 ```html
@@ -100,7 +112,7 @@ npx flex-layout-codemod ./src --dry-run --report ./reports/flex-layout.json --al
 
 ## Known boundaries
 
-This beta has a Tailwind CSS v4 target only; a native CSS target is not available. Literal Grid directives have limited conversion support; responsive `imgSrc` remains unchanged. Orientation, print, and custom breakpoint aliases remain preserved for review. See [docs/compatibility.md](docs/compatibility.md) for exact supported forms and diagnostic codes before planning a large migration.
+This beta has a Tailwind CSS v4 target only; a native CSS target is not available. Literal Grid directives have limited conversion support; responsive `imgSrc` remains unchanged. Orientation and print conversion require explicit source-configuration evidence; custom breakpoint aliases remain preserved for review. See [docs/compatibility.md](docs/compatibility.md) for exact supported forms and diagnostic codes before planning a large migration.
 
 The codemod does not inspect project styles, Tailwind configuration, Sass, Less, or CSS, and it does not generate a companion stylesheet. Dynamic Angular bindings are not evaluated.
 
