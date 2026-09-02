@@ -182,7 +182,7 @@ function atMediaHeaders(text: string): readonly string[] {
       index += 2;
       continue;
     }
-    if (!text.startsWith('@media', index) || /[\w-]/u.test(text[index + 6] ?? '')) continue;
+    if (text.slice(index, index + 6).toLowerCase() !== '@media' || /[\w-]/u.test(text[index + 6] ?? '')) continue;
 
     const headerStart = index + 6;
     let depth = 0;

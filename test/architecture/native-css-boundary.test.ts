@@ -274,6 +274,7 @@ describe('native CSS architecture boundary', () => {
     ['const condition = `(min-width: ${600}px)`;', [600]],
     ['const condition = `${prefix}(min-width: 600px) and (max-width: 959.98px)${suffix}`;', [600, 959.98]],
     ['const stylesheet = `@media screen and (min-width: 600px) { ${rules} }`;', [600]],
+    ['const stylesheet = `@MEDIA screen and (min-width: 600px) { ${rules} }`;', [600]],
   ])('rejects duplicated standard breakpoints in media syntax: %s', (source, expected) => {
     expect(inspectTypeScript(source, fixturePath).breakpointMediaValues).toEqual(expected);
   });
