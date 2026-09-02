@@ -263,9 +263,28 @@ describe('runCli', () => {
 
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain('--report <path>');
-    expect(result.stdout).toContain('path must end in .json');
-    expect(result.stdout.replace(/\s+/g, ' ')).toContain('single-file output must end in .html');
+    const normalizedOutput = result.stdout.replace(/\s+/g, ' ');
+    expect(normalizedOutput).toContain('path must end in .json');
+    expect(normalizedOutput).toContain('single-file output must end in .html');
     expect(result.stderr).toBe('');
+  });
+
+  test('documents project-aware breakpoint options in help output', async () => {
+    const result = await run(['--help']);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('--orientation-breakpoints');
+    expect(result.stdout).toContain('--print-with-breakpoints <aliases>');
+  });
+
+  test('rejects invalid print breakpoint configuration before reading input', async () => {
+    const input = join(temporaryDirectory, 'missing.html');
+
+    const result = await run([input, '--print-with-breakpoints', 'handset']);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain('requires --orientation-breakpoints');
+    await expect(access(input)).rejects.toThrow();
   });
 
   test('creates a missing output directory when a changed template is written', async () => {

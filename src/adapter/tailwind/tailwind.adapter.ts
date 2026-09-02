@@ -28,6 +28,7 @@ import { TailwindCandidateClassifier } from './extended/tailwind-candidate-class
 import { GeneratedPropertyCompositionPlanner } from './extended/generated-property-composition.planner';
 import { parseGridValue } from '../../grid/grid-value.parser';
 import { TailwindGridRenderer } from './grid/tailwind-grid.renderer';
+import type { BreakpointMigrationConfig } from '../../config/breakpoint-migration-config';
 
 const flexItemDirectives = new Set<LocatedFlexLayoutInput['directive']>(['fxFlex', 'fxGrow', 'fxShrink']);
 const visibilityDirectives = new Set<LocatedFlexLayoutInput['directive']>(['fxShow', 'fxHide']);
@@ -192,6 +193,8 @@ function equalStyleValues(left: ResponsiveStyleValue, right: ResponsiveStyleValu
 
 export class TailwindAdapter implements ConversionAdapter {
   readonly name = 'tailwind' as const;
+  constructor(_config: BreakpointMigrationConfig = { orientationBreakpoints: false }) {}
+
   private readonly breakpointCatalog = new BreakpointCatalog();
   private readonly responsiveEmitter = new ResponsiveVariantEmitter();
   private readonly responsiveFamilyPlanner = new ResponsiveFamilyPlanner(
