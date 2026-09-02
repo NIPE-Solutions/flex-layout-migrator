@@ -148,13 +148,7 @@ function standaloneMediaQuery(text: string): boolean {
   for (const token of [...outerTokens].sort((left, right) => right.start - left.start)) {
     scaffold = scaffold.slice(0, token.start) + '()' + scaffold.slice(token.end);
   }
-  return (
-    scaffold
-      .replaceAll('${}', '')
-      .replace(/@media\b/giu, '')
-      .replace(/\b(?:only|not|all|screen|print|speech|and|or)\b/giu, '')
-      .replace(/\(\)|[\s,]/gu, '') === ''
-  );
+  return /^(?:(?:\$\{\})|@media\b|\b(?:only|not|all|screen|print|speech|and|or)\b|\(\)|[\s,])*$/iu.test(scaffold);
 }
 
 function atMediaHeaders(text: string): readonly string[] {

@@ -17,6 +17,7 @@ const atomicFileWriterPath = join(productionRoot, 'lib', 'atomic-file.writer.ts'
 const jsonReportWriterPath = join(productionRoot, 'report', 'json-report.writer.ts');
 const fixturePath = join(productionRoot, 'fixture.ts');
 const projectFixtureRoot = join(productionRoot, '__architecture-fixture__');
+const wholeProjectInspectionTimeout = 20_000;
 
 const forbiddenMigratorCalls = new Set(['rename', 'unlink', 'writeFile']);
 const atomicFileWriterModule = /(?:^|\/)atomic-file\.writer(?:\.[cm]?[jt]s)?$/u;
@@ -128,13 +129,19 @@ describe('migration transaction architecture boundary', () => {
     expect(forbiddenMigratorMutation(commentsOnly)).toBeUndefined();
   });
 
-  test('makes the transaction the sole coordinated project-output mutation authority', () => {
-    const findings = inspectTypeScriptProject(productionTypeScriptFiles(productionRoot)).filesystemMutationCalls.filter(
-      finding => !finding.sourcePath.startsWith(`${transactionRoot}/`) && finding.sourcePath !== atomicFileWriterPath,
-    );
+  test(
+    'makes the transaction the sole coordinated project-output mutation authority',
+    () => {
+      const findings = inspectTypeScriptProject(
+        productionTypeScriptFiles(productionRoot),
+      ).filesystemMutationCalls.filter(
+        finding => !finding.sourcePath.startsWith(`${transactionRoot}/`) && finding.sourcePath !== atomicFileWriterPath,
+      );
 
-    expect(findings).toEqual([]);
-  });
+      expect(findings).toEqual([]);
+    },
+    wholeProjectInspectionTimeout,
+  );
 
   test('keeps FileMigrator and FolderMigrator free of direct writes and AtomicFileWriter usage', () => {
     for (const fileName of ['file.migrator.ts', 'folder.migrator.ts']) {
@@ -156,9 +163,13 @@ describe('migration transaction architecture boundary', () => {
     expect(consumers).toEqual([jsonReportWriterPath]);
   });
 
-  test('keeps stylesheet and report paths out of adapter inputs', () => {
-    expect(inspectTypeScriptProject(productionTypeScriptFiles(adapterRoot)).adapterPathInputs).toEqual([]);
-  });
+  test(
+    'keeps stylesheet and report paths out of adapter inputs',
+    () => {
+      expect(inspectTypeScriptProject(productionTypeScriptFiles(adapterRoot)).adapterPathInputs).toEqual([]);
+    },
+    wholeProjectInspectionTimeout,
+  );
 
   test('does not confuse declarations with mutation calls', () => {
     const source = `
