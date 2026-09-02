@@ -59,7 +59,13 @@ export function inspectTypeScript(source: string, sourcePath: string): TypeScrip
       );
     }
 
-    if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) {
+    if (
+      ts.isImportTypeNode(node) &&
+      ts.isLiteralTypeNode(node.argument) &&
+      ts.isStringLiteralLike(node.argument.literal)
+    ) {
+      moduleReferences.push(node.argument.literal.text);
+    } else if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) {
       const reference = moduleText(node.moduleSpecifier);
       if (reference !== undefined) moduleReferences.push(reference);
     } else if (ts.isImportEqualsDeclaration(node) && ts.isExternalModuleReference(node.moduleReference)) {
