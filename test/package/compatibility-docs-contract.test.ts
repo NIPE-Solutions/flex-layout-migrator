@@ -28,6 +28,10 @@ function tableCells(row: string): string[] | undefined {
     .map(cell => cell.trim());
 }
 
+function hasFiveNonemptyCells(cells: string[] | undefined): cells is [string, string, string, string, string] {
+  return cells !== undefined && cells.length === 5 && cells.every(cell => cell.length > 0);
+}
+
 function parseCompatibilityRows(markdown: string) {
   const start = markdown.indexOf(startMarker);
   if (start === -1) throw new Error('Missing compatibility inventory start marker');
@@ -61,7 +65,7 @@ function parseCompatibilityRows(markdown: string) {
   const directives = new Set<string>();
   return dataRows.map((row, index) => {
     const cells = tableCells(row);
-    if (!cells || cells.length !== 5 || cells.some(cell => cell.length === 0)) {
+    if (!hasFiveNonemptyCells(cells)) {
       throw new Error(`Malformed compatibility inventory row ${index + 1}`);
     }
 
