@@ -56,7 +56,7 @@ describe('packaged CLI execution', () => {
     const output = join(temporaryDirectory, 'output.html');
     await writeFile(input, '<div fxLayout="row"></div>', 'utf8');
 
-    const result = await execute([input, '--output', output]);
+    const result = await execute([input, '--output', output, '--write']);
 
     expect(result).toMatchObject({ status: 0, stderr: '' });
     expect(result.stdout).toContain('1 files scanned, 1 changed');
@@ -69,7 +69,7 @@ describe('packaged CLI execution', () => {
     const stylesheet = join(temporaryDirectory, 'flex-layout-migration.css');
     await writeFile(input, '<div fxLayout="row"></div>', 'utf8');
 
-    const result = await execute([input, '--output', output, '--target', 'css', '--stylesheet', stylesheet]);
+    const result = await execute([input, '--output', output, '--target', 'css', '--stylesheet', stylesheet, '--write']);
 
     expect(result).toMatchObject({ status: 0, stderr: '' });
     expect(result.stdout).toContain('Stylesheet: created flex-layout-migration.css');
@@ -96,7 +96,7 @@ describe('packaged CLI execution', () => {
     const input = join(temporaryDirectory, 'input.html');
     await writeFile(input, '<div [fxFlex]="basis"></div>', 'utf8');
 
-    const result = await execute([input, '--dry-run']);
+    const result = await execute([input]);
 
     expect(result).toMatchObject({ status: 2, stderr: '' });
     expect(result.stdout).toContain('Review 1');
@@ -107,12 +107,14 @@ describe('packaged CLI execution', () => {
   test('documents and executes the packaged responsive image opt-in', async () => {
     const help = await execute(['--help']);
     expect(help.stdout).toContain('--responsive-images');
+    expect(help.stdout).toContain('--write');
+    expect(help.stdout).not.toContain('--dry-run');
 
     const input = join(temporaryDirectory, 'input.html');
     const output = join(temporaryDirectory, 'output.html');
     await writeFile(input, '<img src="base.png" src.sm="small.png">', 'utf8');
 
-    const result = await execute([input, '--output', output, '--responsive-images']);
+    const result = await execute([input, '--output', output, '--responsive-images', '--write']);
 
     expect(result).toMatchObject({ status: 0, stderr: '' });
     expect(await readFile(output, 'utf8')).toContain('<picture>');

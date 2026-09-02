@@ -11,11 +11,12 @@ import { resolveExitCode } from './exit-policy';
 import { validateReportPath } from './report-path.validator';
 import { parsePrintWithBreakpoints } from '../config/breakpoint-migration-config';
 import { validateStylesheetPath } from './stylesheet-path.validator';
+import { resolveMigrationMode } from './migration-mode.parser';
 
 interface ProgramOptions {
   readonly output?: string;
   readonly target: string;
-  readonly dryRun: boolean;
+  readonly write: boolean;
   readonly report?: string;
   readonly stylesheet?: string;
   readonly allowUnresolved: boolean;
@@ -69,7 +70,7 @@ export async function runCli(argv: readonly string[], output: CliOutput = proces
         parseSingleStylesheet,
       ),
     )
-    .option('--dry-run', 'analyze and plan without writing templates or stylesheet', false)
+    .option('--write', 'apply the validated migration plan', false)
     .option('--report <path>', 'atomically write a JSON report; path must end in .json')
     .option('--allow-unresolved', 'return success when unresolved inputs remain', false)
     .option('--orientation-breakpoints', 'confirm the source enables the archived orientation breakpoints', false)
@@ -84,6 +85,7 @@ export async function runCli(argv: readonly string[], output: CliOutput = proces
     )
     .option('-d, --debug', 'enable debug logging', false)
     .action(async (input: string, options: ProgramOptions) => {
+      const mode = resolveMigrationMode(argv, options.write);
       debug = options.debug;
       logger.level = debug ? 'debug' : 'warn';
 
@@ -109,7 +111,7 @@ export async function runCli(argv: readonly string[], output: CliOutput = proces
         printWithBreakpoints,
       });
       const report = await new Migrator(session, input, destination).migrate({
-        dryRun: options.dryRun,
+        mode,
         responsiveImages: options.responsiveImages,
         stylesheetPath,
         reportPath,
@@ -127,6 +129,7 @@ export async function runCli(argv: readonly string[], output: CliOutput = proces
     });
 
   try {
+    resolveMigrationMode(argv, false);
     await program.parseAsync([...argv]);
     return exitCode;
   } catch (error: unknown) {

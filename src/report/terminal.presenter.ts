@@ -66,7 +66,7 @@ export class TerminalPresenter {
             return assertNever(application.reason, 'migration application reason');
         }
       default:
-        return assertNever(application.status, 'migration application status');
+        return assertNever(application, 'migration application');
     }
   }
 

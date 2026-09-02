@@ -37,7 +37,7 @@ describe('runCli', () => {
     return { exitCode, stdout: stdout.text, stderr: stderr.text };
   }
 
-  test('returns zero and writes a clean static migration', async () => {
+  test('defaults a clean Tailwind migration to a plan without creating its output', async () => {
     const input = join(temporaryDirectory, 'input.html');
     const output = join(temporaryDirectory, 'output.html');
     await writeFile(input, '<div fxLayout="column" fxLayoutGap="4"></div>', 'utf8');
@@ -46,7 +46,24 @@ describe('runCli', () => {
 
     expect(result).toEqual({
       exitCode: 0,
-      stdout: '1 files scanned, 1 changed\nConverted 2 | Review 0 | Unsupported 0 | Invalid 0 | Parse errors 0\n',
+      stdout:
+        'Plan: 1 files scanned, 1 would change\nConverted 2 | Review 0 | Unsupported 0 | Invalid 0 | Parse errors 0\nNo project files were written. Run again with --write to apply this plan.\n',
+      stderr: '',
+    });
+    await expect(access(output)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  test('--write applies a clean Tailwind migration', async () => {
+    const input = join(temporaryDirectory, 'input.html');
+    const output = join(temporaryDirectory, 'output.html');
+    await writeFile(input, '<div fxLayout="column" fxLayoutGap="4"></div>', 'utf8');
+
+    const result = await run([input, '--output', output, '--write']);
+
+    expect(result).toEqual({
+      exitCode: 0,
+      stdout:
+        'Applied: 1 files scanned, 1 changed\nConverted 2 | Review 0 | Unsupported 0 | Invalid 0 | Parse errors 0\n',
       stderr: '',
     });
     expect(await readFile(output, 'utf8')).toBe('<div class="flex flex-col box-border gap-[4px]"></div>');
@@ -56,7 +73,7 @@ describe('runCli', () => {
     const input = join(temporaryDirectory, 'input.html');
     await writeFile(input, '<div [fxFlex]="basis"></div>', 'utf8');
 
-    const result = await run([input, '--dry-run']);
+    const result = await run([input]);
 
     expect(result.exitCode).toBe(2);
     expect(result.stdout).toContain('Review 1');
@@ -68,8 +85,8 @@ describe('runCli', () => {
     const input = join(temporaryDirectory, 'input.html');
     await writeFile(input, '<div [fxFlex]="basis"></div>', 'utf8');
 
-    const strict = await run([input, '--dry-run']);
-    const allowed = await run([input, '--dry-run', '--allow-unresolved']);
+    const strict = await run([input]);
+    const allowed = await run([input, '--allow-unresolved']);
 
     expect(allowed.exitCode).toBe(0);
     expect(allowed.stdout).toBe(strict.stdout);
@@ -81,7 +98,7 @@ describe('runCli', () => {
     const output = join(temporaryDirectory, 'output.html');
     await writeFile(input, '<span fxLayout="row" />', 'utf8');
 
-    const result = await run([input, '--output', output]);
+    const result = await run([input, '--output', output, '--write']);
 
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toContain('Parse errors 1');
@@ -89,32 +106,36 @@ describe('runCli', () => {
     await expect(access(output)).rejects.toThrow();
   });
 
-  test('dry-run reports a change without creating template output', async () => {
+  test('plan mode reports a change without creating template output', async () => {
     const input = join(temporaryDirectory, 'input.html');
     const output = join(temporaryDirectory, 'missing', 'output.html');
     await writeFile(input, '<div fxLayout="row"></div>', 'utf8');
 
-    const result = await run([input, '--output', output, '--dry-run']);
+    const result = await run([input, '--output', output]);
 
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain('Dry run: 1 files scanned, 1 would change');
+    expect(result.stdout).toContain('Plan: 1 files scanned, 1 would change');
     await expect(access(output)).rejects.toThrow();
   });
 
-  test('writes a versioned JSON report during dry-run', async () => {
+  test('writes a schema-2 JSON report during plan mode without creating project output', async () => {
     const input = join(temporaryDirectory, 'input.html');
     const output = join(temporaryDirectory, 'missing-output', 'output.html');
     const reportPath = join(temporaryDirectory, 'missing-reports', 'report.json');
     await writeFile(input, '<div fxLayout="row"></div>', 'utf8');
 
-    const result = await run([input, '--output', output, '--dry-run', '--report', reportPath]);
+    const result = await run([input, '--output', output, '--report', reportPath]);
 
     expect(result.exitCode).toBe(0);
-    expect(JSON.parse(await readFile(reportPath, 'utf8'))).toMatchObject({ schemaVersion: 1, dryRun: true });
+    expect(JSON.parse(await readFile(reportPath, 'utf8'))).toMatchObject({
+      schemaVersion: 2,
+      mode: 'plan',
+      application: { status: 'skipped', reason: 'plan-only' },
+    });
     await expect(access(output)).rejects.toThrow();
   });
 
-  test('plans a CSS template and stylesheet during dry-run without creating either output', async () => {
+  test('defaults CSS migration to a plan without creating its template or stylesheet output', async () => {
     const input = join(temporaryDirectory, 'input.html');
     const output = join(temporaryDirectory, 'generated', 'output.html');
     const stylesheet = join(temporaryDirectory, 'flex-layout-migration.css');
@@ -129,18 +150,18 @@ describe('runCli', () => {
       'css',
       '--stylesheet',
       stylesheet,
-      '--dry-run',
       '--report',
       reportPath,
     ]);
 
     expect(result).toMatchObject({ exitCode: 0, stderr: '' });
-    expect(result.stdout).toContain('Dry run: 1 files scanned, 1 would change');
+    expect(result.stdout).toContain('Plan: 1 files scanned, 1 would change');
     expect(result.stdout).toContain('Stylesheet: would create flex-layout-migration.css');
     expect(JSON.parse(await readFile(reportPath, 'utf8'))).toMatchObject({
-      schemaVersion: 1,
+      schemaVersion: 2,
       target: 'css',
-      dryRun: true,
+      mode: 'plan',
+      application: { status: 'skipped', reason: 'plan-only' },
       summary: { filesScanned: 1, filesChanged: 1, converted: 1 },
       stylesheet: { path: 'flex-layout-migration.css', change: 'created' },
     });
@@ -154,7 +175,7 @@ describe('runCli', () => {
     const stylesheet = join(temporaryDirectory, 'flex-layout-migration.css');
     await writeFile(input, '<div fxLayout="row"></div>', 'utf8');
 
-    const result = await run([input, '--output', output, '--target', 'css', '--stylesheet', stylesheet]);
+    const result = await run([input, '--output', output, '--target', 'css', '--stylesheet', stylesheet, '--write']);
 
     expect(result).toMatchObject({ exitCode: 0, stderr: '' });
     expect(result.stdout).toContain('Stylesheet: created flex-layout-migration.css');
@@ -197,7 +218,7 @@ describe('runCli', () => {
     const stylesheet = join(temporaryDirectory, 'flex-layout-migration.css');
     await writeFile(input, '<div class="card"></div>', 'utf8');
 
-    const result = await run([input, '--output', output, '--target', 'css', '--stylesheet', stylesheet]);
+    const result = await run([input, '--output', output, '--target', 'css', '--stylesheet', stylesheet, '--write']);
 
     expect(result).toMatchObject({ exitCode: 0, stderr: '' });
     expect(result.stdout).toContain('Stylesheet: unchanged flex-layout-migration.css');
@@ -212,12 +233,12 @@ describe('runCli', () => {
     await mkdir(input);
     await writeFile(template, '<div fxLayout="row"></div>', 'utf8');
 
-    const first = await run([input, '--target', 'css', '--stylesheet', stylesheet]);
+    const first = await run([input, '--target', 'css', '--stylesheet', stylesheet, '--write']);
     expect(first).toMatchObject({ exitCode: 0, stderr: '' });
     const firstTemplate = await readFile(template, 'utf8');
     const firstStylesheet = await readFile(stylesheet, 'utf8');
 
-    const rerun = await run([input, '--target', 'css', '--stylesheet', stylesheet]);
+    const rerun = await run([input, '--target', 'css', '--stylesheet', stylesheet, '--write']);
 
     expect(rerun).toMatchObject({ exitCode: 0, stderr: '' });
     expect(rerun.stdout).toContain('1 files scanned, 0 changed');
@@ -245,14 +266,17 @@ describe('runCli', () => {
       stylesheet,
       '--report',
       reportPath,
+      '--write',
     ]);
 
     expect(result.exitCode).toBe(1);
     expect(result.stdout).toBe('');
-    expect(result.stderr).toContain('Application skipped: 2 files scanned, 1 planned change');
+    expect(result.stderr).toContain('Write: 2 files scanned, 1 would change');
     expect(result.stderr).toContain('Stylesheet: would create ../flex-layout-migration.css');
     expect(result.stderr).not.toContain('Stylesheet: created');
     expect(JSON.parse(await readFile(reportPath, 'utf8'))).toMatchObject({
+      schemaVersion: 2,
+      mode: 'write',
       target: 'css',
       application: { status: 'skipped', reason: 'parse-errors' },
       summary: { filesScanned: 2, filesChanged: 1, parseErrors: 1 },
@@ -398,7 +422,6 @@ describe('runCli', () => {
       stylesheet,
       '--report',
       reportPath,
-      '--dry-run',
     ]);
 
     expect(result.exitCode).toBe(1);
@@ -430,7 +453,6 @@ describe('runCli', () => {
       stylesheet,
       '--report',
       reportPath,
-      '--dry-run',
     ]);
 
     expect(result.exitCode).toBe(1);
@@ -519,7 +541,7 @@ describe('runCli', () => {
     const source = '<div fxLayout="row"></div>';
     await writeFile(input, source, 'utf8');
 
-    const result = await run([input, '--output', output]);
+    const result = await run([input, '--output', output, '--write']);
 
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toContain('Single-file output path must have a .html extension');
@@ -532,20 +554,22 @@ describe('runCli', () => {
     const output = join(temporaryDirectory, 'result.HTML');
     await writeFile(input, '<div fxLayout="row"></div>', 'utf8');
 
-    const result = await run([input, '--output', output]);
+    const result = await run([input, '--output', output, '--write']);
 
     expect(result.exitCode).toBe(0);
     expect(await readFile(output, 'utf8')).toBe('<div class="flex flex-row box-border"></div>');
   });
 
-  test('retains default in-place output for a single file', async () => {
+  test('retains the input bytes during a default in-place plan', async () => {
     const input = join(temporaryDirectory, 'input.html');
-    await writeFile(input, '<div fxLayout="row"></div>', 'utf8');
+    const source = '<div fxLayout="row"></div>';
+    await writeFile(input, source, 'utf8');
 
     const result = await run([input]);
 
     expect(result.exitCode).toBe(0);
-    expect(await readFile(input, 'utf8')).toBe('<div class="flex flex-row box-border"></div>');
+    expect(result.stdout).toContain('Plan: 1 files scanned, 1 would change');
+    expect(await readFile(input, 'utf8')).toBe(source);
   });
 
   test('treats a folder output as a directory regardless of its suffix', async () => {
@@ -554,7 +578,7 @@ describe('runCli', () => {
     await mkdir(input);
     await writeFile(join(input, 'card.html'), '<div fxLayout="row"></div>', 'utf8');
 
-    const result = await run([input, '--output', output]);
+    const result = await run([input, '--output', output, '--write']);
 
     expect(result.exitCode).toBe(0);
     expect(await readFile(join(output, 'card.html'), 'utf8')).toBe('<div class="flex flex-row box-border"></div>');
@@ -593,10 +617,14 @@ describe('runCli', () => {
     const reportRoot = reportTree === 'input' ? input : output;
     const reportPath = join(reportRoot, 'reports', reportName);
 
-    const result = await run([input, '--output', output, '--dry-run', '--report', reportPath]);
+    const result = await run([input, '--output', output, '--report', reportPath]);
 
     expect(result.exitCode).toBe(0);
-    expect(JSON.parse(await readFile(reportPath, 'utf8'))).toMatchObject({ schemaVersion: 1, dryRun: true });
+    expect(JSON.parse(await readFile(reportPath, 'utf8'))).toMatchObject({
+      schemaVersion: 2,
+      mode: 'plan',
+      application: { status: 'skipped', reason: 'plan-only' },
+    });
     expect(await readFile(template, 'utf8')).toBe(source);
     await expect(access(join(output, 'card.html'))).rejects.toThrow();
   });
@@ -606,7 +634,7 @@ describe('runCli', () => {
     const source = '<div fxLayout="row"></div>';
     await writeFile(input, source, 'utf8');
 
-    const result = await run([input, '--dry-run', '--report', '']);
+    const result = await run([input, '--report', '']);
 
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toContain('Report path must not be empty');
@@ -660,6 +688,41 @@ describe('runCli', () => {
     expect(result.stderr).toBe('');
   });
 
+  test('documents explicit write authorization without advertising the obsolete dry-run option', async () => {
+    const result = await run(['--help']);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('--write');
+    expect(result.stdout).toContain('apply the validated migration plan');
+    expect(result.stdout).not.toContain('--dry-run');
+    expect(result.stderr).toBe('');
+  });
+
+  test.each(['--dry-run', '--dry-run=true'])('%s fails before input discovery or report writing', async option => {
+    const missingInput = join(temporaryDirectory, 'missing.html');
+    const reportPath = join(temporaryDirectory, 'reports', 'report.json');
+
+    const result = await run([missingInput, option, '--report', reportPath]);
+
+    expect(result).toEqual({
+      exitCode: 1,
+      stdout: '',
+      stderr: 'Error: Planning is now the default. Remove --dry-run; use --write to apply changes.\n',
+    });
+    await expect(access(missingInput)).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(access(reportPath)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  test('allows an input filename containing the dry-run substring', async () => {
+    const input = join(temporaryDirectory, 'component--dry-run.html');
+    await writeFile(input, '<div fxLayout="row"></div>', 'utf8');
+
+    const result = await run([input]);
+
+    expect(result).toMatchObject({ exitCode: 0, stderr: '' });
+    expect(result.stdout).toContain('Plan: 1 files scanned, 1 would change');
+  });
+
   test('documents project-aware breakpoint options in help output', async () => {
     const result = await run(['--help']);
 
@@ -682,28 +745,30 @@ describe('runCli', () => {
     expect(await readFile(input, 'utf8')).toBe(source);
   });
 
-  test('converts responsive images only with explicit acknowledgement and reports their location', async () => {
+  test('writes responsive image output only with acknowledgement and write authorization', async () => {
     const input = join(temporaryDirectory, 'input.html');
     const output = join(temporaryDirectory, 'output.html');
     const report = join(temporaryDirectory, 'report.json');
     await writeFile(input, '<img src="base.png" src.sm="small.png">', 'utf8');
 
-    const result = await run([input, '--output', output, '--responsive-images', '--report', report]);
+    const result = await run([input, '--output', output, '--responsive-images', '--report', report, '--write']);
 
     expect(result.exitCode).toBe(0);
     expect(await readFile(output, 'utf8')).toContain('<picture>');
     expect(JSON.parse(await readFile(report, 'utf8'))).toMatchObject({
-      schemaVersion: 1,
+      schemaVersion: 2,
+      mode: 'write',
+      application: { status: 'applied' },
       files: [{ results: [{ status: 'converted', directive: 'imgSrc', sourceName: 'src.sm', offset: 20 }] }],
     });
   });
 
-  test('plans responsive image output without writing during dry-run', async () => {
+  test('plans responsive image output without writing by default', async () => {
     const input = join(temporaryDirectory, 'input.html');
     const output = join(temporaryDirectory, 'output.html');
     await writeFile(input, '<img src.sm="small.png">', 'utf8');
 
-    const result = await run([input, '--output', output, '--responsive-images', '--dry-run']);
+    const result = await run([input, '--output', output, '--responsive-images']);
 
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain('1 would change');
@@ -732,6 +797,7 @@ describe('runCli', () => {
       '--orientation-breakpoints',
       '--print-with-breakpoints',
       'md',
+      '--write',
     ]);
 
     expect(result.exitCode).toBe(0);
@@ -745,14 +811,14 @@ describe('runCli', () => {
     const output = join(temporaryDirectory, 'new', 'nested', 'output.html');
     await writeFile(input, '<div fxLayout="row"></div>', 'utf8');
 
-    const result = await run([input, '--output', output]);
+    const result = await run([input, '--output', output, '--write']);
 
     expect(result.exitCode).toBe(0);
     expect(await readFile(output, 'utf8')).toBe('<div class="flex flex-row box-border"></div>');
   });
 
   test.each([
-    ['a missing input', () => join(temporaryDirectory, 'missing.html'), ['--dry-run'], 'ENOENT'],
+    ['a missing input', () => join(temporaryDirectory, 'missing.html'), [], 'ENOENT'],
     ['an invalid target', () => join(temporaryDirectory, 'input.html'), ['--target', 'sass'], 'Allowed choices'],
   ])('returns one on %s without terminating the process', async (_name, inputPath, arguments_, expectedError) => {
     const input = inputPath();
