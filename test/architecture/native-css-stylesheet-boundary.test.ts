@@ -2,7 +2,12 @@ import { existsSync, readFileSync } from 'node:fs';
 import { basename, dirname, join, relative, resolve } from 'node:path';
 import ts from 'typescript';
 
-import { inspectTypeScript, productionTypeScriptFiles, type TypeScriptInspection } from './typescript-boundary';
+import {
+  inspectTypeScript,
+  productionTypeScriptFiles,
+  runtimeModuleReferences,
+  type TypeScriptInspection,
+} from './typescript-boundary';
 
 const stylesheetRoot = join(process.cwd(), 'src', 'adapter', 'css', 'stylesheet');
 const fixturePath = join(stylesheetRoot, 'fixture.ts');
@@ -34,72 +39,13 @@ function sourceFile(source: string, sourcePath: string): ts.SourceFile {
   return ts.createSourceFile(sourcePath, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
 }
 
-function runtimeBreakpointCatalogDependency(source: string, sourcePath: string): string | undefined {
-  let match: string | undefined;
-
-  function visit(node: ts.Node): void {
-    if (match !== undefined) return;
-    if (
-      ts.isImportDeclaration(node) &&
-      ts.isStringLiteralLike(node.moduleSpecifier) &&
-      breakpointCatalogModule.test(node.moduleSpecifier.text) &&
-      !node.importClause?.isTypeOnly
-    ) {
-      match = node.moduleSpecifier.text;
-      return;
-    }
-    if (ts.isCallExpression(node)) {
-      const argument = node.arguments[0];
-      if (
-        argument !== undefined &&
-        (node.expression.kind === ts.SyntaxKind.ImportKeyword ||
-          (ts.isIdentifier(node.expression) && node.expression.text === 'require')) &&
-        ts.isStringLiteralLike(argument) &&
-        breakpointCatalogModule.test(argument.text)
-      ) {
-        match = argument.text;
-        return;
-      }
-    }
-    if (ts.isExportDeclaration(node)) {
-      const moduleSpecifier = node.moduleSpecifier;
-      if (
-        moduleSpecifier !== undefined &&
-        ts.isStringLiteralLike(moduleSpecifier) &&
-        breakpointCatalogModule.test(moduleSpecifier.text)
-      ) {
-        match = moduleSpecifier.text;
-        return;
-      }
-    }
-    ts.forEachChild(node, visit);
-  }
-
-  visit(sourceFile(source, sourcePath));
-  return match;
-}
-
 function runtimeLocalDependencies(source: string, sourcePath: string): readonly string[] {
-  const dependencies: string[] = [];
-  const sourceFile = ts.createSourceFile(sourcePath, source, ts.ScriptTarget.Latest, false, ts.ScriptKind.TS);
-
-  for (const statement of sourceFile.statements) {
-    if (!ts.isImportDeclaration(statement) || !ts.isStringLiteralLike(statement.moduleSpecifier)) continue;
-    const clause = statement.importClause;
-    const hasRuntimeBinding =
-      clause !== undefined &&
-      !clause.isTypeOnly &&
-      (clause.name !== undefined ||
-        (clause.namedBindings !== undefined &&
-          (!ts.isNamedImports(clause.namedBindings) ||
-            clause.namedBindings.elements.some(element => !element.isTypeOnly))));
-    if (!hasRuntimeBinding || !statement.moduleSpecifier.text.startsWith('.')) continue;
-
-    const base = resolve(dirname(sourcePath), statement.moduleSpecifier.text);
+  return runtimeModuleReferences(source, sourcePath).flatMap(reference => {
+    if (!reference.startsWith('.')) return [];
+    const base = resolve(dirname(sourcePath), reference);
     const target = [`${base}.ts`, join(base, 'index.ts')].find(candidate => existsSync(candidate));
-    if (target !== undefined) dependencies.push(target);
-  }
-  return dependencies;
+    return target === undefined ? [] : [target];
+  });
 }
 
 function runtimeDependencyClosure(entry: string): readonly string[] {
@@ -201,24 +147,48 @@ describe('native CSS stylesheet architecture boundary', () => {
   ])('rejects the %s dependency mutation', (_label, source) => {
     expect(
       forbiddenDependency(inspectTypeScript(source, fixturePath)) ??
-        runtimeBreakpointCatalogDependency(source, fixturePath),
+        runtimeModuleReferences(source, fixturePath).find(reference => breakpointCatalogModule.test(reference)),
     ).toBeDefined();
   });
 
   test('keeps stylesheet runtime production code independent from the breakpoint catalog', () => {
     for (const path of productionTypeScriptFiles(stylesheetRoot)) {
       expect(
-        runtimeBreakpointCatalogDependency(readFileSync(path, 'utf8'), path),
+        runtimeModuleReferences(readFileSync(path, 'utf8'), path).find(reference =>
+          breakpointCatalogModule.test(reference),
+        ),
         relative(process.cwd(), path),
       ).toBeUndefined();
     }
   });
 
-  test('keeps the merger transitive runtime dependency graph independent from the breakpoint catalog', () => {
-    const mergerPath = join(stylesheetRoot, 'owned-stylesheet.merger.ts');
-    expect(runtimeDependencyClosure(mergerPath)).not.toContain(
-      join(process.cwd(), 'src', 'breakpoint', 'breakpoint-catalog.ts'),
-    );
+  test('keeps stylesheet production runtime dependency closures independent from breakpoint catalog and analyzer modules', () => {
+    const breakpointCatalogPath = join(process.cwd(), 'src', 'breakpoint', 'breakpoint-catalog.ts');
+    const analyzerRoot = `${join(process.cwd(), 'src', 'analyzer')}/`;
+    for (const entry of productionTypeScriptFiles(stylesheetRoot)) {
+      const forbidden = runtimeDependencyClosure(entry).find(
+        path => path === breakpointCatalogPath || path.startsWith(analyzerRoot),
+      );
+      expect(forbidden, relative(process.cwd(), entry)).toBeUndefined();
+    }
+  });
+
+  test.each([
+    ['side-effect import', "import './breakpoint-catalog';"],
+    ['re-export', "export * from './breakpoint-catalog';"],
+    ['import-equals', "import catalog = require('./breakpoint-catalog');"],
+    ['dynamic import', "void import('./breakpoint-catalog');"],
+    ['require call', "require('./breakpoint-catalog');"],
+  ])('finds a runtime %s edge', (_label, source) => {
+    expect(runtimeModuleReferences(source, fixturePath)).toContain('./breakpoint-catalog');
+  });
+
+  test.each([
+    "import type { BreakpointDefinition } from './breakpoint-catalog';",
+    "import { type BreakpointDefinition } from './breakpoint-catalog';",
+    "export type { BreakpointDefinition } from './breakpoint-catalog';",
+  ])('excludes a type-only edge from the runtime dependency graph: %s', source => {
+    expect(runtimeModuleReferences(source, fixturePath)).toEqual([]);
   });
 
   test('recursively keeps stylesheet production modules independent from I/O and application layers', () => {

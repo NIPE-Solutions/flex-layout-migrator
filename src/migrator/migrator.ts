@@ -170,7 +170,7 @@ export class Migrator {
           }
         }
         if (namedClassBinding) {
-          const className = namedGeneratedClassName(attribute.rawName);
+          const className = namedGeneratedClassName(attribute.name);
           if (className !== undefined) references.add(className);
         }
         if (
@@ -190,9 +190,8 @@ function isGeneratedCssClassName(className: string): boolean {
   return /^flm-[a-f0-9]{64}$/u.test(className);
 }
 
-function namedGeneratedClassName(rawName: string): string | undefined {
-  const match = rawName.match(/^\[class\.(flm-[a-f0-9]{64})\]$/u);
-  return match?.[1];
+function namedGeneratedClassName(name: string): string | undefined {
+  return isGeneratedCssClassName(name) ? name : undefined;
 }
 
 function isEnoent(error: unknown): error is NodeJS.ErrnoException {

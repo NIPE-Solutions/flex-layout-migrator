@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Stats } from 'node:fs';
@@ -88,6 +88,35 @@ describe('StylesheetPlanner', () => {
     await expect(planner.plan(stylesheet, [noncatalog])).resolves.toMatchObject({
       kind: 'stylesheet',
       proposed: { status: 'present', contents: block('\n', [noncatalog]) },
+    });
+  });
+
+  test('is byte-idempotent when a noncatalog incoming media rule is supplied again', async () => {
+    const noncatalog = responsiveRule(A, 123, 321, 654);
+    const serialized = block('\n', [noncatalog]);
+    await writeFile(stylesheet, serialized, 'utf8');
+
+    await expect(planner.plan(stylesheet, [noncatalog])).resolves.toBeUndefined();
+    await expect(readFile(stylesheet, 'utf8')).resolves.toBe(serialized);
+  });
+
+  test('replaces a prior noncatalog serialized rule when an authoritative incoming rule has the same ID', async () => {
+    const previous = responsiveRule(A, 123, 321, 654);
+    const replacement = responsiveRule(A, 456, 777, 888);
+    await writeFile(stylesheet, block('\n', [previous]), 'utf8');
+
+    await expect(planner.plan(stylesheet, [replacement])).resolves.toMatchObject({
+      proposed: { status: 'present', contents: block('\n', [replacement]) },
+    });
+  });
+
+  test('fails closed when a noncatalog serialized rule is genuinely retained without an incoming replacement', async () => {
+    const noncatalog = responsiveRule(A, 123, 321, 654);
+    await writeFile(stylesheet, block('\n', [noncatalog]), 'utf8');
+
+    await expect(planWithTemplateReferences(planner, stylesheet, [], new Set([`flm-${A}`]))).rejects.toMatchObject({
+      code: 'stylesheet-ownership-invalid',
+      paths: [stylesheet],
     });
   });
 

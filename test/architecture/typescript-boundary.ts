@@ -37,6 +37,52 @@ function objectPropertyName(property: ts.ObjectLiteralElementLike): string | und
   return ts.isIdentifier(name) || ts.isStringLiteralLike(name) || ts.isNumericLiteral(name) ? name.text : undefined;
 }
 
+function runtimeImportReference(node: ts.ImportDeclaration): string | undefined {
+  const reference = moduleText(node.moduleSpecifier);
+  if (reference === undefined) return undefined;
+  const clause = node.importClause;
+  if (clause === undefined) return reference;
+  if (clause.isTypeOnly || clause.name !== undefined) return clause.isTypeOnly ? undefined : reference;
+  if (clause.namedBindings === undefined) return undefined;
+  if (!ts.isNamedImports(clause.namedBindings)) return reference;
+  return clause.namedBindings.elements.some(element => !element.isTypeOnly) ? reference : undefined;
+}
+
+function runtimeExportReference(node: ts.ExportDeclaration): string | undefined {
+  const reference = moduleText(node.moduleSpecifier);
+  if (reference === undefined || node.isTypeOnly) return undefined;
+  if (node.exportClause === undefined || !ts.isNamedExports(node.exportClause)) return reference;
+  return node.exportClause.elements.some(element => !element.isTypeOnly) ? reference : undefined;
+}
+
+/** Returns runtime module edges while excluding TypeScript-only imports and re-exports. */
+export function runtimeModuleReferences(source: string, sourcePath: string): readonly string[] {
+  const sourceFile = ts.createSourceFile(sourcePath, source, ts.ScriptTarget.Latest, false, ts.ScriptKind.TS);
+  const references: string[] = [];
+
+  function visit(node: ts.Node): void {
+    let reference: string | undefined;
+    if (ts.isImportDeclaration(node)) {
+      reference = runtimeImportReference(node);
+    } else if (ts.isExportDeclaration(node)) {
+      reference = runtimeExportReference(node);
+    } else if (ts.isImportEqualsDeclaration(node) && ts.isExternalModuleReference(node.moduleReference)) {
+      reference = moduleText(node.moduleReference.expression);
+    } else if (
+      ts.isCallExpression(node) &&
+      (node.expression.kind === ts.SyntaxKind.ImportKeyword ||
+        (ts.isIdentifier(node.expression) && node.expression.text === 'require'))
+    ) {
+      reference = moduleText(node.arguments[0]);
+    }
+    if (reference !== undefined) references.push(reference);
+    ts.forEachChild(node, visit);
+  }
+
+  visit(sourceFile);
+  return references;
+}
+
 export function inspectTypeScript(source: string, sourcePath: string): TypeScriptInspection {
   const sourceFile = ts.createSourceFile(sourcePath, source, ts.ScriptTarget.Latest, false, ts.ScriptKind.TS);
   const moduleReferences: string[] = [];

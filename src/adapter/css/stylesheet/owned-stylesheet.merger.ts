@@ -25,12 +25,14 @@ export type RetainedMediaContextResolver = (serializedMedia: string) => CssRuleC
 interface ParsedOwnedRule {
   readonly id: string;
   readonly source: string;
+}
+
+interface ResolvedOwnedRule extends ParsedOwnedRule {
   readonly context: CssRuleContext;
 }
 
 interface ParsedOwnedRuleGroup {
-  readonly prefix?: string;
-  readonly suffix?: string;
+  readonly serializedMedia?: string;
   readonly rules: readonly ParsedOwnedRule[];
 }
 
@@ -47,7 +49,6 @@ function parseRule(
   index: number,
   indentation: string,
   newline: CssNewline,
-  context: CssRuleContext,
 ): {
   readonly rule: ParsedOwnedRule;
   readonly nextIndex: number;
@@ -69,25 +70,12 @@ function parseRule(
   }
 
   return {
-    rule: { id, source: lines.slice(index, end + 1).join(newline), context },
+    rule: { id, source: lines.slice(index, end + 1).join(newline) },
     nextIndex: end + 1,
   };
 }
 
-function contextForMediaHeader(
-  header: string,
-  resolveRetainedMediaContext: RetainedMediaContextResolver,
-): CssRuleContext {
-  const media = header.slice('@media '.length, -' {'.length);
-  const context = resolveRetainedMediaContext(media);
-  if (context === undefined) malformed(`Owned CSS media query is not a registered breakpoint: ${media}`);
-  return context;
-}
-
-function parseOwnedRuleGroups(
-  source: string,
-  resolveRetainedMediaContext: RetainedMediaContextResolver,
-): readonly ParsedOwnedRuleGroup[] {
+function parseOwnedRuleGroups(source: string): readonly ParsedOwnedRuleGroup[] {
   const parsed = parseOwnedCssBlock(source);
   if (parsed.status === 'invalid') throw new CssStylesheetError(parsed.code, parsed.reason);
   if (parsed.status === 'absent') return [];
@@ -104,26 +92,43 @@ function parseOwnedRuleGroups(
     if (line === undefined) malformed('Owned CSS block ended unexpectedly');
     if (line.startsWith('@media ') && line.endsWith(' {')) {
       const start = line;
-      const context = contextForMediaHeader(start, resolveRetainedMediaContext);
       index += 1;
       const rules: ParsedOwnedRule[] = [];
       while (lines[index] !== '}') {
-        const parsedRule = parseRule(lines, index, '  ', parsed.newline, context);
+        const parsedRule = parseRule(lines, index, '  ', parsed.newline);
         rules.push(parsedRule.rule);
         index = parsedRule.nextIndex;
       }
       if (rules.length === 0) malformed('Owned CSS media group contains no rules');
-      groups.push({ prefix: start, suffix: '}', rules });
+      groups.push({ serializedMedia: start.slice('@media '.length, -' {'.length), rules });
       index += 1;
       continue;
     }
 
-    const parsedRule = parseRule(lines, index, '', parsed.newline, { priority: 0 });
+    const parsedRule = parseRule(lines, index, '', parsed.newline);
     groups.push({ rules: [parsedRule.rule] });
     index = parsedRule.nextIndex;
   }
 
   return groups;
+}
+
+function retainedRules(
+  groups: readonly ParsedOwnedRuleGroup[],
+  retainedIds: ReadonlySet<string>,
+  resolveRetainedMediaContext: RetainedMediaContextResolver,
+): readonly ResolvedOwnedRule[] {
+  const retained: ResolvedOwnedRule[] = [];
+  for (const group of groups) {
+    const rules = group.rules.filter(rule => retainedIds.has(rule.id));
+    if (rules.length === 0) continue;
+    const context =
+      group.serializedMedia === undefined ? { priority: 0 } : resolveRetainedMediaContext(group.serializedMedia);
+    if (context === undefined)
+      malformed(`Owned CSS media query is not a registered breakpoint: ${group.serializedMedia}`);
+    retained.push(...rules.map(rule => ({ ...rule, context })));
+  }
+  return retained;
 }
 
 function firstDocumentNewline(source: string): CssNewline {
@@ -134,7 +139,7 @@ function compareCodeUnits(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0;
 }
 
-function compareRuleFragments(left: ParsedOwnedRule, right: ParsedOwnedRule): number {
+function compareRuleFragments(left: ResolvedOwnedRule, right: ResolvedOwnedRule): number {
   const mediaOrder = Number(left.context.media !== undefined) - Number(right.context.media !== undefined);
   if (mediaOrder !== 0) return mediaOrder;
   const priorityOrder = right.context.priority - left.context.priority;
@@ -147,7 +152,7 @@ function mediaKey(context: CssRuleContext): string | undefined {
     : JSON.stringify([context.media.type, context.media.clauses, context.priority]);
 }
 
-function parsedIncomingRules(rules: readonly OwnedCssRule[], newline: CssNewline): readonly ParsedOwnedRule[] {
+function parsedIncomingRules(rules: readonly OwnedCssRule[], newline: CssNewline): readonly ResolvedOwnedRule[] {
   return rules.map(rule => {
     const serialized = serializeCssRules([rule], newline);
     if (rule.context.media === undefined) return { id: rule.id, source: serialized, context: rule.context };
@@ -164,7 +169,7 @@ function parsedIncomingRules(rules: readonly OwnedCssRule[], newline: CssNewline
   });
 }
 
-function renderCanonicalRules(rules: readonly ParsedOwnedRule[], newline: CssNewline): string {
+function renderCanonicalRules(rules: readonly ResolvedOwnedRule[], newline: CssNewline): string {
   const groups: string[] = [];
   for (let index = 0; index < rules.length;) {
     const rule = rules[index];
@@ -175,7 +180,7 @@ function renderCanonicalRules(rules: readonly ParsedOwnedRule[], newline: CssNew
       continue;
     }
     const key = mediaKey(rule.context);
-    const grouped: ParsedOwnedRule[] = [];
+    const grouped: ResolvedOwnedRule[] = [];
     let candidate = rules[index];
     while (candidate !== undefined && mediaKey(candidate.context) === key) {
       grouped.push(candidate);
@@ -215,7 +220,7 @@ export function mergeOwnedStylesheet(
   }
 
   const referenceState = normalizeReferences(references);
-  const groups = parseOwnedRuleGroups(existing, resolveRetainedMediaContext);
+  const groups = parseOwnedRuleGroups(existing);
   const existingIds = new Set(groups.flatMap(group => group.rules.map(rule => rule.id)));
   const incomingIds = new Set(rules.map(rule => rule.id));
   for (const className of referenceState.classNames) {
@@ -233,7 +238,7 @@ export function mergeOwnedStylesheet(
           .filter(id => existingIds.has(id) && !incomingIds.has(id)),
       )
     : new Set([...existingIds].filter(id => !incomingIds.has(id)));
-  const retained = groups.flatMap(group => group.rules).filter(rule => retainedIds.has(rule.id));
+  const retained = retainedRules(groups, retainedIds, resolveRetainedMediaContext);
   const incoming = parsedIncomingRules(rules, newline);
   const content = [...retained, ...incoming].sort(compareRuleFragments);
   if (
