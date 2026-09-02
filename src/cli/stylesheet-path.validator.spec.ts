@@ -91,6 +91,31 @@ describe('validateStylesheetPath', () => {
     ).rejects.toMatchObject({ code: 'path-collision', paths: [stylesheetPath] });
   });
 
+  test.each([
+    [
+      'stylesheet ancestor of report',
+      (root: string) => [join(root, 'flex.css'), join(root, 'flex.css', 'report.json')] as const,
+    ],
+    [
+      'report ancestor of stylesheet',
+      (root: string) => [join(root, 'report.json', 'flex.css'), join(root, 'report.json')] as const,
+    ],
+  ])('rejects a %s collision before inspecting the input', async (_name, pathsFor) => {
+    const [stylesheetPath, reportPath] = pathsFor(directory);
+
+    await expect(
+      validateStylesheetPath({
+        target: 'css',
+        stylesheetPath,
+        inputPath: join(directory, 'missing.html'),
+        outputPath: join(directory, 'output.html'),
+        reportPath,
+      }),
+    ).rejects.toMatchObject({ code: 'path-collision', paths: [stylesheetPath, reportPath] });
+    await expect(access(stylesheetPath)).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(access(reportPath)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
   test('rejects a directory CSS stylesheet path without changing it', async () => {
     const stylesheetPath = join(directory, 'styles');
     await mkdir(stylesheetPath);

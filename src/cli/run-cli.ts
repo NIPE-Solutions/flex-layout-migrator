@@ -1,4 +1,4 @@
-import { Command, CommanderError, Option } from 'commander';
+import { Command, CommanderError, InvalidArgumentError, Option } from 'commander';
 import * as path from 'node:path';
 import packageJson from '../../package.json' with { type: 'json' };
 import { AdapterFactory } from '../adapter/adapter.factory';
@@ -35,6 +35,11 @@ const processOutput: CliOutput = {
   stderr: process.stderr,
 };
 
+function parseSingleStylesheet(value: string, previous: string | undefined): string {
+  if (previous !== undefined) throw new InvalidArgumentError('--stylesheet may only be specified once.');
+  return value;
+}
+
 export async function runCli(argv: readonly string[], output: CliOutput = processOutput): Promise<0 | 1 | 2> {
   let exitCode: 0 | 1 | 2 = 0;
   let debug = false;
@@ -59,7 +64,11 @@ export async function runCli(argv: readonly string[], output: CliOutput = proces
         .choices(['tailwind', 'css'])
         .default('tailwind'),
     )
-    .option('--stylesheet <path>', 'companion stylesheet; required when --target css')
+    .addOption(
+      new Option('--stylesheet <path>', 'companion stylesheet; required when --target css').argParser(
+        parseSingleStylesheet,
+      ),
+    )
     .option('--dry-run', 'analyze and plan without writing templates or stylesheet', false)
     .option('--report <path>', 'atomically write a JSON report; path must end in .json')
     .option('--allow-unresolved', 'return success when unresolved inputs remain', false)

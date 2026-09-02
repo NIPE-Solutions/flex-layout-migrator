@@ -232,6 +232,40 @@ describe('runCli', () => {
     await expect(access(missingInput)).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
+  test('rejects repeated stylesheet options before discovery and preserves every candidate output', async () => {
+    const missingInput = join(temporaryDirectory, 'missing.html');
+    const output = join(temporaryDirectory, 'output.html');
+    const firstStylesheet = join(temporaryDirectory, 'first.css');
+    const secondStylesheet = join(temporaryDirectory, 'second.css');
+    const reportPath = join(temporaryDirectory, 'report.json');
+    await writeFile(firstStylesheet, 'preserve stylesheet', 'utf8');
+    await writeFile(reportPath, 'preserve report', 'utf8');
+
+    const result = await run([
+      missingInput,
+      '--output',
+      output,
+      '--target',
+      'css',
+      '--stylesheet',
+      firstStylesheet,
+      '--stylesheet',
+      secondStylesheet,
+      '--report',
+      reportPath,
+    ]);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).toContain('--stylesheet may only be specified once');
+    expect(result.stderr).not.toContain('ENOENT');
+    expect(await readFile(firstStylesheet, 'utf8')).toBe('preserve stylesheet');
+    expect(await readFile(reportPath, 'utf8')).toBe('preserve report');
+    await expect(access(missingInput)).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(access(output)).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(access(secondStylesheet)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
   test.each([
     ['input', (root: string) => join(root, 'missing.html'), undefined],
     ['output', (root: string) => join(root, 'stylesheet.css'), undefined],
@@ -256,6 +290,107 @@ describe('runCli', () => {
       if (report !== undefined) await expect(access(report)).rejects.toMatchObject({ code: 'ENOENT' });
     },
   );
+
+  test.each([
+    [
+      'stylesheet ancestor of report',
+      (root: string) => [join(root, 'flex.css'), join(root, 'flex.css', 'report.json')] as const,
+    ],
+    [
+      'report ancestor of stylesheet',
+      (root: string) => [join(root, 'report.json', 'flex.css'), join(root, 'report.json')] as const,
+    ],
+  ])('rejects a %s path collision before discovering a missing input', async (_name, pathsFor) => {
+    const missingInput = join(temporaryDirectory, 'missing.html');
+    const output = join(temporaryDirectory, 'output.html');
+    const [stylesheet, reportPath] = pathsFor(temporaryDirectory);
+
+    const result = await run([
+      missingInput,
+      '--output',
+      output,
+      '--target',
+      'css',
+      '--stylesheet',
+      stylesheet,
+      '--report',
+      reportPath,
+    ]);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).toContain('Stylesheet path collides with another migration path');
+    expect(result.stderr).not.toContain('ENOENT');
+    for (const candidate of [missingInput, output, stylesheet, reportPath]) {
+      await expect(access(candidate)).rejects.toMatchObject({ code: 'ENOENT' });
+    }
+  });
+
+  test('rejects a stylesheet ancestor of a no-rule template output without mutating any file', async () => {
+    const input = join(temporaryDirectory, 'input');
+    const nestedInput = join(input, 'generated', 'card.html');
+    const output = temporaryDirectory;
+    const stylesheet = join(temporaryDirectory, 'generated');
+    const plannedTemplate = join(stylesheet, 'card.html');
+    const reportPath = join(temporaryDirectory, 'report.json');
+    await mkdir(join(input, 'generated'), { recursive: true });
+    await writeFile(nestedInput, '<div class="card"></div>', 'utf8');
+    await writeFile(stylesheet, 'preserve stylesheet', 'utf8');
+    await writeFile(reportPath, 'preserve report', 'utf8');
+
+    const result = await run([
+      input,
+      '--output',
+      output,
+      '--target',
+      'css',
+      '--stylesheet',
+      stylesheet,
+      '--report',
+      reportPath,
+      '--dry-run',
+    ]);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).toContain('Migration paths collide');
+    expect(await readFile(nestedInput, 'utf8')).toBe('<div class="card"></div>');
+    expect(await readFile(stylesheet, 'utf8')).toBe('preserve stylesheet');
+    expect(await readFile(reportPath, 'utf8')).toBe('preserve report');
+    await expect(access(plannedTemplate)).rejects.toMatchObject({ code: 'ENOTDIR' });
+  });
+
+  test('rejects a no-rule template output ancestor of a stylesheet without creating its directory', async () => {
+    const input = join(temporaryDirectory, 'input');
+    const output = join(temporaryDirectory, 'generated');
+    const plannedTemplate = join(output, 'card.html');
+    const stylesheet = join(plannedTemplate, 'flex.css');
+    const reportPath = join(temporaryDirectory, 'report.json');
+    await mkdir(input);
+    await writeFile(join(input, 'card.html'), '<div class="card"></div>', 'utf8');
+    await writeFile(reportPath, 'preserve report', 'utf8');
+
+    const result = await run([
+      input,
+      '--output',
+      output,
+      '--target',
+      'css',
+      '--stylesheet',
+      stylesheet,
+      '--report',
+      reportPath,
+      '--dry-run',
+    ]);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).toContain('Migration paths collide');
+    expect(await readFile(join(input, 'card.html'), 'utf8')).toBe('<div class="card"></div>');
+    expect(await readFile(reportPath, 'utf8')).toBe('preserve report');
+    await expect(access(output)).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(access(stylesheet)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
 
   test.each(['directory', 'symlink'] as const)(
     'rejects a stylesheet %s before discovering templates and preserves every existing file',

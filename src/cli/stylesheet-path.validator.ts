@@ -1,6 +1,7 @@
 import { lstat } from 'node:fs/promises';
 import * as path from 'node:path';
 import { MigrationApplicationError } from '../migrator/migration-application.error';
+import { pathsOverlap } from '../migrator/migration-path.validator';
 
 export interface StylesheetPathValidationRequest {
   readonly target: string;
@@ -28,14 +29,17 @@ export async function validateStylesheetPath(request: StylesheetPathValidationRe
   }
 
   const stylesheetPath = path.resolve(request.stylesheetPath);
-  const claims = [request.inputPath, request.outputPath, request.reportPath]
-    .filter((claim): claim is string => claim !== undefined)
-    .map(claim => path.resolve(claim));
-  if (claims.includes(stylesheetPath)) {
+  const templateRoots = [request.inputPath, request.outputPath].map(claim => path.resolve(claim));
+  const reportPath = request.reportPath === undefined ? undefined : path.resolve(request.reportPath);
+  const exactCollision = [...templateRoots, reportPath].some(claim => claim === stylesheetPath);
+  const reportHierarchyCollision = reportPath !== undefined && pathsOverlap(stylesheetPath, reportPath);
+  if (exactCollision || reportHierarchyCollision) {
+    const collisionPaths =
+      reportHierarchyCollision && reportPath !== stylesheetPath ? [stylesheetPath, reportPath] : [stylesheetPath];
     throw new MigrationApplicationError(
       'path-collision',
       `Stylesheet path collides with another migration path: ${request.stylesheetPath}`,
-      [stylesheetPath],
+      collisionPaths,
     );
   }
 

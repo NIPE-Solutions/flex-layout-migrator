@@ -112,4 +112,165 @@ describe('validateMigrationPaths', () => {
       }),
     ).rejects.toMatchObject({ code: 'path-collision', paths: [template] });
   });
+
+  test.each([
+    [
+      'stylesheet ancestor of template output',
+      (root: string) => ({
+        templates: [
+          {
+            inputPath: join(root, 'input.html'),
+            outputPath: join(root, 'generated', 'card.html'),
+          },
+        ],
+        stylesheetPath: join(root, 'generated'),
+        reportPath: join(root, 'report.json'),
+        collision: [join(root, 'generated', 'card.html'), join(root, 'generated')],
+      }),
+    ],
+    [
+      'template output ancestor of stylesheet',
+      (root: string) => ({
+        templates: [
+          {
+            inputPath: join(root, 'input.html'),
+            outputPath: join(root, 'generated', 'card.html'),
+          },
+        ],
+        stylesheetPath: join(root, 'generated', 'card.html', 'flex.css'),
+        reportPath: join(root, 'report.json'),
+        collision: [join(root, 'generated', 'card.html'), join(root, 'generated', 'card.html', 'flex.css')],
+      }),
+    ],
+    [
+      'report ancestor of template input',
+      (root: string) => ({
+        templates: [
+          {
+            inputPath: join(root, 'report.json', 'input.html'),
+            outputPath: join(root, 'output.html'),
+          },
+        ],
+        stylesheetPath: join(root, 'flex.css'),
+        reportPath: join(root, 'report.json'),
+        collision: [join(root, 'report.json', 'input.html'), join(root, 'report.json')],
+      }),
+    ],
+    [
+      'template input ancestor of report',
+      (root: string) => ({
+        templates: [
+          {
+            inputPath: join(root, 'input.html'),
+            outputPath: join(root, 'output.html'),
+          },
+        ],
+        stylesheetPath: join(root, 'flex.css'),
+        reportPath: join(root, 'input.html', 'report.json'),
+        collision: [join(root, 'input.html'), join(root, 'input.html', 'report.json')],
+      }),
+    ],
+    [
+      'stylesheet ancestor of report',
+      (root: string) => ({
+        templates: [{ inputPath: join(root, 'input.html'), outputPath: join(root, 'output.html') }],
+        stylesheetPath: join(root, 'flex.css'),
+        reportPath: join(root, 'flex.css', 'report.json'),
+        collision: [join(root, 'flex.css'), join(root, 'flex.css', 'report.json')],
+      }),
+    ],
+    [
+      'report ancestor of stylesheet',
+      (root: string) => ({
+        templates: [{ inputPath: join(root, 'input.html'), outputPath: join(root, 'output.html') }],
+        stylesheetPath: join(root, 'report.json', 'flex.css'),
+        reportPath: join(root, 'report.json'),
+        collision: [join(root, 'report.json', 'flex.css'), join(root, 'report.json')],
+      }),
+    ],
+  ])('rejects a normalized %s collision without creating either path', async (_name, requestFor) => {
+    const request = requestFor(directory);
+
+    await expect(validateMigrationPaths(request)).rejects.toMatchObject({
+      code: 'path-collision',
+      paths: request.collision,
+    });
+    for (const collisionPath of request.collision) {
+      await expect(access(collisionPath)).rejects.toMatchObject({ code: 'ENOENT' });
+    }
+  });
+
+  test('rejects an ancestor relationship between different template claims', async () => {
+    const firstOutput = join(directory, 'generated', 'card.html');
+    const secondInput = join(firstOutput, 'nested.html');
+
+    await expect(
+      validateMigrationPaths({
+        templates: [
+          { inputPath: join(directory, 'first.html'), outputPath: firstOutput },
+          { inputPath: secondInput, outputPath: join(directory, 'second.html') },
+        ],
+      }),
+    ).rejects.toMatchObject({ code: 'path-collision', paths: [firstOutput, secondInput] });
+  });
+
+  test('rejects an ancestor relationship within one template instead of treating it as in-place', async () => {
+    const input = join(directory, 'card.html');
+    const output = join(input, 'nested.html');
+
+    await expect(
+      validateMigrationPaths({ templates: [{ inputPath: input, outputPath: output }] }),
+    ).rejects.toMatchObject({ code: 'path-collision', paths: [input, output] });
+  });
+
+  test('allows path-segment prefix siblings without creating them', async () => {
+    const input = join(directory, 'card');
+    const output = join(directory, 'card-copy');
+    const stylesheet = join(directory, 'flex.css');
+    const report = join(directory, 'flex.css-report.json');
+
+    await expect(
+      validateMigrationPaths({
+        templates: [{ inputPath: input, outputPath: output }],
+        stylesheetPath: stylesheet,
+        reportPath: report,
+      }),
+    ).resolves.toBeUndefined();
+    for (const candidate of [input, output, stylesheet, report]) {
+      await expect(access(candidate)).rejects.toMatchObject({ code: 'ENOENT' });
+    }
+  });
+
+  test('rejects an ancestor collision using Windows path semantics', async () => {
+    const stylesheet = String.raw`C:\project\flex.css`;
+    const report = String.raw`C:\project\flex.css\report.json`;
+
+    await expect(
+      validateMigrationPaths({
+        templates: [
+          {
+            inputPath: String.raw`C:\project\input.html`,
+            outputPath: String.raw`C:\project\output.html`,
+          },
+        ],
+        stylesheetPath: stylesheet,
+        reportPath: report,
+      }),
+    ).rejects.toMatchObject({ code: 'path-collision', paths: [stylesheet, report] });
+  });
+
+  test('allows Windows path-segment prefix siblings', async () => {
+    await expect(
+      validateMigrationPaths({
+        templates: [
+          {
+            inputPath: String.raw`C:\project\card`,
+            outputPath: String.raw`C:\project\card-copy`,
+          },
+        ],
+        stylesheetPath: String.raw`C:\project\flex.css`,
+        reportPath: String.raw`C:\project\flex.css-report.json`,
+      }),
+    ).resolves.toBeUndefined();
+  });
 });
