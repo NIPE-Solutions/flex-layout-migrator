@@ -5,10 +5,17 @@ import type { SourceEdit } from '../edit/source-edit';
 import { templateAttributeKeys } from '../template/template-attribute';
 import type { SourceRange, TemplateElement } from '../template/template.model';
 import { appendLiteralClassNames } from '../edit/html-attribute-value';
+import { ResponsiveImagePlanner } from '../image/responsive-image.planner';
+import type { ResponsiveImagePlan } from '../image/responsive-image.model';
+import { PictureRenderer } from '../image/picture.renderer';
 
 export interface FilePlan {
   readonly edits: readonly SourceEdit[];
   readonly results: readonly ConversionResult[];
+}
+
+export interface ConversionPlanningOptions {
+  readonly responsiveImages: boolean;
 }
 
 interface ElementConversions {
@@ -79,6 +86,7 @@ export class ConversionPlanner {
     elements: readonly TemplateElement[],
     inputs: readonly LocatedFlexLayoutInput[],
     adapter: ConversionAdapter,
+    options: ConversionPlanningOptions = { responsiveImages: false },
   ): FilePlan {
     const elementById = new Map(elements.map(element => [element.id, element]));
     const inputsByElementId = new Map<string, LocatedFlexLayoutInput[]>();
@@ -92,9 +100,12 @@ export class ConversionPlanner {
     const plansByInputId = new Map<string, PlannedConversion>();
     const plansByElementId = new Map<string, readonly PlannedConversion[]>();
     const contextsByElementId = new Map<string, ConversionContext>();
+    const imagePlansByElementId = new Map<string, ResponsiveImagePlan>();
 
     for (const element of elements) {
-      const elementInputs = inputsByElementId.get(element.id) ?? [];
+      const allElementInputs = inputsByElementId.get(element.id) ?? [];
+      if (!allElementInputs.length) continue;
+      const elementInputs = allElementInputs.filter(input => input.directive !== 'imgSrc');
       if (!elementInputs.length) continue;
       const parent = element.parentId ? elementById.get(element.parentId) : undefined;
       const literalClass = literalClassAttribute(element);
@@ -132,6 +143,50 @@ export class ConversionPlanner {
       }
     }
 
+    for (const element of elements) {
+      const imageInputs = (inputsByElementId.get(element.id) ?? []).filter(input => input.directive === 'imgSrc');
+      if (!imageInputs.length) continue;
+      const ancestors: TemplateElement[] = [];
+      let ancestor = element.parentId ? elementById.get(element.parentId) : undefined;
+      while (ancestor) {
+        ancestors.push(ancestor);
+        ancestor = ancestor.parentId ? elementById.get(ancestor.parentId) : undefined;
+      }
+      const imageResult = new ResponsiveImagePlanner().plan(
+        imageInputs,
+        { element, ancestors },
+        options.responsiveImages,
+      );
+      const ordinaryPlans = (inputsByElementId.get(element.id) ?? [])
+        .filter(input => input.directive !== 'imgSrc')
+        .map(input => plansByInputId.get(input.id))
+        .filter((plan): plan is PlannedConversion => plan !== undefined);
+      const unresolvedOrdinary = ordinaryPlans.some(plan => plan.status !== 'converted');
+
+      if (imageResult.status === 'converted' && !unresolvedOrdinary) {
+        imagePlansByElementId.set(element.id, imageResult.plan);
+        for (const input of imageInputs) {
+          plansByInputId.set(input.id, { status: 'converted', input, classNames: [] });
+        }
+        continue;
+      }
+
+      const familyFailure = {
+        status: 'review' as const,
+        code: 'context-unverified' as const,
+        reason: 'Responsive image and same-element conversions must be applied atomically.',
+        suggestion: 'Resolve all conversions on this image before enabling its picture migration.',
+      };
+      for (const plan of ordinaryPlans) {
+        if (plan.status === 'converted') plansByInputId.set(plan.input.id, { ...familyFailure, input: plan.input });
+      }
+      if (imageResult.status === 'converted') {
+        for (const input of imageInputs) plansByInputId.set(input.id, { ...familyFailure, input });
+      } else {
+        for (const plan of imageResult.plans) plansByInputId.set(plan.input.id, plan);
+      }
+    }
+
     for (const input of inputs) {
       const element = elementById.get(input.elementId);
       if (!element) continue;
@@ -140,6 +195,11 @@ export class ConversionPlanner {
 
       if (planned.status !== 'converted') {
         results.push(planned);
+        continue;
+      }
+
+      if (input.directive === 'imgSrc') {
+        results.push({ status: 'converted', input });
         continue;
       }
 
@@ -181,6 +241,19 @@ export class ConversionPlanner {
         `${conversion.element.id}:classes`,
       );
       if (classEdit !== undefined) edits.push(classEdit);
+    }
+
+    for (const [elementId, imagePlan] of imagePlansByElementId) {
+      const containedEdits = edits.filter(
+        edit => edit.range.start >= imagePlan.element.source.start && edit.range.end <= imagePlan.element.source.end,
+      );
+      const externalEdits = edits.filter(edit => !containedEdits.includes(edit));
+      edits.length = 0;
+      edits.push(...externalEdits, {
+        range: imagePlan.element.source,
+        text: new PictureRenderer().render(source, imagePlan, containedEdits),
+        inputId: `${elementId}:responsive-image`,
+      });
     }
 
     return { edits, results };

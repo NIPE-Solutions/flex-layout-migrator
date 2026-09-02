@@ -31,8 +31,15 @@ const results = [
     reason: 'Unexpected closing tag.',
     source: { start: 10, end: 16 },
   },
+  {
+    status: 'parse-error',
+    fileName: 'generated.html',
+    code: 'generated-template-parse-error',
+    reason: 'Generated template did not reparse.',
+    source: { start: 0, end: 1 },
+  },
 ] satisfies readonly ConversionResult[];
 
 test('models successful, unresolved, and parse-error results exhaustively', () => {
-  expect(results.map(result => result.status)).toEqual(['converted', 'review', 'review', 'parse-error']);
+  expect(results.map(result => result.status)).toEqual(['converted', 'review', 'review', 'parse-error', 'parse-error']);
 });
