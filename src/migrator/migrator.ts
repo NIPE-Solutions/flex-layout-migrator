@@ -10,6 +10,7 @@ import { FolderMigrator } from './folder.migrator';
 
 export interface MigrationOptions {
   readonly dryRun: boolean;
+  readonly responsiveImages?: boolean;
 }
 
 export class Migrator {
@@ -39,11 +40,15 @@ export class Migrator {
         throw new Error('Single-file output path must have a .html extension.');
       }
       files = [
-        await new FileMigrator(this.adapter, this.inputPath, this.outputPath).migrate({ write: !options.dryRun }),
+        await new FileMigrator(this.adapter, this.inputPath, this.outputPath).migrate({
+          write: !options.dryRun,
+          responsiveImages: options.responsiveImages ?? false,
+        }),
       ];
     } else if (inputStat.isDirectory()) {
       files = await new FolderMigrator(this.adapter, this.inputPath, this.outputPath).migrate({
         write: !options.dryRun,
+        responsiveImages: options.responsiveImages ?? false,
       });
     } else {
       throw new Error(`Unsupported input type: ${this.inputPath}`);

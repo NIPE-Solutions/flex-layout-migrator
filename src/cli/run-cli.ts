@@ -18,6 +18,7 @@ interface ProgramOptions {
   readonly allowUnresolved: boolean;
   readonly debug: boolean;
   readonly orientationBreakpoints: boolean;
+  readonly responsiveImages: boolean;
   readonly printWithBreakpoints?: string;
 }
 
@@ -60,6 +61,11 @@ export async function runCli(argv: readonly string[], output: CliOutput = proces
     .option('--allow-unresolved', 'return success when unresolved inputs remain', false)
     .option('--orientation-breakpoints', 'confirm the source enables the archived orientation breakpoints', false)
     .option(
+      '--responsive-images',
+      'wrap eligible responsive images in picture elements; acknowledges selector and layout risk',
+      false,
+    )
+    .option(
       '--print-with-breakpoints <aliases>',
       'confirm the source printWithBreakpoints list; comma-separated aliases or none',
     )
@@ -80,7 +86,10 @@ export async function runCli(argv: readonly string[], output: CliOutput = proces
       if (options.report !== undefined) {
         validateReportPath(options.report);
       }
-      const report = await new Migrator(adapter, input, destination).migrate({ dryRun: options.dryRun });
+      const report = await new Migrator(adapter, input, destination).migrate({
+        dryRun: options.dryRun,
+        responsiveImages: options.responsiveImages,
+      });
       const reportOutput = report.summary.parseErrors > 0 ? output.stderr : output.stdout;
 
       new TerminalPresenter().present(report, reportOutput);
