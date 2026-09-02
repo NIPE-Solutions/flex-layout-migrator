@@ -144,6 +144,11 @@ export class BreakpointCatalog {
   }
 }
 
+/** Internal canonical definitions for deterministic consumers such as CSS ownership recovery. */
+export function allBreakpointDefinitions(): readonly BreakpointDefinition[] {
+  return Object.freeze([...definitions, ...orientations, frozenPrintDefinition]);
+}
+
 export function mediaRangesIntersect(left: MediaRange, right: MediaRange): boolean {
   if (left.orientation !== undefined && right.orientation !== undefined && left.orientation !== right.orientation) {
     return false;

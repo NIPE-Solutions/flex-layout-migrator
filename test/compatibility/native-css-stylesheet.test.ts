@@ -11,6 +11,7 @@ import { renderLayoutGapCss } from '../../src/adapter/css/flex/layout-gap.css-re
 import { renderLayoutCss } from '../../src/adapter/css/flex/layout.css-renderer';
 import { parseOwnedCssBlock } from '../../src/adapter/css/stylesheet/owned-css-block.parser';
 import { serializeOwnedCssBlock } from '../../src/adapter/css/stylesheet/owned-css-block.serializer';
+import { serializeCssMedia } from '../../src/adapter/css/stylesheet/css-media.serializer';
 import { mergeOwnedStylesheet } from '../../src/adapter/css/stylesheet/owned-stylesheet.merger';
 import { BreakpointCatalog, type BreakpointDefinition } from '../../src/breakpoint/breakpoint-catalog';
 import { planFlexAlignSemantics } from '../../src/flex/flex-align.semantic';
@@ -153,33 +154,6 @@ const goldenStylesheet = `/* handwritten prefix */
 .note::before { content: "kept"; }
 `;
 
-const smallerGoldenStylesheet = `/* handwritten prefix */
-.page { color: rebeccapurple; }
-
-/* flex-layout-codemod:start schema=1 */
-/* flex-layout-codemod:rule id=6ae331818e3189b1bd4ceb90a8d7bc3b29b6f46b32ed0eea16fd2e0ff126dbd9 */
-.flm-6ae331818e3189b1bd4ceb90a8d7bc3b29b6f46b32ed0eea16fd2e0ff126dbd9 {
-  display: flex;
-  box-sizing: border-box;
-  flex-direction: row;
-  flex-wrap: wrap;
-}
-@media screen and (min-width: 600px) and (max-width: 959.98px) {
-  /* flex-layout-codemod:rule id=63a9a63be732726b9073b2108fd32f562e1352ba19a3e2f90b3a48efe530a7cc */
-  .flm-63a9a63be732726b9073b2108fd32f562e1352ba19a3e2f90b3a48efe530a7cc {
-    gap: 8px;
-  }
-  /* flex-layout-codemod:rule id=ea87caa74386649cdf2b9ab42ba8f392ba16d6190fc3838d8438b333edecbf3c */
-  .flm-ea87caa74386649cdf2b9ab42ba8f392ba16d6190fc3838d8438b333edecbf3c {
-    align-self: center;
-  }
-}
-/* flex-layout-codemod:end */
-
-/* handwritten suffix */
-.note::before { content: "kept"; }
-`;
-
 interface ScenarioArtifact {
   readonly label: string;
   readonly family: CssSemanticFamily;
@@ -232,6 +206,12 @@ function scenarioArtifacts(): readonly ScenarioArtifact[] {
       context: smContext,
     },
   ];
+}
+
+function resolveRetainedMediaContext(serializedMedia: string): CssRuleContext | undefined {
+  return scenarioArtifacts()
+    .map(artifact => artifact.context)
+    .find(context => context.media !== undefined && serializeCssMedia(context.media) === serializedMedia);
 }
 
 function buildScenario(
@@ -329,17 +309,18 @@ describe('native CSS stylesheet end-to-end compatibility', () => {
     });
   });
 
-  test('replaces the golden block with a smaller registry and removes ownership without changing surrounding bytes', () => {
+  test('retains unmatched golden rules when the current registry is smaller', () => {
     const smaller = buildScenario('forward', new Set(['base', 'sm', 'sm-align']));
-    const shrunk = mergeOwnedStylesheet(goldenStylesheet, smaller.registry.rules());
+    const retained = mergeOwnedStylesheet(
+      goldenStylesheet,
+      smaller.registry.rules(),
+      undefined,
+      resolveRetainedMediaContext,
+    );
 
-    expect(shrunk).toEqual({ changed: true, output: smallerGoldenStylesheet });
-    expect(shrunk.output.startsWith(handwrittenPrefix)).toBe(true);
-    expect(shrunk.output.endsWith(handwrittenSuffix)).toBe(true);
-    expect(mergeOwnedStylesheet(shrunk.output, [])).toEqual({
-      changed: true,
-      output: handwrittenPrefix + handwrittenSuffix,
-    });
+    expect(retained).toEqual({ changed: false, output: goldenStylesheet });
+    expect(retained.output).toContain(`.flm-${expectedRuleIds[1]} {`);
+    expect(mergeOwnedStylesheet(retained.output, [], undefined, resolveRetainedMediaContext)).toEqual(retained);
   });
 
   test('emits the same golden bytes when all artifacts are registered in reverse order', () => {

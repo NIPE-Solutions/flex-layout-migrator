@@ -89,6 +89,7 @@ export async function smokePackageTarball({
       '--dry-run',
       '--report <path>',
       '--allow-unresolved',
+      '--stylesheet <path>',
       '--orientation-breakpoints',
       '--print-with-breakpoints <aliases>',
     ]) {
@@ -131,6 +132,61 @@ export async function smokePackageTarball({
     }
     if (await pathExists(outputDirectory)) {
       throw new Error('Packaged CLI dry-run created the template output directory');
+    }
+
+    const cssOutput = join(temporaryDirectory, 'css-generated', 'output.html');
+    const cssOutputDirectory = join(temporaryDirectory, 'css-generated');
+    const stylesheet = join(temporaryDirectory, 'styles', 'migration.css');
+    const stylesheetDirectory = join(temporaryDirectory, 'styles');
+    const cssArguments = [
+      ...executableArguments,
+      input,
+      '--output',
+      cssOutput,
+      '--target',
+      'css',
+      '--stylesheet',
+      stylesheet,
+    ];
+    const cssDryRun = await execFileImpl(executable, [...cssArguments, '--dry-run'], { cwd: temporaryDirectory });
+    if (!cssDryRun.stdout.includes('Dry run: 1 files scanned, 1 would change')) {
+      throw new Error(`Unexpected packaged CLI CSS dry-run output: ${cssDryRun.stdout.trim()}`);
+    }
+    if (cssDryRun.stderr) {
+      throw new Error(`Unexpected packaged CLI CSS dry-run error output: ${cssDryRun.stderr.trim()}`);
+    }
+    if (await pathExists(cssOutput)) {
+      throw new Error('Packaged CLI CSS dry-run wrote template output');
+    }
+    if (await pathExists(stylesheet)) {
+      throw new Error('Packaged CLI CSS dry-run wrote stylesheet output');
+    }
+    if ((await pathExists(cssOutputDirectory)) || (await pathExists(stylesheetDirectory))) {
+      throw new Error('Packaged CLI CSS dry-run created output directories');
+    }
+
+    const cssWrite = await execFileImpl(executable, cssArguments, { cwd: temporaryDirectory });
+    if (!cssWrite.stdout.includes('1 files scanned, 1 changed')) {
+      throw new Error(`Unexpected packaged CLI CSS write output: ${cssWrite.stdout.trim()}`);
+    }
+    if (cssWrite.stderr) {
+      throw new Error(`Unexpected packaged CLI CSS write error output: ${cssWrite.stderr.trim()}`);
+    }
+    const cssClass = 'flm-5db098b5a4e638fdd1aff69e13d53ea10eb01e6c58577e5ecdf136b90eaee103';
+    const expectedTemplate = `<div class="${cssClass}"></div>`;
+    const expectedStylesheet = `/* flex-layout-codemod:start schema=1 */
+/* flex-layout-codemod:rule id=${cssClass.slice('flm-'.length)} */
+.${cssClass} {
+  display: flex;
+  box-sizing: border-box;
+  flex-direction: row;
+}
+/* flex-layout-codemod:end */`;
+    if ((await readFile(cssOutput, 'utf8')) !== expectedTemplate) {
+      throw new Error('Packaged CLI CSS write did not produce the expected template bytes');
+    }
+    if ((await readFile(stylesheet, 'utf8')) !== expectedStylesheet) {
+      throw new Error('Packaged CLI CSS write did not produce the expected stylesheet bytes');
     }
   } finally {
     await rm(temporaryDirectory, { recursive: true, force: true });

@@ -1,4 +1,5 @@
 import { CssArtifactRegistry } from '../../src/adapter/css/css-artifact.registry';
+import { CssAdapter } from '../../src/adapter/css/css.adapter';
 import type { CssDeclaration, CssRuleContext } from '../../src/adapter/css/css-artifact.model';
 import { cssRuleContext } from '../../src/adapter/css/css-breakpoint.context';
 import { renderFlexAlignCss } from '../../src/adapter/css/flex/flex-align.css-renderer';
@@ -26,6 +27,9 @@ import { planFlexOrderSemantics } from '../../src/flex/flex-order.semantic';
 import { planLayoutAlignment } from '../../src/flex/layout-align.semantic';
 import { planLayoutGapSemantics } from '../../src/flex/layout-gap.semantic';
 import { parseLayout } from '../../src/flex/layout.semantic';
+import type { LocatedFlexLayoutInput } from '../../src/analyzer/flex-layout-attribute.analyzer';
+import type { TemplateElement } from '../../src/template/template.model';
+import { TailwindAdapter } from '../../src/adapter/tailwind/tailwind.adapter';
 
 describe('cross-target Flex renderer parity', () => {
   test.each([
@@ -278,6 +282,68 @@ describe('cross-target Flex renderer parity', () => {
     const semantics = planned.value;
     expect(renderFlexOrder(semantics)).toEqual({ status: 'converted', classNames: tailwind });
     expect(renderFlexOrderCss(semantics)).toEqual(css);
+  });
+});
+
+describe('cross-target Flex adapter parity', () => {
+  const element: TemplateElement = {
+    id: '0',
+    name: 'div',
+    source: { start: 0, end: 5 },
+    startTag: { start: 0, end: 5 },
+    structural: false,
+    attributes: [],
+  };
+  const gap: LocatedFlexLayoutInput = {
+    id: 'fixture:gap',
+    fileName: 'fixture.html',
+    elementId: '0',
+    sourceName: 'fxLayoutGap',
+    directive: 'fxLayoutGap',
+    value: '4 grid',
+    binding: 'literal',
+    breakpoint: undefined,
+    source: { start: 0, end: 20 },
+    nameSource: { start: 0, end: 11 },
+  };
+
+  test('passes the shared semantic diagnostic through both adapter boundaries', () => {
+    const cssRegistry = new CssArtifactRegistry();
+    const tailwind = new TailwindAdapter().plan(gap, { element });
+    const css = new CssAdapter(cssRegistry).plan(gap, { element });
+
+    expect(css).toEqual(tailwind);
+    expect(cssRegistry.rules()).toEqual([]);
+  });
+
+  test('makes the same responsive precedence decision for overlapping Flex families', () => {
+    const broad: LocatedFlexLayoutInput = {
+      ...gap,
+      id: 'fixture:broad',
+      sourceName: 'fxFlexAlign.lt-md',
+      directive: 'fxFlexAlign',
+      value: 'start',
+      breakpoint: 'lt-md',
+    };
+    const narrow: LocatedFlexLayoutInput = {
+      ...gap,
+      id: 'fixture:narrow',
+      sourceName: 'fxFlexAlign.sm',
+      directive: 'fxFlexAlign',
+      value: 'end',
+      breakpoint: 'sm',
+    };
+    const inputs = [broad, narrow];
+    const tailwind = new TailwindAdapter().planElement(inputs, { element, inputs });
+    const css = new CssAdapter(new CssArtifactRegistry()).planElement(inputs, { element, inputs });
+    const decisions = (plans: typeof tailwind) =>
+      plans.map(plan => ({ status: plan.status, code: plan.status === 'converted' ? undefined : plan.code }));
+
+    expect(decisions(css)).toEqual(decisions(tailwind));
+    expect(decisions(css)).toEqual([
+      { status: 'review', code: 'responsive-precedence-unverified' },
+      { status: 'review', code: 'responsive-precedence-unverified' },
+    ]);
   });
 });
 

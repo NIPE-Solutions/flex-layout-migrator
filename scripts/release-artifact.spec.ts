@@ -218,13 +218,24 @@ async function withRealPackRepository(run: (repository: string) => Promise<void>
     await writeFile(
       join(repository, 'dist', 'cli.js'),
       `#!/usr/bin/env node
+import { mkdir, writeFile } from 'node:fs/promises';
+import { dirname } from 'node:path';
 const arguments_ = process.argv.slice(2);
 if (arguments_.includes('--help')) {
-  console.log('--dry-run --report <path> --allow-unresolved --orientation-breakpoints --print-with-breakpoints <aliases> path must end in .json single-file output must end in .html');
+  console.log('--dry-run --report <path> --allow-unresolved --stylesheet <path> --orientation-breakpoints --print-with-breakpoints <aliases> path must end in .json single-file output must end in .html');
 } else if (arguments_.includes('--version')) {
   console.log('${repositoryManifest.version}');
 } else if (arguments_.includes('--dry-run')) {
   console.log('Dry run: 1 files scanned, 1 would change');
+} else if (arguments_.includes('--target') && arguments_.includes('css')) {
+  const output = arguments_[arguments_.indexOf('--output') + 1];
+  const stylesheet = arguments_[arguments_.indexOf('--stylesheet') + 1];
+  const className = 'flm-5db098b5a4e638fdd1aff69e13d53ea10eb01e6c58577e5ecdf136b90eaee103';
+  await mkdir(dirname(output), { recursive: true });
+  await mkdir(dirname(stylesheet), { recursive: true });
+  await writeFile(output, '<div class="' + className + '"></div>');
+  await writeFile(stylesheet, '/* flex-layout-codemod:start schema=1 */\\n/* flex-layout-codemod:rule id=' + className.slice(4) + ' */\\n.' + className + ' {\\n  display: flex;\\n  box-sizing: border-box;\\n  flex-direction: row;\\n}\\n/* flex-layout-codemod:end */');
+  console.log('1 files scanned, 1 changed');
 }
 `,
       { encoding: 'utf8', mode: 0o755 },

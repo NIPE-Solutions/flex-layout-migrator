@@ -11,44 +11,54 @@ The source contract and classification rules are documented in [Conversion safet
 - **Planned**: recognized input for which that target has no conversion available now.
 - **Not applicable**: the directive does not have a conversion in that target category.
 
-The Tailwind CSS 4 column identifies current target behavior. Native CSS and responsive-image statuses marked Planned are not current capabilities; their product direction is described in the [Version 2 product roadmap](architecture/v2-product-roadmap.md). No native CSS conversions are available yet. The CLI currently accepts only the `tailwind` target, and generated classes target Tailwind CSS v4.
+The Tailwind CSS 4 column identifies the default target behavior. Native CSS is available for the limited Flex-only surface in this table: eight semantic families, at base and the 13 standard viewport aliases. The CLI defaults to `tailwind`; use `--target css --stylesheet <path>` to opt in to one owned companion stylesheet. Responsive images remain independent of either layout target.
 
 <!-- compatibility-inventory:start -->
 
 | Directive        | Family      | Tailwind CSS 4 | Native CSS     | Responsive image |
 | ---------------- | ----------- | -------------- | -------------- | ---------------- |
-| `fxLayout`       | Flex        | Limited        | Planned        | Not applicable   |
-| `fxLayoutAlign`  | Flex        | Limited        | Planned        | Not applicable   |
-| `fxLayoutGap`    | Flex        | Limited        | Planned        | Not applicable   |
-| `fxFlex`         | Flex        | Limited        | Planned        | Not applicable   |
-| `fxGrow`         | Flex        | Limited        | Planned        | Not applicable   |
-| `fxShrink`       | Flex        | Limited        | Planned        | Not applicable   |
-| `fxFlexAlign`    | Flex        | Limited        | Planned        | Not applicable   |
-| `fxFlexFill`     | Flex        | Limited        | Planned        | Not applicable   |
-| `fxFill`         | Flex        | Limited        | Planned        | Not applicable   |
-| `fxFlexOffset`   | Flex        | Limited        | Planned        | Not applicable   |
-| `fxFlexOrder`    | Flex        | Limited        | Planned        | Not applicable   |
-| `fxShow`         | Visibility  | Limited        | Planned        | Not applicable   |
-| `fxHide`         | Visibility  | Limited        | Planned        | Not applicable   |
-| `gdAlignColumns` | Grid        | Limited        | Planned        | Not applicable   |
-| `gdAlignRows`    | Grid        | Limited        | Planned        | Not applicable   |
-| `gdArea`         | Grid        | Limited        | Planned        | Not applicable   |
-| `gdAreas`        | Grid        | Limited        | Planned        | Not applicable   |
-| `gdAuto`         | Grid        | Limited        | Planned        | Not applicable   |
-| `gdColumn`       | Grid        | Limited        | Planned        | Not applicable   |
-| `gdColumns`      | Grid        | Limited        | Planned        | Not applicable   |
-| `gdGap`          | Grid        | Limited        | Planned        | Not applicable   |
-| `gdGridAlign`    | Grid        | Limited        | Planned        | Not applicable   |
-| `gdInline`       | Grid        | Limited        | Planned        | Not applicable   |
-| `gdRow`          | Grid        | Limited        | Planned        | Not applicable   |
-| `gdRows`         | Grid        | Limited        | Planned        | Not applicable   |
+| `fxLayout`       | Flex        | Limited        | Limited        | Not applicable   |
+| `fxLayoutAlign`  | Flex        | Limited        | Limited        | Not applicable   |
+| `fxLayoutGap`    | Flex        | Limited        | Limited        | Not applicable   |
+| `fxFlex`         | Flex        | Limited        | Limited        | Not applicable   |
+| `fxGrow`         | Flex        | Limited        | Limited        | Not applicable   |
+| `fxShrink`       | Flex        | Limited        | Limited        | Not applicable   |
+| `fxFlexAlign`    | Flex        | Limited        | Limited        | Not applicable   |
+| `fxFlexFill`     | Flex        | Limited        | Limited        | Not applicable   |
+| `fxFill`         | Flex        | Limited        | Limited        | Not applicable   |
+| `fxFlexOffset`   | Flex        | Limited        | Limited        | Not applicable   |
+| `fxFlexOrder`    | Flex        | Limited        | Limited        | Not applicable   |
+| `fxShow`         | Visibility  | Limited        | Preserved      | Not applicable   |
+| `fxHide`         | Visibility  | Limited        | Preserved      | Not applicable   |
+| `gdAlignColumns` | Grid        | Limited        | Preserved      | Not applicable   |
+| `gdAlignRows`    | Grid        | Limited        | Preserved      | Not applicable   |
+| `gdArea`         | Grid        | Limited        | Preserved      | Not applicable   |
+| `gdAreas`        | Grid        | Limited        | Preserved      | Not applicable   |
+| `gdAuto`         | Grid        | Limited        | Preserved      | Not applicable   |
+| `gdColumn`       | Grid        | Limited        | Preserved      | Not applicable   |
+| `gdColumns`      | Grid        | Limited        | Preserved      | Not applicable   |
+| `gdGap`          | Grid        | Limited        | Preserved      | Not applicable   |
+| `gdGridAlign`    | Grid        | Limited        | Preserved      | Not applicable   |
+| `gdInline`       | Grid        | Limited        | Preserved      | Not applicable   |
+| `gdRow`          | Grid        | Limited        | Preserved      | Not applicable   |
+| `gdRows`         | Grid        | Limited        | Preserved      | Not applicable   |
 | `class`          | Class/style | Preserved      | Preserved      | Not applicable   |
-| `ngClass`        | Class/style | Limited        | Planned        | Not applicable   |
+| `ngClass`        | Class/style | Limited        | Preserved      | Not applicable   |
 | `style`          | Class/style | Preserved      | Preserved      | Not applicable   |
-| `ngStyle`        | Class/style | Limited        | Planned        | Not applicable   |
+| `ngStyle`        | Class/style | Limited        | Preserved      | Not applicable   |
 | `imgSrc`         | Image       | Not applicable | Not applicable | Limited          |
 
 <!-- compatibility-inventory:end -->
+
+## Current native CSS safety boundaries
+
+The native CSS target is intentionally Limited. It converts exactly these eight Flex semantic families: layout (`fxLayout`), layout alignment (`fxLayoutAlign`), layout gap (`fxLayoutGap`), flex item sizing (`fxFlex` with its atomic `fxGrow` and `fxShrink` members), flex alignment (`fxFlexAlign`), flex fill (`fxFlexFill` and `fxFill`), flex offset (`fxFlexOffset`), and flex order (`fxFlexOrder`). Literal base inputs and the 13 standard viewport aliases are supported.
+
+Grid, visibility, responsive `class`/`style` inputs, orientation, print, and custom aliases remain preserved for CSS with diagnostics. Responsive images remain an independent `--responsive-images` migration and do not become CSS-target behavior.
+
+Use `--target css --stylesheet <path>` to migrate templates and one companion stylesheet. The stylesheet keeps handwritten bytes outside the owned `flex-layout-codemod` block, deduplicates shared rules across every proposed template, and retains unmatched owned rules because a scoped invocation cannot prove that it includes every template served by the stylesheet. The current CLI exposes no complete-project pruning mode. The template and stylesheet writes use one recoverable transaction: ordinary failure or handled interruption rolls both outputs back together.
+
+Current commands write after planning unless `--dry-run` is supplied. An adaptive plan-by-default workflow is a later CLI improvement. A power loss, forced process termination, or storage failure can leave recovery unconfirmed; when the command reports that condition, inspect the listed paths and reconcile them against Git or a verified backup before retrying. This is recovery guidance, not a claim of crash durability.
 
 ## Current Tailwind CSS 4 safety boundaries
 
@@ -154,7 +164,7 @@ The following inputs are always preserved:
 
 Ordinary unsuffixed HTML and Angular `class`, `ngClass`, `style`, and `ngStyle` inputs are not reported as responsive source occurrences, but they are authoritative when responsive siblings exist. Static `class` remains additive and static `style` remains an inline fallback. Unsuffixed `ngClass` and `ngStyle` are replaceable base values: bound forms preserve the complete responsive family, as do non-empty literal values that cannot safely remain active. An empty literal fallback is compatible. An exactly identical literal `ngClass` fallback can make isolated redundant responsive attributes removable, but its retained base tokens still participate in class/style/layout/visibility ownership and preserve every coupled family when they cannot be suppressed safely. Non-empty raw-string `ngStyle` fallbacks remain unchanged because standalone conversion of that Flex-Layout extension is outside this mode.
 
-The current conversion does not edit CSS, Sass, Less, or Tailwind configuration and does not generate companion CSS. A future project-aware mode may inspect those sources and emit companion styles for application classes; this release deliberately leaves that path separate from exact template-only conversion.
+The Tailwind target does not edit CSS, Sass, Less, or Tailwind configuration and does not generate a companion stylesheet. The native CSS target updates only its own marked block; a future project-aware mode may inspect application styles and emit companion styles for application classes.
 
 ## Bindings and breakpoints
 
@@ -186,12 +196,12 @@ This is intentional. Angular Flex-Layout's bounded and overlapping aliases are n
 
 ## Reporting API
 
-`Migrator#migrate()` returns one immutable migration report for file and directory inputs. The report uses schema version `1`, contains path-sorted file results and a derived summary, and uses the statuses `converted`, `review`, `unsupported`, `invalid`, and `parse-error`. Unresolved results include a stable diagnostic code, reason, and suggested action.
+`Migrator#migrate()` returns one immutable migration report for file and directory inputs. The report uses schema version `1`, contains path-sorted file results and a derived summary, and uses the statuses `converted`, `review`, `unsupported`, `invalid`, and `parse-error`. Unresolved results include a stable diagnostic code, reason, and suggested action. When parse errors make the invocation non-applicable, the otherwise compatible report adds `application: { "status": "skipped", "reason": "parse-errors" }`; file `changed` values and stylesheet actions then describe the validated plan, not applied writes.
 
 Every non-parse result represents one directive occurrence. To measure responsive class and style conversion, filter results whose `directive` is `ngClass`, `ngStyle`, `class`, or `style`, then count `converted` versus all preserved statuses. The extended compatibility fixture currently asserts 41 converted and 37 preserved report results, while also checking every standard alias, exact diagnostics, fallback replacement, raw-string transformation, ECMAScript-whitespace tokenization, raw-source Tailwind discovery, complete CSS ownership, byte-for-byte output, and a zero-edit second run. Every decoded class candidate in its expected output is compared with one raw Tailwind CSS v4 CLI scan of the exact emitted class bytes. A separate compatibility test checks source-order independence within multi-state class and style families. Empty breakpoint suffixes remain unchanged but are not responsive selectors and therefore do not create report results. These figures describe this test corpus only; repository measurements depend on the inputs scanned and do not establish project-level semantic coverage.
 
 Report paths use forward slashes and are relative to the input root. A single-file input uses its basename. Reports do not expose absolute checkout paths or internal analyzer fields.
 
-The CLI prints a concise deterministic summary and one line per unresolved result. `--report <path>` atomically writes the same result as JSON, including during `--dry-run`; dry-run validates the complete edit plan in memory without writing templates or creating missing template-output directories.
+The CLI prints a concise deterministic summary and one line per unresolved result. A parse-error run begins with `Application skipped`, calls proposed file edits planned changes, and uses conditional stylesheet wording such as `would create`. `--report <path>` atomically writes the same result as JSON, including during `--dry-run`; dry-run validates the complete edit plan in memory without writing templates or creating missing template-output directories.
 
 Unresolved results are strict by default. Exit code `0` means the migration completed cleanly or unresolved work was accepted with `--allow-unresolved`; code `1` means configuration, parsing, template I/O, report writing, or an internal invariant failed; code `2` means the migration completed safely with unresolved `review`, `unsupported`, or `invalid` results in strict mode. `--allow-unresolved` changes only the final exit code and does not hide diagnostics or change migration output.

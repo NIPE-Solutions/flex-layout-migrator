@@ -8,7 +8,7 @@ The operation is pure: existing stylesheet bytes plus ordered owned rules produc
 
 ## Scope
 
-The slice provides validation and deterministic serialization of `OwnedCssRule` values, one versioned codemod-owned block, lexical marker discovery, exact replacement or removal on rerun, byte preservation outside the block, deterministic LF/CRLF handling, and fail-closed errors for malformed ownership.
+The slice provides validation and deterministic serialization of `OwnedCssRule` values, one versioned codemod-owned block, lexical marker discovery, additive replacement on rerun, byte preservation outside the block, deterministic LF/CRLF handling, and fail-closed errors for malformed ownership. Unmatched rules are retained unless a caller can supply a future explicit, demonstrably complete pruning scope.
 
 CLI target selection, path validation, file I/O, template class edits, adapter orchestration, multi-file staging, backup, rollback, interruption handling, Grid, visibility, orientation, and print migration remain outside this slice.
 
@@ -144,6 +144,25 @@ interface OwnedStylesheetMergeResult {
 export function mergeOwnedStylesheet(existing: string, rules: readonly OwnedCssRule[]): OwnedStylesheetMergeResult;
 ```
 
+The application planner uses the reference-aware overload for an invocation-wide scan of selected template outputs:
+
+```ts
+interface OwnedCssReferences {
+  readonly classNames: ReadonlySet<string>;
+  readonly complete: boolean;
+}
+
+export function mergeOwnedStylesheet(
+  existing: string,
+  rules: readonly OwnedCssRule[],
+  references: OwnedCssReferences,
+): OwnedStylesheetMergeResult;
+```
+
+`classNames` contains exact `flm-<64 lowercase hex>` class tokens from every proposed output, or from the existing selected destination when that template is unchanged. Literal `class` values contribute only whole whitespace-separated tokens; Angular class-binding metadata makes both `[class.flm-<id>]` and `bind-class.flm-<id>` named static authorities. Every `ngClass` form is incomplete authority, although literal values can contribute exact whole generated tokens for validation. Interpolation, whole-value `[class]`/`[className]`, `bind-className`, a parse failure, or an unavailable selected destination also makes the scan incomplete. The current merger retains every unmatched existing rule even when the selected scan is complete, because scan completeness says nothing about templates outside the invocation. An exact generated-looking token or named class authority without either an incoming rule or a matching valid owned rule fails closed with `ownership-rule-mismatch`; boundary-adjacent handwritten `flm-*` names cannot claim ownership.
+
+When retained and incoming rules are combined, the merger identifies authoritative incoming IDs before resolving retained serialized media. It canonicalizes the resulting union: base rules come first, then responsive rules ordered by the breakpoint registry priority and stable rule ID. Incoming `OwnedCssRule` contexts stay structured and are never resolved through retained CSS text; only genuinely retained serialized media is resolved by the application planner and unknown retained media fails closed. This keeps a responsive rule effective over an equal-specificity base rule in an incremental run. It preserves the schema-1 marker grammar and class identity exactly; only the content ordering inside a changed owned block is canonicalized.
+
 The merger parses ownership first. Invalid ownership throws `CssStylesheetError`; it never edits ambiguous input.
 
 Newline preference is deterministic:
@@ -155,8 +174,8 @@ Newline preference is deterministic:
 Behavior is exact:
 
 - absent block plus rules: append the serialized block directly at end of input;
-- found block plus rules: replace exactly the parsed range;
-- found block plus no rules: remove exactly the parsed range;
+- found block plus rules: replace exactly the parsed range with the canonical union of incoming and unmatched existing rules;
+- found block plus no rules: return input unchanged;
 - absent block plus no rules: return input unchanged.
 
 The merger inserts no separator outside the owned block. If handwritten CSS lacks a trailing newline, the start marker immediately follows its final token; CSS comments are valid token separators and this preserves every existing byte. A later CLI may recommend a conventional stylesheet ending but cannot rewrite one implicitly.
@@ -213,7 +232,7 @@ Behavior changes follow TDD. Verification includes:
 - exact preservation outside the owned range;
 - marker-looking strings, unrelated comments, escaped quotes, and comment delimiters inside strings;
 - every malformed, duplicate, nested, unknown, unsupported, unterminated, and mismatched-marker case;
-- append, replace, remove, unchanged, rule-set shrink/growth, and idempotent merge behavior;
+- append, additive replacement, unchanged, unmatched-rule retention, mixed base-responsive precedence, and idempotent merge behavior;
 - architecture tests preventing filesystem, CLI, template, planner, or Tailwind dependencies; and
 - the complete repository verification command.
 
@@ -233,6 +252,6 @@ Each step is independently reviewable. Existing Tailwind and native artifact-gen
 
 ## Completion criteria
 
-The slice is complete when ordered `OwnedCssRule` values serialize deterministically; a valid block can be appended, replaced, or removed without changing surrounding bytes; malformed ownership fails closed with stable codes; repeated merges are byte-identical; and no CLI, template, or filesystem path exposes the unfinished CSS target.
+The slice is complete when ordered `OwnedCssRule` values serialize deterministically; a valid block can be appended or additively replaced without changing surrounding bytes; malformed ownership fails closed with stable codes; unmatched rules survive scoped merges; repeated merges are byte-identical; and no CLI, template, or filesystem path exposes the unfinished CSS target.
 
 The following slice can integrate native CSS planning with template class edits and transactional application using this pure merge operation.

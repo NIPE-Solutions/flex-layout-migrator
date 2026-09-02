@@ -1,19 +1,25 @@
-import { readFileSync } from 'node:fs';
-import { basename, join, relative } from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
+import { basename, dirname, join, relative, resolve } from 'node:path';
 import ts from 'typescript';
 
-import { inspectTypeScript, productionTypeScriptFiles, type TypeScriptInspection } from './typescript-boundary';
+import {
+  inspectTypeScript,
+  productionTypeScriptFiles,
+  runtimeModuleReferences,
+  type TypeScriptInspection,
+} from './typescript-boundary';
 
 const stylesheetRoot = join(process.cwd(), 'src', 'adapter', 'css', 'stylesheet');
 const fixturePath = join(stylesheetRoot, 'fixture.ts');
 
 const nodeIoModule = /^(?:node:)?(?:fs|path)(?:\/|$)/u;
-const forbiddenLayer = /(?:^|\/)(?:analyzer|cli|migrator|planner|tailwind|template)(?:\/|$)/u;
+const forbiddenLayer = /(?:^|\/)(?:analyzer|cli|migrator|planner|report|tailwind|template|transaction)(?:\/|$)/u;
 const atomicFileWriterModule = /(?:^|\/)atomic-file\.writer(?:\.[cm]?[jt]s)?$/u;
 const absolutePath = /^(?:\/(?![*/])|[a-z]:[\\/]|\\\\)/iu;
 const packageVersionIdentifier = /^(?:PACKAGE_VERSION|npm_package_version|packageVersion)$/u;
 const packageManifestModule = /(?:^|\/)package\.json$/u;
 const ownedBlockSerializerModule = /(?:^|\/)owned-css-block\.serializer(?:\.[cm]?[jt]s)?$/u;
+const breakpointCatalogModule = /(?:^|\/)breakpoint-catalog(?:\.[cm]?[jt]s)?$/u;
 const generatedMarkerForms = new Set([
   '/* flex-layout-codemod:start schema=1 */',
   '/* flex-layout-codemod:rule id=${} */',
@@ -31,6 +37,27 @@ function forbiddenDependency(inspection: TypeScriptInspection): string | undefin
 
 function sourceFile(source: string, sourcePath: string): ts.SourceFile {
   return ts.createSourceFile(sourcePath, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+}
+
+function runtimeLocalDependencies(source: string, sourcePath: string): readonly string[] {
+  return runtimeModuleReferences(source, sourcePath).flatMap(reference => {
+    if (!reference.startsWith('.')) return [];
+    const base = resolve(dirname(sourcePath), reference);
+    const target = [`${base}.ts`, join(base, 'index.ts')].find(candidate => existsSync(candidate));
+    return target === undefined ? [] : [target];
+  });
+}
+
+function runtimeDependencyClosure(entry: string): readonly string[] {
+  const visited = new Set<string>();
+  const pending = [entry];
+  while (pending.length > 0) {
+    const current = pending.pop();
+    if (current === undefined || visited.has(current)) continue;
+    visited.add(current);
+    pending.push(...runtimeLocalDependencies(readFileSync(current, 'utf8'), current));
+  }
+  return [...visited];
 }
 
 function isCssDelimiterComparison(node: ts.Node): boolean {
@@ -115,9 +142,56 @@ describe('native CSS stylesheet architecture boundary', () => {
     ['template type import', "import type { Template } from '../../../template/template.model';"],
     ['Tailwind side-effect import', "import '../../tailwind/tailwind.adapter';"],
     ['analyzer re-export', "export * from '../../../analyzer/flex-layout-attribute.analyzer';"],
+    ['report import', "import { JsonReportWriter } from '../../../report/json-report.writer';"],
+    ['transaction re-export', "export { MigrationTransaction } from '../../../transaction/migration-transaction';"],
+    ['breakpoint catalog import', "import { allBreakpointDefinitions } from '../../../breakpoint/breakpoint-catalog';"],
     ['AtomicFileWriter import', "import { AtomicFileWriter } from '../../../lib/atomic-file.writer';"],
   ])('rejects the %s dependency mutation', (_label, source) => {
-    expect(forbiddenDependency(inspectTypeScript(source, fixturePath))).toBeDefined();
+    expect(
+      forbiddenDependency(inspectTypeScript(source, fixturePath)) ??
+        runtimeModuleReferences(source, fixturePath).find(reference => breakpointCatalogModule.test(reference)),
+    ).toBeDefined();
+  });
+
+  test('keeps stylesheet runtime production code independent from the breakpoint catalog', () => {
+    for (const path of productionTypeScriptFiles(stylesheetRoot)) {
+      expect(
+        runtimeModuleReferences(readFileSync(path, 'utf8'), path).find(reference =>
+          breakpointCatalogModule.test(reference),
+        ),
+        relative(process.cwd(), path),
+      ).toBeUndefined();
+    }
+  });
+
+  test('keeps stylesheet production runtime dependency closures independent from breakpoint catalog and analyzer modules', () => {
+    const breakpointCatalogPath = join(process.cwd(), 'src', 'breakpoint', 'breakpoint-catalog.ts');
+    const analyzerRoot = `${join(process.cwd(), 'src', 'analyzer')}/`;
+    for (const entry of productionTypeScriptFiles(stylesheetRoot)) {
+      const forbidden = runtimeDependencyClosure(entry).find(
+        path => path === breakpointCatalogPath || path.startsWith(analyzerRoot),
+      );
+      expect(forbidden, relative(process.cwd(), entry)).toBeUndefined();
+    }
+  });
+
+  test.each([
+    ['side-effect import', "import './breakpoint-catalog';"],
+    ['re-export', "export * from './breakpoint-catalog';"],
+    ['import-equals', "import catalog = require('./breakpoint-catalog');"],
+    ['dynamic import', "void import('./breakpoint-catalog');"],
+    ['require call', "require('./breakpoint-catalog');"],
+  ])('finds a runtime %s edge', (_label, source) => {
+    expect(runtimeModuleReferences(source, fixturePath)).toContain('./breakpoint-catalog');
+  });
+
+  test.each([
+    "import type { BreakpointDefinition } from './breakpoint-catalog';",
+    "import { type BreakpointDefinition } from './breakpoint-catalog';",
+    "import type Catalog = require('./breakpoint-catalog');",
+    "export type { BreakpointDefinition } from './breakpoint-catalog';",
+  ])('excludes a type-only edge from the runtime dependency graph: %s', source => {
+    expect(runtimeModuleReferences(source, fixturePath)).toEqual([]);
   });
 
   test('recursively keeps stylesheet production modules independent from I/O and application layers', () => {

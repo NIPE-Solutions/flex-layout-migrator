@@ -8,12 +8,13 @@ describe('compatibility inventory', () => {
     expect([...names].sort()).toEqual([...FLEX_LAYOUT_DIRECTIVES].sort());
   });
 
-  it('records the current implemented and planned boundaries', () => {
+  it('records the current native CSS and independent responsive-image boundaries', () => {
     expect(COMPATIBILITY_INVENTORY).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ directive: 'fxLayout', tailwind: 'limited', css: 'planned' }),
-        expect.objectContaining({ directive: 'gdColumns', tailwind: 'limited', css: 'planned' }),
-        expect.objectContaining({ directive: 'gdInline', family: 'grid', tailwind: 'limited', css: 'planned' }),
+        expect.objectContaining({ directive: 'fxLayout', tailwind: 'limited', css: 'limited' }),
+        expect.objectContaining({ directive: 'fxFlexOrder', family: 'flex', css: 'limited' }),
+        expect.objectContaining({ directive: 'gdColumns', tailwind: 'limited', css: 'preserved' }),
+        expect.objectContaining({ directive: 'gdInline', family: 'grid', tailwind: 'limited', css: 'preserved' }),
         expect.objectContaining({
           directive: 'imgSrc',
           tailwind: 'not-applicable',
@@ -25,12 +26,12 @@ describe('compatibility inventory', () => {
     );
   });
 
-  it('distinguishes standard, orientation, print, and custom breakpoint coverage', () => {
+  it('records the CSS target standard-alias limit separately from preserved aliases', () => {
     const layout = COMPATIBILITY_INVENTORY.find(entry => entry.directive === 'fxLayout');
     expect(layout?.breakpoints).toEqual({
       standard: 'limited',
-      orientation: 'planned',
-      print: 'planned',
+      orientation: 'preserved',
+      print: 'preserved',
       custom: 'preserved',
     });
   });

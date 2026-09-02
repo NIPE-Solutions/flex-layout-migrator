@@ -58,29 +58,29 @@ describe('mergeOwnedStylesheet', () => {
     expectMerge(existing, [rule(A)], `${existing}${block(newline, [rule(A)])}`);
   });
 
-  test('replaces only the owned range and retains its internal newline over the document preference', () => {
+  test('updates only the owned range and retains its internal newline over the document preference', () => {
     const prefix = 'PREFIX-SENTINEL\r\n.handwritten { color: red; }\r\n';
     const suffix = '\r\nSUFFIX-SENTINEL\n.after { color: blue; }';
     const existing = `${prefix}${block('\n', [rule(A)])}${suffix}`;
-    const output = `${prefix}${block('\n', [rule(B)])}${suffix}`;
+    const output = `${prefix}${block('\n', [rule(A), rule(B)])}${suffix}`;
 
     expectMerge(existing, [rule(B)], output);
     expect(output.startsWith(prefix)).toBe(true);
     expect(output.endsWith(suffix)).toBe(true);
   });
 
-  test('removes only an owned block surrounded by handwritten bytes', () => {
+  test('retains an unmatched owned block surrounded by handwritten bytes', () => {
     const prefix = 'PREFIX-SENTINEL\n\n';
     const suffix = '\n\nSUFFIX-SENTINEL';
     const existing = `${prefix}${block('\r\n', [rule(A)])}${suffix}`;
 
-    expectMerge(existing, [], `${prefix}${suffix}`);
+    expectMerge(existing, [], existing);
   });
 
-  test('removes an owned-only stylesheet completely', () => {
+  test('retains an unmatched owned-only stylesheet', () => {
     const existing = block('\n', [rule(A)]);
 
-    expectMerge(existing, [], '');
+    expectMerge(existing, [], existing);
   });
 
   test.each([
@@ -109,12 +109,18 @@ describe('mergeOwnedStylesheet', () => {
     expectMerge(existing, [rule(A), rule(B), rule(C)], `${prefix}${block('\n', [rule(A), rule(B), rule(C)])}${suffix}`);
   });
 
-  test('replaces a larger owned rule set with a smaller one', () => {
+  test('retains unmatched rules when an incoming set is smaller', () => {
     const prefix = '.before {}\r\n';
     const suffix = '\r\n.after {}';
     const existing = `${prefix}${block('\r\n', [rule(A), rule(B), rule(C)])}${suffix}`;
 
-    expectMerge(existing, [rule(C)], `${prefix}${block('\r\n', [rule(C)])}${suffix}`);
+    expectMerge(existing, [rule(C)], existing);
+  });
+
+  test('retains unmatched owned rules when no explicit complete pruning scope is provided', () => {
+    const existing = block('\n', [rule(A)]);
+
+    expectMerge(existing, [rule(B)], block('\n', [rule(A), rule(B)]));
   });
 
   test('is byte-idempotent when merging the same ordered rules again', () => {
