@@ -17,7 +17,7 @@ function definition(alias: string) {
 }
 
 function responsive(alias: string, utility: string): string {
-  return emitter.emit(definition(alias), utility);
+  return emitter.emit(definition(alias), utility)[0] ?? '';
 }
 
 function responsiveExtended(alias: string, utility: string): string {

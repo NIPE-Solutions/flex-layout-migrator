@@ -47,7 +47,7 @@ function layout(classNames: readonly string[], breakpoint?: string, id?: string)
 function variant(breakpoint: string, utility: string): string {
   const classification = new BreakpointCatalog().classify(breakpoint);
   if (classification.kind !== 'verified') throw new Error(`Expected ${breakpoint} to be verified.`);
-  return new ResponsiveVariantEmitter().emit(classification.definition, utility);
+  return new ResponsiveVariantEmitter().emit(classification.definition, utility)[0] ?? '';
 }
 
 function request(

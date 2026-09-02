@@ -13,7 +13,7 @@ const emitter = new ResponsiveVariantEmitter();
 function responsive(alias: string, utility: string): string {
   const classification = catalog.classify(alias);
   if (classification.kind !== 'verified') throw new Error(`Expected ${alias} to be verified.`);
-  return emitter.emit(classification.definition, utility);
+  return emitter.emit(classification.definition, utility)[0] ?? '';
 }
 
 function converted(

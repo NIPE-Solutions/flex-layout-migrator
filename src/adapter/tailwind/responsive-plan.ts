@@ -24,7 +24,7 @@ export function planResponsiveClasses(
   if (classification.kind === 'verified') {
     return {
       status: 'converted',
-      classNames: classNames.map(className => emitter.emit(classification.definition, className)),
+      classNames: classNames.flatMap(className => emitter.emit(classification.definition, className)),
     };
   }
 
