@@ -32,8 +32,46 @@ function hasFiveNonemptyCells(cells: string[] | undefined): cells is [string, st
   return cells !== undefined && cells.length === 5 && cells.every(cell => cell.length > 0);
 }
 
+function visibleMarkdownLines(markdown: string): string[] {
+  const lines: string[] = [];
+  let line = '';
+  let commentDepth = 0;
+
+  for (let index = 0; index < markdown.length;) {
+    if (commentDepth > 0) {
+      if (markdown.startsWith('<!--', index)) {
+        commentDepth += 1;
+        index += 4;
+        continue;
+      }
+      if (markdown.startsWith('-->', index)) {
+        commentDepth -= 1;
+        index += 3;
+        continue;
+      }
+    } else if (markdown.startsWith('<!--', index)) {
+      commentDepth = 1;
+      index += 4;
+      continue;
+    }
+
+    const character = markdown[index];
+    if (character === undefined) throw new Error('Markdown scan reached an invalid index');
+    if (character === '\n') {
+      lines.push(line);
+      line = '';
+    } else if (commentDepth === 0) {
+      line += character;
+    }
+    index += 1;
+  }
+
+  lines.push(line);
+  return lines;
+}
+
 function sectionBody(markdown: string, heading: string): string[] {
-  const lines = markdown.replace(/<!--[\s\S]*?-->/gu, '').split('\n');
+  const lines = visibleMarkdownLines(markdown);
   const headingLine = lines.findIndex(line => line.trim() === heading);
   if (headingLine === -1) throw new Error(`Missing compatibility section: ${heading}`);
 
@@ -260,5 +298,18 @@ describe('compatibility reference contract', () => {
     expect(() => parseAvailableNowSafetyEntries(duplicate)).toThrow(
       'Duplicate compatibility safety entry "fxFlexFill"',
     );
+  });
+
+  it('does not treat nested or adjacent HTML-comment content as visible safety entries', async () => {
+    const markdown = await readFile(compatibilityUrl, 'utf8');
+    const crafted = markdown.replace(
+      '- `fxFlexFill`: Static full-size rule including its zero-margin behavior.',
+      '<!-- outer comment <!-- nested opener -->\n- `fxFlexFill`: Static full-size rule including its zero-margin behavior.\n--><!-- adjacent comment -->',
+    );
+
+    expect(sectionBody(crafted, '### Available now: directive-specific boundaries')).not.toContain(
+      '- `fxFlexFill`: Static full-size rule including its zero-margin behavior.',
+    );
+    expect(parseAvailableNowSafetyEntries(crafted).has('fxFlexFill')).toBe(false);
   });
 });
