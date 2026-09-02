@@ -1,11 +1,9 @@
-import { execFile, spawn } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { access, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { promisify } from 'node:util';
 import packageJson from '../../package.json' with { type: 'json' };
 
-const execFileAsync = promisify(execFile);
 const repository = resolve(import.meta.dirname, '../..');
 const executable = join(repository, 'dist', 'cli.js');
 
@@ -37,10 +35,6 @@ function execute(arguments_: readonly string[]): Promise<ExecutionResult> {
 
 describe('packaged CLI execution', () => {
   let temporaryDirectory: string;
-
-  beforeAll(async () => {
-    await execFileAsync('npm', ['run', 'build'], { cwd: repository });
-  });
 
   beforeEach(async () => {
     temporaryDirectory = await mkdtemp(join(tmpdir(), 'packaged-cli-'));

@@ -1,11 +1,9 @@
-import { execFile, spawn } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { access, copyFile, cp, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { promisify } from 'node:util';
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'vitest';
 
-const execFileAsync = promisify(execFile);
 const repository = resolve(import.meta.dirname, '../..');
 let executable = join(repository, 'dist', 'cli.js');
 const fixtures = join(repository, 'test', 'fixtures', 'compatibility');
@@ -41,7 +39,6 @@ describe('native CSS public compatibility', () => {
   let executableDirectory: string;
 
   beforeAll(async () => {
-    await execFileAsync('npm', ['run', 'build'], { cwd: repository });
     executableDirectory = await mkdtemp(join(repository, '.native-css-public-cli-'));
     executable = join(executableDirectory, 'cli.js');
     await copyFile(join(repository, 'dist', 'cli.js'), executable);
