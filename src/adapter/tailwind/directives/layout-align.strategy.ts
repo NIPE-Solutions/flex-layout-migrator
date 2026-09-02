@@ -1,5 +1,6 @@
 import type { ParsedValue } from '../tailwind-semantic.model';
-import { layoutClassNames, parseLayout, type TailwindClassPlan } from './layout.strategy';
+import { parseLayout } from '../../../flex/layout.semantic';
+import { renderLayout, type TailwindClassPlan } from './layout.strategy';
 
 const mainAxis = {
   start: 'start',
@@ -42,7 +43,7 @@ export function planLayoutAlign(value: string, layoutValue: string): ParsedValue
         `justify-${main}`,
         `items-${cross[0]}`,
         `content-${cross[1]}`,
-        ...layoutClassNames(layout.value),
+        ...renderLayout(layout.value),
         ...sizing,
       ],
     },

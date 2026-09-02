@@ -1,4 +1,5 @@
-import { planLayout } from './layout.strategy';
+import { parseLayout } from '../../../flex/layout.semantic';
+import { planLayout, renderLayout } from './layout.strategy';
 
 describe('planLayout', () => {
   test.each([
@@ -18,4 +19,18 @@ describe('planLayout', () => {
       expect(planLayout(value)).toEqual({ ok: false });
     },
   );
+});
+
+describe('renderLayout', () => {
+  test.each([
+    ['row', ['flex', 'flex-row', 'box-border']],
+    ['row-reverse nowrap', ['flex', 'flex-row-reverse', 'flex-nowrap', 'box-border']],
+    ['column wrap inline', ['inline-flex', 'flex-col', 'flex-wrap', 'box-border']],
+    ['column-reverse wrap-reverse', ['flex', 'flex-col-reverse', 'flex-wrap-reverse', 'box-border']],
+  ] as const)('maps %j in exact class order', (source, expected) => {
+    const parsed = parseLayout(source);
+    if (!parsed.ok) throw new Error(`Expected ${source} to parse`);
+
+    expect(renderLayout(parsed.value)).toEqual(expected);
+  });
 });

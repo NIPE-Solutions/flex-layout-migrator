@@ -44,6 +44,16 @@ describe('TailwindAdapter', () => {
     });
   });
 
+  test('preserves explicit inline layout semantics through adapter rendering', () => {
+    const layout = input({ value: 'column wrap inline' });
+
+    expect(new TailwindAdapter().plan(layout, { element })).toEqual({
+      status: 'converted',
+      input: layout,
+      classNames: ['inline-flex', 'flex-col', 'flex-wrap', 'box-border'],
+    });
+  });
+
   test('converts a literal Grid directive through exact arbitrary properties', () => {
     const gridInput = input({
       directive: 'gdColumns',

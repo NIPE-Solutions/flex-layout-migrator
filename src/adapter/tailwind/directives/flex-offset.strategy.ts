@@ -1,6 +1,6 @@
 import type { TailwindStrategyResult } from '../tailwind-semantic.model';
+import { parseLayout } from '../../../flex/layout.semantic';
 import { arbitraryValue, parseCssLength } from '../tailwind-value.parser';
-import { parseLayout } from './layout.strategy';
 
 export function planFlexOffset(value: string, layoutValue: string | undefined): TailwindStrategyResult {
   const offset = parseCssLength(value.trim() || '0', { fallbackUnit: '%' });

@@ -1,6 +1,6 @@
 import type { TailwindStrategyResult } from '../tailwind-semantic.model';
+import { parseLayout } from '../../../flex/layout.semantic';
 import { parseCssLength } from '../tailwind-value.parser';
-import { parseLayout } from './layout.strategy';
 
 export interface FlexItemInput {
   readonly basis: string;
