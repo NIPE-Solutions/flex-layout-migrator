@@ -89,6 +89,7 @@ describe('release policy', () => {
       build: 'tsup',
       'package:check': 'node scripts/verify-package.mjs',
       'release:prepare': 'node scripts/release-artifact.mjs',
+      'release:verify': 'node scripts/release-artifact.mjs --verify-retained',
     };
     const invokedScriptSource = Object.keys(expectedScripts)
       .map(name => manifest.scripts[name] ?? '')

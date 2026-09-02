@@ -51,9 +51,16 @@ describe('maintainer documentation', () => {
     const security = await readFile(new URL('SECURITY.md', root), 'utf8');
     expect(security).toContain('private vulnerability reporting');
 
-    const readme = await readFile(new URL('README.md', root), 'utf8');
-    expect(readme).toContain('Version 2 is under active development');
+    const [readme, changesetReadme] = await Promise.all([
+      readRepositoryFile('README.md'),
+      readRepositoryFile('.changeset/README.md'),
+    ]);
+    expect(readme).toContain('Version 2 remains a prerelease');
+    expect(readme).not.toContain('not published to npm yet');
+    expect(readme).not.toContain('After the v2 beta is published');
     expect(readme).not.toContain('npm install -g @ng-flex/layout-migrator');
+    expect(changesetReadme).toContain('reviewed beta release process');
+    expect(changesetReadme).not.toContain('workflow is reviewed separately');
   });
 
   it('publishes the exact npm beta operator contract', async () => {
@@ -108,6 +115,7 @@ describe('maintainer documentation', () => {
     for (const operatorCommand of [
       'gh workflow run release-pr.yml',
       'npm run release:prepare -- --github-output',
+      'npm run release:verify',
       'npm publish <tarball> --access public --tag beta',
       'gh workflow run stage-release.yml',
       'npm stage download <stage-id>',
@@ -136,6 +144,10 @@ describe('maintainer documentation', () => {
       expect(document).toContain('Do not add an npm token to GitHub');
       expect(document).not.toMatch(/\bgh secret set\b|\b(?:NPM_TOKEN|NODE_AUTH_TOKEN)\s*=|\bsecrets\.NPM\b/u);
     }
+
+    expect(releaseProcess).toContain('computes SHA-512 SRI from the generated tarball bytes');
+    expect(releaseProcess).toContain('smoke-installs and executes that exact tarball');
+    expect(releaseProcess).toContain('rehashes the retained tarball immediately before staging');
   });
 
   it('requires byte-for-byte staged artifact verification before approval and finalization', async () => {
@@ -187,6 +199,8 @@ describe('maintainer documentation', () => {
     const errorHandling = sectionBetween(releaseProcess, '## Error handling', '## Testing strategy');
 
     for (const section of [recovery, errorHandling]) {
+      expect(section).toContain('npm stage list @nipe-solutions/flex-layout-codemod');
+      expect(section).toContain('npm stage download <stage-id>');
       expect(section).toContain('npm stage reject <stage-id>');
       expect(section).toContain('removes the staged record');
       expect(section).toContain('byte-identical');
@@ -195,6 +209,23 @@ describe('maintainer documentation', () => {
       expect(section).toContain('retained `release-artifact.json` from the rejected stage');
       expect(section).toContain('Changed or rebuilt bytes always require a new beta version');
       expect(section).not.toContain('cannot be reused');
+    }
+
+    expectInOrder(recovery, [
+      'npm stage list @nipe-solutions/flex-layout-codemod',
+      'npm stage download <stage-id>',
+      'npm stage reject <stage-id>',
+    ]);
+    for (const commandFragment of [
+      'retained_metadata=',
+      'retained_tarball=',
+      'candidate_tarball=',
+      'retained_sri=',
+      'candidate_sri=',
+      'cmp --silent "$retained_tarball" "$candidate_tarball"',
+      'test "$candidate_sri" = "$retained_sri"',
+    ]) {
+      expect(recovery).toContain(commandFragment);
     }
   });
 
@@ -206,6 +237,7 @@ describe('maintainer documentation', () => {
       '/.github/workflows/stage-release.yml @Cylop',
       '/.changeset/ @Cylop',
       '/scripts/release-artifact.mjs @Cylop',
+      '/scripts/verify-package.mjs @Cylop',
       '/package.json @Cylop',
     ]) {
       expect(codeowners).toContain(protectedPath);

@@ -33,6 +33,7 @@
     "changeset": "changeset add",
     "version-packages": "changeset version",
     "release:prepare": "node scripts/release-artifact.mjs",
+    "release:verify": "node scripts/release-artifact.mjs --verify-retained",
     "release:version": "changeset version && npm install --package-lock-only --ignore-scripts",
     "prepare": "husky"
   },

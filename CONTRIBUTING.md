@@ -51,9 +51,10 @@ tar -tf "$tarball"
 smoke_dir="$(mktemp -d)"
 npm install --ignore-scripts --prefix "$smoke_dir" "./$tarball"
 "$smoke_dir/node_modules/.bin/flex-layout-codemod" --version
+GITHUB_REF_NAME="$branch" npm run release:verify
 ```
 
-`release-artifact.json` is the record of the exact package name, version, tarball, and SHA-512 integrity. The tarball's file list must be exactly `CHANGELOG.md`, `LICENSE`, `README.md`, `dist/cli.js`, `dist/cli.js.map`, and `package.json`. Remove the temporary smoke directory and output file after review. Do not rebuild or repack between approval and publication.
+`release:prepare` computes SHA-512 SRI from the generated tarball bytes, requires an exact match with npm's pack descriptor, and clean-installs and executes that same tarball before writing any metadata or GitHub output. The final `release:verify` command rehashes the retained bytes against that metadata after manual inspection. `release-artifact.json` is the record of the exact package name, version, tarball, and verified SHA-512 integrity. The tarball's file list must be exactly `CHANGELOG.md`, `LICENSE`, `README.md`, `dist/cli.js`, `dist/cli.js.map`, and `package.json`. Remove the temporary smoke directory and output file after review. Do not rebuild or repack between approval and publication.
 
 ### First publication: one-time bootstrap exception
 
@@ -83,7 +84,7 @@ For every later beta, dispatch the manual staging workflow from the versioned `m
 gh workflow run stage-release.yml --repo NIPE-Solutions/flex-layout-migrator --ref main
 ```
 
-The workflow verifies the repository, creates and uploads the exact tarball and metadata, then runs `npm stage publish` for that tarball with public access and the `beta` tag. It never publishes directly and never approves its own stage.
+The workflow verifies the repository, creates and uploads the exact tarball and metadata, rehashes the retained tarball immediately before staging, then runs `npm stage publish` for that same path with public access and the `beta` tag. It never publishes directly and never approves its own stage.
 
 Record the workflow run ID and exact commit. Inspect the `npm-release` workflow artifact and the staged package on npmjs.com. To download the staged package for independent inspection, use:
 
@@ -132,11 +133,41 @@ gh release create <version> --repo NIPE-Solutions/flex-layout-migrator --verify-
 
 ### Recovery
 
-- If verification or staging fails before npm accepts a stage, correct the cause and rerun from the same unchanged versioned commit.
+If `npm stage publish` ends with an ambiguous network result or reports a version collision, do not retry it first. Discover whether npm accepted the original request and recover its stage ID:
+
+```bash
+npm stage list @nipe-solutions/flex-layout-codemod
+npm stage download <stage-id>
+```
+
+If the version is listed, inspect the downloaded tarball and compare its SHA-512 SRI with the retained `release-artifact.json` using the staged-review procedure above. Approve or reject that recovered stage; do not create a duplicate. Retry staging only when the list proves that npm accepted no stage and the version remains available.
+
+- If verification fails before a staging request, correct the cause and rerun from the same unchanged versioned commit.
 - If OIDC or Trusted Publisher matching fails, correct the npm publisher configuration or GitHub environment. Do not fall back to a token.
-- If inspection fails after staging, run `npm stage reject <stage-id>` and complete two-factor authentication. Successful rejection removes the staged record. An operational retry may restage the same version only after rejection, and only when the artifact is byte-identical and re-verification produces an identical SHA-512 SRI to the retained `release-artifact.json` from the rejected stage.
+- If inspection fails after staging, retain immutable copies of the downloaded tarball and workflow `release-artifact.json`, then run `npm stage reject <stage-id>` and complete two-factor authentication. Successful rejection removes the staged record. An operational retry may restage the same version only after rejection, and only when the candidate is byte-identical and produces an identical SHA-512 SRI to the retained `release-artifact.json` from the rejected stage.
 - Changed or rebuilt bytes always require a new beta version and Changeset; never stage different bytes under the rejected version.
 - If an approved package is incorrect, do not overwrite or unpublish it. Correct the issue in a new beta version.
 - If tagging or GitHub prerelease creation fails after npm approval, retry those steps against the already published version and exact staged commit.
+
+For an operational same-version retry after rejection, prepare the candidate from the same unchanged commit in a clean checkout. Set the first two paths to the immutable copies retained from the rejected stage, then require both an exact byte comparison and equality between a fresh candidate-byte SRI and the retained rejected-stage SRI:
+
+```bash
+retained_metadata="/absolute/path/to/rejected-stage/release-artifact.json"
+retained_tarball="/absolute/path/to/rejected-stage/package.tgz"
+candidate_metadata="./release-artifact.json"
+candidate_tarball="$(
+  node -e "const { readFileSync } = require('node:fs'); console.log(JSON.parse(readFileSync(process.argv[1], 'utf8')).tarball)" "$candidate_metadata"
+)"
+retained_sri="$(
+  node -e "const { readFileSync } = require('node:fs'); console.log(JSON.parse(readFileSync(process.argv[1], 'utf8')).integrity)" "$retained_metadata"
+)"
+candidate_sri="$(
+  node -e "const { createHash } = require('node:crypto'); const { readFileSync } = require('node:fs'); console.log('sha512-' + createHash('sha512').update(readFileSync(process.argv[1])).digest('base64'))" "$candidate_tarball"
+)"
+cmp --silent "$retained_tarball" "$candidate_tarball"
+test "$candidate_sri" = "$retained_sri"
+```
+
+Both final commands must exit successfully before the same version may be restaged. Any byte or SRI difference requires a new beta version and Changeset.
 
 The architecture and trust-boundary rationale are defined in [docs/architecture/release-process.md](docs/architecture/release-process.md).

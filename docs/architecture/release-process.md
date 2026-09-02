@@ -60,9 +60,11 @@ The workflow:
 3. installs from `package-lock.json` with `npm ci`;
 4. runs formatting, linting, type checking, coverage, build, package-contract checks, and `npm audit --audit-level=high`;
 5. creates one tarball with `npm pack --json` and validates its six-file package surface;
-6. installs the tarball into a temporary project and runs the packaged CLI smoke test;
-7. confirms the manifest is a new `2.0.0-beta.N` version;
-8. stages that exact tarball with `npm stage publish <tarball> --access public --tag beta`.
+6. computes SHA-512 SRI from the generated tarball bytes, requires an exact match with npm's descriptor, and removes the tarball and metadata if reading, hashing, or comparison fails;
+7. smoke-installs and executes that exact tarball in a temporary project;
+8. rehashes that path after the smoke test, confirms the manifest is a new `2.0.0-beta.N` version, and writes metadata and GitHub outputs only while the bytes still match;
+9. uploads that tarball and metadata as the workflow artifact;
+10. rehashes the retained tarball immediately before staging, then passes that exact path to `npm stage publish <tarball> --access public --tag beta`.
 
 The workflow uploads the verified tarball and package metadata as GitHub artifacts before staging. It never runs `npm publish`, never uses `NODE_AUTH_TOKEN`, and never approves a staged package.
 
@@ -109,9 +111,9 @@ After registry approval, the maintainer verifies the published integrity and `be
 ## Error handling
 
 - A failed verification, audit, package inspection, or smoke test stops before OIDC authentication and staging.
-- A registry version collision stops without changing dist-tags.
+- After an ambiguous staging network result or version collision, the operator first runs `npm stage list @nipe-solutions/flex-layout-codemod`. If a stage exists, the operator recovers its stage ID, runs `npm stage download <stage-id>`, and compares the downloaded bytes and SHA-512 SRI with the retained workflow artifact before deciding whether to approve or reject it. A blind retry is prohibited; retry is allowed only after the list proves npm accepted no stage.
 - An OIDC or trusted-publisher mismatch fails without falling back to a token.
-- A staged package that fails manual inspection is rejected with `npm stage reject <stage-id>` and two-factor authentication. Successful rejection removes the staged record. An operational retry may restage the same version only after rejection, and only when the artifact is byte-identical and re-verification produces an identical SHA-512 SRI to the retained `release-artifact.json` from the rejected stage.
+- A staged package that fails manual inspection is rejected with `npm stage reject <stage-id>` and two-factor authentication. Before rejection, the operator retains both the downloaded tarball and `release-artifact.json`. Successful rejection removes the staged record. An operational retry may restage the same version only after rejection, and only when an exact byte comparison proves the candidate is byte-identical and re-verification produces an identical SHA-512 SRI to the retained `release-artifact.json` from the rejected stage.
 - Changed or rebuilt bytes always require a new beta version and Changeset; different bytes are never staged under the rejected version.
 - A successful stage is not described as published until npm approval completes.
 - A published package is immutable. Corrections require a new beta version and Changeset rather than overwriting or unpublishing the release.
@@ -127,7 +129,8 @@ Repository contract tests parse the workflows and release scripts to prove:
 - the stage command always specifies the verified tarball, public access, and `beta` tag;
 - stable or malformed versions, existing registry versions, mismatched tarball metadata, and unexpected package files fail before staging;
 - the tarball contains exactly `CHANGELOG.md`, `LICENSE`, `README.md`, `dist/cli.js`, `dist/cli.js.map`, and `package.json`;
-- a clean temporary installation executes the packaged CLI successfully;
+- the descriptor SRI equals SHA-512 over the generated tarball bytes, and hash failures remove invocation-owned release artifacts;
+- the same tarball path flows through hashing, a clean temporary CLI installation, metadata, GitHub outputs, artifact upload, final retained-byte verification, and staging;
 - public maintenance documentation matches the implemented bootstrap, staging, approval, and recovery procedures.
 
 The complete local and CI gates remain `npm run verify`, `npm audit --audit-level=high`, package inspection, clean-install CLI smoke, `git diff --check`, clean status, and forbidden-control-file scans.

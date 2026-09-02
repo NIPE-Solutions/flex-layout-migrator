@@ -1,11 +1,13 @@
 import { Buffer } from 'node:buffer';
 import { execFile } from 'node:child_process';
 import console from 'node:console';
+import { createHash } from 'node:crypto';
 import { appendFile, lstat, readFile, rm, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import process from 'node:process';
-import { pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
+
+import { isDirectInvocation, npmExecutable, smokePackageTarball } from './verify-package.mjs';
 
 const execFileAsync = promisify(execFile);
 
@@ -30,6 +32,30 @@ function isCanonicalSha512Integrity(integrity) {
 
 function tarballFilename({ name, version }) {
   return `${name.replace(/^@/, '').replace('/', '-')}-${version}.tgz`;
+}
+
+function sha512Integrity(bytes) {
+  return `sha512-${createHash('sha512').update(bytes).digest('base64')}`;
+}
+
+async function requireMatchingIntegrity({ tarballPath, expectedIntegrity, readTarballImpl, hashBytesImpl, boundary }) {
+  let tarballBytes;
+  try {
+    tarballBytes = await readTarballImpl(tarballPath);
+  } catch (error) {
+    throw new Error(`${boundary} read failed`, { cause: error });
+  }
+
+  let actualIntegrity;
+  try {
+    actualIntegrity = hashBytesImpl(tarballBytes);
+  } catch (error) {
+    throw new Error(`${boundary} hash failed`, { cause: error });
+  }
+  if (actualIntegrity !== expectedIntegrity) {
+    throw new Error(`${boundary} mismatch: expected ${expectedIntegrity}; actual ${actualIntegrity}`);
+  }
+  return actualIntegrity;
 }
 
 async function requireInvocationOwnedPaths(paths) {
@@ -148,6 +174,10 @@ export async function runReleaseArtifact({
   writeFileImpl,
   appendFileImpl,
   rmImpl,
+  readTarballImpl,
+  hashBytesImpl,
+  smokeTarballImpl,
+  platform,
 } = {}) {
   const effectiveArgs = args ?? process.argv.slice(2);
   const effectiveEnv = env ?? process.env;
@@ -157,6 +187,10 @@ export async function runReleaseArtifact({
   const effectiveWriteFile = writeFileImpl ?? writeFile;
   const effectiveAppendFile = appendFileImpl ?? appendFile;
   const effectiveRm = rmImpl ?? rm;
+  const effectiveReadTarball = readTarballImpl ?? readFile;
+  const effectiveHashBytes = hashBytesImpl ?? sha512Integrity;
+  const effectiveSmokeTarball = smokeTarballImpl ?? smokePackageTarball;
+  const effectivePlatform = platform ?? process.platform;
 
   if (effectiveEnv.GITHUB_REF_NAME !== 'main') {
     throw new Error(
@@ -202,7 +236,7 @@ export async function runReleaseArtifact({
   try {
     let packed;
     try {
-      packed = await effectiveExecFile('npm', ['pack', '--json', '--ignore-scripts'], {
+      packed = await effectiveExecFile(npmExecutable(effectivePlatform), ['pack', '--json', '--ignore-scripts'], {
         cwd: effectiveRepository,
       });
     } catch (error) {
@@ -221,10 +255,40 @@ export async function runReleaseArtifact({
       );
     }
 
-    const artifact = inspectPackManifest({
+    const descriptorArtifact = inspectPackManifest({
       repositoryManifest,
       packManifest: descriptors[0],
     });
+    const actualIntegrity = await requireMatchingIntegrity({
+      tarballPath,
+      expectedIntegrity: descriptorArtifact.integrity,
+      readTarballImpl: effectiveReadTarball,
+      hashBytesImpl: effectiveHashBytes,
+      boundary: 'Tarball integrity boundary',
+    });
+
+    const artifact = Object.freeze({
+      ...descriptorArtifact,
+      integrity: actualIntegrity,
+    });
+    try {
+      await effectiveSmokeTarball({
+        tarballPath,
+        packageName: artifact.name,
+        expectedVersion: artifact.version,
+        platform: effectivePlatform,
+      });
+    } catch (error) {
+      throw new Error('Exact tarball smoke boundary failed', { cause: error });
+    }
+    await requireMatchingIntegrity({
+      tarballPath,
+      expectedIntegrity: actualIntegrity,
+      readTarballImpl: effectiveReadTarball,
+      hashBytesImpl: effectiveHashBytes,
+      boundary: 'Post-smoke tarball integrity boundary',
+    });
+
     try {
       await effectiveWriteFile(metadataPath, `${JSON.stringify(artifact, null, 2)}\n`, 'utf8');
     } catch (error) {
@@ -254,9 +318,68 @@ export async function runReleaseArtifact({
   }
 }
 
-const invokedPath = process.argv[1] ? pathToFileURL(resolve(process.argv[1])).href : undefined;
-if (invokedPath === import.meta.url) {
-  runReleaseArtifact().catch(error => {
+export async function runRetainedReleaseArtifact({ env, repository, readTarballImpl, hashBytesImpl } = {}) {
+  const effectiveEnv = env ?? process.env;
+  const effectiveRepository = repository ?? resolve(import.meta.dirname, '..');
+  const effectiveReadTarball = readTarballImpl ?? readFile;
+  const effectiveHashBytes = hashBytesImpl ?? sha512Integrity;
+
+  if (effectiveEnv.GITHUB_REF_NAME !== 'main') {
+    throw new Error(
+      `Protected branch boundary requires GITHUB_REF_NAME=main; received ${effectiveEnv.GITHUB_REF_NAME ?? '<unset>'}`,
+    );
+  }
+
+  let repositoryManifest;
+  let artifact;
+  try {
+    repositoryManifest = JSON.parse(await readFile(join(effectiveRepository, 'package.json'), 'utf8'));
+    artifact = JSON.parse(await readFile(join(effectiveRepository, 'release-artifact.json'), 'utf8'));
+  } catch (error) {
+    throw new Error('Retained release metadata boundary read or parse failed', { cause: error });
+  }
+
+  validateReleaseVersion(repositoryManifest.version);
+  if (!artifact || typeof artifact !== 'object' || Array.isArray(artifact)) {
+    throw new Error('Retained release metadata boundary requires one object');
+  }
+  const metadataKeys = Object.keys(artifact).sort();
+  if (JSON.stringify(metadataKeys) !== JSON.stringify(['integrity', 'name', 'tarball', 'version'])) {
+    throw new Error('Retained release metadata boundary requires exactly name, version, tarball, and integrity');
+  }
+  if (artifact.name !== repositoryManifest.name || artifact.version !== repositoryManifest.version) {
+    throw new Error('Retained release metadata boundary package identity or version mismatch');
+  }
+  if (artifact.tarball !== tarballFilename(repositoryManifest)) {
+    throw new Error('Retained release metadata boundary tarball filename mismatch');
+  }
+  if (!isCanonicalSha512Integrity(artifact.integrity)) {
+    throw new Error('Retained release metadata boundary requires canonical 64-byte SHA-512 SRI');
+  }
+
+  await requireMatchingIntegrity({
+    tarballPath: join(effectiveRepository, artifact.tarball),
+    expectedIntegrity: artifact.integrity,
+    readTarballImpl: effectiveReadTarball,
+    hashBytesImpl: effectiveHashBytes,
+    boundary: 'Retained tarball integrity boundary',
+  });
+
+  return Object.freeze({
+    name: artifact.name,
+    version: artifact.version,
+    tarball: artifact.tarball,
+    integrity: artifact.integrity,
+  });
+}
+
+if (isDirectInvocation(import.meta.url)) {
+  const directArguments = process.argv.slice(2);
+  const operation =
+    directArguments.length === 1 && directArguments[0] === '--verify-retained'
+      ? runRetainedReleaseArtifact()
+      : runReleaseArtifact();
+  operation.catch(error => {
     console.error(error instanceof Error ? error.message : error);
     process.exitCode = 1;
   });

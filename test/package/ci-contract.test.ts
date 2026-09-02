@@ -92,6 +92,7 @@ describe('continuous integration', () => {
               'if-no-files-found': 'error',
             },
           },
+          { run: 'npm run release:verify' },
           {
             name: 'Stage ${{ steps.release.outputs.name }}@${{ steps.release.outputs.version }} (${{ steps.release.outputs.integrity }})',
             run: 'npm stage publish "./${{ steps.release.outputs.tarball }}" --access public --tag beta',
