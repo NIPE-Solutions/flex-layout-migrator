@@ -287,6 +287,26 @@ describe('runCli', () => {
     await expect(access(input)).rejects.toThrow();
   });
 
+  test('converts configured orientation and print fallback behavior end to end', async () => {
+    const input = join(temporaryDirectory, 'input.html');
+    const output = join(temporaryDirectory, 'output.html');
+    await writeFile(input, '<div fxLayout.handset="column" fxLayout.md="row"></div>', 'utf8');
+
+    const result = await run([
+      input,
+      '--output',
+      output,
+      '--orientation-breakpoints',
+      '--print-with-breakpoints',
+      'md',
+    ]);
+
+    expect(result.exitCode).toBe(0);
+    const migrated = await readFile(output, 'utf8');
+    expect(migrated).toContain('[@media_(orientation:_portrait)_and_(max-width:_599.98px)]:flex-col');
+    expect(migrated).toContain('[@media_print]:flex-row');
+  });
+
   test('creates a missing output directory when a changed template is written', async () => {
     const input = join(temporaryDirectory, 'input.html');
     const output = join(temporaryDirectory, 'new', 'nested', 'output.html');
