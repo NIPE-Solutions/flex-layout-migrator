@@ -586,6 +586,14 @@ describe('findTailwindClassConflicts', () => {
     expect(findTailwindClassConflicts([portrait], [landscape])).toEqual(new Set());
   });
 
+  test('keeps print ownership disjoint from screen media ownership', () => {
+    const screen = '[@media_screen_and_(min-width:_600px)]:flex-row';
+    const print = '[@media_print]:flex-col';
+
+    expect(findTailwindClassConflicts([screen], [print])).toEqual(new Set());
+    expect(findTailwindClassConflicts(['[@media_print]:flex-row'], [print])).toEqual(new Set([print]));
+  });
+
   test('returns the generated token when responsive ranges overlap', () => {
     const generated = sm('flex-col');
 

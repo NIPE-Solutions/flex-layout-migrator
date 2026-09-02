@@ -9,7 +9,9 @@ import {
   tailwindArbitraryTextKind,
 } from './extended/tailwind-arbitrary-value-ownership';
 
-export type TailwindActivation = { readonly kind: 'base' } | { readonly kind: 'media'; readonly range: MediaRange };
+export type TailwindActivation =
+  | { readonly kind: 'base' }
+  | { readonly kind: 'media'; readonly range: MediaRange; readonly mediaType?: 'screen' | 'print' };
 
 export interface TailwindDisplayUtility {
   readonly token: string;
@@ -96,6 +98,8 @@ function splitVariants(
 
 function activation(variants: readonly string[]): TailwindActivation {
   for (const variant of variants) {
+    if (variant === '[@media_print]') return { kind: 'media', range: {}, mediaType: 'print' };
+
     const orientationMatch = variant.match(generatedOrientationMediaVariant);
     if (orientationMatch) {
       return {
@@ -599,7 +603,9 @@ export function describeTailwindDisplay(token: string): TailwindDisplayUtility |
 }
 
 function activationsIntersect(left: TailwindActivation, right: TailwindActivation): boolean {
-  return left.kind === 'base' || right.kind === 'base' || mediaRangesIntersect(left.range, right.range);
+  if (left.kind === 'base' || right.kind === 'base') return true;
+  if ((left.mediaType ?? 'screen') !== (right.mediaType ?? 'screen')) return false;
+  return mediaRangesIntersect(left.range, right.range);
 }
 
 export function findTailwindClassConflicts(

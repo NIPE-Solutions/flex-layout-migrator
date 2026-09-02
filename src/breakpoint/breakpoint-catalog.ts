@@ -112,8 +112,10 @@ const optionalAliases = new Set<string>(ORIENTATION_BREAKPOINTS);
 
 export class BreakpointCatalog {
   private readonly configuredDefinitions: ReadonlyMap<string, BreakpointDefinition>;
+  readonly printWithBreakpoints: readonly string[] | undefined;
 
   constructor(config: BreakpointMigrationConfig = { orientationBreakpoints: false }) {
+    this.printWithBreakpoints = config.printWithBreakpoints;
     this.configuredDefinitions = new Map([
       ...definitionsByAlias,
       ...(config.orientationBreakpoints ? orientations.map(definition => [definition.alias, definition] as const) : []),
