@@ -4,31 +4,67 @@ Version 2 is prerelease software. Its current conversion coverage is deliberatel
 
 The source contract and classification rules are documented in [Conversion safety model](architecture/conversion-safety.md).
 
-## Status definitions
+## Current compatibility status
 
-- **Limited**: unbound literal values are converted for the cases described below and covered by the compatibility corpus. Standard responsive viewport aliases are supported when their complete semantic family is safe.
-- **Planned**: the analyzer recognizes the input, but no target adapter converts it yet.
-- **Preserved**: the input is intentionally left unchanged and reported for review.
+- **Limited**: available now for the literal, safety-proven cases described below. Standard responsive viewport aliases convert only when their complete semantic family is safe.
+- **Preserved**: recognized input intentionally left unchanged and reported for review.
+- **Planned**: recognized input for which that target has no conversion available now.
+- **Not applicable**: the directive does not have a conversion in that target category.
 
-No native CSS conversions are available yet. The CLI currently accepts only the `tailwind` target, and generated classes target Tailwind CSS v4.
+The Tailwind CSS 4 column identifies current target behavior. Native CSS and responsive-image statuses marked Planned are not current capabilities; their product direction is described in the [Version 2 product roadmap](architecture/v2-product-roadmap.md). No native CSS conversions are available yet. The CLI currently accepts only the `tailwind` target, and generated classes target Tailwind CSS v4.
 
-## Flex directives
+<!-- compatibility-inventory:start -->
 
-| Directive       | Tailwind | Notes                                                                                                                       |
-| --------------- | -------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `fxLayout`      | Limited  | Static directions plus wrap and inline modifiers; coupled unresolved gaps preserve the layout.                              |
-| `fxLayoutAlign` | Limited  | Static main/cross axes with layout, content alignment, sizing, and border-box semantics.                                    |
-| `fxLayoutGap`   | Limited  | Static nonnegative non-wrapping gaps; unitless values remain pixels. Grid, computed, negative, and wrapped gaps are review. |
-| `fxFlex`        | Limited  | Static basis, keyword, and three-part forms with parent-axis min/max sizing.                                                |
-| `fxGrow`        | Limited  | Converted atomically with a static `fxFlex`; standalone use is invalid.                                                     |
-| `fxShrink`      | Limited  | Converted atomically with a static `fxFlex`; standalone use is invalid.                                                     |
-| `fxFlexAlign`   | Limited  | Static `align-self` keywords.                                                                                               |
-| `fxFlexFill`    | Limited  | Static full-size rule including its zero-margin behavior.                                                                   |
-| `fxFill`        | Limited  | Non-responsive alias of `fxFlexFill`.                                                                                       |
-| `fxFlexOffset`  | Limited  | Static values with a statically known parent axis; unitless values remain percentages.                                      |
-| `fxFlexOrder`   | Limited  | Static integer values emitted independently of the Tailwind theme.                                                          |
-| `fxShow`        | Limited  | Literal base and standard viewport states convert when display restoration and the complete visibility family are safe.     |
-| `fxHide`        | Limited  | Literal base and standard viewport states convert with `fxShow`; hiding emits exact base or responsive `hidden` utilities.  |
+| Directive        | Family      | Tailwind CSS 4 | Native CSS     | Responsive image |
+| ---------------- | ----------- | -------------- | -------------- | ---------------- |
+| `fxLayout`       | Flex        | Limited        | Planned        | Not applicable   |
+| `fxLayoutAlign`  | Flex        | Limited        | Planned        | Not applicable   |
+| `fxLayoutGap`    | Flex        | Limited        | Planned        | Not applicable   |
+| `fxFlex`         | Flex        | Limited        | Planned        | Not applicable   |
+| `fxGrow`         | Flex        | Limited        | Planned        | Not applicable   |
+| `fxShrink`       | Flex        | Limited        | Planned        | Not applicable   |
+| `fxFlexAlign`    | Flex        | Limited        | Planned        | Not applicable   |
+| `fxFlexFill`     | Flex        | Limited        | Planned        | Not applicable   |
+| `fxFill`         | Flex        | Limited        | Planned        | Not applicable   |
+| `fxFlexOffset`   | Flex        | Limited        | Planned        | Not applicable   |
+| `fxFlexOrder`    | Flex        | Limited        | Planned        | Not applicable   |
+| `fxShow`         | Visibility  | Limited        | Planned        | Not applicable   |
+| `fxHide`         | Visibility  | Limited        | Planned        | Not applicable   |
+| `gdAlignColumns` | Grid        | Planned        | Planned        | Not applicable   |
+| `gdAlignRows`    | Grid        | Planned        | Planned        | Not applicable   |
+| `gdArea`         | Grid        | Planned        | Planned        | Not applicable   |
+| `gdAreas`        | Grid        | Planned        | Planned        | Not applicable   |
+| `gdAuto`         | Grid        | Planned        | Planned        | Not applicable   |
+| `gdColumn`       | Grid        | Planned        | Planned        | Not applicable   |
+| `gdColumns`      | Grid        | Planned        | Planned        | Not applicable   |
+| `gdGap`          | Grid        | Planned        | Planned        | Not applicable   |
+| `gdGridAlign`    | Grid        | Planned        | Planned        | Not applicable   |
+| `gdRow`          | Grid        | Planned        | Planned        | Not applicable   |
+| `gdRows`         | Grid        | Planned        | Planned        | Not applicable   |
+| `class`          | Class/style | Preserved      | Preserved      | Not applicable   |
+| `ngClass`        | Class/style | Limited        | Planned        | Not applicable   |
+| `style`          | Class/style | Preserved      | Preserved      | Not applicable   |
+| `ngStyle`        | Class/style | Limited        | Planned        | Not applicable   |
+| `imgSrc`         | Image       | Not applicable | Not applicable | Planned          |
+
+<!-- compatibility-inventory:end -->
+
+## Current Tailwind CSS 4 safety boundaries
+
+### Available now: directive-specific boundaries
+
+- `fxLayout`: Static directions plus wrap and inline modifiers; coupled unresolved gaps preserve the layout.
+- `fxLayoutAlign`: Static main/cross axes with layout, content alignment, sizing, and border-box semantics.
+- `fxLayoutGap`: Static nonnegative non-wrapping gaps; unitless values remain pixels. Grid, computed, negative, and wrapped gaps are review.
+- `fxFlex`: Static basis, keyword, and three-part forms with parent-axis min/max sizing.
+- `fxGrow` and `fxShrink`: Converted atomically with a static `fxFlex`; standalone use is invalid.
+- `fxFlexAlign`: Static `align-self` keywords.
+- `fxFlexFill`: Static full-size rule including its zero-margin behavior.
+- `fxFill`: Non-responsive alias of `fxFlexFill`.
+- `fxFlexOffset`: Static values with a statically known parent axis; unitless values remain percentages.
+- `fxFlexOrder`: Static integer values emitted independently of the Tailwind theme.
+- `fxShow`: Literal base and standard viewport states convert when display restoration and the complete visibility family are safe.
+- `fxHide`: Literal base and standard viewport states convert with `fxShow`; hiding emits exact base or responsive `hidden` utilities.
 
 All generated lengths that originate in the template use Tailwind arbitrary values. This prevents a project spacing scale from changing `fxLayoutGap="4"` from Angular Flex-Layout's `4px`, or `fxFlexOffset="4"` from its `4%` meaning.
 
@@ -38,7 +74,7 @@ If an existing recognized Tailwind utility conflicts with a generated class in a
 
 ## Visibility semantics
 
-`fxShow` and `fxHide` are planned together as one atomic visibility family per element. Literal values use Angular Flex-Layout's coercion and inversion rules:
+`fxShow` and `fxHide` are currently converted together as one atomic visibility family per element. Literal values use Angular Flex-Layout's coercion and inversion rules. Additional visibility behavior that cannot meet these current safety conditions remains preserved for review:
 
 | Input            | Resulting state |
 | ---------------- | --------------- |
@@ -65,29 +101,12 @@ When layout and visibility both control `display`, the planner composes them bef
 
 All grid directives are recognized and preserved. Target conversion has not been implemented.
 
-| Directive        | Tailwind |
-| ---------------- | -------- |
-| `gdAlignColumns` | Planned  |
-| `gdAlignRows`    | Planned  |
-| `gdArea`         | Planned  |
-| `gdAreas`        | Planned  |
-| `gdAuto`         | Planned  |
-| `gdColumn`       | Planned  |
-| `gdColumns`      | Planned  |
-| `gdGap`          | Planned  |
-| `gdGridAlign`    | Planned  |
-| `gdRow`          | Planned  |
-| `gdRows`         | Planned  |
+## Responsive class and style inputs
 
-## Extended responsive inputs
-
-| Input                      | Tailwind  | Notes                                                                                |
-| -------------------------- | --------- | ------------------------------------------------------------------------------------ |
-| literal `ngClass.<alias>`  | Limited   | Converts complete families whose class tokens are proven Tailwind CSS v4 candidates. |
-| literal `ngStyle.<alias>`  | Limited   | Converts complete, sanitizer-safe declaration lists with exact CSS ownership.        |
-| deprecated `class.<alias>` | Preserved | Version-dependent replacement and merge behavior is not inferred.                    |
-| deprecated `style.<alias>` | Preserved | Version-dependent replacement and merge behavior is not inferred.                    |
-| responsive `imgSrc`        | Planned   | Recognized and reported; no target conversion is implemented.                        |
+- literal `ngClass.<alias>`: Converts complete families whose class tokens are proven Tailwind CSS v4 candidates.
+- literal `ngStyle.<alias>`: Converts complete, sanitizer-safe declaration lists with exact CSS ownership.
+- deprecated `class.<alias>` and `style.<alias>`: Version-dependent replacement and merge behavior is not inferred.
+- responsive `imgSrc`: Recognized and reported; no target conversion is implemented.
 
 The supported aliases are `xs`, `sm`, `md`, `lg`, `xl`, `lt-sm`, `lt-md`, `lt-lg`, `lt-xl`, `gt-xs`, `gt-sm`, `gt-md`, and `gt-lg`. Each emitted class contains the exact Angular Flex-Layout media range rather than a project-defined Tailwind breakpoint.
 

@@ -31,6 +31,13 @@ function expectInOrder(source: string, markers: string[]): void {
   }
 }
 
+function expectCurrentBetaBoundaries(readme: string): void {
+  expect(readme).toContain('writes changed templates in place when neither `--dry-run` nor `--output` is supplied');
+  expect(readme).toContain('a native CSS target is not available');
+  expect(readme).toContain('Grid directives and responsive `imgSrc` are recognized, reported, and remain unchanged');
+  expect(readme).toContain('Orientation, print, and custom breakpoint aliases remain preserved for review');
+}
+
 describe('maintainer documentation', () => {
   it('provides contribution, security, support, and governance files', async () => {
     const required = [
@@ -72,7 +79,7 @@ describe('maintainer documentation', () => {
     const contributingRelease = sectionAfter(contributing, '## Releasing a beta');
     const architectureRelease = sectionAfter(releaseProcess, '## Repository automation');
 
-    expect(readme).toContain('npm install --save-dev @nipe-solutions/flex-layout-codemod@beta');
+    expect(readme).toContain('npm install --save-dev --save-exact @nipe-solutions/flex-layout-codemod@beta');
     expect(readme).toContain('docs/architecture/release-process.md');
 
     const exactTrustInputs = [
@@ -148,6 +155,48 @@ describe('maintainer documentation', () => {
     expect(releaseProcess).toContain('computes SHA-512 SRI from the generated tarball bytes');
     expect(releaseProcess).toContain('smoke-installs and executes that exact tarball');
     expect(releaseProcess).toContain('rehashes the retained tarball immediately before staging');
+  });
+
+  it('documents a safe and reproducible beta onboarding path', async () => {
+    const readme = await readRepositoryFile('README.md');
+
+    expectInOrder(readme, [
+      'npx @nipe-solutions/flex-layout-codemod@beta ./src --dry-run',
+      'npm install --save-dev --save-exact @nipe-solutions/flex-layout-codemod@beta',
+      'npx flex-layout-codemod ./src --dry-run',
+      'npx flex-layout-codemod ./src --target tailwind',
+    ]);
+    expect(readme).toContain('docs/compatibility.md');
+    expect(readme).toContain('--report ./reports/flex-layout.json');
+    expect(readme).toContain('--allow-unresolved');
+    expect(readme).not.toContain('npm install -g');
+    expect(readme).not.toContain('production-ready conversion coverage');
+  });
+
+  it('documents the current beta safety boundaries', async () => {
+    const readme = await readRepositoryFile('README.md');
+
+    expectCurrentBetaBoundaries(readme);
+  });
+
+  it('rejects a paraphrased false-current-capability claim that the former blacklist misses', async () => {
+    const readme = await readRepositoryFile('README.md');
+    const falseCurrentCapability = readme.replace(
+      'This beta has a Tailwind CSS v4 target only; a native CSS target is not available. Grid directives and responsive `imgSrc` are recognized, reported, and remain unchanged. Orientation, print, and custom breakpoint aliases remain preserved for review.',
+      'This beta has native CSS and Tailwind CSS targets. Grid directives, responsive `imgSrc`, orientation, print, and custom breakpoint aliases convert directly.',
+    );
+
+    for (const unavailableClaim of [
+      /native CSS conversion is available/u,
+      /Grid conversion is available/u,
+      /orientation conversion is available/u,
+      /print conversion is available/u,
+      /imgSrc conversion is available/u,
+    ]) {
+      expect(falseCurrentCapability).not.toMatch(unavailableClaim);
+    }
+
+    expect(() => expectCurrentBetaBoundaries(falseCurrentCapability)).toThrow();
   });
 
   it('requires byte-for-byte staged artifact verification before approval and finalization', async () => {
