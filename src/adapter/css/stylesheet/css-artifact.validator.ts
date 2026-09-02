@@ -1,8 +1,8 @@
 import type { CssSemanticFamily, OwnedCssRule } from '../css-artifact.model';
 import { CssStylesheetError } from './css-stylesheet.error';
 
-const ID = /^[a-f0-9]{64}$/;
-const PROPERTY = /^-?[a-z][a-z0-9-]*$/;
+const ID = /^(?:[a-f0-9]{64})$(?![\s\S])/;
+const PROPERTY = /^(?:-?[a-z][a-z0-9-]*)$(?![\s\S])/;
 const FORBIDDEN_VALUE = /[\0\r\n{};]|\/\*|\*\//;
 const FAMILIES = new Set<CssSemanticFamily>([
   'layout',

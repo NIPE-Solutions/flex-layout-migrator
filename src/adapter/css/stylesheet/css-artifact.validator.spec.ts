@@ -53,6 +53,12 @@ describe('validateOwnedCssRule', () => {
     invalidArtifact({ ...validRule, ...mutation } as OwnedCssRule);
   });
 
+  test('rejects an ID with a final newline', () => {
+    const id = `${ID}\n`;
+
+    invalidArtifact({ ...validRule, id, className: `flm-${id}` });
+  });
+
   test('rejects empty declarations', () => {
     invalidArtifact({ ...validRule, declarations: [] });
   });
@@ -69,6 +75,10 @@ describe('validateOwnedCssRule', () => {
 
   test.each(['display:', 'Display', '1display', '--custom'])('rejects malformed property %j', property => {
     invalidLexeme({ ...validRule, declarations: [{ property, value: 'flex' }] });
+  });
+
+  test('rejects a property with a final newline', () => {
+    invalidLexeme({ ...validRule, declarations: [{ property: 'display\n', value: 'flex' }] });
   });
 
   test.each([
