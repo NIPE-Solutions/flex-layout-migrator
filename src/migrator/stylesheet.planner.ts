@@ -19,14 +19,18 @@ const nodeFileSystem: StylesheetPlannerFileSystem = {
 export class StylesheetPlanner {
   constructor(private readonly fileSystem: StylesheetPlannerFileSystem = nodeFileSystem) {}
 
-  async plan(stylesheetPath: string, rules: readonly OwnedCssRule[]): Promise<PlannedOutputArtifact | undefined> {
+  async plan(
+    stylesheetPath: string,
+    rules: readonly OwnedCssRule[],
+    referencedClassNames: ReadonlySet<string> = new Set(rules.map(rule => rule.className)),
+  ): Promise<PlannedOutputArtifact | undefined> {
     const outputPath = path.resolve(stylesheetPath);
     const original = await this.originalState(outputPath);
     const existing = original.status === 'present' ? original.contents : '';
 
     let merged: ReturnType<typeof mergeOwnedStylesheet>;
     try {
-      merged = mergeOwnedStylesheet(existing, rules);
+      merged = mergeOwnedStylesheet(existing, rules, referencedClassNames);
     } catch (error: unknown) {
       if (error instanceof CssStylesheetError) {
         throw new MigrationApplicationError(

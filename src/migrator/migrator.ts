@@ -1,9 +1,10 @@
-import { stat } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
 import * as path from 'node:path';
 import type { ConversionAdapterSession } from '../adapter/conversion-adapter.session';
 import { loadGitIgnore } from '../lib/gitignore.helper';
 import { MigrationReportBuilder, type StylesheetMigrationResult } from '../report/migration-report.builder';
 import type { MigrationReport } from '../report/migration-report';
+import { AngularTemplateParser } from '../template/angular-template.parser';
 import { MigrationTransaction } from '../transaction/migration-transaction';
 import { FileMigrator } from './file.migrator';
 import { FolderMigrator } from './folder.migrator';
@@ -67,7 +68,11 @@ export class Migrator {
     let stylesheetResult: StylesheetMigrationResult | undefined;
     if (sessionResult.target === 'css') {
       const stylesheetPath = path.resolve(options.stylesheetPath as string);
-      stylesheetArtifact = await this.stylesheetPlanner.plan(stylesheetPath, sessionResult.rules);
+      stylesheetArtifact = await this.stylesheetPlanner.plan(
+        stylesheetPath,
+        sessionResult.rules,
+        await this.referencedCssClasses(filePlans),
+      );
       stylesheetResult = {
         path: stylesheetPath,
         change: stylesheetChange(stylesheetArtifact),
@@ -113,6 +118,33 @@ export class Migrator {
         options.stylesheetPath,
       ]);
     }
+  }
+
+  private async referencedCssClasses(filePlans: readonly FileMigrationPlan[]): Promise<ReadonlySet<string>> {
+    const templates = await Promise.all(
+      filePlans.map(async filePlan => {
+        if (filePlan.artifact?.kind === 'template' && filePlan.artifact.proposed.status === 'present') {
+          return filePlan.artifact.proposed.contents;
+        }
+        if (path.resolve(filePlan.file.inputPath) === path.resolve(filePlan.file.outputPath)) {
+          return readFile(filePlan.file.inputPath, 'utf8');
+        }
+        return '';
+      }),
+    );
+    const references = new Set<string>();
+    const parser = new AngularTemplateParser();
+    for (const template of templates) {
+      const parsed = parser.parse(template, 'proposed-template.html');
+      if (parsed.status === 'parse-error') continue;
+      for (const attribute of parsed.elements.flatMap(element => element.attributes)) {
+        if (attribute.name !== 'class' || attribute.binding !== 'literal') continue;
+        for (const className of attribute.value.split(/\s+/u)) {
+          if (/^flm-[a-f0-9]{64}$/u.test(className)) references.add(className);
+        }
+      }
+    }
+    return references;
   }
 }
 

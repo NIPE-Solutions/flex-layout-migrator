@@ -8,7 +8,7 @@ Angular Flex-Layout is archived. Replacing it safely requires more than substitu
 
 ## Compatibility at a glance
 
-The current target is Tailwind CSS v4. It converts supported static Flex-Layout inputs and literal responsive inputs using the standard viewport aliases. Conversion is deliberately limited: dynamic bindings, ambiguous responsive precedence, unsafe class or style ownership, and unsupported directives are preserved for review.
+Tailwind CSS v4 remains the default target. A native CSS target is available with `--target css --stylesheet <path>` for exactly eight Flex semantic families at base and the 13 standard viewport aliases. Grid, visibility, responsive class/style, orientation, print, and custom aliases remain preserved for CSS. Conversion is deliberately limited: dynamic bindings, ambiguous responsive precedence, unsafe class or style ownership, and unsupported directives are preserved for review.
 
 The complete directive-by-directive status, including grid, image, breakpoint, and class/style boundaries, is in [docs/compatibility.md](docs/compatibility.md). Treat that reference as the beta’s compatibility contract.
 
@@ -40,7 +40,7 @@ Preview the local dependency and write a JSON report for review:
 npx flex-layout-codemod ./src --dry-run --report ./reports/flex-layout.json
 ```
 
-`--dry-run` validates the planned edits in memory and does not write template output. `--report` is intentional reporting output and is written even during a dry run.
+`--dry-run` validates the planned edits in memory and does not write template output or a companion stylesheet. `--report` is intentional reporting output and is written even during a dry run.
 
 After reviewing the report and committing or branching your work, apply the migration in place:
 
@@ -49,6 +49,20 @@ npx flex-layout-codemod ./src --target tailwind
 ```
 
 The current beta writes changed templates in place when neither `--dry-run` nor `--output` is supplied. To write migrated templates to a different location, add `--output ./migrated-src`. Review the Git diff before accepting the changes. If an in-place run is unwanted, inspect `git diff` before taking further action, then restore only the intended files deliberately through your normal Git workflow from a clean worktree or committed branch.
+
+The current commands still write after review unless `--dry-run` is supplied; an adaptive plan-by-default workflow is a later CLI improvement.
+
+### Native CSS companion stylesheet
+
+Use the native CSS target when the documented Flex-only surface is appropriate:
+
+```bash
+npx flex-layout-codemod ./src --target css --stylesheet ./src/flex-layout-migration.css
+```
+
+The migration updates templates and the one named companion stylesheet as a transaction. It owns only the marked `flex-layout-codemod` block, preserves handwritten CSS surrounding that block, removes rules no longer referenced by the proposed templates, and keeps shared rules deduplicated across files. On ordinary failures or handled interruption it rolls the changed templates and stylesheet back together.
+
+No filesystem workflow can promise durable rollback after abrupt process termination, power loss, or a storage failure. If the command reports unconfirmed recovery, stop and inspect the listed paths, reconcile them with Git or a verified backup, then rerun only after the project is consistent.
 
 ## Examples
 
@@ -131,9 +145,9 @@ npx flex-layout-codemod ./src --dry-run --report ./reports/flex-layout.json --al
 
 ## Known boundaries
 
-This beta has a Tailwind CSS v4 target only; a native CSS target is not available. Literal Grid directives have limited conversion support; responsive `imgSrc` has an opt-in native `<picture>` migration for safe literal standard aliases. Orientation and print conversion require explicit source-configuration evidence; custom breakpoint aliases remain preserved for review. See [docs/compatibility.md](docs/compatibility.md) for exact supported forms and diagnostic codes before planning a large migration.
+Tailwind CSS v4 remains the default target. A native CSS target is available with `--target css --stylesheet <path>` for exactly eight Flex semantic families at base and the 13 standard viewport aliases. Grid, visibility, responsive class/style, orientation, print, and custom aliases remain preserved for CSS. Responsive `imgSrc` remains an independent opt-in native `<picture>` migration. See [docs/compatibility.md](docs/compatibility.md) for exact supported forms and diagnostic codes before planning a large migration.
 
-The codemod does not inspect project styles, Tailwind configuration, Sass, Less, or CSS, and it does not generate a companion stylesheet. Dynamic Angular bindings are not evaluated.
+The CSS target does not inspect project styles, Tailwind configuration, Sass, or Less; it updates only its one owned companion block. Dynamic Angular bindings are not evaluated.
 
 ## Contributing and support
 

@@ -33,14 +33,20 @@ function expectInOrder(source: string, markers: string[]): void {
 
 function expectCurrentBetaBoundaries(readme: string): void {
   expect(readme).toContain('writes changed templates in place when neither `--dry-run` nor `--output` is supplied');
-  expect(readme).toContain('a native CSS target is not available');
-  expect(readme).toContain('Literal Grid directives have limited conversion support');
-  expect(readme).toContain('responsive `imgSrc` has an opt-in native `<picture>` migration');
+  expect(readme).toContain('Tailwind CSS v4 remains the default target');
+  expect(readme).toContain('native CSS target is available with `--target css --stylesheet <path>`');
+  expect(readme).toContain('exactly eight Flex semantic families');
+  expect(readme).toContain(
+    'Grid, visibility, responsive class/style, orientation, print, and custom aliases remain preserved for CSS',
+  );
+  expect(readme).toContain('Responsive `imgSrc` remains an independent opt-in native `<picture>` migration');
   expect(readme).toContain('--responsive-images');
   expect(readme).toContain('former parent');
   expect(readme).toContain('Orientation and print conversion require explicit source-configuration evidence');
   expect(readme).toContain('--orientation-breakpoints');
   expect(readme).toContain('--print-with-breakpoints');
+  expect(readme).toContain('adaptive plan-by-default workflow is a later CLI improvement');
+  expect(readme).toContain('unconfirmed recovery');
 }
 
 describe('maintainer documentation', () => {
@@ -170,6 +176,7 @@ describe('maintainer documentation', () => {
       'npm install --save-dev --save-exact @nipe-solutions/flex-layout-codemod@beta',
       'npx flex-layout-codemod ./src --dry-run',
       'npx flex-layout-codemod ./src --target tailwind',
+      'npx flex-layout-codemod ./src --target css --stylesheet ./src/flex-layout-migration.css',
     ]);
     expect(readme).toContain('docs/compatibility.md');
     expect(readme).toContain('--report ./reports/flex-layout.json');
@@ -187,12 +194,12 @@ describe('maintainer documentation', () => {
   it('rejects a paraphrased false-current-capability claim that the former blacklist misses', async () => {
     const readme = await readRepositoryFile('README.md');
     const falseCurrentCapability = readme.replace(
-      'This beta has a Tailwind CSS v4 target only; a native CSS target is not available. Literal Grid directives have limited conversion support; responsive `imgSrc` has an opt-in native `<picture>` migration for safe literal standard aliases. Orientation and print conversion require explicit source-configuration evidence; custom breakpoint aliases remain preserved for review.',
+      'Tailwind CSS v4 remains the default target. A native CSS target is available with `--target css --stylesheet <path>` for exactly eight Flex semantic families at base and the 13 standard viewport aliases. Grid, visibility, responsive class/style, orientation, print, and custom aliases remain preserved for CSS. Responsive `imgSrc` remains an independent opt-in native `<picture>` migration.',
       'This beta has native CSS and Tailwind CSS targets. Grid directives, responsive `imgSrc`, orientation, print, and custom breakpoint aliases convert directly.',
     );
 
     for (const unavailableClaim of [
-      /native CSS conversion is available/u,
+      /CSS target is available with no limitations/u,
       /Grid conversion is available/u,
       /orientation conversion is available/u,
       /print conversion is available/u,

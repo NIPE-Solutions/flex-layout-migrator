@@ -36,6 +36,23 @@ function block(newline: '\n' | '\r\n', rules: readonly OwnedCssRule[]): string {
   ].join(newline);
 }
 
+function planWithTemplateReferences(
+  planner: StylesheetPlanner,
+  stylesheet: string,
+  rules: readonly OwnedCssRule[],
+  references: ReadonlySet<string>,
+) {
+  return (
+    planner as unknown as {
+      plan(
+        path: string,
+        currentRules: readonly OwnedCssRule[],
+        templateReferences: ReadonlySet<string>,
+      ): ReturnType<StylesheetPlanner['plan']>;
+    }
+  ).plan(stylesheet, rules, references);
+}
+
 describe('StylesheetPlanner', () => {
   let directory: string;
   let stylesheet: string;
@@ -91,6 +108,36 @@ describe('StylesheetPlanner', () => {
       path: stylesheet,
       original: { status: 'present', contents: original },
       proposed: { status: 'absent' },
+    });
+  });
+
+  test('retains only owned rules referenced by proposed templates when no directive is converted on a rerun', async () => {
+    const original = block('\n', [rule(A), rule(B)]);
+    await writeFile(stylesheet, original, 'utf8');
+
+    await expect(planWithTemplateReferences(planner, stylesheet, [], new Set([`flm-${A}`]))).resolves.toMatchObject({
+      kind: 'stylesheet',
+      original: { status: 'present', contents: original },
+      proposed: { status: 'present', contents: block('\n', [rule(A)]) },
+    });
+  });
+
+  test('rejects a generated class reference that has no matching owned CSS rule', async () => {
+    await writeFile(stylesheet, block('\n', [rule(A)]), 'utf8');
+
+    await expect(planWithTemplateReferences(planner, stylesheet, [], new Set([`flm-${B}`]))).rejects.toMatchObject({
+      code: 'stylesheet-ownership-invalid',
+      paths: [stylesheet],
+    });
+  });
+
+  test('merges retained and newly generated base rules once in stable rule order', async () => {
+    await writeFile(stylesheet, block('\n', [rule(B)]), 'utf8');
+
+    await expect(
+      planWithTemplateReferences(planner, stylesheet, [rule(A)], new Set([`flm-${A}`, `flm-${B}`])),
+    ).resolves.toMatchObject({
+      proposed: { status: 'present', contents: block('\n', [rule(A), rule(B)]) },
     });
   });
 
