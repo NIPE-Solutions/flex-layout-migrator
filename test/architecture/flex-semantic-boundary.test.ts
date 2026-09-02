@@ -1,5 +1,6 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
+import ts from 'typescript';
 
 const flexRoot = join(process.cwd(), 'src', 'flex');
 const tailwindRoot = join(process.cwd(), 'src', 'adapter', 'tailwind');
@@ -17,6 +18,40 @@ const scopedStrategies = [
   ['flex-offset.strategy.ts', 'planFlexOffsetSemantics', 'flex-offset.semantic'],
   ['flex-order.strategy.ts', 'planFlexOrderSemantics', 'flex-order.semantic'],
 ] as const;
+
+function hasSemanticCoreReExport(source: string): boolean {
+  const sourceFile = ts.createSourceFile('strategy.ts', source, ts.ScriptTarget.Latest, false, ts.ScriptKind.TS);
+  const semanticCoreImports = new Set<string>();
+
+  for (const statement of sourceFile.statements) {
+    if (!ts.isImportDeclaration(statement) || !isSemanticCoreModule(statement.moduleSpecifier)) continue;
+
+    const importClause = statement.importClause;
+    if (!importClause) continue;
+    if (importClause.name) semanticCoreImports.add(importClause.name.text);
+
+    const bindings = importClause.namedBindings;
+    if (bindings && ts.isNamespaceImport(bindings)) {
+      semanticCoreImports.add(bindings.name.text);
+    } else if (bindings) {
+      for (const element of bindings.elements) semanticCoreImports.add(element.name.text);
+    }
+  }
+
+  return sourceFile.statements.some(statement => {
+    if (!ts.isExportDeclaration(statement)) return false;
+    if (statement.moduleSpecifier) return isSemanticCoreModule(statement.moduleSpecifier);
+    if (!statement.exportClause || !ts.isNamedExports(statement.exportClause)) return false;
+
+    return statement.exportClause.elements.some(element =>
+      semanticCoreImports.has((element.propertyName ?? element.name).text),
+    );
+  });
+}
+
+function isSemanticCoreModule(moduleSpecifier: ts.Expression): boolean {
+  return ts.isStringLiteralLike(moduleSpecifier) && /(?:^|\/)flex\//u.test(moduleSpecifier.text);
+}
 
 function sourceFiles(directory: string): readonly string[] {
   return readdirSync(directory, { withFileTypes: true }).flatMap(entry => {
@@ -64,7 +99,16 @@ describe('flex semantic boundary', () => {
   test.each(scopedStrategies)('%s does not re-export target-neutral semantic-core types', fileName => {
     const source = readFileSync(join(tailwindRoot, 'directives', fileName), 'utf8');
 
-    expect(source).not.toMatch(/\bexport\s+(?:(?:type\s+)?\{[^}]*\}|\*)\s*from\s*['"][^'"]*\/flex\//u);
+    expect(hasSemanticCoreReExport(source)).toBe(false);
+  });
+
+  test.each([
+    "export type * from '../../../flex/flex-item.semantic';",
+    ["import type { FlexItemInput } from '../../../flex/flex-item.semantic';", 'export type { FlexItemInput };'].join(
+      '\n',
+    ),
+  ])('rejects semantic-core type re-export: %s', source => {
+    expect(hasSemanticCoreReExport(source)).toBe(true);
   });
 
   test('Tailwind modules no longer originate target-neutral semantic exports', () => {
