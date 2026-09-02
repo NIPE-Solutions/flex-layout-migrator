@@ -16,6 +16,7 @@ const migratorRoot = join(productionRoot, 'migrator');
 const reportRoot = join(productionRoot, 'report');
 const atomicFileWriterPath = join(productionRoot, 'lib', 'atomic-file.writer.ts');
 const jsonReportWriterPath = join(productionRoot, 'report', 'json-report.writer.ts');
+const terminalPresenterPath = join(reportRoot, 'terminal.presenter.ts');
 const fixturePath = join(productionRoot, 'fixture.ts');
 const projectFixtureRoot = join(productionRoot, '__architecture-fixture__');
 const wholeProjectInspectionTimeout = 20_000;
@@ -194,6 +195,80 @@ describe('migration transaction architecture boundary', () => {
     ]);
   });
 
+  test.each([
+    [
+      'bound alias',
+      `
+        const applyPlan = transaction.apply.bind(transaction);
+        await applyPlan(plan);
+      `,
+    ],
+    [
+      'destructured method via Function.call',
+      `
+        const { apply } = transaction;
+        await apply.call(transaction, plan);
+      `,
+    ],
+    [
+      'local object property',
+      `
+        const operations = { commit: transaction.apply };
+        await operations.commit(plan);
+      `,
+    ],
+  ])('detects MigrationTransaction.apply routed through a %s', (_label, invocation) => {
+    const presenter = join(projectFixtureRoot, 'terminal.presenter.ts');
+    const source = `
+      import type { MigrationTransaction } from '../transaction/migration-transaction.js';
+      import type { MigrationPlan } from '../migrator/migration-plan.js';
+      declare const transaction: Pick<MigrationTransaction, 'apply'>;
+      declare const plan: MigrationPlan;
+      async function present() { ${invocation} }
+    `;
+
+    expect(transactionApplyCalls(new Map([[presenter, source]]), [presenter])).toContainEqual({
+      sourcePath: presenter,
+      name: 'apply',
+    });
+  });
+
+  test('detects MigrationTransaction acquired through CommonJS', () => {
+    const presenter = join(projectFixtureRoot, 'commonjs.presenter.ts');
+    const source = `
+      import type { MigrationPlan } from '../migrator/migration-plan.js';
+      const { MigrationTransaction: Coordinator } = require('../transaction/migration-transaction.js');
+      declare const plan: MigrationPlan;
+      async function present() { const transaction = new Coordinator(); await transaction.apply(plan); }
+    `;
+
+    expect(transactionApplyCalls(new Map([[presenter, source]]), [presenter])).toEqual([
+      { sourcePath: presenter, name: 'apply' },
+    ]);
+  });
+
+  test('detects a CommonJS transaction constructor routed through a local re-export', () => {
+    const bridge = join(projectFixtureRoot, 'transaction-bridge.ts');
+    const presenter = join(projectFixtureRoot, 'commonjs-reexport.presenter.ts');
+    const inspection = inspectProject(
+      new Map([
+        [bridge, "export { MigrationTransaction as Coordinator } from '../transaction/migration-transaction.js';"],
+        [
+          presenter,
+          `
+            import type { MigrationPlan } from '../migrator/migration-plan.js';
+            const { Coordinator } = require('./transaction-bridge.js');
+            declare const plan: MigrationPlan;
+            async function present() { const transaction = new Coordinator(); await transaction.apply(plan); }
+          `,
+        ],
+      ]),
+      [bridge, presenter],
+    );
+
+    expect(inspection.transactionApplyCalls).toEqual([{ sourcePath: presenter, name: 'apply' }]);
+  });
+
   test('does not confuse presenter text output or an unrelated apply method with application authority', () => {
     const presenter = join(projectFixtureRoot, 'terminal.presenter.ts');
     const source = `
@@ -210,12 +285,53 @@ describe('migration transaction architecture boundary', () => {
     expect(transactionApplyCalls(new Map([[presenter, source]]), [presenter])).toEqual([]);
   });
 
-  test('keeps filesystem and transaction application authority out of production presenters', () => {
-    const presenterPaths = productionTypeScriptFiles(reportRoot).filter(path => path.endsWith('.presenter.ts'));
-    const inspection = inspectProject(new Map(), presenterPaths);
+  test.each([
+    ['bound method', 'const routed = formatter.apply.bind(formatter); routed(text);'],
+    ['destructured method via Function.call', 'const { apply } = formatter; apply.call(formatter, text);'],
+    ['local object property', 'const operations = { format: formatter.apply }; operations.format(text);'],
+  ])('ignores an unrelated apply %s', (_label, invocation) => {
+    const presenter = join(projectFixtureRoot, 'unrelated.presenter.ts');
+    const source = `
+      interface Formatter { apply(value: string): string }
+      declare const formatter: Formatter;
+      declare const text: string;
+      function present() { ${invocation} }
+    `;
 
-    expect(inspection.filesystemMutationCalls).toEqual([]);
-    expect(transactionApplyCalls(new Map(), presenterPaths)).toEqual([]);
+    expect(transactionApplyCalls(new Map([[presenter, source]]), [presenter])).toEqual([]);
+  });
+
+  test('ignores a same-named CommonJS class without transaction provenance', () => {
+    const localModule = join(projectFixtureRoot, 'local-transaction.ts');
+    const presenter = join(projectFixtureRoot, 'local-commonjs.presenter.ts');
+    const inspection = inspectProject(
+      new Map([
+        [localModule, 'export class MigrationTransaction { apply(value: string): string { return value; } }'],
+        [
+          presenter,
+          `
+            const { MigrationTransaction } = require('./local-transaction.js');
+            const transaction = new MigrationTransaction();
+            transaction.apply('not a migration plan');
+          `,
+        ],
+      ]),
+      [localModule, presenter],
+    );
+
+    expect(inspection.transactionApplyCalls).toEqual([]);
+  });
+
+  test('keeps filesystem and transaction application authority out of the full report boundary', () => {
+    const reportPaths = productionTypeScriptFiles(reportRoot);
+    const inspection = inspectProject(new Map(), reportPaths);
+
+    expect(reportPaths).toContain(terminalPresenterPath);
+    expect(reportPaths).toContain(jsonReportWriterPath);
+    expect(inspection.filesystemMutationCalls.filter(finding => finding.sourcePath !== jsonReportWriterPath)).toEqual(
+      [],
+    );
+    expect(inspection.transactionApplyCalls).toEqual([]);
   });
 
   test(

@@ -74,8 +74,58 @@ describe('migration mode architecture boundary', () => {
   });
 
   test.each([
+    [
+      'renamed property',
+      `
+        import type { MigrationMode as RequestedExecution } from '../migrator/migration-mode.js';
+        class CssAdapter { render(options: { execution: RequestedExecution }) { return options; } }
+      `,
+      'execution',
+    ],
+    [
+      'nested option',
+      `
+        import type { MigrationMode as RequestedExecution } from '../migrator/migration-mode.js';
+        class CssAdapter { render(options: { request: { execution: RequestedExecution } }) { return options; } }
+      `,
+      'execution',
+    ],
+    [
+      'doubly nested optional option',
+      `
+        import type { MigrationMode as RequestedExecution } from '../migrator/migration-mode.js';
+        class CssAdapter {
+          render(options: { request?: { execution?: { selected?: RequestedExecution } } }) { return options; }
+        }
+      `,
+      'selected',
+    ],
+    [
+      'optional structural mode',
+      "class CssAdapter { render(options: { mode?: 'plan' | 'write' }) { return options; } }",
+      'mode',
+    ],
+    [
+      'optional write authorization',
+      'class FileMigrator { plan(options: { write?: boolean }) { return options; } }',
+      'write',
+    ],
+  ])('follows a canonical or structural execution input through a %s', (_label, source, expectedName) => {
+    expect(fixtureModeInputs(source)).toEqual([{ sourcePath: fixturePath, name: expectedName }]);
+  });
+
+  test.each([
     ['unrelated write-prefixed property', 'class Planner { plan(options: { writeDisposition: boolean }) {} }'],
     ['unrelated mode type', "class Planner { plan(mode: 'compact' | 'expanded') {} }"],
+    [
+      'structural mode union under an unrelated property name',
+      "class Planner { plan(options: { execution: 'plan' | 'write' }) {} }",
+    ],
+    ['non-boolean write option', "class Planner { plan(options: { write?: 'enabled' | 'disabled' }) {} }"],
+    [
+      'same-named local mode alias without canonical provenance',
+      "type MigrationMode = 'plan' | 'write'; class Planner { plan(options: { execution: MigrationMode }) {} }",
+    ],
     [
       'documentation strings',
       "class Planner { plan(input: string) { return 'MigrationMode mode: plan | write and write: boolean'; } }",
