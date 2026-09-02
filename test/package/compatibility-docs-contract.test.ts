@@ -276,6 +276,26 @@ describe('compatibility reference contract', () => {
           'fxHide',
           'Literal base and standard viewport states convert with `fxShow`; hiding emits exact base or responsive `hidden` utilities.',
         ],
+        ...[
+          'gdAlignColumns',
+          'gdAlignRows',
+          'gdArea',
+          'gdAreas',
+          'gdAuto',
+          'gdColumn',
+          'gdColumns',
+          'gdGap',
+          'gdGridAlign',
+          'gdInline',
+          'gdRow',
+          'gdRows',
+        ].map(
+          directive =>
+            [
+              directive,
+              'Literal values convert when compiler output, display composition, context, and ownership are exact.',
+            ] as const,
+        ),
         ['ngClass', 'Converts complete families whose class tokens are proven Tailwind CSS v4 candidates.'],
         ['ngStyle', 'Converts complete, sanitizer-safe declaration lists with exact CSS ownership.'],
         ['class', 'Version-dependent replacement and merge behavior is not inferred.'],

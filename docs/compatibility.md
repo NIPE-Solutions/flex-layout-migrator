@@ -30,17 +30,18 @@ The Tailwind CSS 4 column identifies current target behavior. Native CSS and res
 | `fxFlexOrder`    | Flex        | Limited        | Planned        | Not applicable   |
 | `fxShow`         | Visibility  | Limited        | Planned        | Not applicable   |
 | `fxHide`         | Visibility  | Limited        | Planned        | Not applicable   |
-| `gdAlignColumns` | Grid        | Planned        | Planned        | Not applicable   |
-| `gdAlignRows`    | Grid        | Planned        | Planned        | Not applicable   |
-| `gdArea`         | Grid        | Planned        | Planned        | Not applicable   |
-| `gdAreas`        | Grid        | Planned        | Planned        | Not applicable   |
-| `gdAuto`         | Grid        | Planned        | Planned        | Not applicable   |
-| `gdColumn`       | Grid        | Planned        | Planned        | Not applicable   |
-| `gdColumns`      | Grid        | Planned        | Planned        | Not applicable   |
-| `gdGap`          | Grid        | Planned        | Planned        | Not applicable   |
-| `gdGridAlign`    | Grid        | Planned        | Planned        | Not applicable   |
-| `gdRow`          | Grid        | Planned        | Planned        | Not applicable   |
-| `gdRows`         | Grid        | Planned        | Planned        | Not applicable   |
+| `gdAlignColumns` | Grid        | Limited        | Planned        | Not applicable   |
+| `gdAlignRows`    | Grid        | Limited        | Planned        | Not applicable   |
+| `gdArea`         | Grid        | Limited        | Planned        | Not applicable   |
+| `gdAreas`        | Grid        | Limited        | Planned        | Not applicable   |
+| `gdAuto`         | Grid        | Limited        | Planned        | Not applicable   |
+| `gdColumn`       | Grid        | Limited        | Planned        | Not applicable   |
+| `gdColumns`      | Grid        | Limited        | Planned        | Not applicable   |
+| `gdGap`          | Grid        | Limited        | Planned        | Not applicable   |
+| `gdGridAlign`    | Grid        | Limited        | Planned        | Not applicable   |
+| `gdInline`       | Grid        | Limited        | Planned        | Not applicable   |
+| `gdRow`          | Grid        | Limited        | Planned        | Not applicable   |
+| `gdRows`         | Grid        | Limited        | Planned        | Not applicable   |
 | `class`          | Class/style | Preserved      | Preserved      | Not applicable   |
 | `ngClass`        | Class/style | Limited        | Planned        | Not applicable   |
 | `style`          | Class/style | Preserved      | Preserved      | Not applicable   |
@@ -65,6 +66,7 @@ The Tailwind CSS 4 column identifies current target behavior. Native CSS and res
 - `fxFlexOrder`: Static integer values emitted independently of the Tailwind theme.
 - `fxShow`: Literal base and standard viewport states convert when display restoration and the complete visibility family are safe.
 - `fxHide`: Literal base and standard viewport states convert with `fxShow`; hiding emits exact base or responsive `hidden` utilities.
+- `gdAlignColumns`, `gdAlignRows`, `gdArea`, `gdAreas`, `gdAuto`, `gdColumn`, `gdColumns`, `gdGap`, `gdGridAlign`, `gdInline`, `gdRow`, and `gdRows`: Literal values convert when compiler output, display composition, context, and ownership are exact.
 
 All generated lengths that originate in the template use Tailwind arbitrary values. This prevents a project spacing scale from changing `fxLayoutGap="4"` from Angular Flex-Layout's `4px`, or `fxFlexOffset="4"` from its `4%` meaning.
 
@@ -99,7 +101,7 @@ When layout and visibility both control `display`, the planner composes them bef
 
 ## Grid directives
 
-All grid directives are recognized and preserved. Target conversion has not been implemented.
+Grid container and child directives convert for literal base values and the 13 standard viewport aliases when their complete declaration, display, parent context, and existing ownership are safe. Container directives share one `grid` or `inline-grid` display state; `gdInline` is composed with that state. Bound values, orientation and print aliases, custom breakpoints, unsafe parent context, and compiler-unverified values remain unchanged with diagnostics.
 
 ## Responsive class and style inputs
 

@@ -139,6 +139,33 @@ describe('Angular template engine compatibility', () => {
     ],
   };
 
+  test('matches the Grid fixture byte-for-byte with stable public totals and idempotence', async () => {
+    const input = await fixture('grid', 'input');
+    const expected = await fixture('grid', 'expected');
+
+    const first = migrate(input, 'grid.html');
+    expect(first.output).toBe(expected);
+    expect(resultCounts(first.results)).toEqual({
+      converted: 13,
+      review: 2,
+      unsupported: 0,
+      invalid: 0,
+      parseError: 0,
+    });
+    expect(diagnosticCounts(first.results)).toEqual({ 'dynamic-binding': 1, 'breakpoint-unverified': 1 });
+
+    const second = migrate(first.output, 'grid.html');
+    expect(second.output).toBe(expected);
+    expect(second.editCount).toBe(0);
+    expect(resultCounts(second.results)).toEqual({
+      converted: 0,
+      review: 2,
+      unsupported: 0,
+      invalid: 0,
+      parseError: 0,
+    });
+  });
+
   test.each(['static', 'angular-syntax', 'responsive', 'unresolved', 'visibility'])(
     'matches the %s fixture and is idempotent',
     async name => {

@@ -12,7 +12,8 @@ describe('compatibility inventory', () => {
     expect(COMPATIBILITY_INVENTORY).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ directive: 'fxLayout', tailwind: 'limited', css: 'planned' }),
-        expect.objectContaining({ directive: 'gdColumns', tailwind: 'planned', css: 'planned' }),
+        expect.objectContaining({ directive: 'gdColumns', tailwind: 'limited', css: 'planned' }),
+        expect.objectContaining({ directive: 'gdInline', family: 'grid', tailwind: 'limited', css: 'planned' }),
         expect.objectContaining({ directive: 'imgSrc', tailwind: 'not-applicable', image: 'planned' }),
         expect.objectContaining({ directive: 'class', tailwind: 'preserved', css: 'preserved' }),
       ]),

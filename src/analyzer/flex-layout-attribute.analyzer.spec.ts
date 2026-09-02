@@ -8,6 +8,9 @@ describe('analyzeFlexLayoutAttribute', () => {
     ['[fxShow.gt-md]', 'visible', 'fxShow', 'gt-md', 'property'],
     ['[fxLayout.handset.landscape]', 'row', 'fxLayout', 'handset.landscape', 'property'],
     ['class.sm', 'compact', 'class', 'sm', 'literal'],
+    ['gdInline', '', 'gdInline', undefined, 'literal'],
+    ['gdInline.md', 'false', 'gdInline', 'md', 'literal'],
+    ['[gdInline]', 'isInline', 'gdInline', undefined, 'property'],
   ] as const)('analyzes %s without evaluating its value', (sourceName, value, directive, breakpoint, binding) => {
     expect(analyzeFlexLayoutAttribute(sourceName, value)).toEqual({
       sourceName,

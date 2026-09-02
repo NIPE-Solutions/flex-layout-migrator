@@ -26,6 +26,8 @@ import { parseResponsiveStyleValue } from './extended/responsive-style-value.par
 import type { ResponsiveStyleValue } from './extended/responsive-style.model';
 import { TailwindCandidateClassifier } from './extended/tailwind-candidate-classifier';
 import { GeneratedPropertyCompositionPlanner } from './extended/generated-property-composition.planner';
+import { parseGridValue } from '../../grid/grid-value.parser';
+import { TailwindGridRenderer } from './grid/tailwind-grid.renderer';
 
 const flexItemDirectives = new Set<LocatedFlexLayoutInput['directive']>(['fxFlex', 'fxGrow', 'fxShrink']);
 const visibilityDirectives = new Set<LocatedFlexLayoutInput['directive']>(['fxShow', 'fxHide']);
@@ -41,6 +43,35 @@ const extendedStyleDirectives = new Set<LocatedFlexLayoutInput['directive']>(['s
 const extendedDirectives = new Set<LocatedFlexLayoutInput['directive']>([
   ...extendedClassDirectives,
   ...extendedStyleDirectives,
+]);
+const gridDirectives = new Set<LocatedFlexLayoutInput['directive']>([
+  'gdAlignColumns',
+  'gdAlignRows',
+  'gdArea',
+  'gdAreas',
+  'gdAuto',
+  'gdColumn',
+  'gdColumns',
+  'gdGap',
+  'gdGridAlign',
+  'gdInline',
+  'gdRow',
+  'gdRows',
+]);
+const gridContainerDirectives = new Set<LocatedFlexLayoutInput['directive']>([
+  'gdAlignColumns',
+  'gdAlignRows',
+  'gdAreas',
+  'gdAuto',
+  'gdColumns',
+  'gdGap',
+  'gdRows',
+]);
+const gridChildDirectives = new Set<LocatedFlexLayoutInput['directive']>([
+  'gdArea',
+  'gdColumn',
+  'gdGridAlign',
+  'gdRow',
 ]);
 
 const supportedDirectives = new Set<LocatedFlexLayoutInput['directive']>([
@@ -181,6 +212,7 @@ export class TailwindAdapter implements ConversionAdapter {
     this.breakpointCatalog,
     this.tailwindCandidateClassifier,
   );
+  private readonly gridRenderer = new TailwindGridRenderer();
 
   resolveClassConflicts(
     plans: readonly PlannedConversion[],
@@ -239,7 +271,8 @@ export class TailwindAdapter implements ConversionAdapter {
     let closed = closeResponsiveDependencies(plans);
     closed = this.closeDisplayDependencies(closed);
     closed = closeResponsiveDependencies(closed);
-    return this.closeDisplayDependencies(closed);
+    closed = this.closeDisplayDependencies(closed);
+    return this.closeGridParentDependencies(closed, context, plansByInputId);
   }
 
   private directiveFamily(directive: LocatedFlexLayoutInput['directive']): string {
@@ -260,7 +293,9 @@ export class TailwindAdapter implements ConversionAdapter {
       (input, itemContext) => this.planSemantic(input, itemContext),
       (family, familyInputs, itemContext) => this.planExtendedFamily(family, familyInputs, itemContext),
     );
-    const initialStrategyPlans = this.generatedPropertyCompositionPlanner.compose(plannedStrategies);
+    const initialStrategyPlans = this.generatedPropertyCompositionPlanner.compose(
+      this.composeGridDisplay(this.closeGridContainerDependencies(plannedStrategies)),
+    );
     if (!visibilityInputs.length) {
       return this.extendedDisplayCompositionPlanner.composeWithLayout(initialStrategyPlans);
     }
@@ -351,6 +386,7 @@ export class TailwindAdapter implements ConversionAdapter {
     }
 
     if (!supportedDirectives.has(input.directive)) {
+      if (gridDirectives.has(input.directive)) return this.planGrid(input, context);
       return {
         status: 'unsupported',
         input,
@@ -456,6 +492,123 @@ export class TailwindAdapter implements ConversionAdapter {
       reason: `${input.value} is not a supported ${input.directive} value.`,
       suggestion: 'Correct the value or migrate this directive manually.',
     };
+  }
+
+  private planGrid(input: LocatedFlexLayoutInput, context: ConversionContext): PlannedConversion {
+    const parsed = parseGridValue(input);
+    if (parsed.status === 'review') {
+      return {
+        status: 'review',
+        input,
+        code: parsed.code,
+        reason: parsed.reason,
+        suggestion: 'Replace the binding with a literal or migrate this Grid directive manually.',
+      };
+    }
+    if (parsed.status === 'invalid') {
+      return {
+        status: 'invalid',
+        input,
+        code: parsed.code,
+        reason: parsed.reason,
+        suggestion: 'Correct the value or migrate this Grid directive manually.',
+      };
+    }
+
+    if (parsed.plan.role === 'child' && !this.hasGridParentContext(context)) {
+      return contextUnverified(input, 'The parent element does not have a statically proven Grid container context.');
+    }
+
+    const rendered = this.gridRenderer.render(parsed.plan);
+    if (rendered.status === 'review') {
+      return {
+        status: 'review',
+        input,
+        code: rendered.code,
+        reason: rendered.reason,
+        suggestion: 'Use an exact Tailwind class manually or retain the Grid directive.',
+      };
+    }
+    const display =
+      parsed.plan.role === 'container'
+        ? ['grid']
+        : parsed.plan.role === 'modifier'
+          ? [parsed.plan.inline ? 'inline-grid' : 'grid']
+          : [];
+    return { status: 'converted', input, classNames: [...display, ...rendered.classNames] };
+  }
+
+  private hasGridParentContext(context: ConversionContext): boolean {
+    if (context.parentInputs?.some(input => gridContainerDirectives.has(input.directive))) return true;
+    return this.hasLiteralGridParentClass(context);
+  }
+
+  private closeGridParentDependencies(
+    plans: readonly PlannedConversion[],
+    context: ConversionContext,
+    plansByInputId: ReadonlyMap<string, PlannedConversion>,
+  ): readonly PlannedConversion[] {
+    if (!plans.some(plan => gridChildDirectives.has(plan.input.directive))) return plans;
+    const parentGridInputs =
+      context.parentInputs?.filter(
+        input => gridContainerDirectives.has(input.directive) || input.directive === 'gdInline',
+      ) ?? [];
+    const parentPlansAreSafe =
+      parentGridInputs.some(input => gridContainerDirectives.has(input.directive)) &&
+      parentGridInputs.every(input => plansByInputId.get(input.id)?.status === 'converted');
+    if (parentPlansAreSafe || (parentGridInputs.length === 0 && this.hasLiteralGridParentClass(context))) return plans;
+
+    return plans.map(plan =>
+      plan.status === 'converted' && gridChildDirectives.has(plan.input.directive)
+        ? contextUnverified(plan.input, 'The parent Grid container conversion is unresolved.')
+        : plan,
+    );
+  }
+
+  private hasLiteralGridParentClass(context: ConversionContext): boolean {
+    return Boolean(
+      context.parent?.attributes.some(attribute => {
+        if (attribute.binding !== 'literal' || !templateAttributeKeys(attribute).has('class')) return false;
+        return attribute.value.split(/\s+/u).some(className => className === 'grid' || className === 'inline-grid');
+      }),
+    );
+  }
+
+  private composeGridDisplay(plans: readonly PlannedConversion[]): readonly PlannedConversion[] {
+    const convertedInline = plans.find(
+      plan => plan.status === 'converted' && plan.input.directive === 'gdInline' && plan.input.breakpoint === undefined,
+    );
+    const displayOwnerByBreakpoint = new Map<string, string>();
+    if (!convertedInline) {
+      for (const plan of plans) {
+        if (plan.status !== 'converted' || !gridContainerDirectives.has(plan.input.directive)) continue;
+        const breakpoint = plan.input.breakpoint ?? 'base';
+        if (!displayOwnerByBreakpoint.has(breakpoint)) displayOwnerByBreakpoint.set(breakpoint, plan.input.id);
+      }
+    }
+
+    return plans.map(plan => {
+      if (plan.status !== 'converted' || !gridContainerDirectives.has(plan.input.directive)) return plan;
+      const owner = displayOwnerByBreakpoint.get(plan.input.breakpoint ?? 'base');
+      if (owner === plan.input.id) return plan;
+      return {
+        ...plan,
+        classNames: plan.classNames.filter(className => describeTailwindDisplay(className) === undefined),
+      };
+    });
+  }
+
+  private closeGridContainerDependencies(plans: readonly PlannedConversion[]): readonly PlannedConversion[] {
+    const containerPlans = plans.filter(
+      plan => gridContainerDirectives.has(plan.input.directive) || plan.input.directive === 'gdInline',
+    );
+    if (!containerPlans.some(plan => plan.status !== 'converted')) return plans;
+    return plans.map(plan =>
+      plan.status === 'converted' &&
+      (gridContainerDirectives.has(plan.input.directive) || plan.input.directive === 'gdInline')
+        ? contextUnverified(plan.input, 'The Grid container display family contains an unresolved member.')
+        : plan,
+    );
   }
 
   private planExtendedFamily(

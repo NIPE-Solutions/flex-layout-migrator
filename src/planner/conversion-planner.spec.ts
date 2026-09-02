@@ -1087,6 +1087,36 @@ describe('ConversionPlanner', () => {
     expect(migrate(first.output)).toMatchObject({ output: expected, edits: [], results: [] });
   });
 
+  test.each([
+    [
+      'new class attribute',
+      '<div gdAreas="header header | nav main"></div>',
+      `<div class="grid [grid-template-areas:'header_header'_'nav_main']"></div>`,
+    ],
+    [
+      'single-quoted existing class attribute',
+      `<div class='card' gdAreas="header | main"></div>`,
+      `<div class="card grid [grid-template-areas:'header'_'main']"></div>`,
+    ],
+  ])('writes quoted Grid area candidates through a safe %s', (_case, source, expected) => {
+    const first = migrate(source);
+
+    expect(first.output).toBe(expected);
+    expect(first.results.every(result => result.status === 'converted')).toBe(true);
+    expect(migrate(first.output)).toMatchObject({ output: expected, edits: [], results: [] });
+  });
+
+  test('preserves a Grid child when its parent Grid container is unresolved', () => {
+    const source = '<section [gdColumns]="columns"><div gdColumn="1"></div></section>';
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.results).toEqual([
+      expect.objectContaining({ status: 'review', code: 'dynamic-binding' }),
+      expect.objectContaining({ status: 'review', code: 'context-unverified' }),
+    ]);
+  });
+
   test('removes a responsive class family whose literal unsuffixed fallback has the exact same value', () => {
     const source = '<div ngClass="flex" ngClass.sm="flex"></div>';
     const expected = '<div ngClass="flex"></div>';

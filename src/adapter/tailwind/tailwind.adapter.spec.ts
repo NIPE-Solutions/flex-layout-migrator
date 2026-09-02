@@ -8,6 +8,12 @@ const element: TemplateElement = {
   startTag: { start: 0, end: 5 },
   attributes: [],
 };
+const parent: TemplateElement = {
+  id: 'parent',
+  name: 'section',
+  startTag: { start: 0, end: 9 },
+  attributes: [],
+};
 
 function input(overrides: Partial<LocatedFlexLayoutInput> = {}): LocatedFlexLayoutInput {
   return {
@@ -32,6 +38,121 @@ describe('TailwindAdapter', () => {
       input: input(),
       classNames: ['flex', 'flex-row', 'box-border'],
     });
+  });
+
+  test('converts a literal Grid directive through exact arbitrary properties', () => {
+    const gridInput = input({
+      directive: 'gdColumns',
+      sourceName: 'gdColumns',
+      value: '[first] 1fr [last]',
+    });
+
+    expect(
+      new TailwindAdapter().plan(gridInput, {
+        element,
+        parent,
+        parentInputs: [input({ id: 'parent:grid', elementId: 'parent', directive: 'gdColumns', value: '1fr' })],
+      }),
+    ).toEqual({
+      status: 'converted',
+      input: gridInput,
+      classNames: ['grid', '[grid-template-columns:[first]_1fr_[last]]'],
+    });
+  });
+
+  test('preserves a child Grid directive without proven parent Grid context', () => {
+    const gridInput = input({ directive: 'gdRow', sourceName: 'gdRow', value: '1' });
+
+    expect(new TailwindAdapter().plan(gridInput, { element, parentInputs: [] })).toMatchObject({
+      status: 'review',
+      code: 'context-unverified',
+    });
+  });
+
+  test('decorates a literal responsive Grid directive with the verified media variant', () => {
+    const gridInput = input({
+      directive: 'gdColumn',
+      sourceName: 'gdColumn.sm',
+      breakpoint: 'sm',
+      value: '1 / span 2',
+    });
+
+    expect(
+      new TailwindAdapter().plan(gridInput, {
+        element,
+        parent,
+        parentInputs: [input({ id: 'parent:grid', elementId: 'parent', directive: 'gdRows', value: 'auto' })],
+      }),
+    ).toEqual({
+      status: 'converted',
+      input: gridInput,
+      classNames: ['[@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:[grid-column:1_/_span_2]'],
+    });
+  });
+
+  test('encodes quoted gdAreas rows without introducing an HTML delimiter collision', () => {
+    const gridInput = input({ directive: 'gdAreas', sourceName: 'gdAreas', value: 'header | main' });
+
+    expect(new TailwindAdapter().plan(gridInput, { element })).toEqual({
+      status: 'converted',
+      input: gridInput,
+      classNames: ['grid', "[grid-template-areas:'header'_'main']"],
+    });
+  });
+
+  test('composes gdInline with container declarations without contradictory display utilities', () => {
+    const columns = input({ id: 'fixture:columns', directive: 'gdColumns', sourceName: 'gdColumns', value: '1fr' });
+    const inline = input({ id: 'fixture:inline', directive: 'gdInline', sourceName: 'gdInline', value: '' });
+
+    expect(new TailwindAdapter().planElement([columns, inline], { element, inputs: [columns, inline] })).toEqual([
+      { status: 'converted', input: columns, classNames: ['[grid-template-columns:1fr]'] },
+      { status: 'converted', input: inline, classNames: ['inline-grid'] },
+    ]);
+  });
+
+  test('emits one shared grid display across multiple container directives', () => {
+    const columns = input({ id: 'fixture:columns', directive: 'gdColumns', sourceName: 'gdColumns', value: '1fr' });
+    const gap = input({ id: 'fixture:gap', directive: 'gdGap', sourceName: 'gdGap', value: '1rem' });
+
+    expect(new TailwindAdapter().planElement([columns, gap], { element, inputs: [columns, gap] })).toEqual([
+      { status: 'converted', input: columns, classNames: ['grid', '[grid-template-columns:1fr]'] },
+      { status: 'converted', input: gap, classNames: ['[grid-gap:1rem]'] },
+    ]);
+  });
+
+  test('preserves a complete Grid directive family when one responsive member is dynamic', () => {
+    const base = input({ id: 'fixture:columns', directive: 'gdColumns', sourceName: 'gdColumns', value: '1fr' });
+    const dynamic = input({
+      id: 'fixture:columns-sm',
+      directive: 'gdColumns',
+      sourceName: '[gdColumns.sm]',
+      breakpoint: 'sm',
+      binding: 'property',
+      value: 'columns',
+    });
+
+    expect(new TailwindAdapter().planElement([base, dynamic], { element, inputs: [base, dynamic] })).toEqual([
+      expect.objectContaining({ status: 'review', code: 'context-unverified' }),
+      expect.objectContaining({ status: 'review', code: 'dynamic-binding' }),
+    ]);
+  });
+
+  test('preserves every display-dependent Grid container when one container input is unresolved', () => {
+    const columns = input({ id: 'fixture:columns', directive: 'gdColumns', sourceName: 'gdColumns', value: '1fr' });
+    const dynamicGap = input({
+      id: 'fixture:gap',
+      directive: 'gdGap',
+      sourceName: '[gdGap]',
+      binding: 'property',
+      value: 'gap',
+    });
+
+    expect(
+      new TailwindAdapter().planElement([columns, dynamicGap], { element, inputs: [columns, dynamicGap] }),
+    ).toEqual([
+      expect.objectContaining({ status: 'review', code: 'context-unverified' }),
+      expect.objectContaining({ status: 'review', code: 'dynamic-binding' }),
+    ]);
   });
 
   test.each([
