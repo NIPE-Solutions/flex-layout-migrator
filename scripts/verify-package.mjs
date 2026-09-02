@@ -6,6 +6,7 @@ import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
 const repository = resolve(import.meta.dirname, '..');
+const repositoryManifest = JSON.parse(await readFile(join(repository, 'package.json'), 'utf8'));
 const temporaryDirectory = await mkdtemp(join(tmpdir(), 'flex-layout-codemod-package-'));
 let tarball;
 
@@ -48,7 +49,7 @@ try {
   }
 
   const version = await execFileAsync(executable, ['--version'], { cwd: temporaryDirectory });
-  if (version.stdout.trim() !== '2.0.0-beta.0') {
+  if (version.stdout.trim() !== repositoryManifest.version) {
     throw new Error(`Unexpected packaged CLI version: ${version.stdout.trim()}`);
   }
 

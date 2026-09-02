@@ -4,7 +4,7 @@ Thank you for improving Angular Flex-Layout Codemod. Keep pull requests focused 
 
 ## Local setup
 
-Use Node.js 24 and npm 11:
+Use Node.js 24 and npm 11.19.0:
 
 ```bash
 npm ci
