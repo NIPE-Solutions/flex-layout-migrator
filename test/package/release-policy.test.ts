@@ -60,6 +60,62 @@ describe('release policy', () => {
       /\bnpm publish\b|\bnpm stage (?:approve|reject)\b|\bgit tag\b|\bgh release\b/u,
     );
     expect(serializedWorkflow).not.toMatch(/\bNODE_AUTH_TOKEN\b|secrets\.NPM|continue-on-error/u);
+    expect(source).not.toMatch(
+      /\bnpm publish\b|\bnpm stage (?:approve|reject)\b|\bgit tag\b|\bgh release\b|\bNODE_AUTH_TOKEN\b|secrets\.NPM|continue-on-error/u,
+    );
+
+    const uploadIndex = job.steps.findIndex(
+      (step: { uses?: string }) => step.uses === 'actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a',
+    );
+    const stageIndex = job.steps.findIndex(
+      (step: { run?: string }) =>
+        step.run === 'npm stage publish "./${{ steps.release.outputs.tarball }}" --access public --tag beta',
+    );
+    expect(uploadIndex).toBeGreaterThanOrEqual(0);
+    expect(stageIndex).toBeGreaterThan(uploadIndex);
+  });
+
+  it('binds every workflow-invoked npm script to a non-publishing implementation', async () => {
+    const source = await readFile(new URL('../../package.json', import.meta.url), 'utf8');
+    const manifest = JSON.parse(source);
+    const expectedScripts = {
+      prepare: 'husky',
+      verify:
+        'npm run format && npm run lint && npm run typecheck && npm run test:coverage && npm run build && npm run package:check',
+      format: 'prettier --check .',
+      lint: 'eslint .',
+      typecheck: 'tsc --noEmit',
+      'test:coverage': 'vitest run --coverage',
+      build: 'tsup',
+      'package:check': 'node scripts/verify-package.mjs',
+      'release:prepare': 'node scripts/release-artifact.mjs',
+    };
+    const invokedScriptSource = Object.keys(expectedScripts)
+      .map(name => manifest.scripts[name] ?? '')
+      .join('\n');
+
+    for (const [name, command] of Object.entries(expectedScripts)) {
+      expect(manifest.scripts[name]).toBe(command);
+    }
+    for (const hook of [
+      'preinstall',
+      'install',
+      'postinstall',
+      'prepublish',
+      'prepublishOnly',
+      'prepack',
+      'postpack',
+      'publish',
+      'postpublish',
+      'preprepare',
+      'postprepare',
+      ...Object.keys(expectedScripts).flatMap(name => [`pre${name}`, `post${name}`]),
+    ]) {
+      expect(manifest.scripts[hook]).toBeUndefined();
+    }
+    expect(invokedScriptSource).not.toMatch(
+      /\b(?:npm|pnpm|yarn) publish\b|\bnpm stage (?:publish|approve|reject)\b|\b(?:curl|wget)\b|\bgit (?:push|tag)\b|\bgh release\b|\bNODE_AUTH_TOKEN\b|secrets\.NPM/u,
+    );
   });
 
   it('publishes public packages from main without automated release commits', async () => {
