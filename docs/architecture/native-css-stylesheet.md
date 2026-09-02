@@ -59,7 +59,7 @@ Violations throw `CssStylesheetError` with stable internal codes. They are progr
 
 `src/adapter/css/stylesheet/css-rule.serializer.ts` serializes an already ordered rule list. It does not sort, deduplicate, repair, or reinterpret artifacts.
 
-Base rules retain input order. Responsive rules are grouped only when both normalized media definition and priority are identical. Groups retain the order of their first rule, and rules retain input order within the group. `CssArtifactRegistry.rules()` remains the semantic ordering authority.
+Base rules retain input order. Adjacent responsive rules are grouped only when both normalized media definition and priority are identical. A later rule never moves across another rule to join an earlier media group. Groups and rules therefore retain exact input order, and `CssArtifactRegistry.rules()` remains the semantic ordering authority.
 
 Each base rule is formatted as:
 
@@ -116,8 +116,13 @@ Unterminated strings and comments are stylesheet parse failures. The scanner doe
 ```ts
 type OwnedCssBlockParseResult =
   | { readonly status: 'absent' }
-  | { readonly status: 'found'; readonly range: SourceRange; readonly newline: '\n' | '\r\n' }
+  | { readonly status: 'found'; readonly range: CssSourceRange; readonly newline: '\n' | '\r\n' }
   | { readonly status: 'invalid'; readonly code: CssStylesheetErrorCode; readonly reason: string };
+
+interface CssSourceRange {
+  readonly start: number;
+  readonly end: number;
+}
 ```
 
 It examines only scanner comment tokens. Marker-looking text inside strings or unrelated comments is ignored unless the complete trimmed comment content begins with `flex-layout-codemod:`.
