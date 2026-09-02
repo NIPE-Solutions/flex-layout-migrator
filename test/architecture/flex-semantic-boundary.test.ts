@@ -1,6 +1,8 @@
-import { readdirSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import ts from 'typescript';
+
+import { inspectTypeScript, productionTypeScriptFiles } from './typescript-boundary';
 
 const flexRoot = join(process.cwd(), 'src', 'flex');
 const tailwindRoot = join(process.cwd(), 'src', 'adapter', 'tailwind');
@@ -78,14 +80,6 @@ function isSemanticCoreModule(moduleSpecifier: ts.Expression, sourcePath: string
   );
 }
 
-function sourceFiles(directory: string): readonly string[] {
-  return readdirSync(directory, { withFileTypes: true }).flatMap(entry => {
-    const path = join(directory, entry.name);
-    if (entry.isDirectory()) return sourceFiles(path);
-    return entry.isFile() && entry.name.endsWith('.ts') && !entry.name.endsWith('.spec.ts') ? [path] : [];
-  });
-}
-
 function targetRenderingLeak(source: string, sourcePath = strategyFixturePath): string | undefined {
   const sourceFile = ts.createSourceFile(sourcePath, source, ts.ScriptTarget.Latest, false, ts.ScriptKind.TS);
   let leak: string | undefined;
@@ -121,20 +115,37 @@ describe('flex semantic boundary', () => {
     "import '../../adapter/tailwind/directives/layout.strategy';",
     "import /* target renderer */ '../../adapter/tailwind/directives/layout.strategy';",
   ])('rejects Tailwind module reference: %s', source => {
-    expect(source).toContain(tailwindModuleReference);
+    expect(
+      inspectTypeScript(source, strategyFixturePath).moduleReferences.some(reference =>
+        reference.includes(tailwindModuleReference),
+      ),
+    ).toBe(true);
   });
 
   test('contains no Tailwind dependencies or target syntax', () => {
-    for (const path of sourceFiles(flexRoot)) {
+    for (const path of productionTypeScriptFiles(flexRoot)) {
       const source = readFileSync(path, 'utf8');
       const sourcePath = relative(process.cwd(), path);
+      const inspection = inspectTypeScript(source, path);
 
-      expect(source, sourcePath).not.toContain(tailwindModuleReference);
-      expect(source, sourcePath).not.toContain(adapterModuleReference);
+      expect(
+        inspection.moduleReferences.some(reference => reference.includes(tailwindModuleReference)),
+        sourcePath,
+      ).toBe(false);
+      expect(
+        inspection.moduleReferences.some(reference => reference.includes(adapterModuleReference)),
+        sourcePath,
+      ).toBe(false);
       for (const token of targetTokens) {
-        expect(source, sourcePath).not.toContain(token);
+        expect(
+          inspection.literalTexts.some(text => text.includes(token)),
+          sourcePath,
+        ).toBe(false);
       }
-      expect(source, sourcePath).not.toMatch(/\[[a-z-]+:/u);
+      expect(
+        inspection.literalTexts.some(text => /\[[a-z-]+:/u.test(text)),
+        sourcePath,
+      ).toBe(false);
       expect(targetRenderingLeak(source, path), sourcePath).toBeUndefined();
     }
   });

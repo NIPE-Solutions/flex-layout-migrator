@@ -4,27 +4,54 @@ describe('planFlexItemSemantics', () => {
   test.each([
     [
       { basis: '', layout: 'row' },
-      { grow: '1', shrink: '1', basis: { kind: 'literal', value: '0%' }, axis: 'width' },
+      { grow: '1', shrink: '1', basis: { kind: 'literal', value: '0%' }, axis: 'width', boxSizing: 'border-box' },
     ],
     [
       { basis: '0px', layout: 'row-reverse' },
-      { grow: '1', shrink: '1', basis: { kind: 'literal', value: '0%' }, axis: 'width' },
+      { grow: '1', shrink: '1', basis: { kind: 'literal', value: '0%' }, axis: 'width', boxSizing: 'border-box' },
     ],
     [
       { basis: '', layout: 'column' },
-      { grow: '1', shrink: '1', basis: { kind: 'literal', value: '0.000000001px' }, axis: 'height' },
+      {
+        grow: '1',
+        shrink: '1',
+        basis: { kind: 'literal', value: '0.000000001px' },
+        axis: 'height',
+        boxSizing: 'border-box',
+      },
     ],
     [
       { basis: '25', layout: 'row' },
-      { grow: '1', shrink: '1', basis: { kind: 'literal', value: '100%' }, axis: 'width', max: '25%' },
+      {
+        grow: '1',
+        shrink: '1',
+        basis: { kind: 'literal', value: '100%' },
+        axis: 'width',
+        max: '25%',
+        boxSizing: 'border-box',
+      },
     ],
     [
       { basis: '25%', layout: 'row wrap' },
-      { grow: '1', shrink: '1', basis: { kind: 'literal', value: '25%' }, axis: 'width', max: '25%' },
+      {
+        grow: '1',
+        shrink: '1',
+        basis: { kind: 'literal', value: '25%' },
+        axis: 'width',
+        max: '25%',
+        boxSizing: 'border-box',
+      },
     ],
     [
       { basis: '25%', layout: 'row wrap-reverse' },
-      { grow: '1', shrink: '1', basis: { kind: 'literal', value: '100%' }, axis: 'width', max: '25%' },
+      {
+        grow: '1',
+        shrink: '1',
+        basis: { kind: 'literal', value: '100%' },
+        axis: 'width',
+        max: '25%',
+        boxSizing: 'border-box',
+      },
     ],
     [
       { basis: '10rem', layout: 'column' },
@@ -35,6 +62,7 @@ describe('planFlexItemSemantics', () => {
         axis: 'height',
         min: '10rem',
         max: '10rem',
+        boxSizing: 'border-box',
       },
     ],
     [
@@ -46,6 +74,7 @@ describe('planFlexItemSemantics', () => {
         axis: 'height',
         min: '12px',
         max: '12px',
+        boxSizing: 'border-box',
       },
     ],
   ] as const)('derives effective sizing for %o', (input, expected) => {
@@ -61,14 +90,20 @@ describe('planFlexItemSemantics', () => {
   ] as const)('expands the %j sizing keyword', (basis, expected) => {
     expect(planFlexItemSemantics({ basis, layout: 'row' })).toEqual({
       status: 'planned',
-      value: { ...expected, axis: 'width' },
+      value: { ...expected, axis: 'width', boxSizing: 'border-box' },
     });
   });
 
   test('lets explicit factors control percentage constraints', () => {
     expect(planFlexItemSemantics({ basis: '25', grow: '2', shrink: '0', layout: 'row' })).toEqual({
       status: 'planned',
-      value: { grow: '2', shrink: '0', basis: { kind: 'literal', value: '25%' }, axis: 'width' },
+      value: {
+        grow: '2',
+        shrink: '0',
+        basis: { kind: 'literal', value: '25%' },
+        axis: 'width',
+        boxSizing: 'border-box',
+      },
     });
   });
 
@@ -82,6 +117,7 @@ describe('planFlexItemSemantics', () => {
         axis: 'width',
         min: '10rem',
         max: '10rem',
+        boxSizing: 'border-box',
       },
     });
   });
@@ -95,6 +131,7 @@ describe('planFlexItemSemantics', () => {
         basis: { kind: 'computed', value: 'calc(100% - 2rem)' },
         axis: 'width',
         min: 'calc(100% - 2rem)',
+        boxSizing: 'border-box',
       },
     });
   });
@@ -109,6 +146,7 @@ describe('planFlexItemSemantics', () => {
         axis: 'height',
         min: 'calc(50% - 1rem)',
         max: 'calc(50% - 1rem)',
+        boxSizing: 'border-box',
       },
     });
   });

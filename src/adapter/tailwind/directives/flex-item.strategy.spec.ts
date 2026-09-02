@@ -58,6 +58,7 @@ describe('renderFlexItem', () => {
         axis: 'height',
         min: '10rem' as CssLength,
         max: '10rem' as CssLength,
+        boxSizing: 'border-box',
       }),
     ).toEqual(['[flex:1_1_10rem]', '[min-height:10rem]', '[max-height:10rem]', 'box-border']);
   });
@@ -70,6 +71,7 @@ describe('renderFlexItem', () => {
         basis: { kind: 'computed', value: 'calc(100% - 2rem)' as CssLength },
         axis: 'width',
         min: 'calc(100% - 2rem)' as CssLength,
+        boxSizing: 'border-box',
       }),
     ).toEqual([
       '[flex-grow:3]',
