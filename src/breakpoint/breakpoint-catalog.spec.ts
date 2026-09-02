@@ -1,4 +1,4 @@
-import { BreakpointCatalog, mediaRangesIntersect } from './breakpoint-catalog';
+import { BreakpointCatalog, mediaDefinitionsIntersect, mediaRangesIntersect } from './breakpoint-catalog';
 
 describe('BreakpointCatalog', () => {
   const cases = [
@@ -20,7 +20,12 @@ describe('BreakpointCatalog', () => {
   test.each(cases)('%s has the exact upstream range', (alias, min, max, priority) => {
     expect(new BreakpointCatalog().classify(alias)).toEqual({
       kind: 'verified',
-      definition: { alias, range: { min, max }, priority },
+      definition: {
+        alias,
+        range: { min, max },
+        media: { type: 'screen', clauses: [{ min, max }] },
+        priority,
+      },
     });
   });
 
@@ -30,6 +35,77 @@ describe('BreakpointCatalog', () => {
     expect(catalog.classify('handset')).toEqual({ kind: 'optional', alias: 'handset' });
     expect(catalog.classify('print')).toEqual({ kind: 'print', alias: 'print' });
     expect(catalog.classify('cinema')).toEqual({ kind: 'custom', alias: 'cinema' });
+  });
+
+  test.each([
+    ['handset.portrait', [{ max: 599.98, orientation: 'portrait' }], 2000],
+    ['handset.landscape', [{ max: 959.98, orientation: 'landscape' }], 2000],
+    [
+      'handset',
+      [
+        { max: 599.98, orientation: 'portrait' },
+        { max: 959.98, orientation: 'landscape' },
+      ],
+      2000,
+    ],
+    ['tablet.portrait', [{ min: 600, max: 839.98, orientation: 'portrait' }], 2100],
+    ['tablet.landscape', [{ min: 960, max: 1279.98, orientation: 'landscape' }], 2100],
+    [
+      'tablet',
+      [
+        { min: 600, max: 839.98, orientation: 'portrait' },
+        { min: 960, max: 1279.98, orientation: 'landscape' },
+      ],
+      2100,
+    ],
+    ['web.portrait', [{ min: 840, orientation: 'portrait' }], 2200],
+    ['web.landscape', [{ min: 1280, orientation: 'landscape' }], 2200],
+    [
+      'web',
+      [
+        { min: 840, orientation: 'portrait' },
+        { min: 1280, orientation: 'landscape' },
+      ],
+      2200,
+    ],
+  ] as const)('%s has the exact opt-in orientation definition', (alias, clauses, priority) => {
+    expect(new BreakpointCatalog({ orientationBreakpoints: true }).classify(alias)).toEqual({
+      kind: 'verified',
+      definition: { alias, range: clauses[0], media: { type: 'screen', clauses }, priority },
+    });
+  });
+
+  test('verifies print only when its source configuration is explicit', () => {
+    expect(new BreakpointCatalog().classify('print')).toEqual({ kind: 'print', alias: 'print' });
+    expect(
+      new BreakpointCatalog({ orientationBreakpoints: false, printWithBreakpoints: [] }).classify('print'),
+    ).toEqual({
+      kind: 'verified',
+      definition: { alias: 'print', range: {}, media: { type: 'print', clauses: [{}] }, priority: 1000 },
+    });
+  });
+});
+
+describe('mediaDefinitionsIntersect', () => {
+  const screen = (...clauses: Parameters<typeof mediaDefinitionsIntersect>[0]['clauses']) => ({
+    type: 'screen' as const,
+    clauses,
+  });
+
+  test('requires compatible orientation and width in at least one clause pair', () => {
+    expect(mediaDefinitionsIntersect(screen({ max: 599.98, orientation: 'portrait' }), screen({ min: 500 }))).toBe(
+      true,
+    );
+    expect(
+      mediaDefinitionsIntersect(
+        screen({ max: 599.98, orientation: 'portrait' }),
+        screen({ max: 959.98, orientation: 'landscape' }),
+      ),
+    ).toBe(false);
+  });
+
+  test('keeps print disjoint from screen', () => {
+    expect(mediaDefinitionsIntersect({ type: 'print', clauses: [{}] }, screen({}))).toBe(false);
   });
 });
 
