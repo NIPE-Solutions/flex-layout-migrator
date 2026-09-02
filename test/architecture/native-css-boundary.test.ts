@@ -142,12 +142,14 @@ describe('native CSS architecture boundary', () => {
     expect(rawParameter || directiveSyntax(inspection) !== undefined).toBe(true);
   });
 
-  test('keeps directive names and copied standard breakpoint aliases out of CSS production code', () => {
+  test('keeps raw directive interpretation in the adapter and copied breakpoint aliases out of CSS production', () => {
     for (const path of productionTypeScriptFiles(cssRoot)) {
       const inspection = inspectTypeScript(readFileSync(path, 'utf8'), path);
       const sourcePath = relative(process.cwd(), path);
 
-      expect(directiveSyntax(inspection), sourcePath).toBeUndefined();
+      if (path !== join(cssRoot, 'css.adapter.ts')) {
+        expect(directiveSyntax(inspection), sourcePath).toBeUndefined();
+      }
       expect(copiedBreakpointAlias(inspection), sourcePath).toBeUndefined();
     }
   });
