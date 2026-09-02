@@ -72,7 +72,7 @@ describe('maintainer documentation', () => {
     const contributingRelease = sectionAfter(contributing, '## Releasing a beta');
     const architectureRelease = sectionAfter(releaseProcess, '## Repository automation');
 
-    expect(readme).toContain('npm install --save-dev @nipe-solutions/flex-layout-codemod@beta');
+    expect(readme).toContain('npm install --save-dev --save-exact @nipe-solutions/flex-layout-codemod@beta');
     expect(readme).toContain('docs/architecture/release-process.md');
 
     const exactTrustInputs = [
@@ -148,6 +148,36 @@ describe('maintainer documentation', () => {
     expect(releaseProcess).toContain('computes SHA-512 SRI from the generated tarball bytes');
     expect(releaseProcess).toContain('smoke-installs and executes that exact tarball');
     expect(releaseProcess).toContain('rehashes the retained tarball immediately before staging');
+  });
+
+  it('documents a safe and reproducible beta onboarding path', async () => {
+    const readme = await readRepositoryFile('README.md');
+
+    expectInOrder(readme, [
+      'npx @nipe-solutions/flex-layout-codemod@beta ./src --dry-run',
+      'npm install --save-dev --save-exact @nipe-solutions/flex-layout-codemod@beta',
+      'npx flex-layout-codemod ./src --dry-run',
+      'npx flex-layout-codemod ./src --target tailwind',
+    ]);
+    expect(readme).toContain('docs/compatibility.md');
+    expect(readme).toContain('--report ./reports/flex-layout.json');
+    expect(readme).toContain('--allow-unresolved');
+    expect(readme).not.toContain('npm install -g');
+    expect(readme).not.toContain('production-ready conversion coverage');
+  });
+
+  it('does not represent unavailable conversion targets as current beta behavior', async () => {
+    const readme = await readRepositoryFile('README.md');
+
+    for (const unavailableClaim of [
+      /native CSS conversion is available/u,
+      /Grid conversion is available/u,
+      /orientation conversion is available/u,
+      /print conversion is available/u,
+      /imgSrc conversion is available/u,
+    ]) {
+      expect(readme).not.toMatch(unavailableClaim);
+    }
   });
 
   it('requires byte-for-byte staged artifact verification before approval and finalization', async () => {
