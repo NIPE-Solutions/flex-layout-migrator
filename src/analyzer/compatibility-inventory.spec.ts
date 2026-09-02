@@ -14,7 +14,12 @@ describe('compatibility inventory', () => {
         expect.objectContaining({ directive: 'fxLayout', tailwind: 'limited', css: 'planned' }),
         expect.objectContaining({ directive: 'gdColumns', tailwind: 'limited', css: 'planned' }),
         expect.objectContaining({ directive: 'gdInline', family: 'grid', tailwind: 'limited', css: 'planned' }),
-        expect.objectContaining({ directive: 'imgSrc', tailwind: 'not-applicable', image: 'planned' }),
+        expect.objectContaining({
+          directive: 'imgSrc',
+          tailwind: 'not-applicable',
+          image: 'limited',
+          breakpoints: expect.objectContaining({ standard: 'limited', custom: 'preserved' }),
+        }),
         expect.objectContaining({ directive: 'class', tailwind: 'preserved', css: 'preserved' }),
       ]),
     );

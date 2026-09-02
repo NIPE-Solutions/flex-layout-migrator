@@ -46,7 +46,7 @@ The Tailwind CSS 4 column identifies current target behavior. Native CSS and res
 | `ngClass`        | Class/style | Limited        | Planned        | Not applicable   |
 | `style`          | Class/style | Preserved      | Preserved      | Not applicable   |
 | `ngStyle`        | Class/style | Limited        | Planned        | Not applicable   |
-| `imgSrc`         | Image       | Not applicable | Not applicable | Planned          |
+| `imgSrc`         | Image       | Not applicable | Not applicable | Limited          |
 
 <!-- compatibility-inventory:end -->
 
@@ -108,7 +108,15 @@ Grid container and child directives convert for literal base values, the 13 stan
 - literal `ngClass.<alias>`: Converts complete families whose class tokens are proven Tailwind CSS v4 candidates.
 - literal `ngStyle.<alias>`: Converts complete, sanitizer-safe declaration lists with exact CSS ownership.
 - deprecated `class.<alias>` and `style.<alias>`: Version-dependent replacement and merge behavior is not inferred.
-- responsive `imgSrc`: Recognized and reported; no target conversion is implemented.
+- responsive `imgSrc`: Opt-in literal standard aliases convert to picture markup when URL, fallback, and structural context are safe.
+
+## Responsive images
+
+`--responsive-images` converts eligible literal `src.<alias>` inputs into ordered native `<picture>` sources. The flag acknowledges that wrapping an `<img>` can affect parent/child CSS and application test selectors. The original fallback `<img>` retains its literal `src`, bound `[src]`, accessibility, loading, sizing, event, reference, class, style, and other unrelated attributes.
+
+Conversion is limited to the 13 standard viewport aliases and one descriptor-free literal URL per responsive source. Dynamic or interpolated values, empty values, orientation, print, custom aliases, conflicting source ownership, structural directives on the image, and existing `<picture>` ancestry remain unchanged with diagnostics. The complete generated template must reparse before any file is written.
+
+JSON reports retain schema version `1` and identify converted and preserved `imgSrc` occurrences by file and source offset. Review every converted image for selectors that assumed the `<img>` had its former parent. Interactive file navigation and a post-run checklist belong to the later CLI upgrade.
 
 The always-supported aliases are `xs`, `sm`, `md`, `lg`, `xl`, `lt-sm`, `lt-md`, `lt-lg`, `lt-xl`, `gt-xs`, `gt-sm`, `gt-md`, and `gt-lg`. Each emitted class contains the exact Angular Flex-Layout media range rather than a project-defined Tailwind breakpoint. Explicit configuration additionally enables orientation and print as described below.
 

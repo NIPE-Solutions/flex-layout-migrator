@@ -62,7 +62,7 @@ Dynamic expressions, custom breakpoints, project plugins, and ambiguous overlapp
 
 Responsive `imgSrc` behavior is a separate native HTML migration rather than a Tailwind or CSS utility conversion. Initial automatic support is opt-in and limited to literal standard-breakpoint values that can be represented by ordered `<picture>` and `<source media>` elements without changing effective selection precedence.
 
-The renderer preserves image accessibility, loading, dimensions, fallback `src`, bindings unrelated to responsive source selection, and unrelated source bytes. It refuses dynamic responsive expressions, unsafe structural contexts, selector-sensitive wrapping, or ambiguous breakpoint overlap. Generated templates must reparse with the Angular compiler and be idempotent.
+The renderer preserves image accessibility, loading, dimensions, fallback `src`, bindings unrelated to responsive source selection, and unrelated source bytes. It refuses dynamic responsive expressions, unsafe structural contexts, or ambiguous breakpoint overlap. The explicit CLI opt-in acknowledges selector-sensitive wrapping; generated templates must reparse with the Angular compiler and be idempotent.
 
 ### Native CSS
 

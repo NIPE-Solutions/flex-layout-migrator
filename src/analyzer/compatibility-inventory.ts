@@ -38,8 +38,8 @@ const standardLimited: BreakpointCoverage = {
   custom: 'preserved',
 };
 
-const imagePlanned: BreakpointCoverage = {
-  standard: 'planned',
+const imageLimited: BreakpointCoverage = {
+  standard: 'limited',
   orientation: 'not-applicable',
   print: 'not-applicable',
   custom: 'preserved',
@@ -319,9 +319,9 @@ const entries: CompatibilityEntry[] = [
     family: 'image',
     tailwind: 'not-applicable',
     css: 'not-applicable',
-    image: 'planned',
-    breakpoints: imagePlanned,
-    note: 'Recognized and reported; no target conversion is implemented.',
+    image: 'limited',
+    breakpoints: imageLimited,
+    note: 'Opt-in literal standard aliases convert to picture markup when URL, fallback, and structural context are safe.',
   },
 ];
 
