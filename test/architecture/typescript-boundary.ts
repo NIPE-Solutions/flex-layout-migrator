@@ -676,6 +676,9 @@ function canonicalMigrationModeTypeNode(
   if (ts.isParenthesizedTypeNode(typeNode)) {
     return canonicalMigrationModeTypeNode(typeNode.type, checker, seenSymbols);
   }
+  if (ts.isNamedTupleMember(typeNode) || ts.isOptionalTypeNode(typeNode) || ts.isRestTypeNode(typeNode)) {
+    return canonicalMigrationModeTypeNode(typeNode.type, checker, seenSymbols);
+  }
   if (ts.isUnionTypeNode(typeNode) || ts.isIntersectionTypeNode(typeNode)) {
     return typeNode.types.some(type => canonicalMigrationModeTypeNode(type, checker, seenSymbols));
   }
@@ -971,6 +974,9 @@ function transactionApplySymbolProvenance(
         program,
         nextSeen,
       );
+    }
+    if (ts.isExportAssignment(declaration)) {
+      return transactionApplyCallableProvenance(declaration.expression, checker, program, nextSeen);
     }
     if (ts.isBindingElement(declaration)) {
       const pattern = declaration.parent;

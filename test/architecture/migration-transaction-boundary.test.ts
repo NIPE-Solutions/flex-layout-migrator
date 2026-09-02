@@ -331,6 +331,124 @@ describe('migration transaction architecture boundary', () => {
     expect(inspection.transactionApplyCalls).toEqual([{ sourcePath: presenter, name: 'apply' }]);
   });
 
+  test('detects an invoked default export of a bound transaction apply callable', () => {
+    const helper = join(projectFixtureRoot, 'default-transaction-apply.helper.ts');
+    const presenter = join(projectFixtureRoot, 'default-apply.presenter.ts');
+    const inspection = inspectProject(
+      new Map([
+        [
+          helper,
+          `
+            import type { MigrationTransaction } from '../transaction/migration-transaction.js';
+            declare const transaction: Pick<MigrationTransaction, 'apply'>;
+            export default transaction.apply.bind(transaction);
+          `,
+        ],
+        [
+          presenter,
+          `
+            import execute from './default-transaction-apply.helper.js';
+            import type { MigrationPlan } from '../migrator/migration-plan.js';
+            declare const plan: MigrationPlan;
+            void execute(plan);
+          `,
+        ],
+      ]),
+      [presenter],
+    );
+
+    expect(inspection.transactionApplyCalls).toEqual([{ sourcePath: presenter, name: 'apply' }]);
+  });
+
+  test('follows a default transaction apply callable through renamed re-export and barrel aliases', () => {
+    const helper = join(projectFixtureRoot, 'default-transaction-apply.helper.ts');
+    const reexport = join(projectFixtureRoot, 'default-transaction-apply.reexport.ts');
+    const barrel = join(projectFixtureRoot, 'default-transaction-apply.index.ts');
+    const presenter = join(projectFixtureRoot, 'default-barrel-apply.presenter.ts');
+    const inspection = inspectProject(
+      new Map([
+        [
+          helper,
+          `
+            import type { MigrationTransaction } from '../transaction/migration-transaction.js';
+            declare const transaction: Pick<MigrationTransaction, 'apply'>;
+            export default transaction.apply.bind(transaction);
+          `,
+        ],
+        [reexport, "export { default as commitPlan } from './default-transaction-apply.helper.js';"],
+        [barrel, "export { commitPlan as default } from './default-transaction-apply.reexport.js';"],
+        [
+          presenter,
+          `
+            import execute from './default-transaction-apply.index.js';
+            import type { MigrationPlan } from '../migrator/migration-plan.js';
+            declare const plan: MigrationPlan;
+            void execute(plan);
+          `,
+        ],
+      ]),
+      [presenter],
+    );
+
+    expect(inspection.transactionApplyCalls).toEqual([{ sourcePath: presenter, name: 'apply' }]);
+  });
+
+  test('does not report a default transaction apply helper that a presenter only imports', () => {
+    const helper = join(projectFixtureRoot, 'default-transaction-apply.helper.ts');
+    const presenter = join(projectFixtureRoot, 'deferred-default-apply.presenter.ts');
+    const inspection = inspectProject(
+      new Map([
+        [
+          helper,
+          `
+            import type { MigrationTransaction } from '../transaction/migration-transaction.js';
+            declare const transaction: Pick<MigrationTransaction, 'apply'>;
+            export default transaction.apply.bind(transaction);
+          `,
+        ],
+        [presenter, "import execute from './default-transaction-apply.helper.js'; export { execute as deferred };"],
+      ]),
+      [presenter],
+    );
+
+    expect(inspection.transactionApplyCalls).toEqual([]);
+  });
+
+  test('does not confuse an invoked default bound formatter callable with transaction application', () => {
+    const helper = join(projectFixtureRoot, 'default-formatter-apply.helper.ts');
+    const presenter = join(projectFixtureRoot, 'default-formatter.presenter.ts');
+    const inspection = inspectProject(
+      new Map([
+        [
+          helper,
+          `
+            interface Formatter { apply(value: string): string }
+            declare const formatter: Formatter;
+            export default formatter.apply.bind(formatter);
+          `,
+        ],
+        [presenter, "import execute from './default-formatter-apply.helper.js'; void execute('text');"],
+      ]),
+      [presenter],
+    );
+
+    expect(inspection.transactionApplyCalls).toEqual([]);
+  });
+
+  test('terminates safely on a cyclic alias behind a default export', () => {
+    const helper = join(projectFixtureRoot, 'cyclic-default-apply.helper.ts');
+    const presenter = join(projectFixtureRoot, 'cyclic-default-apply.presenter.ts');
+    const inspection = inspectProject(
+      new Map([
+        [helper, 'const first = second; const second = first; export default first;'],
+        [presenter, "import execute from './cyclic-default-apply.helper.js'; void execute('text');"],
+      ]),
+      [presenter],
+    );
+
+    expect(inspection.transactionApplyCalls).toEqual([]);
+  });
+
   test('does not report a bound transaction apply helper that a presenter only imports', () => {
     const helper = join(projectFixtureRoot, 'transaction-apply.helper.ts');
     const presenter = join(projectFixtureRoot, 'deferred-apply.presenter.ts');

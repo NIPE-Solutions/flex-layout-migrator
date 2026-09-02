@@ -163,6 +163,32 @@ describe('migration mode architecture boundary', () => {
   });
 
   test.each([
+    [
+      'named tuple member',
+      `
+        import type { MigrationMode as RequestedExecution } from '../migrator/migration-mode.js';
+        class CssAdapter { render(request: [execution: RequestedExecution]) { return request; } }
+      `,
+    ],
+    [
+      'optional named tuple member',
+      `
+        import type { MigrationMode as RequestedExecution } from '../migrator/migration-mode.js';
+        class CssAdapter { render(request: [execution?: RequestedExecution]) { return request; } }
+      `,
+    ],
+    [
+      'rest named tuple member',
+      `
+        import type { MigrationMode as RequestedExecution } from '../migrator/migration-mode.js';
+        class CssAdapter { render(request: [...executions: RequestedExecution[]]) { return request; } }
+      `,
+    ],
+  ])('unwraps a canonical MigrationMode in a %s', (_label, source) => {
+    expect(fixtureModeInputs(source)).toEqual([{ sourcePath: fixturePath, name: 'request' }]);
+  });
+
+  test.each([
     ['unrelated write-prefixed property', 'class Planner { plan(options: { writeDisposition: boolean }) {} }'],
     ['unrelated mode type', "class Planner { plan(mode: 'compact' | 'expanded') {} }"],
     [
@@ -180,6 +206,27 @@ describe('migration mode architecture boundary', () => {
         type PreviewMode = 'plan' | 'write';
         interface Box<T> { readonly value: T }
         class Planner { plan(request: Promise<Box<ReadonlyArray<PreviewMode | null>>>) { return request; } }
+      `,
+    ],
+    [
+      'same-shaped named type in a named tuple member',
+      `
+        type PreviewMode = 'plan' | 'write';
+        class Planner { plan(request: [preview: PreviewMode]) { return request; } }
+      `,
+    ],
+    [
+      'same-shaped named type in an optional named tuple member',
+      `
+        type PreviewMode = 'plan' | 'write';
+        class Planner { plan(request: [preview?: PreviewMode]) { return request; } }
+      `,
+    ],
+    [
+      'same-shaped named type in a rest named tuple member',
+      `
+        type PreviewMode = 'plan' | 'write';
+        class Planner { plan(request: [...previews: PreviewMode[]]) { return request; } }
       `,
     ],
     [
