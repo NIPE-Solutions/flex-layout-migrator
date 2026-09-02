@@ -29,11 +29,14 @@ function migrate(
   source: string,
   fileName = 'fixture.html',
   config: BreakpointMigrationConfig = { orientationBreakpoints: false },
+  responsiveImages = false,
 ) {
   const parsed = new AngularTemplateParser().parse(source, fileName);
   if (parsed.status !== 'parsed') throw new Error(parsed.diagnostics.map(item => item.message).join('\n'));
   const inputs = new TemplateAnalyzer().analyze(fileName, parsed.elements);
-  const plan = new ConversionPlanner().plan(source, parsed.elements, inputs, new TailwindAdapter(config));
+  const plan = new ConversionPlanner().plan(source, parsed.elements, inputs, new TailwindAdapter(config), {
+    responsiveImages,
+  });
   const edited = new SourceEditor().apply(source, plan.edits);
   if (edited.status !== 'applied') throw new Error(edited.diagnostics.map(item => item.message).join('\n'));
   return { output: edited.output, results: plan.results, editCount: plan.edits.length };
@@ -143,6 +146,36 @@ describe('Angular template engine compatibility', () => {
       'context-unverified',
     ],
   };
+
+  test('matches the responsive image fixture with stable totals and idempotence', async () => {
+    const input = await fixture('responsive-image', 'input');
+    const expected = await fixture('responsive-image', 'expected');
+
+    const disabled = migrate(input, 'responsive-image.html');
+    expect(disabled.output).toBe(input);
+    expect(disabled.results.filter(result => result.status === 'unsupported')).toHaveLength(24);
+
+    const first = migrate(input, 'responsive-image.html', { orientationBreakpoints: false }, true);
+    expect(first.output).toBe(expected);
+    expect(resultCounts(first.results)).toEqual({
+      converted: 17,
+      review: 4,
+      unsupported: 3,
+      invalid: 1,
+      parseError: 0,
+    });
+
+    const second = migrate(first.output, 'responsive-image.html', { orientationBreakpoints: false }, true);
+    expect(second.output).toBe(expected);
+    expect(second.editCount).toBe(0);
+    expect(resultCounts(second.results)).toEqual({
+      converted: 0,
+      review: 4,
+      unsupported: 3,
+      invalid: 1,
+      parseError: 0,
+    });
+  });
 
   test('matches the Grid fixture byte-for-byte with stable public totals and idempotence', async () => {
     const input = await fixture('grid', 'input');

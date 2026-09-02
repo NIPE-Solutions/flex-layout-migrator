@@ -1,0 +1,12 @@
+<picture><source media="screen and (min-width: 0px) and (max-width: 599.98px)" srcset="xs.png"><source media="screen and (max-width: 599.98px)" srcset="lt-sm.png"><source media="screen and (min-width: 600px) and (max-width: 959.98px)" srcset="sm.png"><source media="screen and (max-width: 959.98px)" srcset="lt-md.png"><source media="screen and (min-width: 960px) and (max-width: 1279.98px)" srcset="md.png"><source media="screen and (max-width: 1279.98px)" srcset="lt-lg.png"><source media="screen and (min-width: 1280px) and (max-width: 1919.98px)" srcset="lg.png"><source media="screen and (max-width: 1919.98px)" srcset="lt-xl.png"><source media="screen and (min-width: 1920px) and (max-width: 4999.98px)" srcset="xl.png"><source media="screen and (min-width: 1920px)" srcset="gt-lg.png"><source media="screen and (min-width: 1280px)" srcset="gt-md.png"><source media="screen and (min-width: 960px)" srcset="gt-sm.png"><source media="screen and (min-width: 600px)" srcset="gt-xs.png"><img alt="all" src="base.png" loading="lazy"></picture>
+<picture><source media="screen and (min-width: 960px) and (max-width: 1279.98px)" srcset="bound-fallback.png"><img [src]="fallback"></picture>
+<picture><source media="screen and (max-width: 599.98px)" srcset="absent-fallback.png"><img></picture>
+<picture><source media="screen and (min-width: 600px) and (max-width: 959.98px)" srcset="hidden-small.png"><img class="hero hidden" src="hidden-base.png"></picture>
+<img [src.md]="dynamicImage" src="base.png">
+<img src.handset="handset.png">
+<img src.print="print.png">
+<img src.cinema="cinema.png">
+<img src.md="medium.png 2x">
+<img *ngIf="shown" src.md="structural.png">
+<picture><img src.md="existing.png"></picture>
+<picture><span><img src.md="nested.png"></span></picture>
