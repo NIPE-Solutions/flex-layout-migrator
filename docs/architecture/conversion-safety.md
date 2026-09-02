@@ -4,6 +4,8 @@ The codemod must preserve layout behavior or clearly explain why it cannot. It m
 
 This document defines the contract shared by the analyzer, target adapters, CLI, and compatibility tests.
 
+[Plan-by-default CLI and explicit application](adaptive-cli-plan-default.md) defines the current execution and reporting contract. The current CLI plans and preflights every invocation by default; `--write` authorizes transactional application. Reports use schema version `2` with required `mode` and `application` fields.
+
 ## Source contract
 
 The compatibility inventory is based on the archived [Angular Flex-Layout source](https://github.com/angular/flex-layout) and its [API documentation](https://github.com/angular/flex-layout/wiki/API-Documentation). It covers:
@@ -47,7 +49,7 @@ Adapters must use the exact upstream media query, a verified project configurati
 
 The analyzer produces a normalized directive, parsed value, binding kind, breakpoint, source location, and relevant element context. It does not generate CSS classes.
 
-The initial `tailwind` adapter emits utilities only when current Tailwind syntax represents the supported static source behavior. Arbitrary values are used when they are deterministic and valid for content scanning. A future native CSS adapter is outside the current implementation.
+The `tailwind` adapter emits utilities only when current Tailwind syntax represents the supported static source behavior. Arbitrary values are used when they are deterministic and valid for content scanning. The native CSS adapter supports the Limited Flex-only surface documented in [Compatibility](../compatibility.md) and emits deterministic classes into one explicitly selected companion stylesheet. Unsupported target families remain preserved with diagnostics.
 
 ## Processing pipeline
 
@@ -56,24 +58,27 @@ The initial `tailwind` adapter emits utilities only when current Tailwind syntax
 3. Normalize aliases and parse directive values according to the upstream contract.
 4. Ask the selected adapter to classify each input and propose edits.
 5. Validate that edits do not conflict and that every removed input has a `converted` result.
-6. Apply edits from the end of the source toward the beginning and atomically write only changed files in real mode; dry-run applies the same edits in memory without writing templates.
-7. Re-analyze the output in tests to prove that a second run produces no additional edits.
+6. Reparse changed templates and preflight the complete invocation-wide migration plan.
+7. In plan mode, return the validated proposal without changing project files; in write mode, apply templates and any companion stylesheet through the migration transaction.
+8. Re-analyze the output in tests to prove that a second write run produces no additional edits.
 
-Analysis and mutation are separate operations. Both real and dry-run execution return the same immutable migration-report shape; reporting does not participate in parsing, conversion, or template mutation.
+Analysis and mutation are separate operations. Plan and write modes return the same immutable migration-report shape and proposed file results; reporting does not participate in parsing, conversion, or template mutation.
 
 ## CLI contract
 
-The default summary reports files scanned, files changed, converted inputs, review items, unsupported inputs, invalid inputs, and parse errors. Normal output is concise and deterministic. `--report <path>` atomically writes a schema-version `1` JSON report, including during `--dry-run` because the requested report is an explicit side effect.
+The default summary reports files scanned, files changed, converted inputs, review items, unsupported inputs, invalid inputs, and parse errors. Normal output is concise and deterministic. `--report <path>` atomically writes a schema version `2` JSON report in plan or write mode because the requested report is an explicit side effect. It may therefore create the report and its parent directory during a plan while project templates and stylesheets remain untouched.
+
+Every report includes the requested `mode` and actual `application` outcome. A default plan reports `skipped: plan-only`, including when parse errors are present. A requested write with parse errors reports `skipped: parse-errors`; a successful write reports `applied`. Consumers do not infer application from proposed file changes.
 
 Paths in application and JSON reports use forward slashes and are relative to the input root. Single-file reports use the input basename. Files are sorted by normalized path, while results within each file retain source order.
 
 The exit codes are:
 
-| Code | Meaning                                                                                        |
-| ---: | ---------------------------------------------------------------------------------------------- |
-|  `0` | Migration completed with no unresolved results, or `--allow-unresolved` accepted them.         |
-|  `1` | Configuration, parsing, template I/O, report writing, or an internal invariant failed.         |
-|  `2` | Migration completed safely, but review, unsupported, or invalid results remain in strict mode. |
+| Code | Meaning                                                                                                      |
+| ---: | ------------------------------------------------------------------------------------------------------------ |
+|  `0` | Planning or application completed with no unresolved results, or `--allow-unresolved` accepted them.         |
+|  `1` | Configuration, parsing, project I/O, transaction, report writing, or an internal invariant failed.           |
+|  `2` | Planning or application completed safely, but review, unsupported, or invalid results remain in strict mode. |
 
 Strict unresolved handling is enabled by default. `--allow-unresolved` changes only the final exit code to `0`; it still reports and preserves every unresolved input and does not change which templates are written.
 
@@ -93,9 +98,9 @@ The test corpus is organized by directive rather than implementation class. Ever
 
 Fixtures assert both the generated output and the structured result. Snapshot-only tests are insufficient: important classes, retained attributes, diagnostics, and exit behavior receive explicit assertions.
 
-## Delivery sequence
+## Historical delivery sequence
 
-The conversion engine is delivered in reviewable increments:
+The conversion engine was delivered in reviewable increments:
 
 1. Compatibility inventory, analyzer result types, discovery, and preservation guarantees.
 2. Exact breakpoint model and reporting.
@@ -103,6 +108,7 @@ The conversion engine is delivered in reviewable increments:
 4. Flex directive support for the Tailwind adapter.
 5. Visibility and extended responsive inputs.
 6. Grid directives.
-7. CLI strict mode, dry-run, JSON reports, and upgrade documentation.
+7. The original CLI strict mode, `--dry-run`, schema-1 JSON reports, and upgrade documentation.
+8. The current plan-by-default mode, explicit `--write`, and schema-2 reports.
 
 Each increment adds failing compatibility tests before implementation and leaves the repository in a releasable state.

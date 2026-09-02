@@ -204,6 +204,17 @@ describe('maintainer documentation', () => {
     expect(readme).toContain('Existing preview scripts must remove `--dry-run`');
   });
 
+  it('distinguishes parse-error application state in plan and write modes', async () => {
+    const readme = await readRepositoryFile('README.md');
+
+    expect(readme).toContain(
+      'In the default plan mode, `application` remains `{ "status": "skipped", "reason": "plan-only" }` even when parsing fails.',
+    );
+    expect(readme).toContain(
+      'When `--write` was requested, a parse error produces `{ "status": "skipped", "reason": "parse-errors" }`.',
+    );
+  });
+
   it('documents the current beta safety boundaries', async () => {
     const readme = await readRepositoryFile('README.md');
 

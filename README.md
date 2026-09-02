@@ -42,7 +42,7 @@ npx flex-layout-codemod ./src --report ./reports/flex-layout.json
 
 The command plans and validates without changing project templates or stylesheets by default. `--report` is intentional reporting output: the report is an explicit side effect and is written atomically in both plan and write modes, even though a plan does not create template-output directories.
 
-If any template has a parse error, project application is skipped for the whole invocation. Terminal output labels the remaining edits as planned, and a requested JSON report includes `application: { "status": "skipped", "reason": "parse-errors" }`; neither output presents the planned template or stylesheet actions as applied writes.
+If any template has a parse error, no project changes are applied and terminal output labels the remaining edits as planned. In the default plan mode, `application` remains `{ "status": "skipped", "reason": "plan-only" }` even when parsing fails. When `--write` was requested, a parse error produces `{ "status": "skipped", "reason": "parse-errors" }`. Neither outcome presents proposed template or stylesheet actions as applied writes.
 
 After reviewing the report and committing or branching your work, apply the migration in place:
 

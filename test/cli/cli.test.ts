@@ -99,16 +99,26 @@ describe('packaged CLI execution', () => {
     expect(await readFile(stylesheet, 'utf8')).toContain(`.${generatedClass} {`);
   });
 
-  test('exits one and preserves output after a parse failure', async () => {
+  test('reports a default plan with parse errors as plan-only and preserves output', async () => {
     const input = join(temporaryDirectory, 'input.html');
     const output = join(temporaryDirectory, 'output.html');
+    const report = join(temporaryDirectory, 'report.json');
     await writeFile(input, '<span fxLayout="row" />', 'utf8');
 
-    const result = await execute([input, '--output', output]);
+    const result = await execute([input, '--output', output, '--report', report]);
 
     expect(result.status).toBe(1);
     expect(result.stdout).toBe('');
+    expect(result.stderr).toContain('Plan: 1 files scanned, 0 would change');
     expect(result.stderr).toContain('[template-parse-error]');
+    const parsedReport = JSON.parse(await readFile(report, 'utf8')) as Record<string, unknown>;
+    expect(parsedReport).toMatchObject({
+      schemaVersion: 2,
+      mode: 'plan',
+      summary: { filesScanned: 1, filesChanged: 0, parseErrors: 1 },
+    });
+    expect(parsedReport.application).toEqual({ status: 'skipped', reason: 'plan-only' });
+    expect(parsedReport).not.toHaveProperty('dryRun');
     await expect(access(output)).rejects.toThrow();
   });
 
