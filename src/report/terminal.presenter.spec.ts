@@ -140,7 +140,7 @@ describe('TerminalPresenter', () => {
 
     expect(output.text).toBe(
       [
-        'Plan: 2 files scanned, 1 would change',
+        'Write: 2 files scanned, 1 would change',
         'Converted 1 | Review 1 | Unsupported 1 | Invalid 1 | Parse errors 1',
         'nested/card.html:14 [dynamic-binding] Angular property bindings may depend on runtime state.',
         'nested/card.html:2 [target-unsupported] No Tailwind equivalent is available.',
@@ -157,7 +157,7 @@ describe('TerminalPresenter', () => {
     ['created', 'would create'],
     ['updated', 'would update'],
     ['removed', 'would remove'],
-    ['unchanged', 'unchanged'],
+    ['unchanged', 'would remain unchanged'],
   ] as const)('presents a %s stylesheet prospectively in plan mode', (change, wording) => {
     const output = new MemoryOutput(false);
 
@@ -205,6 +205,41 @@ describe('TerminalPresenter', () => {
 
     expect(output.text).toContain('Stylesheet: would create flex-layout-migration.css');
     expect(output.text).not.toContain('Stylesheet: created');
+  });
+
+  test('keeps an unchanged stylesheet prospective when parsing skips a write', () => {
+    const output = new MemoryOutput(false);
+
+    new TerminalPresenter().present(
+      report({
+        target: 'css',
+        mode: 'write',
+        application: { status: 'skipped', reason: 'parse-errors' },
+        stylesheet: { path: 'flex-layout-migration.css', change: 'unchanged' },
+      }),
+      output,
+    );
+
+    expect(output.text).toContain('Stylesheet: would remain unchanged flex-layout-migration.css');
+  });
+
+  test('rejects an applied report requested in plan mode', () => {
+    const output = new MemoryOutput(false);
+
+    expect(() =>
+      new TerminalPresenter().present(report({ mode: 'plan', application: { status: 'applied' } }), output),
+    ).toThrow('Applied application requires write mode.');
+  });
+
+  test('rejects a plan-only report requested in write mode', () => {
+    const output = new MemoryOutput(false);
+
+    expect(() =>
+      new TerminalPresenter().present(
+        report({ mode: 'write', application: { status: 'skipped', reason: 'plan-only' } }),
+        output,
+      ),
+    ).toThrow('Plan-only application requires plan mode.');
   });
 
   test('does not add a stylesheet line to Tailwind output', () => {
