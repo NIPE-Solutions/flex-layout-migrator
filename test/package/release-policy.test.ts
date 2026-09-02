@@ -32,6 +32,36 @@ describe('release policy', () => {
     expect(source).not.toMatch(/\bNODE_AUTH_TOKEN\b|secrets\.NPM/u);
   });
 
+  it('keeps staged publication inside the manual OIDC trust boundary', async () => {
+    const source = await readFile(new URL('../../.github/workflows/stage-release.yml', import.meta.url), 'utf8');
+    const workflow = parse(source);
+    const job = workflow.jobs.stage;
+    const runCommands = (job.steps as Array<{ run?: string }>)
+      .map((step: { run?: string }) => step.run)
+      .filter((command: string | undefined): command is string => command !== undefined);
+    const serializedWorkflow = JSON.stringify(workflow);
+
+    expect(workflow.on).toEqual({ workflow_dispatch: null });
+    expect(workflow.concurrency).toEqual({
+      group: 'npm-stage',
+      'cancel-in-progress': false,
+    });
+    expect(job.if).toBe("github.ref == 'refs/heads/main'");
+    expect(job.environment).toBe('npm');
+    expect(job.permissions).toEqual({
+      contents: 'read',
+      'id-token': 'write',
+    });
+
+    expect(runCommands.filter(command => /\bnpm (?:publish|stage)\b/u.test(command))).toEqual([
+      'npm stage publish "./${{ steps.release.outputs.tarball }}" --access public --tag beta',
+    ]);
+    expect(runCommands.join('\n')).not.toMatch(
+      /\bnpm publish\b|\bnpm stage (?:approve|reject)\b|\bgit tag\b|\bgh release\b/u,
+    );
+    expect(serializedWorkflow).not.toMatch(/\bNODE_AUTH_TOKEN\b|secrets\.NPM|continue-on-error/u);
+  });
+
   it('publishes public packages from main without automated release commits', async () => {
     const config = JSON.parse(await readFile(new URL('../../.changeset/config.json', import.meta.url), 'utf8'));
 
