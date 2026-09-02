@@ -3,6 +3,7 @@ import { access, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
+import packageJson from '../../package.json' with { type: 'json' };
 
 const execFileAsync = promisify(execFile);
 const repository = resolve(import.meta.dirname, '../..');
@@ -52,7 +53,7 @@ describe('packaged CLI execution', () => {
   test('prints the package version without rendering a banner', async () => {
     const result = await execute(['--version']);
 
-    expect(result).toMatchObject({ status: 0, stdout: '2.0.0-beta.0\n', stderr: '' });
+    expect(result).toMatchObject({ status: 0, stdout: `${packageJson.version}\n`, stderr: '' });
     expect(result.stdout).not.toContain('Flex-Layout Migrator');
   });
 
