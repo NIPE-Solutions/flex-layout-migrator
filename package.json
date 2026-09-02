@@ -6,7 +6,7 @@
   "engines": {
     "node": ">=24"
   },
-  "packageManager": "npm@11",
+  "packageManager": "npm@11.19.0",
   "files": [
     "dist",
     "README.md",
@@ -14,8 +14,7 @@
     "CHANGELOG.md"
   ],
   "publishConfig": {
-    "access": "public",
-    "provenance": true
+    "access": "public"
   },
   "scripts": {
     "clean": "rimraf dist coverage",
@@ -31,9 +30,11 @@
     "format:write": "prettier --write .",
     "verify": "npm run format && npm run lint && npm run typecheck && npm run test:coverage && npm run build && npm run package:check",
     "package:check": "node scripts/verify-package.mjs",
-    "changeset": "changeset",
+    "changeset": "changeset add",
     "version-packages": "changeset version",
-    "release": "changeset publish",
+    "release:prepare": "node scripts/release-artifact.mjs",
+    "release:verify": "node scripts/release-artifact.mjs --verify-retained",
+    "release:version": "changeset version && npm install --package-lock-only --ignore-scripts",
     "prepare": "husky"
   },
   "repository": {
@@ -81,7 +82,8 @@
     "tsup": "^8.5.1",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.68.0",
-    "vitest": "^4.1.11"
+    "vitest": "^4.1.11",
+    "yaml": "^2.9.0"
   },
   "husky": {
     "hooks": {

@@ -1,1 +1,8 @@
 * @Cylop
+
+/.github/workflows/release-pr.yml @Cylop
+/.github/workflows/stage-release.yml @Cylop
+/.changeset/ @Cylop
+/scripts/release-artifact.mjs @Cylop
+/scripts/verify-package.mjs @Cylop
+/package.json @Cylop

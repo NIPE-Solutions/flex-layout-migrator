@@ -2,7 +2,9 @@
 
 A safety-first codemod for migrating projects away from the archived Angular Flex-Layout library.
 
-Version 2 is under active development and is not published to npm yet. It does not claim production-ready conversion coverage. See the [compatibility reference](docs/compatibility.md) for the current directive-by-directive status and safety limitations.
+Version 2 remains a prerelease under active development. It does not claim production-ready conversion coverage. See the [compatibility reference](docs/compatibility.md) for the current directive-by-directive status and safety limitations.
+
+Install a published v2 beta as a development dependency with `npm install --save-dev @nipe-solutions/flex-layout-codemod@beta`. Maintainers should follow the reviewed [release process](docs/architecture/release-process.md); merging a version pull request does not publish the package.
 
 ## Current scope
 
