@@ -1,4 +1,4 @@
-import { access, mkdir, mkdtemp, rm, symlink } from 'node:fs/promises';
+import { access, link, lstat, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, posix, win32 } from 'node:path';
 import { validateMigrationPaths } from './migration-path.validator';
@@ -73,6 +73,70 @@ describe('validateMigrationPaths', () => {
       }),
     ).rejects.toMatchObject({ code: 'path-collision', paths: [stylesheet] });
   });
+
+  test('rejects a case-only stylesheet/report alias using host identity when available and conservative absence otherwise', async () => {
+    const stylesheet = join(directory, 'result.JSON');
+    const report = join(directory, 'RESULT.json');
+    await writeFile(stylesheet, 'preserve stylesheet', 'utf8');
+
+    const aliasStat = await lstat(report).catch((error: unknown) => {
+      if (typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT') return undefined;
+      throw error;
+    });
+    if (aliasStat !== undefined) {
+      const stylesheetStat = await lstat(stylesheet);
+      expect([String(aliasStat.dev), String(aliasStat.ino)]).toEqual([
+        String(stylesheetStat.dev),
+        String(stylesheetStat.ino),
+      ]);
+    }
+
+    await expect(
+      validateMigrationPaths({
+        templates: [],
+        stylesheetPath: stylesheet,
+        reportPath: report,
+      }),
+    ).rejects.toMatchObject({ code: 'path-collision' });
+    expect(await readFile(stylesheet, 'utf8')).toBe('preserve stylesheet');
+  });
+
+  test('rejects lexically distinct hard links to the same destination', async () => {
+    const stylesheet = join(directory, 'stylesheet.css');
+    const report = join(directory, 'report.json');
+    await writeFile(stylesheet, 'preserve stylesheet', 'utf8');
+    await link(stylesheet, report);
+
+    await expect(
+      validateMigrationPaths({
+        templates: [],
+        stylesheetPath: stylesheet,
+        reportPath: report,
+      }),
+    ).rejects.toMatchObject({ code: 'path-collision' });
+  });
+
+  test.each([
+    ['case folding', 'result.JSON', 'RESULT.json'],
+    ['Unicode normalization', 'r\u00e9sult.json', 're\u0301sult.json'],
+  ])(
+    'conservatively rejects absent %s aliases under one physical parent',
+    async (_label, stylesheetName, reportName) => {
+      const stylesheet = join(directory, stylesheetName);
+      const report = join(directory, reportName);
+
+      await expect(
+        validateMigrationPaths({
+          templates: [],
+          stylesheetPath: stylesheet,
+          reportPath: report,
+        }),
+      ).rejects.toMatchObject({ code: 'path-collision' });
+
+      await expect(access(stylesheet)).rejects.toMatchObject({ code: 'ENOENT' });
+      await expect(access(report)).rejects.toMatchObject({ code: 'ENOENT' });
+    },
+  );
 
   test('rejects directory destinations', async () => {
     const stylesheet = join(directory, 'styles');

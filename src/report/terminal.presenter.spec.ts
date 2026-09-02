@@ -64,6 +64,7 @@ describe('TerminalPresenter', () => {
   test('emits unresolved diagnostics in file and result order without interactive copy', () => {
     const output = new MemoryOutput(false);
     const unresolved = report({
+      application: { status: 'skipped', reason: 'parse-errors' },
       summary: {
         filesScanned: 2,
         filesChanged: 1,
@@ -126,7 +127,7 @@ describe('TerminalPresenter', () => {
 
     expect(output.text).toBe(
       [
-        '2 files scanned, 1 changed',
+        'Application skipped: 2 files scanned, 1 planned change',
         'Converted 1 | Review 1 | Unsupported 1 | Invalid 1 | Parse errors 1',
         'nested/card.html:14 [dynamic-binding] Angular property bindings may depend on runtime state.',
         'nested/card.html:2 [target-unsupported] No Tailwind equivalent is available.',
@@ -137,6 +138,24 @@ describe('TerminalPresenter', () => {
     );
     expect(output.text).not.toContain('\u001b[');
     expect(output.text).not.toMatch(/Thank you|Phase 1|Phase 2|[\u{1F300}-\u{1FAFF}]/u);
+  });
+
+  test('uses conditional stylesheet wording when parse errors skip application', () => {
+    const output = new MemoryOutput(false);
+
+    new TerminalPresenter().present(
+      report({
+        target: 'css',
+        application: { status: 'skipped', reason: 'parse-errors' },
+        summary: { ...report().summary, parseErrors: 1 },
+        stylesheet: { path: 'flex-layout-migration.css', change: 'created' },
+      }),
+      output,
+    );
+
+    expect(output.text).toContain('Application skipped: 2 files scanned, 1 planned change');
+    expect(output.text).toContain('Stylesheet: would create flex-layout-migration.css');
+    expect(output.text).not.toContain('Stylesheet: created');
   });
 
   test.each([

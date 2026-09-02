@@ -42,6 +42,8 @@ npx flex-layout-codemod ./src --dry-run --report ./reports/flex-layout.json
 
 `--dry-run` validates the planned edits in memory and does not write template output or a companion stylesheet. `--report` is intentional reporting output and is written even during a dry run.
 
+If any template has a parse error, project application is skipped for the whole invocation. Terminal output labels the remaining edits as planned, and a requested JSON report includes `application: { "status": "skipped", "reason": "parse-errors" }`; neither output presents the planned template or stylesheet actions as applied writes.
+
 After reviewing the report and committing or branching your work, apply the migration in place:
 
 ```bash
@@ -60,7 +62,9 @@ Use the native CSS target when the documented Flex-only surface is appropriate:
 npx flex-layout-codemod ./src --target css --stylesheet ./src/flex-layout-migration.css
 ```
 
-The migration updates templates and the one named companion stylesheet as a transaction. It owns only the marked `flex-layout-codemod` block, preserves handwritten CSS surrounding that block, removes rules no longer referenced by the proposed templates, and keeps shared rules deduplicated across files. On ordinary failures or handled interruption it rolls the changed templates and stylesheet back together.
+The migration updates templates and the one named companion stylesheet as a transaction. It owns only the marked `flex-layout-codemod` block, preserves handwritten CSS surrounding that block, retains unmatched owned rules because the stylesheet may serve templates outside the selected invocation, and keeps shared rules deduplicated across files. The current CLI has no complete-project pruning mode. On ordinary failures or handled interruption it rolls the changed templates and stylesheet back together.
+
+The stylesheet path may use any filename accepted as a regular file. If it ends in `.html` and is inside a folder input, that exact selected path is excluded from template discovery so reruns remain byte-idempotent. Stylesheet, template, and JSON-report destinations must remain physically distinct; existing file identity and conservative case/Unicode-normalized aliases for missing paths are checked before application and again before report replacement.
 
 No filesystem workflow can promise durable rollback after abrupt process termination, power loss, or a storage failure. If the command reports unconfirmed recovery, stop and inspect the listed paths, reconcile them with Git or a verified backup, then rerun only after the project is consistent.
 

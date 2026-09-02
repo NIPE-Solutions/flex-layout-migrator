@@ -13,6 +13,7 @@ import { validateMigrationPaths } from './migration-path.validator';
 import { migrationPlan, type FileMigrationPlan, type PlannedOutputArtifact } from './migration-plan';
 import { StylesheetPlanner } from './stylesheet.planner';
 import type { OwnedCssReferences } from '../adapter/css/stylesheet/owned-stylesheet.merger';
+import { templateAttributeKeys } from '../template/template-attribute';
 
 export interface MigrationOptions {
   readonly dryRun: boolean;
@@ -53,7 +54,12 @@ export class Migrator {
         }),
       ];
     } else if (inputStat.isDirectory()) {
-      filePlans = await new FolderMigrator(this.session.adapter, this.inputPath, this.outputPath).plan({
+      filePlans = await new FolderMigrator(
+        this.session.adapter,
+        this.inputPath,
+        this.outputPath,
+        options.stylesheetPath === undefined ? [] : [options.stylesheetPath],
+      ).plan({
         responsiveImages: options.responsiveImages ?? false,
       });
     } else {
@@ -157,14 +163,16 @@ export class Migrator {
         continue;
       }
       for (const attribute of parsed.elements.flatMap(element => element.attributes)) {
+        const ngClassAuthority = [...templateAttributeKeys(attribute)].some(
+          key => key === 'ngclass' || key.startsWith('ngclass.'),
+        );
         const literalClass = attribute.name === 'class' && attribute.binding === 'literal';
         const namedClassBinding = attribute.binding === 'property' && attribute.bindingTarget === 'class';
         const dynamicClass =
-          attribute.binding === 'property' &&
-          (attribute.name === 'class' || attribute.name === 'className' || attribute.name === 'ngClass');
-        if (!literalClass && !namedClassBinding && !dynamicClass) continue;
+          attribute.binding === 'property' && (attribute.name === 'class' || attribute.name === 'className');
+        if (!literalClass && !namedClassBinding && !dynamicClass && !ngClassAuthority) continue;
 
-        if (literalClass) {
+        if (literalClass || (ngClassAuthority && attribute.binding === 'literal')) {
           for (const className of attribute.value.split(/\s+/u)) {
             if (isGeneratedCssClassName(className)) references.add(className);
           }
@@ -175,6 +183,7 @@ export class Migrator {
         }
         if (
           dynamicClass ||
+          ngClassAuthority ||
           `${attribute.value} ${attribute.rawValue}`.includes('{{') ||
           `${attribute.value} ${attribute.rawValue}`.includes('}}')
         ) {

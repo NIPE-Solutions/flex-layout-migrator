@@ -15,18 +15,20 @@ flex-layout-codemod ./src --target css \
   --stylesheet ./src/flex-layout-migration.css
 ```
 
-`--target css` requires exactly one nonempty `--stylesheet <path>`. Supplying `--stylesheet` with another target is a usage error. The path is resolved from the process working directory, must identify a file rather than a directory, and must not overlap an input template, an output template, the JSON report path, or an invocation-owned temporary or backup path.
+`--target css` requires exactly one nonempty `--stylesheet <path>`. Supplying `--stylesheet` with another target is a usage error. The path is resolved from the process working directory, must identify a file rather than a directory, and must not overlap an input template, an output template, the JSON report path, or an invocation-owned temporary or backup path. Collision checks use physical identity for existing entries and conservatively treat case-folded, Unicode-NFC-equivalent missing suffixes below one physical ancestor as aliases. The lexically exact input/output exception remains case-sensitive under the host path dialect.
 
-The stylesheet may be outside the input or output tree. If it is inside the input tree, HTML discovery still ignores it because discovery accepts only `.html` files. Symlinked output destinations are rejected during preflight; the transaction does not follow a destination symlink when replacing project files.
+The stylesheet may be outside the input or output tree and may itself have an `.html` suffix. Folder discovery excludes the exact normalized selected stylesheet path, so a stylesheet created inside the input tree is not rediscovered as a template on rerun. Symlinked output destinations are rejected during preflight; the transaction does not follow a destination symlink when replacing project files.
 
 The stylesheet lifecycle is:
 
 - a missing stylesheet is proposed only when at least one owned rule exists;
 - an existing stylesheet is always read and ownership-validated;
-- an existing owned block is updated when the generated rules change;
-- a stale owned block is removed when no generated rules remain;
+- an existing owned block is updated additively when generated rules change;
+- unmatched owned rules are retained because an invocation cannot infer that its selected templates are every consumer of the stylesheet;
 - a missing stylesheet with no generated rules remains absent; and
 - handwritten bytes outside a valid owned block remain exact.
+
+There is no automatic pruning mode in this slice. Removing unmatched rules requires a future explicit scope that can demonstrate complete authority over every stylesheet consumer.
 
 `--dry-run` performs the same reads, planning, collision checks, ownership validation, template reparse, and transaction preflight as a write run. It creates no output directories, templates, stylesheets, backups, or temporary files. JSON reports remain an explicitly requested atomic output written after the migration result is known, outside the project change transaction.
 
@@ -137,7 +139,7 @@ The session factory accepts the target plus validated breakpoint configuration. 
 
 ## Stylesheet planning
 
-`StylesheetPlanner` accepts the normalized stylesheet path, finalized rules, and invocation-wide `OwnedCssReferences`. The migrator collects exact whole generated class tokens from every proposed template; when a selected template has no proposal, it scans the existing selected destination bytes. Angular class-binding metadata makes `[class.flm-<id>]` and `bind-class.flm-<id>` named class authorities. Interpolation, whole-value `[class]`/`[className]`, `bind-className`, `ngClass`, parse failures, or a missing distinct destination make authority incomplete, so matching valid owned rules are retained rather than removed on an absence inference. An explicit generated-looking token or named class authority with no corresponding incoming or owned rule fails closed as a stylesheet ownership error; boundary-adjacent handwritten names do not become ownership references.
+`StylesheetPlanner` accepts the normalized stylesheet path, finalized rules, and invocation-wide `OwnedCssReferences`. The migrator collects exact whole generated class tokens from every proposed template; when a selected template has no proposal, it scans the existing selected destination bytes. Angular class-binding metadata makes `[class.flm-<id>]` and `bind-class.flm-<id>` named class authorities. Every `ngClass` spelling is incomplete authority, including literal text attributes; exact whole generated tokens in literal `ngClass` values may still be validated conservatively. Interpolation, whole-value `[class]`/`[className]`, `bind-className`, parse failures, or a missing distinct destination also make authority incomplete. Completeness never authorizes deletion in the current default merge: every unmatched valid owned rule is retained. An explicit generated-looking token or named class authority with no corresponding incoming or owned rule fails closed as a stylesheet ownership error; boundary-adjacent handwritten names do not become ownership references.
 
 The planner reads the stylesheet destination when present, rejects directories and symlinks, and passes existing bytes, rules, references, and a retained-media context resolver to `mergeOwnedStylesheet`. The application boundary builds that resolver from the `allBreakpointDefinitions()` catalog function. Its pure merger identifies incoming IDs before resolving retained serialized media, then computes the individual retained/new union: base rules precede all responsive rules, and responsive rules use registry priority followed by stable rule ID. Incoming rule contexts remain structured; only genuinely retained serialized media requires resolver lookup, and unknown retained media fails closed. This deterministic ordering preserves responsive precedence across incremental migrations while leaving schema-1 markers and generated class IDs unchanged.
 
@@ -147,7 +149,7 @@ Its result follows the lifecycle contract:
 - absent plus nonempty output: create artifact;
 - present plus identical output: no artifact;
 - present plus different nonempty output: replace artifact; and
-- present plus empty output: remove artifact.
+- present plus no incoming rules: retain the existing owned block unchanged.
 
 `CssStylesheetError` receives application path context at this boundary. Ownership corruption is a configuration failure and prevents application. Artifact-validation or renderer invariant failures are internal failures. Neither becomes a per-directive conversion result because no individual input can safely repair an ambiguous shared stylesheet.
 
@@ -181,7 +183,9 @@ interface StylesheetReport {
 }
 ```
 
-The path follows the report's existing path-display policy and contains no temporary or backup path. The terminal presenter adds one deterministic stylesheet line for CSS runs. It uses conditional language during `--dry-run` and completed language after application. Template counts retain their current meaning and do not count the stylesheet as a scanned template.
+The path follows the report's existing path-display policy and contains no temporary or backup path. The terminal presenter adds one deterministic stylesheet line for CSS runs. It uses conditional language during `--dry-run` and completed language after application. If any structured template parse error prevents application, the schema-1 report adds `application: { status: 'skipped', reason: 'parse-errors' }`; terminal file counts say `planned change` and stylesheet actions remain conditional. Template counts retain their current meaning and do not count the stylesheet as a scanned template.
+
+The independent JSON writer receives the selected stylesheet as a protected path and repeats the filesystem-aware collision check immediately before entering its atomic write. A case or Unicode alias that becomes physically identical after project application therefore cannot replace the stylesheet with report bytes.
 
 Expected configuration, stylesheet, concurrent-modification, transaction, and interruption errors return exit code `1`. Completed plans with unresolved directive results retain the existing `0` or `2` policy. A JSON report is written only for a completed plan or completed application; thrown application failures leave an existing report path untouched.
 
@@ -206,8 +210,8 @@ Behavior changes follow test-driven development. Verification includes:
 - one invocation registry shared across multiple templates, deterministic class identity, deduplication, collision failure, and finalization invariants;
 - Tailwind session characterization proving unchanged template output;
 - pure file and folder planning, including distinct-output originals, parse errors, reparse failures, and no filesystem writes;
-- stylesheet creation, update, removal, unchanged, ownership failure, handwritten-byte preservation, LF/CRLF preservation, and idempotence;
-- path collision, directory, symlink, report overlap, and concurrent-modification preflight tests;
+- stylesheet creation, additive update, unmatched-rule retention, unchanged, ownership failure, handwritten-byte preservation, LF/CRLF preservation, and idempotence;
+- lexical and physical path collision, directory, symlink, report overlap, and concurrent-modification preflight tests;
 - injected failures for every staging, backup, replacement, removal, final cleanup, rollback, and rollback-cleanup boundary;
 - interruption during staging and commit with restored bytes and no invocation-owned residue;
 - single-file and folder CLI fixtures for CSS normal mode and `--dry-run`;
@@ -218,7 +222,7 @@ Behavior changes follow test-driven development. Verification includes:
 - architecture tests making the transaction the sole multi-file project mutation authority and keeping conversion layers free of filesystem imports; and
 - full repository verification, audit, package inspection, clean-install CLI smoke, whitespace checks, clean status, and forbidden-control-file scans.
 
-The public compatibility fixture includes every supported CSS Flex family at base and standard responsive aliases, repeated semantics across files, class identity collisions through injection, handwritten stylesheet content, stale-rule removal, and a zero-change second run.
+The public compatibility fixture includes every supported CSS Flex family at base and standard responsive aliases, repeated semantics across files, class identity collisions through injection, handwritten stylesheet content, conservative unmatched-rule retention, and a zero-change second run.
 
 ## Delivery and compatibility
 

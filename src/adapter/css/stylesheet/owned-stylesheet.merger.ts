@@ -13,6 +13,7 @@ export interface OwnedStylesheetMergeResult {
 /**
  * Template reference authority collected at the invocation boundary.
  * `complete: false` means a dynamic class expression prevented a complete scan.
+ * The default merger retains unmatched rules regardless; completeness is not a pruning grant.
  */
 export interface OwnedCssReferences {
   readonly classNames: ReadonlySet<string>;
@@ -196,7 +197,8 @@ function renderCanonicalRules(rules: readonly ResolvedOwnedRule[], newline: CssN
   return groups.join(newline);
 }
 
-function normalizeReferences(references: ReadonlySet<string> | OwnedCssReferences): OwnedCssReferences {
+function normalizeReferences(references?: ReadonlySet<string> | OwnedCssReferences): OwnedCssReferences {
+  if (references === undefined) return { classNames: new Set(), complete: false };
   return 'classNames' in references ? references : { classNames: references, complete: true };
 }
 
@@ -210,15 +212,6 @@ export function mergeOwnedStylesheet(
   if (parsed.status === 'invalid') throw new CssStylesheetError(parsed.code, parsed.reason);
 
   const newline = parsed.status === 'found' ? parsed.newline : firstDocumentNewline(existing);
-  if (references === undefined) {
-    const block = serializeOwnedCssBlock(rules, newline);
-    const output =
-      parsed.status === 'found'
-        ? existing.slice(0, parsed.range.start) + block + existing.slice(parsed.range.end)
-        : existing + block;
-    return Object.freeze({ changed: output !== existing, output });
-  }
-
   const referenceState = normalizeReferences(references);
   const groups = parseOwnedRuleGroups(existing);
   const existingIds = new Set(groups.flatMap(group => group.rules.map(rule => rule.id)));
@@ -229,27 +222,20 @@ export function mergeOwnedStylesheet(
       throw new CssStylesheetError('ownership-rule-mismatch', `No owned CSS rule matches ${className}`);
     }
   }
-
-  const retainedIds = referenceState.complete
-    ? new Set(
-        [...referenceState.classNames]
-          .filter(className => className.startsWith('flm-'))
-          .map(className => className.slice('flm-'.length))
-          .filter(id => existingIds.has(id) && !incomingIds.has(id)),
-      )
-    : new Set([...existingIds].filter(id => !incomingIds.has(id)));
+  const retainedIds = new Set([...existingIds].filter(id => !incomingIds.has(id)));
   const retained = retainedRules(groups, retainedIds, resolveRetainedMediaContext);
   const incoming = parsedIncomingRules(rules, newline);
   const content = [...retained, ...incoming].sort(compareRuleFragments);
-  if (
-    rules.length === 0 &&
-    referenceState.complete &&
-    retained.length === groups.flatMap(group => group.rules).length
-  ) {
+  if (rules.length === 0 && retained.length === groups.flatMap(group => group.rules).length) {
     return Object.freeze({ changed: false, output: existing });
   }
   const serialized = renderCanonicalRules(content, newline);
-  const block = serialized === '' ? '' : [START_MARKER, serialized, END_MARKER].join(newline);
+  const block =
+    serialized === ''
+      ? ''
+      : retained.length === 0
+        ? serializeOwnedCssBlock(rules, newline)
+        : [START_MARKER, serialized, END_MARKER].join(newline);
   const output =
     parsed.status === 'found'
       ? existing.slice(0, parsed.range.start) + block + existing.slice(parsed.range.end)

@@ -8,6 +8,12 @@ export interface MigrationReport {
   readonly summary: MigrationSummary;
   readonly files: readonly FileReport[];
   readonly stylesheet?: StylesheetReport;
+  readonly application?: SkippedApplicationReport;
+}
+
+export interface SkippedApplicationReport {
+  readonly status: 'skipped';
+  readonly reason: 'parse-errors';
 }
 
 export interface StylesheetReport {

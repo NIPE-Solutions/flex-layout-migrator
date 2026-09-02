@@ -91,7 +91,7 @@ describe('native CSS public compatibility', () => {
     expect(shrunk).toMatchObject({ status: 0, stderr: '' });
     const shrunkCss = await readFile(stylesheet, 'utf8');
     expect(shrunkCss).toContain(handwrittenCss);
-    expect(shrunkCss).not.toContain('gap: 8px;');
+    expect(shrunkCss).toContain('gap: 8px;');
     expect(shrunkCss).toContain('display: flex;');
 
     const rerun = await execute(
@@ -141,9 +141,10 @@ describe('native CSS public compatibility', () => {
 
     expect(failed.status).toBe(1);
     expect(failed.stdout).toBe('');
-    expect(failed.stderr).toContain('2 files scanned, 1 changed');
+    expect(failed.stderr).toContain('Application skipped: 2 files scanned, 1 planned change');
     expect(JSON.parse(await readFile(report, 'utf8'))).toMatchObject({
       target: 'css',
+      application: { status: 'skipped', reason: 'parse-errors' },
       summary: { filesScanned: 2, filesChanged: 1, parseErrors: 1 },
     });
     expect(await readFile(first, 'utf8')).toBe(original);

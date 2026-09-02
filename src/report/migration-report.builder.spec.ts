@@ -132,6 +132,7 @@ describe('MigrationReportBuilder', () => {
       },
     ]);
     expect(report.summary.parseErrors).toBe(1);
+    expect(report.application).toEqual({ status: 'skipped', reason: 'parse-errors' });
     expect(report.durationMs).toBe(7);
     expect(JSON.stringify(report)).not.toContain(inputRoot);
     expect(JSON.stringify(report)).not.toContain(outputRoot);

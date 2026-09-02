@@ -1,7 +1,11 @@
 import { lstat } from 'node:fs/promises';
 import * as path from 'node:path';
 import { MigrationApplicationError } from '../migrator/migration-application.error';
-import { type PathApi, pathsEquivalent, pathsOverlap } from '../migrator/migration-path.validator';
+import {
+  type PathApi,
+  pathsEquivalentOnFileSystem,
+  pathsOverlapOnFileSystem,
+} from '../migrator/migration-path.validator';
 
 export interface StylesheetPathValidationRequest {
   readonly target: string;
@@ -34,13 +38,20 @@ export async function validateStylesheetPath(
   const stylesheetPath = pathApi.resolve(request.stylesheetPath);
   const templateRoots = [request.inputPath, request.outputPath].map(claim => pathApi.resolve(claim));
   const reportPath = request.reportPath === undefined ? undefined : pathApi.resolve(request.reportPath);
-  const exactCollision = [...templateRoots, reportPath].some(
-    claim => claim !== undefined && pathsEquivalent(stylesheetPath, claim, pathApi),
-  );
-  const reportHierarchyCollision = reportPath !== undefined && pathsOverlap(stylesheetPath, reportPath, pathApi);
+  const exactCollision = (
+    await Promise.all(
+      [...templateRoots, reportPath].map(claim =>
+        claim === undefined ? Promise.resolve(false) : pathsEquivalentOnFileSystem(stylesheetPath, claim, pathApi),
+      ),
+    )
+  ).some(Boolean);
+  const reportHierarchyCollision =
+    reportPath !== undefined && (await pathsOverlapOnFileSystem(stylesheetPath, reportPath, pathApi));
   if (exactCollision || reportHierarchyCollision) {
     const collisionPaths =
-      reportHierarchyCollision && reportPath !== undefined && !pathsEquivalent(stylesheetPath, reportPath, pathApi)
+      reportHierarchyCollision &&
+      reportPath !== undefined &&
+      !(await pathsEquivalentOnFileSystem(stylesheetPath, reportPath, pathApi))
         ? [stylesheetPath, reportPath]
         : [stylesheetPath];
     throw new MigrationApplicationError(

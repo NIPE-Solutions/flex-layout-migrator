@@ -8,12 +8,17 @@ export interface TextOutput {
 export class TerminalPresenter {
   public present(report: MigrationReport, output: TextOutput): void {
     const { summary } = report;
-    const outcome = `${summary.filesScanned} files scanned, ${summary.filesChanged} ${
-      report.dryRun ? 'would change' : 'changed'
-    }`;
+    const applicationSkipped = report.application?.status === 'skipped';
+    const outcome = applicationSkipped
+      ? `${summary.filesScanned} files scanned, ${summary.filesChanged} planned ${
+          summary.filesChanged === 1 ? 'change' : 'changes'
+        }`
+      : `${summary.filesScanned} files scanned, ${summary.filesChanged} ${report.dryRun ? 'would change' : 'changed'}`;
     const totals = `Converted ${summary.converted} | Review ${summary.review} | Unsupported ${summary.unsupported} | Invalid ${summary.invalid} | Parse errors ${summary.parseErrors}`;
     const stylesheet = report.stylesheet
-      ? `Stylesheet: ${this.stylesheetAction(report.stylesheet.change, report.dryRun)} ${report.stylesheet.path}`
+      ? `Stylesheet: ${this.stylesheetAction(report.stylesheet.change, report.dryRun || applicationSkipped)} ${
+          report.stylesheet.path
+        }`
       : undefined;
     const diagnostics = report.files.flatMap(file =>
       file.results
@@ -22,7 +27,13 @@ export class TerminalPresenter {
     );
 
     output.write(
-      [report.dryRun ? `Dry run: ${outcome}` : outcome, totals, stylesheet, ...diagnostics, '']
+      [
+        applicationSkipped ? `Application skipped: ${outcome}` : report.dryRun ? `Dry run: ${outcome}` : outcome,
+        totals,
+        stylesheet,
+        ...diagnostics,
+        '',
+      ]
         .filter((line): line is string => line !== undefined)
         .join('\n'),
     );

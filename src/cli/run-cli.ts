@@ -118,7 +118,9 @@ export async function runCli(argv: readonly string[], output: CliOutput = proces
 
       new TerminalPresenter().present(report, reportOutput);
       if (reportPath !== undefined) {
-        await new JsonReportWriter().write(reportPath, report);
+        await new JsonReportWriter().write(reportPath, report, {
+          protectedPaths: stylesheetPath === undefined ? [] : [stylesheetPath],
+        });
       }
 
       exitCode = resolveExitCode(report, options.allowUnresolved);

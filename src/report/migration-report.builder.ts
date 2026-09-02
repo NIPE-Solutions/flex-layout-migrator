@@ -28,6 +28,7 @@ export class MigrationReportBuilder {
       .map(file => this.fileReport(pathApi, inputRoot, singleFile, file))
       .sort((left, right) => compareCodeUnits(left.path, right.path));
     const reportPaths = this.reportPaths(pathApi, inputRoot, outputRoot, singleFile);
+    const summary = this.summary(fileReports);
 
     return {
       schemaVersion: 1,
@@ -36,8 +37,11 @@ export class MigrationReportBuilder {
       input: reportPaths.input,
       output: reportPaths.output,
       durationMs: Math.trunc(durationMs),
-      summary: this.summary(fileReports),
+      summary,
       files: fileReports,
+      ...(summary.parseErrors > 0
+        ? { application: { status: 'skipped' as const, reason: 'parse-errors' as const } }
+        : {}),
       ...(target === 'css' && stylesheet
         ? { stylesheet: this.stylesheetReport(pathApi, inputRoot, singleFile, stylesheet) }
         : {}),

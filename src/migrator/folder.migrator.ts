@@ -14,11 +14,16 @@ interface FileEntry {
 }
 
 export class FolderMigrator {
+  private readonly excludedInputPaths: ReadonlySet<string>;
+
   constructor(
     private readonly adapter: ConversionAdapter,
     private readonly inputFolder: string,
     private readonly outputFolder: string,
-  ) {}
+    excludedInputPaths: readonly string[] = [],
+  ) {
+    this.excludedInputPaths = new Set(excludedInputPaths.map(candidate => path.normalize(path.resolve(candidate))));
+  }
 
   public async plan(
     options: FileMigrationOptions = { responsiveImages: false },
@@ -45,6 +50,7 @@ export class FolderMigrator {
       const input = path.join(directory, name);
       logger.debug(`Processing ${input}`);
       if (shouldIgnore(this.inputFolder, input)) continue;
+      if (this.excludedInputPaths.has(path.normalize(path.resolve(input)))) continue;
 
       const inputStat = await stat(input);
       if (inputStat.isDirectory()) {

@@ -164,6 +164,33 @@ describe('runCli', () => {
     expect(await readFile(stylesheet, 'utf8')).toContain(`.${generatedClass} {`);
   });
 
+  test('rejects a case-only report alias before it can replace a CSS stylesheet', async () => {
+    const input = join(temporaryDirectory, 'input.html');
+    const output = join(temporaryDirectory, 'output.html');
+    const stylesheet = join(temporaryDirectory, 'result.JSON');
+    const reportPath = join(temporaryDirectory, 'RESULT.json');
+    await writeFile(input, '<div fxLayout="row"></div>', 'utf8');
+
+    const result = await run([
+      input,
+      '--output',
+      output,
+      '--target',
+      'css',
+      '--stylesheet',
+      stylesheet,
+      '--report',
+      reportPath,
+    ]);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).toContain('collides');
+    await expect(access(output)).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(access(stylesheet)).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(access(reportPath)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
   test('reports an unchanged absent stylesheet for a completed CSS migration with no generated rules', async () => {
     const input = join(temporaryDirectory, 'input.html');
     const output = join(temporaryDirectory, 'output.html');
@@ -176,6 +203,27 @@ describe('runCli', () => {
     expect(result.stdout).toContain('Stylesheet: unchanged flex-layout-migration.css');
     await expect(access(output)).rejects.toMatchObject({ code: 'ENOENT' });
     await expect(access(stylesheet)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  test('excludes a selected HTML-named stylesheet from folder discovery on a byte-idempotent rerun', async () => {
+    const input = join(temporaryDirectory, 'input');
+    const template = join(input, 'card.html');
+    const stylesheet = join(input, 'owned-styles.html');
+    await mkdir(input);
+    await writeFile(template, '<div fxLayout="row"></div>', 'utf8');
+
+    const first = await run([input, '--target', 'css', '--stylesheet', stylesheet]);
+    expect(first).toMatchObject({ exitCode: 0, stderr: '' });
+    const firstTemplate = await readFile(template, 'utf8');
+    const firstStylesheet = await readFile(stylesheet, 'utf8');
+
+    const rerun = await run([input, '--target', 'css', '--stylesheet', stylesheet]);
+
+    expect(rerun).toMatchObject({ exitCode: 0, stderr: '' });
+    expect(rerun.stdout).toContain('1 files scanned, 0 changed');
+    expect(rerun.stdout).toContain('Stylesheet: unchanged owned-styles.html');
+    expect(await readFile(template, 'utf8')).toBe(firstTemplate);
+    expect(await readFile(stylesheet, 'utf8')).toBe(firstStylesheet);
   });
 
   test('returns a complete CSS parse-error report without writing project artifacts', async () => {
@@ -201,10 +249,12 @@ describe('runCli', () => {
 
     expect(result.exitCode).toBe(1);
     expect(result.stdout).toBe('');
-    expect(result.stderr).toContain('2 files scanned, 1 changed');
-    expect(result.stderr).toContain('Stylesheet: created ../flex-layout-migration.css');
+    expect(result.stderr).toContain('Application skipped: 2 files scanned, 1 planned change');
+    expect(result.stderr).toContain('Stylesheet: would create ../flex-layout-migration.css');
+    expect(result.stderr).not.toContain('Stylesheet: created');
     expect(JSON.parse(await readFile(reportPath, 'utf8'))).toMatchObject({
       target: 'css',
+      application: { status: 'skipped', reason: 'parse-errors' },
       summary: { filesScanned: 2, filesChanged: 1, parseErrors: 1 },
       stylesheet: { path: '../flex-layout-migration.css', change: 'created' },
     });

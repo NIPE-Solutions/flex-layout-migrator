@@ -126,7 +126,7 @@ describe('StylesheetPlanner', () => {
     await expect(planner.plan(stylesheet, [rule(A)])).resolves.toBeUndefined();
   });
 
-  test('plans an update when generated rules change', async () => {
+  test('plans an additive update when generated rules change', async () => {
     const original = block('\n', [rule(A)]);
     await writeFile(stylesheet, original, 'utf8');
 
@@ -134,31 +134,22 @@ describe('StylesheetPlanner', () => {
       kind: 'stylesheet',
       path: stylesheet,
       original: { status: 'present', contents: original },
-      proposed: { status: 'present', contents: block('\n', [rule(B)]) },
+      proposed: { status: 'present', contents: block('\n', [rule(A), rule(B)]) },
     });
   });
 
-  test('plans removal when an owned-only stylesheet has no generated rules', async () => {
+  test('retains an owned-only stylesheet when no complete pruning scope was selected', async () => {
     const original = block('\n', [rule(A)]);
     await writeFile(stylesheet, original, 'utf8');
 
-    await expect(planner.plan(stylesheet, [])).resolves.toMatchObject({
-      kind: 'stylesheet',
-      path: stylesheet,
-      original: { status: 'present', contents: original },
-      proposed: { status: 'absent' },
-    });
+    await expect(planner.plan(stylesheet, [])).resolves.toBeUndefined();
   });
 
-  test('retains only owned rules referenced by proposed templates when no directive is converted on a rerun', async () => {
+  test('retains unmatched owned rules when selected templates are only a partial authority', async () => {
     const original = block('\n', [rule(A), rule(B)]);
     await writeFile(stylesheet, original, 'utf8');
 
-    await expect(planWithTemplateReferences(planner, stylesheet, [], new Set([`flm-${A}`]))).resolves.toMatchObject({
-      kind: 'stylesheet',
-      original: { status: 'present', contents: original },
-      proposed: { status: 'present', contents: block('\n', [rule(A)]) },
-    });
+    await expect(planWithTemplateReferences(planner, stylesheet, [], new Set([`flm-${A}`]))).resolves.toBeUndefined();
   });
 
   test('rejects a generated class reference that has no matching owned CSS rule', async () => {

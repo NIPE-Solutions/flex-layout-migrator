@@ -2,8 +2,10 @@ import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promise
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { AdapterFactory } from '../adapter/adapter.factory';
+import type { OwnedCssReferences } from '../adapter/css/stylesheet/owned-stylesheet.merger';
 import type { MigrationTransaction } from '../transaction/migration-transaction';
 import { Migrator } from './migrator';
+import type { StylesheetPlanner } from './stylesheet.planner';
 
 describe('Migrator', () => {
   let temporaryDirectory: string;
@@ -168,6 +170,7 @@ describe('Migrator', () => {
     });
 
     expect(report.summary).toMatchObject({ filesScanned: 2, filesChanged: 1, parseErrors: 1 });
+    expect(report.application).toEqual({ status: 'skipped', reason: 'parse-errors' });
     await expect(access(outputPath)).rejects.toThrow();
   });
 
@@ -323,7 +326,88 @@ describe('Migrator', () => {
     await expect(access(stylesheetPath)).resolves.toBeUndefined();
   });
 
-  test('removes stale generated CSS after every selected output has no generated class reference', async () => {
+  test('retains rules from templates outside a later single-file invocation sharing the stylesheet', async () => {
+    const firstTemplate = join(temporaryDirectory, 'first.html');
+    const secondTemplate = join(temporaryDirectory, 'second.html');
+    const stylesheetPath = join(temporaryDirectory, 'flex-layout-migration.css');
+    await writeFile(firstTemplate, '<div fxLayout="row"></div>', 'utf8');
+    await writeFile(secondTemplate, '<div fxLayout="column"></div>', 'utf8');
+
+    await new Migrator(AdapterFactory.createSession('css'), firstTemplate, firstTemplate, () => 0).migrate({
+      dryRun: false,
+      stylesheetPath,
+    });
+    const firstClass = (await readFile(firstTemplate, 'utf8')).match(/flm-[a-f0-9]{64}/u)?.[0];
+    expect(firstClass).toBeDefined();
+
+    await new Migrator(AdapterFactory.createSession('css'), secondTemplate, secondTemplate, () => 0).migrate({
+      dryRun: false,
+      stylesheetPath,
+    });
+    const secondClass = (await readFile(secondTemplate, 'utf8')).match(/flm-[a-f0-9]{64}/u)?.[0];
+    expect(secondClass).toBeDefined();
+    expect(secondClass).not.toBe(firstClass);
+
+    const stylesheet = await readFile(stylesheetPath, 'utf8');
+    expect(stylesheet).toContain(`.${firstClass} {`);
+    expect(stylesheet).toContain(`.${secondClass} {`);
+  });
+
+  test('retains a live owned rule referenced through literal ngClass', async () => {
+    const inputPath = join(temporaryDirectory, 'input.html');
+    const stylesheetPath = join(temporaryDirectory, 'flex-layout-migration.css');
+    await writeFile(inputPath, '<div fxLayout="row"></div>', 'utf8');
+    await new Migrator(AdapterFactory.createSession('css'), inputPath, inputPath, () => 0).migrate({
+      dryRun: false,
+      stylesheetPath,
+    });
+    const generatedClass = (await readFile(inputPath, 'utf8')).match(/flm-[a-f0-9]{64}/u)?.[0];
+    expect(generatedClass).toBeDefined();
+    const stylesheetBefore = await readFile(stylesheetPath, 'utf8');
+    await writeFile(inputPath, `<div ngClass="${generatedClass}"></div>`, 'utf8');
+
+    const report = await new Migrator(AdapterFactory.createSession('css'), inputPath, inputPath, () => 0).migrate({
+      dryRun: false,
+      stylesheetPath,
+    });
+
+    expect(report.stylesheet).toEqual({ path: 'flex-layout-migration.css', change: 'unchanged' });
+    expect(await readFile(stylesheetPath, 'utf8')).toBe(stylesheetBefore);
+  });
+
+  test.each([
+    ['literal', `ngClass="flm-${'a'.repeat(64)}"`, [`flm-${'a'.repeat(64)}`]],
+    ['property binding', '[ngClass]="classes"', []],
+    ['bind syntax', 'bind-ngClass="classes"', []],
+    ['responsive literal', `ngClass.sm="flm-${'a'.repeat(64)}"`, [`flm-${'a'.repeat(64)}`]],
+    ['responsive property binding', '[ngClass.sm]="classes"', []],
+  ] as const)(
+    'marks %s ngClass authority incomplete and extracts only exact literal tokens',
+    async (_label, source, tokens) => {
+      const inputPath = join(temporaryDirectory, 'input.html');
+      const stylesheetPath = join(temporaryDirectory, 'flex-layout-migration.css');
+      const transaction = transactionDouble();
+      const stylesheetPlanner = {
+        plan: vi.fn<StylesheetPlanner['plan']>().mockResolvedValue(undefined),
+      };
+      await writeFile(inputPath, `<div ${source}></div>`, 'utf8');
+
+      await new Migrator(
+        AdapterFactory.createSession('css'),
+        inputPath,
+        inputPath,
+        () => 0,
+        transaction,
+        stylesheetPlanner,
+      ).migrate({ dryRun: true, stylesheetPath });
+
+      const references = stylesheetPlanner.plan.mock.calls[0]?.[2] as OwnedCssReferences;
+      expect(references.complete).toBe(false);
+      expect([...references.classNames]).toEqual(tokens);
+    },
+  );
+
+  test('retains unmatched generated CSS without an explicit complete pruning scope', async () => {
     const inputPath = join(temporaryDirectory, 'input.html');
     const outputPath = join(temporaryDirectory, 'output.html');
     const stylesheetPath = join(temporaryDirectory, 'flex-layout-migration.css');
@@ -340,8 +424,8 @@ describe('Migrator', () => {
       stylesheetPath,
     });
 
-    expect(report.stylesheet).toEqual({ path: 'flex-layout-migration.css', change: 'removed' });
-    await expect(access(stylesheetPath)).rejects.toMatchObject({ code: 'ENOENT' });
+    expect(report.stylesheet).toEqual({ path: 'flex-layout-migration.css', change: 'unchanged' });
+    await expect(access(stylesheetPath)).resolves.toBeUndefined();
   });
 
   test.each(['class="%s {{ extra }}"', '[class]="extra"', '[className]="extra"', 'bind-className="extra"'])(
@@ -460,7 +544,7 @@ describe('Migrator', () => {
         stylesheetPath,
       });
 
-      expect(report.stylesheet).toEqual({ path: 'flex-layout-migration.css', change: 'removed' });
+      expect(report.stylesheet).toEqual({ path: 'flex-layout-migration.css', change: 'unchanged' });
     },
   );
 
@@ -518,6 +602,7 @@ describe('Migrator', () => {
 
     expect(report).toMatchObject({
       target: 'css',
+      application: { status: 'skipped', reason: 'parse-errors' },
       summary: { filesScanned: 2, filesChanged: 1, converted: 1, parseErrors: 1 },
       stylesheet: { path: '../flex-layout-migration.css', change: 'created' },
     });
