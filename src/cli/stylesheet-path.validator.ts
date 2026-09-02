@@ -1,7 +1,7 @@
 import { lstat } from 'node:fs/promises';
 import * as path from 'node:path';
 import { MigrationApplicationError } from '../migrator/migration-application.error';
-import { pathsOverlap } from '../migrator/migration-path.validator';
+import { type PathApi, pathsEquivalent, pathsOverlap } from '../migrator/migration-path.validator';
 
 export interface StylesheetPathValidationRequest {
   readonly target: string;
@@ -11,7 +11,10 @@ export interface StylesheetPathValidationRequest {
   readonly reportPath?: string;
 }
 
-export async function validateStylesheetPath(request: StylesheetPathValidationRequest): Promise<string | undefined> {
+export async function validateStylesheetPath(
+  request: StylesheetPathValidationRequest,
+  pathApi: PathApi = path,
+): Promise<string | undefined> {
   if (request.target !== 'css') {
     if (request.stylesheetPath !== undefined) {
       throw new MigrationApplicationError('invalid-configuration', '--stylesheet can only be used with --target css.', [
@@ -28,14 +31,18 @@ export async function validateStylesheetPath(request: StylesheetPathValidationRe
     throw new MigrationApplicationError('invalid-configuration', 'Stylesheet path must not be empty.');
   }
 
-  const stylesheetPath = path.resolve(request.stylesheetPath);
-  const templateRoots = [request.inputPath, request.outputPath].map(claim => path.resolve(claim));
-  const reportPath = request.reportPath === undefined ? undefined : path.resolve(request.reportPath);
-  const exactCollision = [...templateRoots, reportPath].some(claim => claim === stylesheetPath);
-  const reportHierarchyCollision = reportPath !== undefined && pathsOverlap(stylesheetPath, reportPath);
+  const stylesheetPath = pathApi.resolve(request.stylesheetPath);
+  const templateRoots = [request.inputPath, request.outputPath].map(claim => pathApi.resolve(claim));
+  const reportPath = request.reportPath === undefined ? undefined : pathApi.resolve(request.reportPath);
+  const exactCollision = [...templateRoots, reportPath].some(
+    claim => claim !== undefined && pathsEquivalent(stylesheetPath, claim, pathApi),
+  );
+  const reportHierarchyCollision = reportPath !== undefined && pathsOverlap(stylesheetPath, reportPath, pathApi);
   if (exactCollision || reportHierarchyCollision) {
     const collisionPaths =
-      reportHierarchyCollision && reportPath !== stylesheetPath ? [stylesheetPath, reportPath] : [stylesheetPath];
+      reportHierarchyCollision && reportPath !== undefined && !pathsEquivalent(stylesheetPath, reportPath, pathApi)
+        ? [stylesheetPath, reportPath]
+        : [stylesheetPath];
     throw new MigrationApplicationError(
       'path-collision',
       `Stylesheet path collides with another migration path: ${request.stylesheetPath}`,

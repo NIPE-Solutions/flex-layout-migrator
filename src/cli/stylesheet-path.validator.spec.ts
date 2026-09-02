@@ -1,6 +1,6 @@
 import { access, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { basename, join } from 'node:path';
+import { basename, join, posix, win32 } from 'node:path';
 import { validateStylesheetPath } from './stylesheet-path.validator';
 
 describe('validateStylesheetPath', () => {
@@ -146,5 +146,60 @@ describe('validateStylesheetPath', () => {
       }),
     ).rejects.toMatchObject({ code: 'unsupported-path-type', paths: [stylesheetPath] });
     expect(await readFile(target, 'utf8')).toBe('preserve me');
+  });
+
+  test.each([
+    [
+      'input',
+      {
+        stylesheetPath: 'C:/Project/card.html',
+        inputPath: 'c:/project/CARD.HTML',
+        outputPath: 'C:/Project/output.html',
+        reportPath: 'C:/Project/report.json',
+      },
+    ],
+    [
+      'output',
+      {
+        stylesheetPath: 'C:/Project/card.html',
+        inputPath: 'C:/Project/input.html',
+        outputPath: 'c:/project/CARD.HTML',
+        reportPath: 'C:/Project/report.json',
+      },
+    ],
+    [
+      'report',
+      {
+        stylesheetPath: 'C:/Project/card.html',
+        inputPath: 'C:/Project/input.html',
+        outputPath: 'C:/Project/output.html',
+        reportPath: 'c:/project/CARD.HTML',
+      },
+    ],
+  ])('rejects a Win32 case-only stylesheet alias of the %s path', async (_name, request) => {
+    await expect(validateStylesheetPath({ target: 'css', ...request }, win32)).rejects.toMatchObject({
+      code: 'path-collision',
+      paths: [String.raw`C:\Project\card.html`],
+    });
+  });
+
+  test('keeps a POSIX backslash stylesheet filename distinct from the report hierarchy', async () => {
+    const stylesheetPath = join(directory, String.raw`flex\owned.css`);
+    const reportPath = join(directory, 'flex', 'owned.css', 'report.json');
+
+    await expect(
+      validateStylesheetPath(
+        {
+          target: 'css',
+          stylesheetPath,
+          inputPath: join(directory, 'input.html'),
+          outputPath: join(directory, 'output.html'),
+          reportPath,
+        },
+        posix,
+      ),
+    ).resolves.toBe(stylesheetPath);
+    await expect(access(stylesheetPath)).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(access(join(directory, 'flex'))).rejects.toMatchObject({ code: 'ENOENT' });
   });
 });

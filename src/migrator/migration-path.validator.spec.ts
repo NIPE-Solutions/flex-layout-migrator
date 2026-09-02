@@ -1,6 +1,6 @@
 import { access, mkdir, mkdtemp, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, posix, win32 } from 'node:path';
 import { validateMigrationPaths } from './migration-path.validator';
 
 describe('validateMigrationPaths', () => {
@@ -246,31 +246,126 @@ describe('validateMigrationPaths', () => {
     const report = String.raw`C:\project\flex.css\report.json`;
 
     await expect(
-      validateMigrationPaths({
-        templates: [
-          {
-            inputPath: String.raw`C:\project\input.html`,
-            outputPath: String.raw`C:\project\output.html`,
-          },
-        ],
-        stylesheetPath: stylesheet,
-        reportPath: report,
-      }),
+      validateMigrationPaths(
+        {
+          templates: [
+            {
+              inputPath: String.raw`C:\project\input.html`,
+              outputPath: String.raw`C:\project\output.html`,
+            },
+          ],
+          stylesheetPath: stylesheet,
+          reportPath: report,
+        },
+        win32,
+      ),
     ).rejects.toMatchObject({ code: 'path-collision', paths: [stylesheet, report] });
   });
 
   test('allows Windows path-segment prefix siblings', async () => {
     await expect(
-      validateMigrationPaths({
+      validateMigrationPaths(
+        {
+          templates: [
+            {
+              inputPath: String.raw`C:\project\card`,
+              outputPath: String.raw`C:\project\card-copy`,
+            },
+          ],
+          stylesheetPath: String.raw`C:\project\flex.css`,
+          reportPath: String.raw`C:\project\flex.css-report.json`,
+        },
+        win32,
+      ),
+    ).resolves.toBeUndefined();
+  });
+
+  test.each([
+    [
+      'template input and stylesheet',
+      {
         templates: [
           {
-            inputPath: String.raw`C:\project\card`,
-            outputPath: String.raw`C:\project\card-copy`,
+            inputPath: String.raw`C:\Project\card.html`,
+            outputPath: String.raw`C:\Project\output.html`,
           },
         ],
-        stylesheetPath: String.raw`C:\project\flex.css`,
-        reportPath: String.raw`C:\project\flex.css-report.json`,
-      }),
+        stylesheetPath: String.raw`c:\project\CARD.HTML`,
+        reportPath: String.raw`C:\Project\report.json`,
+      },
+      String.raw`C:\Project\card.html`,
+    ],
+    [
+      'template output and report',
+      {
+        templates: [
+          {
+            inputPath: String.raw`C:\Project\input.html`,
+            outputPath: String.raw`C:\Project\card.html`,
+          },
+        ],
+        stylesheetPath: String.raw`C:\Project\flex.css`,
+        reportPath: String.raw`c:\project\CARD.HTML`,
+      },
+      String.raw`C:\Project\card.html`,
+    ],
+    [
+      'stylesheet and report expressed with forward slashes',
+      {
+        templates: [
+          {
+            inputPath: 'C:/Project/input.html',
+            outputPath: 'C:/Project/output.html',
+          },
+        ],
+        stylesheetPath: 'C:/Project/flex.css',
+        reportPath: 'c:/project/FLEX.CSS',
+      },
+      String.raw`C:\Project\flex.css`,
+    ],
+  ])('rejects Win32 case-only aliases between %s', async (_name, request, collisionPath) => {
+    await expect(validateMigrationPaths(request, win32)).rejects.toMatchObject({
+      code: 'path-collision',
+      paths: [collisionPath],
+    });
+  });
+
+  test('allows an intentional Win32 case-only in-place template alias', async () => {
+    await expect(
+      validateMigrationPaths(
+        {
+          templates: [
+            {
+              inputPath: String.raw`C:\Project\card.html`,
+              outputPath: String.raw`c:\project\CARD.HTML`,
+            },
+          ],
+        },
+        win32,
+      ),
     ).resolves.toBeUndefined();
+  });
+
+  test('keeps a POSIX backslash filename distinct from separator-delimited descendants', async () => {
+    const stylesheet = join(directory, String.raw`flex\owned.css`);
+    const report = join(directory, 'flex', 'owned.css', 'report.json');
+
+    await expect(
+      validateMigrationPaths(
+        {
+          templates: [
+            {
+              inputPath: join(directory, 'input.html'),
+              outputPath: join(directory, 'output.html'),
+            },
+          ],
+          stylesheetPath: stylesheet,
+          reportPath: report,
+        },
+        posix,
+      ),
+    ).resolves.toBeUndefined();
+    await expect(access(stylesheet)).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(access(report)).rejects.toMatchObject({ code: 'ENOENT' });
   });
 });

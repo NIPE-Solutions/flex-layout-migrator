@@ -2,7 +2,7 @@ import { lstat } from 'node:fs/promises';
 import * as path from 'node:path';
 import { MigrationApplicationError } from './migration-application.error';
 
-type PathApi = typeof path.posix;
+export type PathApi = typeof path.posix;
 
 export interface MigrationPathValidationRequest {
   readonly templates: readonly { readonly inputPath: string; readonly outputPath: string }[];
@@ -16,9 +16,12 @@ interface PathClaim {
   readonly templateIndex?: number;
 }
 
-export async function validateMigrationPaths(request: MigrationPathValidationRequest): Promise<void> {
-  const claims = normalizedClaims(request);
-  validateCollisions(claims);
+export async function validateMigrationPaths(
+  request: MigrationPathValidationRequest,
+  pathApi: PathApi = path,
+): Promise<void> {
+  const claims = normalizedClaims(request, pathApi);
+  validateCollisions(claims, pathApi);
 
   const destinations = claims.filter(claim => claim.kind !== 'template-input');
   for (const destination of destinations) {
@@ -26,12 +29,7 @@ export async function validateMigrationPaths(request: MigrationPathValidationReq
   }
 }
 
-function normalizedClaims(request: MigrationPathValidationRequest): readonly PathClaim[] {
-  const pathApi = pathApiFor(
-    ...request.templates.flatMap(template => [template.inputPath, template.outputPath]),
-    request.stylesheetPath ?? '',
-    request.reportPath ?? '',
-  );
+function normalizedClaims(request: MigrationPathValidationRequest, pathApi: PathApi): readonly PathClaim[] {
   return [
     ...request.templates.flatMap((template, templateIndex) => [
       { path: pathApi.resolve(template.inputPath), kind: 'template-input' as const, templateIndex },
@@ -42,16 +40,16 @@ function normalizedClaims(request: MigrationPathValidationRequest): readonly Pat
   ];
 }
 
-function validateCollisions(claims: readonly PathClaim[]): void {
+function validateCollisions(claims: readonly PathClaim[], pathApi: PathApi): void {
   for (let leftIndex = 0; leftIndex < claims.length; leftIndex++) {
     const left = claims[leftIndex];
     if (!left) continue;
     for (let rightIndex = leftIndex + 1; rightIndex < claims.length; rightIndex++) {
       const right = claims[rightIndex];
       if (!right) continue;
-      if (!pathsOverlap(left.path, right.path) || isIntentionalInPlacePair(left, right)) continue;
+      if (!pathsOverlap(left.path, right.path, pathApi) || isIntentionalInPlacePair(left, right, pathApi)) continue;
 
-      const collisionPaths = left.path === right.path ? [left.path] : [left.path, right.path];
+      const collisionPaths = pathsEquivalent(left.path, right.path, pathApi) ? [left.path] : [left.path, right.path];
       throw new MigrationApplicationError(
         'path-collision',
         `Migration paths collide: ${collisionPaths.join(' and ')}`,
@@ -61,9 +59,9 @@ function validateCollisions(claims: readonly PathClaim[]): void {
   }
 }
 
-function isIntentionalInPlacePair(left: PathClaim, right: PathClaim): boolean {
+function isIntentionalInPlacePair(left: PathClaim, right: PathClaim, pathApi: PathApi): boolean {
   return (
-    left.path === right.path &&
+    pathsEquivalent(left.path, right.path, pathApi) &&
     left.templateIndex !== undefined &&
     left.templateIndex === right.templateIndex &&
     left.kind !== right.kind &&
@@ -72,15 +70,22 @@ function isIntentionalInPlacePair(left: PathClaim, right: PathClaim): boolean {
   );
 }
 
-export function pathsOverlap(left: string, right: string): boolean {
-  const pathApi = pathApiFor(left, right);
+export function pathsOverlap(left: string, right: string, pathApi: PathApi = path): boolean {
   const normalizedLeft = pathApi.resolve(left);
   const normalizedRight = pathApi.resolve(right);
   return (
-    normalizedLeft === normalizedRight ||
+    normalizedPathsEquivalent(pathApi, normalizedLeft, normalizedRight) ||
     isAncestor(pathApi, normalizedLeft, normalizedRight) ||
     isAncestor(pathApi, normalizedRight, normalizedLeft)
   );
+}
+
+export function pathsEquivalent(left: string, right: string, pathApi: PathApi = path): boolean {
+  return normalizedPathsEquivalent(pathApi, pathApi.resolve(left), pathApi.resolve(right));
+}
+
+function normalizedPathsEquivalent(pathApi: PathApi, left: string, right: string): boolean {
+  return pathApi.relative(left, right) === '';
 }
 
 function isAncestor(pathApi: PathApi, ancestor: string, descendant: string): boolean {
@@ -88,12 +93,6 @@ function isAncestor(pathApi: PathApi, ancestor: string, descendant: string): boo
   return (
     relative !== '' && relative !== '..' && !relative.startsWith(`..${pathApi.sep}`) && !pathApi.isAbsolute(relative)
   );
-}
-
-function pathApiFor(...values: readonly string[]): PathApi {
-  if (values.some(value => /^[A-Za-z]:[\\/]/.test(value) || value.includes('\\'))) return path.win32;
-  if (values.some(value => value.includes('/'))) return path.posix;
-  return path;
 }
 
 async function validateDestination(destination: string): Promise<void> {
