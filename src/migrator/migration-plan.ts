@@ -34,7 +34,7 @@ export function plannedOutputArtifact(artifact: PlannedOutputArtifact): PlannedO
 
   return Object.freeze({
     kind: artifact.kind,
-    path: path.normalize(artifact.path),
+    path: path.resolve(artifact.path),
     original: artifactState(artifact.original),
     proposed: artifactState(artifact.proposed),
   });
