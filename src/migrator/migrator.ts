@@ -1,14 +1,13 @@
 import { stat } from 'node:fs/promises';
 import * as path from 'node:path';
 import type { ConversionAdapter } from '../adapter/conversion-adapter';
-import { AtomicFileWriter } from '../lib/atomic-file.writer';
 import { loadGitIgnore } from '../lib/gitignore.helper';
 import { MigrationReportBuilder } from '../report/migration-report.builder';
 import type { MigrationReport } from '../report/migration-report';
+import { MigrationTransaction } from '../transaction/migration-transaction';
 import { FileMigrator } from './file.migrator';
 import { FolderMigrator } from './folder.migrator';
 import { migrationPlan, type FileMigrationPlan } from './migration-plan';
-import { compareCodeUnits } from '../util/compare-code-units';
 
 export interface MigrationOptions {
   readonly dryRun: boolean;
@@ -21,7 +20,7 @@ export class Migrator {
     private readonly inputPath: string,
     private readonly outputPath: string,
     private readonly now: () => number = Date.now,
-    private readonly writer: AtomicFileWriter = new AtomicFileWriter(),
+    private readonly transaction: Pick<MigrationTransaction, 'preflight' | 'apply'> = new MigrationTransaction(),
   ) {}
 
   public async migrate(options: MigrationOptions = { dryRun: false }): Promise<MigrationReport> {
@@ -61,12 +60,9 @@ export class Migrator {
       artifacts: filePlans.flatMap(filePlan => (filePlan.artifact ? [filePlan.artifact] : [])),
     });
     const hasParseError = plan.files.some(file => file.results.some(result => result.status === 'parse-error'));
-    if (!options.dryRun && !hasParseError) {
-      for (const artifact of [...plan.artifacts].sort((left, right) => compareCodeUnits(left.path, right.path))) {
-        if (artifact.proposed.status === 'present') {
-          await this.writer.write(artifact.path, artifact.proposed.contents);
-        }
-      }
+    if (!hasParseError) {
+      await this.transaction.preflight(plan);
+      if (!options.dryRun && plan.artifacts.length > 0) await this.transaction.apply(plan);
     }
 
     return new MigrationReportBuilder().build(

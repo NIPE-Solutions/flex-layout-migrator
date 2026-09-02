@@ -20,8 +20,10 @@ export class AtomicFileWriter {
 
     await this.operations.mkdir(directory, { recursive: true });
     let temporaryFile: Awaited<ReturnType<typeof open>> | undefined;
+    let ownsTemporaryPath = false;
     try {
       temporaryFile = await this.operations.open(temporaryPath, 'wx');
+      ownsTemporaryPath = true;
       await temporaryFile.writeFile(contents, 'utf8');
       await temporaryFile.sync();
       await temporaryFile.close();
@@ -29,7 +31,7 @@ export class AtomicFileWriter {
       await this.operations.rename(temporaryPath, targetPath);
     } catch (error) {
       await temporaryFile?.close().catch(() => undefined);
-      await this.operations.unlink(temporaryPath).catch(() => undefined);
+      if (ownsTemporaryPath) await this.operations.unlink(temporaryPath).catch(() => undefined);
       throw error;
     }
   }

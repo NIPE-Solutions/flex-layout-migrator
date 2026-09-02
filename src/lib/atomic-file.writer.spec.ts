@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rename, rm, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { AtomicFileWriter, type AtomicFileOperations } from './atomic-file.writer';
@@ -45,5 +45,26 @@ describe('AtomicFileWriter', () => {
     expect(temporaryFile.sync).toHaveBeenCalledOnce();
     expect(temporaryFile.close).toHaveBeenCalledOnce();
     expect(operations.unlink).toHaveBeenCalledOnce();
+  });
+
+  test('does not delete an unowned path when exclusive temporary creation fails', async () => {
+    const target = join(directory, 'template.html');
+    let collidingPath = '';
+    const collision = Object.assign(new Error('already exists'), { code: 'EEXIST' });
+    const operations: AtomicFileOperations = {
+      mkdir,
+      open: async candidate => {
+        if (typeof candidate !== 'string') throw new Error('Expected a string temporary path.');
+        collidingPath = candidate;
+        await writeFile(candidate, 'owned by another invocation', 'utf8');
+        throw collision;
+      },
+      rename,
+      unlink,
+    };
+
+    await expect(new AtomicFileWriter(operations).write(target, 'after')).rejects.toBe(collision);
+
+    expect(await readFile(collidingPath, 'utf8')).toBe('owned by another invocation');
   });
 });

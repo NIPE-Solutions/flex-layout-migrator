@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import type { ConversionAdapter } from '../adapter/conversion-adapter';
 import { TailwindAdapter } from '../adapter/tailwind/tailwind.adapter';
+import type { MigrationTransaction } from '../transaction/migration-transaction';
 import { Migrator } from './migrator';
 
 describe('Migrator', () => {
@@ -51,6 +52,26 @@ describe('Migrator', () => {
     await expect(access(outputPath)).rejects.toThrow();
   });
 
+  test('preflights the complete plan during a dry run without applying it', async () => {
+    const inputPath = join(temporaryDirectory, 'input', 'card.html');
+    const outputPath = join(temporaryDirectory, 'output', 'card.html');
+    await mkdir(join(temporaryDirectory, 'input'), { recursive: true });
+    await writeFile(inputPath, '<div fxLayout="row"></div>', 'utf8');
+    const transaction = transactionDouble();
+
+    await new Migrator(new TailwindAdapter(), inputPath, outputPath, () => 0, transaction).migrate({ dryRun: true });
+
+    expect(transaction.preflight).toHaveBeenCalledOnce();
+    expect(transaction.preflight).toHaveBeenCalledWith(
+      expect.objectContaining({
+        target: 'tailwind',
+        artifacts: [expect.objectContaining({ path: outputPath, kind: 'template' })],
+      }),
+    );
+    expect(transaction.apply).not.toHaveBeenCalled();
+    await expect(access(outputPath)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
   test('plans a changed single file from relative paths during a dry run', async () => {
     const inputPath = join(temporaryDirectory, 'input', 'card.html');
     const outputPath = join(temporaryDirectory, 'output', 'card.html');
@@ -80,6 +101,23 @@ describe('Migrator', () => {
 
     expect(report.summary).toMatchObject({ filesScanned: 1, filesChanged: 1, converted: 1 });
     expect(await readFile(outputPath, 'utf8')).toBe('<div class="flex flex-row box-border"></div>');
+  });
+
+  test('delegates one complete non-dry-run plan to the transaction', async () => {
+    const inputPath = join(temporaryDirectory, 'input', 'card.html');
+    const outputPath = join(temporaryDirectory, 'output', 'card.html');
+    await mkdir(join(temporaryDirectory, 'input'), { recursive: true });
+    await writeFile(inputPath, '<div fxLayout="row"></div>', 'utf8');
+    const transaction = transactionDouble();
+
+    const report = await new Migrator(new TailwindAdapter(), inputPath, outputPath, () => 0, transaction).migrate({
+      dryRun: false,
+    });
+
+    expect(report.summary.filesChanged).toBe(1);
+    expect(transaction.preflight).toHaveBeenCalledOnce();
+    expect(transaction.apply).toHaveBeenCalledOnce();
+    expect(transaction.apply).toHaveBeenCalledWith(transaction.preflight.mock.calls[0]?.[0]);
   });
 
   test('aggregates every nested folder template into the application report', async () => {
@@ -134,6 +172,36 @@ describe('Migrator', () => {
     await expect(access(outputPath)).rejects.toThrow();
   });
 
+  test('returns the complete parse-error report without invoking transaction preflight or apply', async () => {
+    const inputPath = join(temporaryDirectory, 'input');
+    const outputPath = join(temporaryDirectory, 'output');
+    await mkdir(inputPath, { recursive: true });
+    await writeFile(join(inputPath, 'a-convert.html'), '<div fxLayout="row"></div>', 'utf8');
+    await writeFile(join(inputPath, 'z-invalid.html'), '<span fxLayout="row" />', 'utf8');
+    const transaction = transactionDouble();
+
+    const report = await new Migrator(new TailwindAdapter(), inputPath, outputPath, () => 0, transaction).migrate({
+      dryRun: false,
+    });
+
+    expect(report.summary).toMatchObject({ filesScanned: 2, filesChanged: 1, parseErrors: 1 });
+    expect(transaction.preflight).not.toHaveBeenCalled();
+    expect(transaction.apply).not.toHaveBeenCalled();
+    await expect(access(outputPath)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  test('preflights a valid plan with no artifacts and skips apply', async () => {
+    const inputPath = join(temporaryDirectory, 'plain.html');
+    const outputPath = join(temporaryDirectory, 'plain-output.html');
+    await writeFile(inputPath, '<div class="card"></div>', 'utf8');
+    const transaction = transactionDouble();
+
+    await new Migrator(new TailwindAdapter(), inputPath, outputPath, () => 0, transaction).migrate({ dryRun: false });
+
+    expect(transaction.preflight).toHaveBeenCalledWith(expect.objectContaining({ artifacts: [] }));
+    expect(transaction.apply).not.toHaveBeenCalled();
+  });
+
   test('rejects unsupported file extensions', async () => {
     const inputPath = join(temporaryDirectory, 'styles.css');
     await writeFile(inputPath, '.card {}', 'utf8');
@@ -165,3 +233,10 @@ describe('Migrator', () => {
     expect(await readFile(existingOutputPath, 'utf8')).toBe('preserve me');
   });
 });
+
+function transactionDouble() {
+  return {
+    preflight: vi.fn<MigrationTransaction['preflight']>().mockResolvedValue(undefined),
+    apply: vi.fn<MigrationTransaction['apply']>().mockResolvedValue(undefined),
+  };
+}
