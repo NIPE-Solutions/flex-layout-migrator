@@ -48,6 +48,22 @@ describe('ConversionPlanner', () => {
     ]);
   });
 
+  test.each([
+    ['disabled migration', '<img fxHide src.sm="small.png">', false],
+    ['dynamic source', '<img fxHide [src.sm]="smallImage">', true],
+    ['unsafe source', '<img fxHide src.sm="small.png 2x">', true],
+  ] as const)('keeps unrelated same-image conversions when image migration is %s', (_label, source, enabled) => {
+    const result = migrate(source, { responsiveImages: enabled });
+
+    expect(result.output).toContain('class="hidden"');
+    expect(result.output).toContain(
+      enabled ? source.match(/(?:\[src\.sm\]|src\.sm)="[^"]+"/u)?.[0] : 'src.sm="small.png"',
+    );
+    expect(result.results).toContainEqual(
+      expect.objectContaining({ status: 'converted', input: expect.objectContaining({ directive: 'fxHide' }) }),
+    );
+  });
+
   test('removes a converted input and merges classes into a literal class attribute', () => {
     const result = migrate('<div class="card" fxLayout="row"></div>');
 

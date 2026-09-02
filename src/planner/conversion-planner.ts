@@ -163,7 +163,12 @@ export class ConversionPlanner {
         .filter((plan): plan is PlannedConversion => plan !== undefined);
       const unresolvedOrdinary = ordinaryPlans.some(plan => plan.status !== 'converted');
 
-      if (imageResult.status === 'converted' && !unresolvedOrdinary) {
+      if (imageResult.status === 'unresolved') {
+        for (const plan of imageResult.plans) plansByInputId.set(plan.input.id, plan);
+        continue;
+      }
+
+      if (!unresolvedOrdinary) {
         imagePlansByElementId.set(element.id, imageResult.plan);
         for (const input of imageInputs) {
           plansByInputId.set(input.id, { status: 'converted', input, classNames: [] });
@@ -180,11 +185,7 @@ export class ConversionPlanner {
       for (const plan of ordinaryPlans) {
         if (plan.status === 'converted') plansByInputId.set(plan.input.id, { ...familyFailure, input: plan.input });
       }
-      if (imageResult.status === 'converted') {
-        for (const input of imageInputs) plansByInputId.set(input.id, { ...familyFailure, input });
-      } else {
-        for (const plan of imageResult.plans) plansByInputId.set(plan.input.id, plan);
-      }
+      for (const input of imageInputs) plansByInputId.set(input.id, { ...familyFailure, input });
     }
 
     for (const input of inputs) {

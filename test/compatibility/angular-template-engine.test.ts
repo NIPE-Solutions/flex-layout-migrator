@@ -152,7 +152,7 @@ describe('Angular template engine compatibility', () => {
     const expected = await fixture('responsive-image', 'expected');
 
     const disabled = migrate(input, 'responsive-image.html');
-    expect(disabled.output).toBe(input);
+    expect(disabled.output).toBe(input.replace('<img class="hero" fxHide', '<img class="hero hidden"'));
     expect(disabled.results.filter(result => result.status === 'unsupported')).toHaveLength(24);
 
     const first = migrate(input, 'responsive-image.html', { orientationBreakpoints: false }, true);

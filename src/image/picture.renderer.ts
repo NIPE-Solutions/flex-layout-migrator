@@ -58,7 +58,14 @@ export class PictureRenderer {
       return `<picture>${sourceTags.join('')}${edited.output}</picture>`;
     }
 
-    const indentation = imageSource.match(/\r?\n([\t ]+)\S/u)?.[1] ?? '  ';
-    return `<picture>${lineEnding}${sourceTags.map(tag => `${indentation}${tag}`).join(lineEnding)}${lineEnding}${indentation}${edited.output}${lineEnding}</picture>`;
+    const lineStart = Math.max(source.lastIndexOf('\n', element.source.start - 1) + 1, 0);
+    const linePrefix = source.slice(lineStart, element.source.start);
+    const baseIndentation = /^[\t ]*$/u.test(linePrefix) ? linePrefix : '';
+    const attributeIndentation = imageSource.match(/\r?\n([\t ]+)\S/u)?.[1];
+    const indentation =
+      attributeIndentation?.startsWith(baseIndentation) && attributeIndentation.length > baseIndentation.length
+        ? attributeIndentation
+        : `${baseIndentation}  `;
+    return `<picture>${lineEnding}${sourceTags.map(tag => `${indentation}${tag}`).join(lineEnding)}${lineEnding}${indentation}${edited.output}${lineEnding}${baseIndentation}</picture>`;
   }
 }

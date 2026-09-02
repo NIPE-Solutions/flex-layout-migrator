@@ -42,6 +42,19 @@ describe('PictureRenderer', () => {
     );
   });
 
+  test.each([
+    ['spaces', '  ', '    '],
+    ['tabs', '\t', '\t\t'],
+  ])('aligns nested multiline output using %s', (_label, baseIndent, attributeIndent) => {
+    const image = `<img\n${attributeIndent}alt="Hero"\n${attributeIndent}src.lt-sm="mobile.png"\n${baseIndent}>`;
+    const source = `<section>\n${baseIndent}${image}\n</section>`;
+    const rendered = new PictureRenderer().render(source, fixture(source));
+
+    expect(rendered).toContain(`\n${attributeIndent}<source `);
+    expect(rendered).toContain(`\n${attributeIndent}<img\n${attributeIndent}alt="Hero"`);
+    expect(rendered).toMatch(new RegExp(`\\n${baseIndent.replaceAll('\t', '\\t')}</picture>$`, 'u'));
+  });
+
   test('composes image-contained edits into the retained image slice', () => {
     const source = '<img class="old" src.md="medium.png">';
     const start = source.indexOf('old');
