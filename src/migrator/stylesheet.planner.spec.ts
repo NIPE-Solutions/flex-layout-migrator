@@ -3,12 +3,14 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Stats } from 'node:fs';
 import type { OwnedCssRule } from '../adapter/css/css-artifact.model';
+import { serializeOwnedCssBlock } from '../adapter/css/stylesheet/owned-css-block.serializer';
 import { StylesheetPlanner } from './stylesheet.planner';
 
 const A = 'a'.repeat(64);
 const B = 'b'.repeat(64);
+const C = 'c'.repeat(64);
+const D = 'd'.repeat(64);
 const START = '/* flex-layout-codemod:start schema=1 */';
-const END = '/* flex-layout-codemod:end */';
 
 function rule(id: string): OwnedCssRule {
   return {
@@ -21,19 +23,18 @@ function rule(id: string): OwnedCssRule {
   };
 }
 
-function block(newline: '\n' | '\r\n', rules: readonly OwnedCssRule[]): string {
-  if (rules.length === 0) return '';
+function responsiveRule(id: string, priority: number, min: number, max: number): OwnedCssRule {
+  return {
+    ...rule(id),
+    context: {
+      priority,
+      media: { type: 'screen', clauses: [{ min, max }] },
+    },
+  };
+}
 
-  return [
-    START,
-    ...rules.flatMap(current => [
-      `/* flex-layout-codemod:rule id=${current.id} */`,
-      `.${current.className} {`,
-      ...current.declarations.map(declaration => `  ${declaration.property}: ${declaration.value};`),
-      '}',
-    ]),
-    END,
-  ].join(newline);
+function block(newline: '\n' | '\r\n', rules: readonly OwnedCssRule[]): string {
+  return serializeOwnedCssBlock(rules, newline);
 }
 
 function planWithTemplateReferences(
@@ -138,6 +139,36 @@ describe('StylesheetPlanner', () => {
       planWithTemplateReferences(planner, stylesheet, [rule(A)], new Set([`flm-${A}`, `flm-${B}`])),
     ).resolves.toMatchObject({
       proposed: { status: 'present', contents: block('\n', [rule(A), rule(B)]) },
+    });
+  });
+
+  test('places an incoming base rule before a retained responsive rule so the responsive rule remains effective', async () => {
+    const responsive = responsiveRule(B, 900, 600, 959.98);
+    await writeFile(stylesheet, block('\n', [responsive]), 'utf8');
+
+    await expect(
+      planWithTemplateReferences(planner, stylesheet, [rule(A)], new Set([`flm-${A}`, `flm-${B}`])),
+    ).resolves.toMatchObject({
+      proposed: { status: 'present', contents: block('\n', [rule(A), responsive]) },
+    });
+  });
+
+  test('orders retained and incoming responsive rules by breakpoint priority then stable ID', async () => {
+    const xsIncoming = responsiveRule(C, 1000, 0, 599.98);
+    const smIncoming = responsiveRule(A, 900, 600, 959.98);
+    const smRetained = responsiveRule(D, 900, 600, 959.98);
+    const mdRetained = responsiveRule(B, 800, 960, 1279.98);
+    await writeFile(stylesheet, block('\n', [smRetained, mdRetained]), 'utf8');
+
+    await expect(
+      planWithTemplateReferences(
+        planner,
+        stylesheet,
+        [xsIncoming, smIncoming],
+        new Set([`flm-${A}`, `flm-${B}`, `flm-${C}`, `flm-${D}`]),
+      ),
+    ).resolves.toMatchObject({
+      proposed: { status: 'present', contents: block('\n', [xsIncoming, smIncoming, smRetained, mdRetained]) },
     });
   });
 

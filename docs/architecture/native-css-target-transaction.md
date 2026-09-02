@@ -137,7 +137,9 @@ The session factory accepts the target plus validated breakpoint configuration. 
 
 ## Stylesheet planning
 
-`StylesheetPlanner` accepts the normalized stylesheet path and finalized rules. It reads the destination when present, rejects directories and symlinks, and passes existing bytes plus rules to `mergeOwnedStylesheet`.
+`StylesheetPlanner` accepts the normalized stylesheet path, finalized rules, and invocation-wide `OwnedCssReferences`. The migrator collects exact generated class tokens from every proposed template; when a selected template has no proposal, it scans the existing selected destination bytes. It also carries whether that authority is complete. Interpolation, bound class expressions, parse failures, or a missing distinct destination make authority incomplete, so matching valid owned rules are retained rather than removed on an absence inference. An explicit generated-looking token with no corresponding incoming or owned rule fails closed as a stylesheet ownership error.
+
+The planner reads the stylesheet destination when present, rejects directories and symlinks, and passes existing bytes, rules, and references to `mergeOwnedStylesheet`. Its reference-aware merger computes the individual retained/new union, not a wholesale prior block: base rules precede all responsive rules, and responsive rules use registry priority followed by stable rule ID. This deterministic ordering preserves responsive precedence across incremental migrations while leaving schema-1 markers and generated class IDs unchanged.
 
 Its result follows the lifecycle contract:
 

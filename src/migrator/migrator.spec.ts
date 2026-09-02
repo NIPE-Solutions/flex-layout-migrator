@@ -303,7 +303,7 @@ describe('Migrator', () => {
     expect(await readFile(stylesheetPath, 'utf8')).not.toBe(originalStylesheet);
   });
 
-  test('reports and applies stylesheet removal when no generated rules remain', async () => {
+  test('retains generated CSS referenced by an unchanged distinct destination template', async () => {
     const inputPath = join(temporaryDirectory, 'input.html');
     const outputPath = join(temporaryDirectory, 'output.html');
     const stylesheetPath = join(temporaryDirectory, 'flex-layout-migration.css');
@@ -319,8 +319,70 @@ describe('Migrator', () => {
       stylesheetPath,
     });
 
+    expect(report.stylesheet).toEqual({ path: 'flex-layout-migration.css', change: 'unchanged' });
+    await expect(access(stylesheetPath)).resolves.toBeUndefined();
+  });
+
+  test('removes stale generated CSS after every selected output has no generated class reference', async () => {
+    const inputPath = join(temporaryDirectory, 'input.html');
+    const outputPath = join(temporaryDirectory, 'output.html');
+    const stylesheetPath = join(temporaryDirectory, 'flex-layout-migration.css');
+    await writeFile(inputPath, '<div fxLayout="row"></div>', 'utf8');
+    await new Migrator(AdapterFactory.createSession('css'), inputPath, outputPath, () => 0).migrate({
+      dryRun: false,
+      stylesheetPath,
+    });
+    await writeFile(inputPath, '<div></div>', 'utf8');
+    await writeFile(outputPath, '<div></div>', 'utf8');
+
+    const report = await new Migrator(AdapterFactory.createSession('css'), inputPath, outputPath, () => 0).migrate({
+      dryRun: false,
+      stylesheetPath,
+    });
+
     expect(report.stylesheet).toEqual({ path: 'flex-layout-migration.css', change: 'removed' });
     await expect(access(stylesheetPath)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  test.each(['class="%s {{ extra }}"', '[class]="extra"'])(
+    'preserves owned CSS when an in-place class reference is interpolation or binding uncertain',
+    async classAttribute => {
+      const inputPath = join(temporaryDirectory, 'input.html');
+      const stylesheetPath = join(temporaryDirectory, 'flex-layout-migration.css');
+      await writeFile(inputPath, '<div fxLayout="row"></div>', 'utf8');
+      await new Migrator(AdapterFactory.createSession('css'), inputPath, inputPath, () => 0).migrate({
+        dryRun: false,
+        stylesheetPath,
+      });
+      const generatedClass = (await readFile(inputPath, 'utf8')).match(/flm-[a-f0-9]{64}/u)?.[0];
+      expect(generatedClass).toBeDefined();
+      await writeFile(inputPath, `<div ${classAttribute.replace('%s', generatedClass as string)}></div>`, 'utf8');
+
+      const report = await new Migrator(AdapterFactory.createSession('css'), inputPath, inputPath, () => 0).migrate({
+        dryRun: false,
+        stylesheetPath,
+      });
+
+      expect(report.stylesheet).toEqual({ path: 'flex-layout-migration.css', change: 'unchanged' });
+    },
+  );
+
+  test('fails closed when a static generated-looking class has no owned rule', async () => {
+    const inputPath = join(temporaryDirectory, 'input.html');
+    const stylesheetPath = join(temporaryDirectory, 'flex-layout-migration.css');
+    await writeFile(inputPath, '<div fxLayout="row"></div>', 'utf8');
+    await new Migrator(AdapterFactory.createSession('css'), inputPath, inputPath, () => 0).migrate({
+      dryRun: false,
+      stylesheetPath,
+    });
+    await writeFile(inputPath, `<div class="flm-${'f'.repeat(64)}"></div>`, 'utf8');
+
+    await expect(
+      new Migrator(AdapterFactory.createSession('css'), inputPath, inputPath, () => 0).migrate({
+        dryRun: false,
+        stylesheetPath,
+      }),
+    ).rejects.toMatchObject({ code: 'stylesheet-ownership-invalid' });
   });
 
   test('finalizes CSS after planning every folder template', async () => {

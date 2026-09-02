@@ -144,6 +144,25 @@ interface OwnedStylesheetMergeResult {
 export function mergeOwnedStylesheet(existing: string, rules: readonly OwnedCssRule[]): OwnedStylesheetMergeResult;
 ```
 
+The application planner uses the reference-aware overload for an invocation-wide scan of selected template outputs:
+
+```ts
+interface OwnedCssReferences {
+  readonly classNames: ReadonlySet<string>;
+  readonly complete: boolean;
+}
+
+export function mergeOwnedStylesheet(
+  existing: string,
+  rules: readonly OwnedCssRule[],
+  references: OwnedCssReferences,
+): OwnedStylesheetMergeResult;
+```
+
+`classNames` contains exact `flm-<64 lowercase hex>` tokens from every proposed output, or from the existing selected destination when that template is unchanged. A complete scan proves an omitted owned rule is stale and removes it. If interpolation, a bound class expression, a parse failure, or an unavailable selected destination makes the scan incomplete, the merger retains matching existing owned rules instead of treating absence as proof of staleness. An exact generated-looking token without either an incoming rule or a matching valid owned rule fails closed with `ownership-rule-mismatch`; arbitrary handwritten `flm-*` text cannot claim ownership.
+
+When retained and incoming rules are combined, the merger canonicalizes the whole union: base rules come first, then responsive rules ordered by the breakpoint registry priority and stable rule ID. This keeps a responsive rule effective over an equal-specificity base rule in an incremental run. It preserves the schema-1 marker grammar and class identity exactly; only the content ordering inside a changed owned block is canonicalized.
+
 The merger parses ownership first. Invalid ownership throws `CssStylesheetError`; it never edits ambiguous input.
 
 Newline preference is deterministic:
@@ -213,7 +232,7 @@ Behavior changes follow TDD. Verification includes:
 - exact preservation outside the owned range;
 - marker-looking strings, unrelated comments, escaped quotes, and comment delimiters inside strings;
 - every malformed, duplicate, nested, unknown, unsupported, unterminated, and mismatched-marker case;
-- append, replace, remove, unchanged, rule-set shrink/growth, and idempotent merge behavior;
+- append, replace, remove, unchanged, rule-set shrink/growth, reference-aware stale removal/retention, mixed base-responsive precedence, and idempotent merge behavior;
 - architecture tests preventing filesystem, CLI, template, planner, or Tailwind dependencies; and
 - the complete repository verification command.
 

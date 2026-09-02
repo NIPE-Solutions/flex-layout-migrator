@@ -12,6 +12,7 @@ import { MigrationApplicationError } from './migration-application.error';
 import { validateMigrationPaths } from './migration-path.validator';
 import { migrationPlan, type FileMigrationPlan, type PlannedOutputArtifact } from './migration-plan';
 import { StylesheetPlanner } from './stylesheet.planner';
+import type { OwnedCssReferences } from '../adapter/css/stylesheet/owned-stylesheet.merger';
 
 export interface MigrationOptions {
   readonly dryRun: boolean;
@@ -58,6 +59,14 @@ export class Migrator {
     } else {
       throw new Error(`Unsupported input type: ${this.inputPath}`);
     }
+
+    // Validate all selected destinations before reference collection reads a
+    // distinct output. A collision can otherwise make that path unopenable.
+    await validateMigrationPaths({
+      templates: filePlans.map(filePlan => filePlan.file),
+      stylesheetPath: options.stylesheetPath,
+      reportPath: options.reportPath,
+    });
 
     const sessionResult = this.session.finalize();
     if (sessionResult.target !== this.session.adapter.name) {
@@ -120,32 +129,58 @@ export class Migrator {
     }
   }
 
-  private async referencedCssClasses(filePlans: readonly FileMigrationPlan[]): Promise<ReadonlySet<string>> {
+  private async referencedCssClasses(filePlans: readonly FileMigrationPlan[]): Promise<OwnedCssReferences> {
     const templates = await Promise.all(
       filePlans.map(async filePlan => {
         if (filePlan.artifact?.kind === 'template' && filePlan.artifact.proposed.status === 'present') {
-          return filePlan.artifact.proposed.contents;
+          return { contents: filePlan.artifact.proposed.contents, complete: true };
         }
         if (path.resolve(filePlan.file.inputPath) === path.resolve(filePlan.file.outputPath)) {
-          return readFile(filePlan.file.inputPath, 'utf8');
+          return { contents: await readFile(filePlan.file.inputPath, 'utf8'), complete: true };
         }
-        return '';
+        try {
+          return { contents: await readFile(filePlan.file.outputPath, 'utf8'), complete: true };
+        } catch (error: unknown) {
+          if (isEnoent(error)) return { contents: '', complete: false };
+          throw error;
+        }
       }),
     );
     const references = new Set<string>();
+    let complete = true;
     const parser = new AngularTemplateParser();
     for (const template of templates) {
-      const parsed = parser.parse(template, 'proposed-template.html');
-      if (parsed.status === 'parse-error') continue;
+      complete &&= template.complete;
+      const parsed = parser.parse(template.contents, 'proposed-template.html');
+      if (parsed.status === 'parse-error') {
+        complete = false;
+        continue;
+      }
       for (const attribute of parsed.elements.flatMap(element => element.attributes)) {
-        if (attribute.name !== 'class' || attribute.binding !== 'literal') continue;
-        for (const className of attribute.value.split(/\s+/u)) {
-          if (/^flm-[a-f0-9]{64}$/u.test(className)) references.add(className);
+        const dynamicClass =
+          attribute.binding === 'property' &&
+          (attribute.bindingTarget === 'class' || attribute.name === 'class' || attribute.name === 'ngClass');
+        const literalClass = attribute.name === 'class' && attribute.binding === 'literal';
+        if (!literalClass && !dynamicClass) continue;
+
+        for (const className of `${attribute.value} ${attribute.rawValue}`.matchAll(/flm-[a-f0-9]{64}/gu)) {
+          references.add(className[0]);
+        }
+        if (
+          dynamicClass ||
+          `${attribute.value} ${attribute.rawValue}`.includes('{{') ||
+          `${attribute.value} ${attribute.rawValue}`.includes('}}')
+        ) {
+          complete = false;
         }
       }
     }
-    return references;
+    return { classNames: references, complete };
   }
+}
+
+function isEnoent(error: unknown): error is NodeJS.ErrnoException {
+  return typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT';
 }
 
 function stylesheetChange(artifact: PlannedOutputArtifact | undefined): StylesheetMigrationResult['change'] {
