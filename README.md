@@ -4,6 +4,8 @@ A safety-first codemod for migrating projects away from the archived Angular Fle
 
 Version 2 is under active development and is not published to npm yet. It does not claim production-ready conversion coverage. See the [compatibility reference](docs/compatibility.md) for the current directive-by-directive status and safety limitations.
 
+After the v2 beta is published, install it as a development dependency with `npm install --save-dev @nipe-solutions/flex-layout-codemod@beta`. Maintainers should follow the reviewed [release process](docs/architecture/release-process.md); merging a version pull request does not publish the package.
+
 ## Current scope
 
 The v2 engine parses templates with the Angular compiler and applies validated source-range edits. It preserves comments, control-flow syntax, interpolation, line endings, and all unrelated source text instead of serializing the template as generic HTML.

@@ -56,7 +56,7 @@ The action invokes the repository's version command rather than publishing. The 
 The workflow:
 
 1. checks out the exact `main` commit with pinned actions;
-2. installs Node.js 24 and the repository's exact npm 11 release, at least npm 11.15.0, without a dependency cache;
+2. installs Node.js 24 and npm 11.19.0 without a dependency cache;
 3. installs from `package-lock.json` with `npm ci`;
 4. runs formatting, linting, type checking, coverage, build, package-contract checks, and `npm audit --audit-level=high`;
 5. creates one tarball with `npm pack --json` and validates its six-file package surface;
@@ -70,7 +70,7 @@ Concurrency is global for npm staging and does not cancel an in-progress run. Th
 
 ## npm trust boundary
 
-After the bootstrap publication creates `@nipe-solutions/flex-layout-codemod`, an npm organization owner configures one trusted publisher:
+After the bootstrap publication creates `@nipe-solutions/flex-layout-codemod`, an npm organization owner configures one trusted publisher for `NIPE-Solutions/flex-layout-migrator`:
 
 - provider: GitHub Actions;
 - GitHub organization: `NIPE-Solutions`;
@@ -80,6 +80,8 @@ After the bootstrap publication creates `@nipe-solutions/flex-layout-codemod`, a
 - allowed action: `npm stage publish` only.
 
 The package's publishing access is then set to require two-factor authentication and disallow traditional publish tokens. Trusted Publishing exchanges the GitHub OIDC identity for a short-lived npm credential and automatically attaches provenance for this public repository and public package.
+
+Do not add an npm token to GitHub. The staging workflow must fail closed if the OIDC identity or Trusted Publisher configuration does not match.
 
 The workflow filename, repository URL in `package.json`, environment name, and GitHub repository identity are security inputs and must match npm's configuration exactly.
 

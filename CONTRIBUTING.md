@@ -22,3 +22,108 @@ Pull request titles use Conventional Commit prefixes such as `feat:`, `fix:`, `t
 Add a Changeset for user-facing behavior, CLI, or API changes. Tests, internal refactors, repository maintenance, and documentation-only changes do not require one.
 
 Do not include confidential templates, credentials, customer names, or proprietary source code in issues or fixtures.
+
+## Releasing a beta
+
+Releases are operated from `NIPE-Solutions/flex-layout-migrator`. The release pull-request workflow prepares version and changelog changes only. It cannot publish or stage a package. To request a version pull request after the required Changesets reach `main`, run:
+
+```bash
+gh workflow run release-pr.yml --repo NIPE-Solutions/flex-layout-migrator --ref main
+```
+
+Review the resulting pull request like any other change. Confirm that the package and lockfile versions agree, the changelog is accurate, consumed Changesets are removed, and the version is `2.0.0-beta.N`. The first public version must be `2.0.0-beta.1`. Merge only after CI and required review pass. Merging makes the version eligible for release; it does not publish it.
+
+### Inspect the release artifact
+
+Start from a clean checkout of the versioned `main` commit. Record `git rev-parse HEAD`, confirm `git status --short` is empty, and create the release tarball only after all local checks pass:
+
+```bash
+branch="$(git branch --show-current)"
+test "$branch" = main
+npm ci
+npm run verify
+npm audit --audit-level=high
+release_outputs="$(mktemp)"
+GITHUB_REF_NAME="$branch" npm run release:prepare -- --github-output "$release_outputs"
+cat release-artifact.json
+tarball="$(node -p "require('./release-artifact.json').tarball")"
+tar -tf "$tarball"
+smoke_dir="$(mktemp -d)"
+npm install --ignore-scripts --prefix "$smoke_dir" "./$tarball"
+"$smoke_dir/node_modules/.bin/flex-layout-codemod" --version
+```
+
+`release-artifact.json` is the record of the exact package name, version, tarball, and SHA-512 integrity. The tarball's file list must be exactly `CHANGELOG.md`, `LICENSE`, `README.md`, `dist/cli.js`, `dist/cli.js.map`, and `package.json`. Remove the temporary smoke directory and output file after review. Do not rebuild or repack between approval and publication.
+
+### First publication: one-time bootstrap exception
+
+The first publication of `@nipe-solutions/flex-layout-codemod` is a one-time bootstrap exception because npm cannot configure Trusted Publishing or stage a package before that package exists. It applies only to `2.0.0-beta.1` and only after explicit user approval of the recorded commit, package name, version, tarball, and integrity. A maintainer with npm organization-owner access and two-factor authentication runs the following command template locally, replacing `<tarball>` with the exact value from `release-artifact.json`:
+
+```bash
+npm publish <tarball> --access public --tag beta
+```
+
+Stop if the approval is absent, the checkout changed, the tarball differs, the version already exists, or npm reports an unexpected identity. Never put this bootstrap command in a workflow.
+
+Immediately after registry verification, an npm organization owner must configure the package's Trusted Publisher with these exact security inputs:
+
+- Provider: GitHub Actions
+- GitHub organization and repository: `NIPE-Solutions/flex-layout-migrator`
+- Workflow filename: `stage-release.yml`
+- GitHub environment: `npm`
+- Allowed action: `npm stage publish` only
+
+Require two-factor authentication for package changes and disallow traditional publish tokens. Do not add an npm token to GitHub. Future stages authenticate only through the `stage-release.yml` job's short-lived OIDC identity in the protected `npm` environment.
+
+### Later publications: stage, review, and approve
+
+For every later beta, dispatch the manual staging workflow from the versioned `main` commit:
+
+```bash
+gh workflow run stage-release.yml --repo NIPE-Solutions/flex-layout-migrator --ref main
+```
+
+The workflow verifies the repository, creates and uploads the exact tarball and metadata, then runs `npm stage publish` for that tarball with public access and the `beta` tag. It never publishes directly and never approves its own stage.
+
+Record the workflow run ID and exact commit. Inspect the `npm-release` workflow artifact and the staged package on npmjs.com. To download the staged package for independent inspection, use:
+
+```bash
+gh run download <run-id> --repo NIPE-Solutions/flex-layout-migrator --name npm-release
+npm stage download <stage-id>
+```
+
+Compare the staged package name, version, file list, and integrity with `release-artifact.json`, and run the packaged CLI smoke checks. If every value matches and the release is approved, a maintainer completes npm's two-factor prompt with:
+
+```bash
+npm stage approve <stage-id>
+```
+
+Approval is the publication boundary. Do not create a Git tag or GitHub release before it succeeds.
+
+### Verify and finalize
+
+Verify the published version directly from the registry; do not rely only on the workflow result:
+
+```bash
+npm view @nipe-solutions/flex-layout-codemod@<version> name version dist.integrity --json
+npm view @nipe-solutions/flex-layout-codemod dist-tags.beta
+npm exec --yes --package=@nipe-solutions/flex-layout-codemod@<version> -- flex-layout-codemod --version
+```
+
+The name, version, and integrity must match `release-artifact.json`, `dist-tags.beta` must equal the approved version, and the packaged CLI must report that version. Then create a signed tag from the exact staged commit and a matching GitHub prerelease:
+
+```bash
+git tag -s <version> <staged-commit> -m "Release <version>"
+git push origin <version>
+gh release create <version> --repo NIPE-Solutions/flex-layout-migrator --verify-tag --prerelease --title <version> --generate-notes
+```
+
+### Recovery
+
+- If verification or staging fails before npm accepts a stage, correct the cause and rerun from the same unchanged versioned commit.
+- If OIDC or Trusted Publisher matching fails, correct the npm publisher configuration or GitHub environment. Do not fall back to a token.
+- If inspection fails after staging, run `npm stage reject <stage-id>` and complete two-factor authentication. A staged version is reserved and cannot be reused; add a Changeset and prepare the next beta.
+- If an approved package is incorrect, do not overwrite or unpublish it. Correct the issue in a new beta version.
+- If tagging or GitHub prerelease creation fails after npm approval, retry those steps against the already published version and exact staged commit.
+
+The architecture and trust-boundary rationale are defined in [docs/architecture/release-process.md](docs/architecture/release-process.md).
