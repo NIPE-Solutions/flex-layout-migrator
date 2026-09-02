@@ -91,7 +91,7 @@ One focused renderer per semantic family maps domain values to ordered CSS decla
 - layout: `display`, `box-sizing`, `flex-direction`, and explicit wrapping behavior;
 - layout alignment: `justify-content`, `align-items`, `align-content`, the active layout declarations carried by the semantic value, and the verified stretch maximum;
 - gap: `gap`;
-- flex item: `flex` shorthand when valid, otherwise ordered `flex-grow`, `flex-shrink`, and `flex-basis`, followed by the axis-dependent minimum and maximum;
+- flex item: `flex` shorthand when valid, otherwise ordered `flex-grow`, `flex-shrink`, and `flex-basis`, followed by the axis-dependent minimum and maximum, then `box-sizing`;
 - self alignment: `align-self`;
 - fill: margin, width, height, minimum width, and minimum height;
 - offset: logical `margin-inline-start` or `margin-block-start`;
@@ -127,7 +127,7 @@ Final rule order is stable:
 
 1. base rules before media rules;
 2. media rules by descending breakpoint priority, matching the existing responsive planners;
-3. canonical rule identifier as the total-order tie-breaker.
+3. canonical rule identifier in code-unit order as the total-order tie-breaker.
 
 No caller may depend on encounter order.
 
@@ -165,6 +165,7 @@ Internal invariant failures throw typed errors for:
 
 - a class collision between different canonical identities;
 - a malformed or non-finite media bound supplied outside catalog construction;
+- a non-finite rule priority or a nonzero priority without a media condition;
 - duplicate declarations for one property within a family plan; or
 - an unsupported semantic discriminant caused by an implementation mismatch.
 
@@ -176,6 +177,7 @@ Tests follow TDD and include:
 
 - one focused mapping suite per Flex semantic family;
 - exact declaration order and exact values for every successful semantic variant;
+- shared flex-item `boxSizing` semantics rendered as final `box-sizing: border-box` CSS and the existing final Tailwind `box-border` utility;
 - absence of output for semantic no-ops such as zero-equivalent `fxFlexOrder`;
 - deterministic identity across repeated renders and different encounter orders;
 - deduplication of equivalent semantic artifacts;

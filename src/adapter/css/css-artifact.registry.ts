@@ -47,7 +47,14 @@ function freezeMedia(media: MediaDefinition): MediaDefinition {
 }
 
 function freezeContext(context: CssRuleContext): CssRuleContext {
+  if (!Number.isFinite(context.priority)) {
+    throw new CssInvariantError('CSS rule priority must be a finite number');
+  }
+
   if (context.media === undefined) {
+    if (context.priority !== 0) {
+      throw new CssInvariantError('CSS base rules must have priority 0');
+    }
     return Object.freeze({ priority: context.priority });
   }
 

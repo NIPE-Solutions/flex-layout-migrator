@@ -16,7 +16,7 @@ export function renderFlexItem(value: FlexItemSemantics): readonly string[] {
     ...flexClasses,
     ...(value.min ? [property(`min-${value.axis}`, value.min)] : []),
     ...(value.max ? [property(`max-${value.axis}`, value.max)] : []),
-    'box-border',
+    { 'border-box': 'box-border' }[value.boxSizing],
   ];
 }
 

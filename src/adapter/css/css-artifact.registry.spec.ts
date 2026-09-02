@@ -133,6 +133,28 @@ describe('CssArtifactRegistry', () => {
     },
   );
 
+  test.each([Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY])(
+    'rejects a non-finite rule priority of %s',
+    priority => {
+      const registry = new CssArtifactRegistry();
+
+      expect(() =>
+        registry.register('layout-gap', [{ property: 'gap', value: '1rem' }], {
+          priority,
+          media: viewportMedia,
+        }),
+      ).toThrow(CssInvariantError);
+    },
+  );
+
+  test.each([-1, 1])('rejects a base rule with nonzero priority %s', priority => {
+    const registry = new CssArtifactRegistry();
+
+    expect(() => registry.register('layout-gap', [{ property: 'gap', value: '1rem' }], { priority })).toThrow(
+      CssInvariantError,
+    );
+  });
+
   test('rejects malformed digest output', () => {
     const registry = new CssArtifactRegistry(() => 'not-a-sha256-digest');
 

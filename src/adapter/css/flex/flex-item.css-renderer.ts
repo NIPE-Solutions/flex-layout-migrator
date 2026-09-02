@@ -19,5 +19,6 @@ export function renderFlexItemCss(value: FlexItemSemantics): readonly CssDeclara
     ...flexDeclarations,
     ...(value.min ? [{ property: `min-${value.axis}`, value: value.min }] : []),
     ...(value.max ? [{ property: `max-${value.axis}`, value: value.max }] : []),
+    { property: 'box-sizing', value: value.boxSizing },
   ]);
 }

@@ -20,6 +20,7 @@ export interface FlexItemSemantics {
   readonly axis: 'width' | 'height';
   readonly min?: CssLength;
   readonly max?: CssLength;
+  readonly boxSizing: 'border-box';
 }
 
 const FACTOR = /^\d+(?:\.\d+)?$/;
@@ -96,6 +97,6 @@ export function planFlexItemSemantics(input: FlexItemInput): SemanticResult<Flex
 
   return {
     status: 'planned',
-    value: { grow, shrink, basis: semanticBasis, axis, min, max },
+    value: { grow, shrink, basis: semanticBasis, axis, min, max, boxSizing: 'border-box' },
   };
 }

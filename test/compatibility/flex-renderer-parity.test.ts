@@ -193,6 +193,7 @@ describe('cross-target Flex renderer parity', () => {
         { property: 'flex-shrink', value: '2' },
         { property: 'flex-basis', value: 'calc(100% - 2rem)' },
         { property: 'min-width', value: 'calc(100% - 2rem)' },
+        { property: 'box-sizing', value: 'border-box' },
       ],
     ],
     [
@@ -202,6 +203,7 @@ describe('cross-target Flex renderer parity', () => {
         { property: 'flex', value: '1 1 10rem' },
         { property: 'min-height', value: '10rem' },
         { property: 'max-height', value: '10rem' },
+        { property: 'box-sizing', value: 'border-box' },
       ],
     ],
   ] as const)('renders one planned flex item with parent context %o through both targets', (input, tailwind, css) => {
@@ -210,6 +212,7 @@ describe('cross-target Flex renderer parity', () => {
     if (planned.status !== 'planned') throw new Error('Expected planned flex item semantics');
 
     const semantics = planned.value;
+    expect(semantics.boxSizing).toBe('border-box');
     expect(renderFlexItem(semantics)).toEqual(tailwind);
     expect(renderFlexItemCss(semantics)).toEqual(css);
   });

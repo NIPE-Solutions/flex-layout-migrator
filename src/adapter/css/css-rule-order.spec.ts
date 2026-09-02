@@ -98,6 +98,20 @@ describe('compareOwnedCssRules', () => {
     ]);
   });
 
+  test('uses code-unit ordering rather than locale collation for identifier ties', () => {
+    const uppercase: OwnedCssRule = {
+      owner: 'flex-layout-codemod',
+      id: 'Z',
+      className: 'flm-Z',
+      family: 'layout-gap',
+      declarations: [{ property: 'gap', value: '1rem' }],
+      context: { priority: 0 },
+    };
+    const lowercase: OwnedCssRule = { ...uppercase, id: 'a', className: 'flm-a' };
+
+    expect([lowercase, uppercase].sort(compareOwnedCssRules).map(rule => rule.id)).toEqual(['Z', 'a']);
+  });
+
   test('returns a frozen ordered array without changing future registry results', () => {
     const registry = registerRules(['responsive-low', 'base-zeta', 'base-alpha']);
     const rules = registry.rules();
