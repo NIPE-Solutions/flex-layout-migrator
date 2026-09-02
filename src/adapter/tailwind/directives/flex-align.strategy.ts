@@ -1,9 +1,24 @@
 import type { TailwindStrategyResult } from '../tailwind-semantic.model';
+import {
+  planFlexAlignSemantics,
+  type FlexAlignSemantics,
+  type FlexSelfAlignment,
+} from '../../../flex/flex-align.semantic';
 
-const values = new Set(['auto', 'start', 'end', 'center', 'baseline', 'stretch']);
+const selfAlignment: Readonly<Record<FlexSelfAlignment, string>> = {
+  auto: 'self-auto',
+  start: 'self-start',
+  end: 'self-end',
+  center: 'self-center',
+  baseline: 'self-baseline',
+  stretch: 'self-stretch',
+};
+
+export function renderFlexAlign(value: FlexAlignSemantics): TailwindStrategyResult {
+  return { status: 'converted', classNames: [selfAlignment[value.alignment]] };
+}
 
 export function planFlexAlign(value: string): TailwindStrategyResult {
-  const normalized = value.trim() || 'stretch';
-  if (!values.has(normalized)) return { status: 'invalid', code: 'invalid-value' };
-  return { status: 'converted', classNames: [`self-${normalized}`] };
+  const planned = planFlexAlignSemantics(value);
+  return planned.status === 'planned' ? renderFlexAlign(planned.value) : planned;
 }

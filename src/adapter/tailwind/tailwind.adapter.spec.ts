@@ -44,6 +44,16 @@ describe('TailwindAdapter', () => {
     });
   });
 
+  test('preserves explicit inline layout semantics through adapter rendering', () => {
+    const layout = input({ value: 'column wrap inline' });
+
+    expect(new TailwindAdapter().plan(layout, { element })).toEqual({
+      status: 'converted',
+      input: layout,
+      classNames: ['inline-flex', 'flex-col', 'flex-wrap', 'box-border'],
+    });
+  });
+
   test('converts a literal Grid directive through exact arbitrary properties', () => {
     const gridInput = input({
       directive: 'gdColumns',
@@ -568,6 +578,24 @@ describe('TailwindAdapter', () => {
     expect(new TailwindAdapter().plan(input({ directive: 'fxFlex', value: '25' }), { element })).toMatchObject({
       status: 'converted',
       classNames: ['[flex:1_1_100%]', '[max-width:25%]', 'box-border'],
+    });
+  });
+
+  test('preserves split calc sizing and column constraints through adapter rendering', () => {
+    expect(
+      new TailwindAdapter().plan(input({ directive: 'fxFlex', value: '3 2 calc(100% - 2rem)' }), {
+        element,
+        activeParentLayout: 'column',
+      }),
+    ).toMatchObject({
+      status: 'converted',
+      classNames: [
+        '[flex-grow:3]',
+        '[flex-shrink:2]',
+        '[flex-basis:calc(100%_-_2rem)]',
+        '[min-height:calc(100%_-_2rem)]',
+        'box-border',
+      ],
     });
   });
 

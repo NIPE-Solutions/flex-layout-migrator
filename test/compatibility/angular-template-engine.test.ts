@@ -75,6 +75,59 @@ function equivalentResults(results: readonly ConversionResult[]) {
     .sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)));
 }
 
+function normalizedPublicResults(results: readonly ConversionResult[]) {
+  return results
+    .map(result => {
+      if (result.status === 'parse-error') {
+        return { status: result.status, code: result.code, reason: result.reason };
+      }
+
+      const normalized = {
+        status: result.status,
+        sourceName: result.input.sourceName,
+        directive: result.input.directive,
+        value: result.input.value,
+        binding: result.input.binding,
+        breakpoint: result.input.breakpoint,
+      };
+      return result.status === 'converted'
+        ? normalized
+        : { ...normalized, code: result.code, reason: result.reason, suggestion: result.suggestion };
+    })
+    .sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)));
+}
+
+const scopedFlexDirectives = [
+  ['fxLayout', 'row', 'self'],
+  ['fxLayoutAlign', 'space-between center', 'local-layout'],
+  ['fxLayoutGap', '8', 'local-layout'],
+  ['fxFlex', '25', 'parent-layout'],
+  ['fxGrow', '2', 'flex-item'],
+  ['fxShrink', '3', 'flex-item'],
+  ['fxFlexAlign', 'center', 'parent-layout'],
+  ['fxFlexFill', '', 'self'],
+  ['fxFill', '', 'self'],
+  ['fxFlexOffset', '10', 'parent-layout'],
+  ['fxFlexOrder', '2', 'parent-layout'],
+] as const;
+
+function scopedFlexCase(
+  [directive, value, context]: (typeof scopedFlexDirectives)[number],
+  alias: (typeof standardAliases)[number],
+  reverse: boolean,
+): string {
+  const target = [`${directive}="${value}"`, `${directive}.${alias}="${value}"`];
+  const flexBasis = ['fxFlex="25"', `fxFlex.${alias}="25"`];
+  const attributes = context === 'flex-item' ? [...flexBasis, ...target] : target;
+  if (context === 'local-layout') attributes.unshift('fxLayout="row"');
+  if (reverse) attributes.reverse();
+
+  const element = `<div ${attributes.join(' ')}></div>`;
+  return context === 'parent-layout' || context === 'flex-item'
+    ? `<section fxLayout="row">${element}</section>\n`
+    : `${element}\n`;
+}
+
 function extendedOccurrenceCounts(results: readonly ConversionResult[]) {
   const counts = { converted: 0, preserved: 0 };
   for (const result of results) {
@@ -253,6 +306,37 @@ describe('Angular template engine compatibility', () => {
 
     expect(baseFirst.output).toBe(responsiveFirst.output);
     expect(equivalentResults(baseFirst.results)).toEqual(equivalentResults(responsiveFirst.results));
+  });
+
+  test('preserves every scoped Flex directive across base and standard aliases independent of order', () => {
+    const coveredSourceNames = new Set<string>();
+
+    for (const directiveCase of scopedFlexDirectives) {
+      for (const alias of standardAliases) {
+        const canonical = migrate(scopedFlexCase(directiveCase, alias, false), 'scoped-flex.html');
+        const reversed = migrate(scopedFlexCase(directiveCase, alias, true), 'scoped-flex.html');
+
+        for (const result of canonical.results) {
+          if (result.status !== 'parse-error') coveredSourceNames.add(result.input.sourceName);
+        }
+        expect(canonical.results.every(result => result.status === 'converted')).toBe(true);
+        expect(reversed.results.every(result => result.status === 'converted')).toBe(true);
+        expect(reversed.output).toBe(canonical.output);
+        expect(normalizedPublicResults(reversed.results)).toEqual(normalizedPublicResults(canonical.results));
+
+        const second = migrate(canonical.output, 'scoped-flex.html');
+        expect(second.output).toBe(canonical.output);
+        expect(second.editCount).toBe(0);
+      }
+    }
+
+    const expectedSourceNames = new Set(
+      scopedFlexDirectives.flatMap(([directive]) => [
+        directive,
+        ...standardAliases.map(alias => `${directive}.${alias}`),
+      ]),
+    );
+    expect(coveredSourceNames).toEqual(expectedSourceNames);
   });
 
   test('emits the same composed visibility family for equivalent attribute orders', () => {
