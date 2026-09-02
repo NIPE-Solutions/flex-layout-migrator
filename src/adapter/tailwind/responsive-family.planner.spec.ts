@@ -5,7 +5,9 @@ import { ResponsiveFamilyPlanner } from './responsive-family.planner';
 const element = {
   id: '0',
   name: 'div',
+  source: { start: 0, end: 5 },
   startTag: { start: 0, end: 5 },
+  structural: false,
   attributes: [],
 } as const;
 

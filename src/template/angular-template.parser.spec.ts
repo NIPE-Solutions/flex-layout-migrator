@@ -12,7 +12,10 @@ describe('AngularTemplateParser', () => {
         {
           id: '0',
           name: 'div',
+          source: { start: 0, end: 43 },
           startTag: { start: 0, end: 37 },
+          endTag: { start: 37, end: 43 },
+          structural: false,
           attributes: [
             {
               name: 'fxLayout',
@@ -38,6 +41,70 @@ describe('AngularTemplateParser', () => {
           ],
         },
       ],
+    });
+  });
+
+  test.each([
+    ['void image', '<img src="a.png">', { start: 0, end: 17 }],
+    ['self-closing image', '<img src="a.png" />', { start: 0, end: 19 }],
+    ['multiline image', '<img\n  src="a.png"\n>', { start: 0, end: 20 }],
+  ])('exposes the exact complete range for a %s', (_label, source, expectedRange) => {
+    const result = new AngularTemplateParser().parse(source, 'image.component.html');
+
+    expect(result).toMatchObject({
+      status: 'parsed',
+      elements: [
+        {
+          name: 'img',
+          source: expectedRange,
+          startTag: expectedRange,
+          structural: false,
+        },
+      ],
+    });
+  });
+
+  test('exposes a distinct closing-tag range when Angular accepts explicit closing syntax', () => {
+    const source = '<app-image src="a.png"></app-image>';
+
+    const result = new AngularTemplateParser().parse(source, 'image.component.html');
+
+    expect(result).toMatchObject({
+      status: 'parsed',
+      elements: [
+        {
+          name: 'app-image',
+          source: { start: 0, end: 35 },
+          startTag: { start: 0, end: 23 },
+          endTag: { start: 23, end: 35 },
+          structural: false,
+        },
+      ],
+    });
+  });
+
+  test('retains picture ancestry without treating native control flow as structural', () => {
+    const source = '@if (shown) {<picture><img src="a.png"></picture>}';
+
+    const result = new AngularTemplateParser().parse(source, 'image.component.html');
+
+    expect(result).toMatchObject({
+      status: 'parsed',
+      elements: [
+        { id: '13', name: 'picture', structural: false },
+        { id: '22', name: 'img', parentId: '13', source: { start: 22, end: 39 }, structural: false },
+      ],
+    });
+  });
+
+  test.each(['ngIf', 'feature'])('marks an image with *%s syntax as structural', directive => {
+    const source = `<img *${directive}="shown" src="a.png">`;
+
+    const result = new AngularTemplateParser().parse(source, 'image.component.html');
+
+    expect(result).toMatchObject({
+      status: 'parsed',
+      elements: [{ name: 'img', source: { start: 0, end: source.length }, structural: true }],
     });
   });
 
