@@ -61,6 +61,12 @@ describe('flex semantic boundary', () => {
     expect(source).toMatch(plannerImport);
   });
 
+  test.each(scopedStrategies)('%s does not re-export target-neutral semantic-core types', fileName => {
+    const source = readFileSync(join(tailwindRoot, 'directives', fileName), 'utf8');
+
+    expect(source).not.toMatch(/\bexport\s+(?:(?:type\s+)?\{[^}]*\}|\*)\s*from\s*['"][^'"]*\/flex\//u);
+  });
+
   test('Tailwind modules no longer originate target-neutral semantic exports', () => {
     const semanticModel = readFileSync(join(tailwindRoot, 'tailwind-semantic.model.ts'), 'utf8');
     const valueParser = readFileSync(join(tailwindRoot, 'tailwind-value.parser.ts'), 'utf8');

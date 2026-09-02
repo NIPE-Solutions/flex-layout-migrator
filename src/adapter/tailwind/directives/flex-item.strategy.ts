@@ -1,8 +1,6 @@
 import type { TailwindStrategyResult } from '../tailwind-semantic.model';
 import { planFlexItemSemantics, type FlexItemInput, type FlexItemSemantics } from '../../../flex/flex-item.semantic';
 
-export type { FlexItemInput } from '../../../flex/flex-item.semantic';
-
 const property = (name: string, value: string) => `[${name}:${value.replaceAll(/\s+/g, '_')}]`;
 
 export function renderFlexItem(value: FlexItemSemantics): readonly string[] {
