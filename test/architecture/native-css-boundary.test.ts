@@ -262,11 +262,18 @@ describe('native CSS architecture boundary', () => {
     ["const condition = '(max-width: 599.98px)';", [599.98]],
     ["const condition = 'screen and (min-width: 600px)';", [600]],
     ["const condition = '(min-width: 600px) and (max-width: 959.98px)';", [600, 959.98]],
+    ["const condition = '(min-width: 600px) or (orientation: landscape)';", [600]],
+    ["const condition = 'not (min-width: 600px)';", [600]],
+    ["const condition = 'not screen and (min-width: 600px)';", [600]],
+    ["const condition = 'screen and not (min-width: 600px)';", [600]],
+    ["const condition = '  screen and (min-width: 600px)  ';", [600]],
+    ["const condition = 'screen and (min-width: 600px), print and (max-width: 959.98px)';", [600, 959.98]],
     ['const condition = `screen and (min-width: 600px)`;', [600]],
     ['const condition = `screen and ${orientation} and (min-width: 600px)`;', [600]],
     ['const condition = `(min-width: ${minimum}px) and (max-width: 959.98px)`;', [959.98]],
     ['const condition = `(min-width: ${600}px)`;', [600]],
     ['const condition = `${prefix}(min-width: 600px) and (max-width: 959.98px)${suffix}`;', [600, 959.98]],
+    ['const stylesheet = `@media screen and (min-width: 600px) { ${rules} }`;', [600]],
   ])('rejects duplicated standard breakpoints in media syntax: %s', (source, expected) => {
     expect(inspectTypeScript(source, fixturePath).breakpointMediaValues).toEqual(expected);
   });
@@ -281,6 +288,12 @@ describe('native CSS architecture boundary', () => {
     "const documentation = 'Use screen and (min-width: 600px) in the legacy example.';",
     "throw new Error('Unexpected breakpoint-looking text (min-width: 600px)');",
     "throw new Error('(min-width: 600px)');",
+    "console.error('screen and (min-width: 600px)');",
+    'logger.error(`not screen and (min-width: 600px) ${details}`);',
+    "diagnostics.error('screen and (min-width: 600px)');",
+    "throw '(min-width: 600px)';",
+    'throw `screen and (min-width: 600px) ${details}`;',
+    `const css = '.note { content: "(min-width: 600px)"; }';`,
   ])('ignores unrelated numeric or prose values: %s', source => {
     expect(duplicatedStandardBreakpointMediaValue(inspectTypeScript(source, fixturePath))).toBeUndefined();
   });

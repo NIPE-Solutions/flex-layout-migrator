@@ -5,11 +5,7 @@ import ts from 'typescript';
 const filesystemModules = new Set(['fs', 'fs/promises', 'node:fs', 'node:fs/promises']);
 const filesystemMutationNames = new Set(['link', 'mkdir', 'open', 'rename', 'rmdir', 'unlink', 'writeFile']);
 const adapterPathNames = new Set(['stylesheetPath', 'reportPath']);
-const mediaWidthSyntax = /\((?:min|max)-width\s*:\s*([0-9]+(?:\.[0-9]+)?)px\s*\)/giu;
-const mediaQuerySyntax = new RegExp(
-  String.raw`^(?:@media\s+)?(?:(?:(?:only|not)\s+)?(?:all|screen|print|speech)\s+and\s+)?(?:\([^()]*\)|\$\{\})(?:\s+and\s+(?:\([^()]*\)|\$\{\}))*$`,
-  'iu',
-);
+const mediaWidthFeature = /^\(\s*(?:min|max)-width\s*:\s*([0-9]+(?:\.[0-9]+)?)px\s*\)$/iu;
 
 export interface InspectedParameter {
   readonly name: string;
@@ -96,46 +92,135 @@ function declarationPropertyName(node: ts.PropertyDeclaration | ts.PropertySigna
   return ts.isIdentifier(name) || ts.isStringLiteralLike(name) || ts.isNumericLiteral(name) ? name.text : undefined;
 }
 
-function isErrorArgument(node: ts.Node): boolean {
+interface ParenthesizedToken {
+  readonly depth: number;
+  readonly end: number;
+  readonly start: number;
+  readonly text: string;
+}
+
+function isErrorSinkValue(node: ts.Node): boolean {
   for (let current: ts.Node | undefined = node.parent; current !== undefined; current = current.parent) {
+    if (ts.isThrowStatement(current)) return true;
     if (ts.isCallExpression(current) || ts.isNewExpression(current)) {
       const name = expressionName(current.expression);
-      if (name !== undefined && /Error$/u.test(name)) return true;
+      if (name !== undefined && /error$/iu.test(name)) return true;
     }
   }
   return false;
 }
 
-function isMediaQuery(text: string): boolean {
-  return text
-    .trim()
-    .split(/\s*,\s*/u)
-    .every(query => mediaQuerySyntax.test(query));
+function parenthesizedTokens(text: string): readonly ParenthesizedToken[] {
+  const tokens: ParenthesizedToken[] = [];
+  const starts: number[] = [];
+  let quote: "'" | '"' | undefined;
+  let escaped = false;
+
+  for (let index = 0; index < text.length; index++) {
+    const codeUnit = text[index];
+    if (quote !== undefined) {
+      if (escaped) {
+        escaped = false;
+      } else if (codeUnit === '\\') {
+        escaped = true;
+      } else if (codeUnit === quote) {
+        quote = undefined;
+      }
+      continue;
+    }
+    if (codeUnit === "'" || codeUnit === '"') {
+      quote = codeUnit;
+    } else if (codeUnit === '(') {
+      starts.push(index);
+    } else if (codeUnit === ')') {
+      const start = starts.pop();
+      if (start === undefined) continue;
+      tokens.push({ start, end: index + 1, depth: starts.length + 1, text: text.slice(start, index + 1) });
+    }
+  }
+  return tokens;
 }
 
-function isInterpolatedMediaQuery(text: string): boolean {
+function standaloneMediaQuery(text: string): boolean {
+  const outerTokens = parenthesizedTokens(text).filter(token => token.depth === 1);
+  if (outerTokens.length === 0) return false;
+  let scaffold = text;
+  for (const token of [...outerTokens].sort((left, right) => right.start - left.start)) {
+    scaffold = scaffold.slice(0, token.start) + '()' + scaffold.slice(token.end);
+  }
   return (
-    text.includes('${}') &&
-    text
+    scaffold
       .replaceAll('${}', '')
-      .replace(/\([^()]*\)/gu, '')
       .replace(/@media\b/giu, '')
       .replace(/\b(?:only|not|all|screen|print|speech|and|or)\b/giu, '')
-      .replace(/[\s,]/gu, '') === ''
+      .replace(/\(\)|[\s,]/gu, '') === ''
   );
 }
 
-function hardcodedMediaWidths(text: string): readonly number[] {
-  return [...text.matchAll(mediaWidthSyntax)].map(match => Number(match[1]));
+function atMediaHeaders(text: string): readonly string[] {
+  const headers: string[] = [];
+  let quote: "'" | '"' | undefined;
+  let escaped = false;
+
+  for (let index = 0; index < text.length; index++) {
+    const codeUnit = text[index];
+    if (quote !== undefined) {
+      if (escaped) {
+        escaped = false;
+      } else if (codeUnit === '\\') {
+        escaped = true;
+      } else if (codeUnit === quote) {
+        quote = undefined;
+      }
+      continue;
+    }
+    if (codeUnit === "'" || codeUnit === '"') {
+      quote = codeUnit;
+      continue;
+    }
+    if (text.startsWith('${}', index)) {
+      index += 2;
+      continue;
+    }
+    if (!text.startsWith('@media', index) || /[\w-]/u.test(text[index + 6] ?? '')) continue;
+
+    const headerStart = index + 6;
+    let depth = 0;
+    for (let cursor = headerStart; cursor < text.length; cursor++) {
+      if (text.startsWith('${}', cursor)) {
+        cursor += 2;
+        continue;
+      }
+      const headerCodeUnit = text[cursor];
+      if (headerCodeUnit === '(') depth++;
+      else if (headerCodeUnit === ')') depth = Math.max(0, depth - 1);
+      else if (headerCodeUnit === '{' && depth === 0) {
+        headers.push(text.slice(headerStart, cursor));
+        index = cursor;
+        break;
+      }
+    }
+  }
+  return headers;
 }
 
-function templateMediaText(node: ts.TemplateExpression, preserveNumericLiterals: boolean): string {
+function hardcodedMediaWidths(text: string): readonly number[] {
+  const regions = standaloneMediaQuery(text) ? [text] : atMediaHeaders(text);
+  return regions.flatMap(region =>
+    parenthesizedTokens(region).flatMap(token => {
+      const match = mediaWidthFeature.exec(token.text);
+      return match?.[1] === undefined ? [] : [Number(match[1])];
+    }),
+  );
+}
+
+function templateMediaText(node: ts.TemplateExpression): string {
   return (
     node.head.text +
     node.templateSpans
       .map(span => {
         const expression = unwrapExpression(span.expression);
-        const interpolation = preserveNumericLiterals && ts.isNumericLiteral(expression) ? expression.text : '${}';
+        const interpolation = ts.isNumericLiteral(expression) ? expression.text : '${}';
         return interpolation + span.literal.text;
       })
       .join('')
@@ -236,11 +321,7 @@ export function inspectTypeScript(source: string, sourcePath: string): TypeScrip
     if (ts.isIdentifier(node)) identifiers.push(node.text);
     if (ts.isStringLiteralLike(node) || ts.isTemplateLiteralToken(node) || ts.isRegularExpressionLiteral(node)) {
       literalTexts.push(node.text);
-      if (
-        (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) &&
-        !isErrorArgument(node) &&
-        isMediaQuery(node.text)
-      ) {
+      if ((ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) && !isErrorSinkValue(node)) {
         breakpointMediaValues.push(...hardcodedMediaWidths(node.text));
       }
     }
@@ -248,11 +329,8 @@ export function inspectTypeScript(source: string, sourcePath: string): TypeScrip
       const value = Number(node.text);
       numericLiterals.push(value);
     }
-    if (ts.isTemplateExpression(node) && !isErrorArgument(node)) {
-      const queryShape = templateMediaText(node, false);
-      if (isMediaQuery(queryShape) || isInterpolatedMediaQuery(queryShape)) {
-        breakpointMediaValues.push(...hardcodedMediaWidths(templateMediaText(node, true)));
-      }
+    if (ts.isTemplateExpression(node) && !isErrorSinkValue(node)) {
+      breakpointMediaValues.push(...hardcodedMediaWidths(templateMediaText(node)));
     }
     if (ts.isObjectLiteralExpression(node)) {
       objectPropertyTables.push(
