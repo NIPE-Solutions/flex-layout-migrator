@@ -1,4 +1,5 @@
-import { planFlexOffset } from './flex-offset.strategy';
+import type { CssLength } from '../../../flex/css-length';
+import { planFlexOffset, renderFlexOffset } from './flex-offset.strategy';
 
 describe('planFlexOffset', () => {
   test.each([
@@ -17,5 +18,12 @@ describe('planFlexOffset', () => {
 
   test.each(['wide', '1;display:none'])('rejects %j', value => {
     expect(planFlexOffset(value, 'row')).toEqual({ status: 'invalid', code: 'invalid-value' });
+  });
+});
+
+test('renders a planned block-start offset with arbitrary-value escaping', () => {
+  expect(renderFlexOffset({ axis: 'block-start', length: 'calc(1rem + 2px)' as CssLength })).toEqual({
+    status: 'converted',
+    classNames: ['mt-[calc(1rem_+_2px)]'],
   });
 });

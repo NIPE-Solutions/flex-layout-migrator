@@ -1,9 +1,11 @@
 import type { TailwindStrategyResult } from '../tailwind-semantic.model';
+import { planFlexOrderSemantics, type FlexOrderSemantics } from '../../../flex/flex-order.semantic';
+
+export function renderFlexOrder(value: FlexOrderSemantics): TailwindStrategyResult {
+  return { status: 'converted', classNames: value.order === undefined ? [] : [`[order:${value.order}]`] };
+}
 
 export function planFlexOrder(value: string): TailwindStrategyResult {
-  const order = Number.parseInt(value.trim(), 10);
-  return {
-    status: 'converted',
-    classNames: order ? [`[order:${order}]`] : [],
-  };
+  const planned = planFlexOrderSemantics(value);
+  return planned.status === 'planned' ? renderFlexOrder(planned.value) : planned;
 }

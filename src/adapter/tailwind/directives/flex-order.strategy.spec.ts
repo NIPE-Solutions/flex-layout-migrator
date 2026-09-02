@@ -1,4 +1,4 @@
-import { planFlexOrder } from './flex-order.strategy';
+import { planFlexOrder, renderFlexOrder } from './flex-order.strategy';
 
 describe('planFlexOrder', () => {
   test.each([
@@ -12,4 +12,8 @@ describe('planFlexOrder', () => {
   ] as const)('emits deterministic order for %j', (value, classNames) => {
     expect(planFlexOrder(value)).toEqual({ status: 'converted', classNames });
   });
+});
+
+test('renders a planned nonzero order without parsing source text', () => {
+  expect(renderFlexOrder({ order: -3 })).toEqual({ status: 'converted', classNames: ['[order:-3]'] });
 });
