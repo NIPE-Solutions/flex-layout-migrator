@@ -259,6 +259,15 @@ const entries: CompatibilityEntry[] = [
     note: 'Recognized and preserved; target conversion has not been implemented.',
   },
   {
+    directive: 'gdInline',
+    family: 'grid',
+    tailwind: 'planned',
+    css: 'planned',
+    image: 'not-applicable',
+    breakpoints: allPlanned,
+    note: 'Recognized and preserved; target conversion has not been implemented.',
+  },
+  {
     directive: 'gdRow',
     family: 'grid',
     tailwind: 'planned',
