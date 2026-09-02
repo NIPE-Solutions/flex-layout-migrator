@@ -48,7 +48,7 @@ After reviewing the report and committing or branching your work, apply the migr
 npx flex-layout-codemod ./src --target tailwind
 ```
 
-The current beta writes changed templates in place when neither `--dry-run` nor `--output` is supplied. To write migrated templates to a different location, add `--output ./migrated-src`. Review the Git diff before accepting the changes.
+The current beta writes changed templates in place when neither `--dry-run` nor `--output` is supplied. To write migrated templates to a different location, add `--output ./migrated-src`. Review the Git diff before accepting the changes. If an in-place run is unwanted, inspect `git diff` before taking further action, then restore only the intended files deliberately through your normal Git workflow from a clean worktree or committed branch.
 
 ## Examples
 
@@ -74,11 +74,11 @@ Reports use JSON schema version `1` and include per-file results, diagnostics, a
 
 The default exit policy is strict:
 
-| Code | Meaning                                                                               |
-| ---: | ------------------------------------------------------------------------------------- |
-|  `0` | Migration completed without unresolved results.                                       |
-|  `1` | Configuration, parsing, template I/O, report writing, or an internal error failed.    |
-|  `2` | Migration completed safely, but `review`, `unsupported`, or `invalid` results remain. |
+| Code | Meaning                                                                                 |
+| ---: | --------------------------------------------------------------------------------------- |
+|  `0` | Migration completed cleanly, or unresolved work was accepted with `--allow-unresolved`. |
+|  `1` | Configuration, parsing, template I/O, report writing, or an internal invariant failed.  |
+|  `2` | Migration completed safely, but `review`, `unsupported`, or `invalid` results remain.   |
 
 For an informational CI report that accepts unresolved work while retaining every diagnostic, use:
 
@@ -90,7 +90,7 @@ npx flex-layout-codemod ./src --dry-run --report ./reports/flex-layout.json --al
 
 ## Known boundaries
 
-This beta has a Tailwind CSS v4 target only; a native CSS target is not implemented. Grid directives and responsive `imgSrc` are recognized and reported but remain unchanged. Orientation, print, and custom breakpoint aliases are preserved. See [docs/compatibility.md](docs/compatibility.md) for exact supported forms and diagnostic codes before planning a large migration.
+This beta has a Tailwind CSS v4 target only; a native CSS target is not available. Grid directives and responsive `imgSrc` are recognized, reported, and remain unchanged. Orientation, print, and custom breakpoint aliases remain preserved for review. See [docs/compatibility.md](docs/compatibility.md) for exact supported forms and diagnostic codes before planning a large migration.
 
 The codemod does not inspect project styles, Tailwind configuration, Sass, Less, or CSS, and it does not generate a companion stylesheet. Dynamic Angular bindings are not evaluated.
 

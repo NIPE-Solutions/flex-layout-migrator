@@ -31,6 +31,13 @@ function expectInOrder(source: string, markers: string[]): void {
   }
 }
 
+function expectCurrentBetaBoundaries(readme: string): void {
+  expect(readme).toContain('writes changed templates in place when neither `--dry-run` nor `--output` is supplied');
+  expect(readme).toContain('a native CSS target is not available');
+  expect(readme).toContain('Grid directives and responsive `imgSrc` are recognized, reported, and remain unchanged');
+  expect(readme).toContain('Orientation, print, and custom breakpoint aliases remain preserved for review');
+}
+
 describe('maintainer documentation', () => {
   it('provides contribution, security, support, and governance files', async () => {
     const required = [
@@ -166,8 +173,18 @@ describe('maintainer documentation', () => {
     expect(readme).not.toContain('production-ready conversion coverage');
   });
 
-  it('does not represent unavailable conversion targets as current beta behavior', async () => {
+  it('documents the current beta safety boundaries', async () => {
     const readme = await readRepositoryFile('README.md');
+
+    expectCurrentBetaBoundaries(readme);
+  });
+
+  it('rejects a paraphrased false-current-capability claim that the former blacklist misses', async () => {
+    const readme = await readRepositoryFile('README.md');
+    const falseCurrentCapability = readme.replace(
+      'This beta has a Tailwind CSS v4 target only; a native CSS target is not available. Grid directives and responsive `imgSrc` are recognized, reported, and remain unchanged. Orientation, print, and custom breakpoint aliases remain preserved for review.',
+      'This beta has native CSS and Tailwind CSS targets. Grid directives, responsive `imgSrc`, orientation, print, and custom breakpoint aliases convert directly.',
+    );
 
     for (const unavailableClaim of [
       /native CSS conversion is available/u,
@@ -176,8 +193,10 @@ describe('maintainer documentation', () => {
       /print conversion is available/u,
       /imgSrc conversion is available/u,
     ]) {
-      expect(readme).not.toMatch(unavailableClaim);
+      expect(falseCurrentCapability).not.toMatch(unavailableClaim);
     }
+
+    expect(() => expectCurrentBetaBoundaries(falseCurrentCapability)).toThrow();
   });
 
   it('requires byte-for-byte staged artifact verification before approval and finalization', async () => {
