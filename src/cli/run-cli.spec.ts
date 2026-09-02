@@ -713,6 +713,24 @@ describe('runCli', () => {
     await expect(access(reportPath)).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
+  test('rejects duplicate --write before input discovery, report creation, or project mutation', async () => {
+    const missingInput = join(temporaryDirectory, 'missing.html');
+    const output = join(temporaryDirectory, 'output.html');
+    const reportPath = join(temporaryDirectory, 'reports', 'report.json');
+    await writeFile(output, 'preserve output', 'utf8');
+
+    const result = await run([missingInput, '--write', '--write', '--output', output, '--report', reportPath]);
+
+    expect(result).toEqual({
+      exitCode: 1,
+      stdout: '',
+      stderr: 'Error: --write may only be specified once.\n',
+    });
+    await expect(access(missingInput)).rejects.toMatchObject({ code: 'ENOENT' });
+    expect(await readFile(output, 'utf8')).toBe('preserve output');
+    await expect(access(reportPath)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
   test('allows an input filename containing the dry-run substring', async () => {
     const input = join(temporaryDirectory, 'component--dry-run.html');
     await writeFile(input, '<div fxLayout="row"></div>', 'utf8');
