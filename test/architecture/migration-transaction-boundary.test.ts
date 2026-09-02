@@ -269,6 +269,124 @@ describe('migration transaction architecture boundary', () => {
     expect(inspection.transactionApplyCalls).toEqual([{ sourcePath: presenter, name: 'apply' }]);
   });
 
+  test('detects an imported helper that exports a bound transaction apply callable', () => {
+    const helper = join(projectFixtureRoot, 'transaction-apply.helper.ts');
+    const presenter = join(projectFixtureRoot, 'imported-apply.presenter.ts');
+    const inspection = inspectProject(
+      new Map([
+        [
+          helper,
+          `
+            import type { MigrationTransaction } from '../transaction/migration-transaction.js';
+            declare const transaction: Pick<MigrationTransaction, 'apply'>;
+            export const applyPlan = transaction.apply.bind(transaction);
+          `,
+        ],
+        [
+          presenter,
+          `
+            import { applyPlan as execute } from './transaction-apply.helper.js';
+            import type { MigrationPlan } from '../migrator/migration-plan.js';
+            declare const plan: MigrationPlan;
+            void execute(plan);
+          `,
+        ],
+      ]),
+      [presenter],
+    );
+
+    expect(inspection.transactionApplyCalls).toEqual([{ sourcePath: presenter, name: 'apply' }]);
+  });
+
+  test('follows a bound transaction apply callable through re-export and barrel aliases', () => {
+    const helper = join(projectFixtureRoot, 'transaction-apply.helper.ts');
+    const reexport = join(projectFixtureRoot, 'transaction-apply.reexport.ts');
+    const barrel = join(projectFixtureRoot, 'transaction-apply.index.ts');
+    const presenter = join(projectFixtureRoot, 'barrel-apply.presenter.ts');
+    const inspection = inspectProject(
+      new Map([
+        [
+          helper,
+          `
+            import type { MigrationTransaction } from '../transaction/migration-transaction.js';
+            declare const transaction: Pick<MigrationTransaction, 'apply'>;
+            export const applyPlan = transaction.apply.bind(transaction);
+          `,
+        ],
+        [reexport, "export { applyPlan as commitPlan } from './transaction-apply.helper.js';"],
+        [barrel, "export * from './transaction-apply.reexport.js';"],
+        [
+          presenter,
+          `
+            import { commitPlan as execute } from './transaction-apply.index.js';
+            import type { MigrationPlan } from '../migrator/migration-plan.js';
+            declare const plan: MigrationPlan;
+            void execute(plan);
+          `,
+        ],
+      ]),
+      [presenter],
+    );
+
+    expect(inspection.transactionApplyCalls).toEqual([{ sourcePath: presenter, name: 'apply' }]);
+  });
+
+  test('does not report a bound transaction apply helper that a presenter only imports', () => {
+    const helper = join(projectFixtureRoot, 'transaction-apply.helper.ts');
+    const presenter = join(projectFixtureRoot, 'deferred-apply.presenter.ts');
+    const inspection = inspectProject(
+      new Map([
+        [
+          helper,
+          `
+            import type { MigrationTransaction } from '../transaction/migration-transaction.js';
+            declare const transaction: Pick<MigrationTransaction, 'apply'>;
+            export const applyPlan = transaction.apply.bind(transaction);
+          `,
+        ],
+        [presenter, "import { applyPlan } from './transaction-apply.helper.js'; export { applyPlan as deferred };"],
+      ]),
+      [presenter],
+    );
+
+    expect(inspection.transactionApplyCalls).toEqual([]);
+  });
+
+  test('does not confuse an imported bound formatter callable with transaction application', () => {
+    const helper = join(projectFixtureRoot, 'formatter-apply.helper.ts');
+    const presenter = join(projectFixtureRoot, 'imported-formatter.presenter.ts');
+    const inspection = inspectProject(
+      new Map([
+        [
+          helper,
+          `
+            interface Formatter { apply(value: string): string }
+            declare const formatter: Formatter;
+            export const applyFormat = formatter.apply.bind(formatter);
+          `,
+        ],
+        [presenter, "import { applyFormat as execute } from './formatter-apply.helper.js'; void execute('text');"],
+      ]),
+      [presenter],
+    );
+
+    expect(inspection.transactionApplyCalls).toEqual([]);
+  });
+
+  test('terminates safely on cyclic callable aliases', () => {
+    const helper = join(projectFixtureRoot, 'cyclic-apply.helper.ts');
+    const presenter = join(projectFixtureRoot, 'cyclic-apply.presenter.ts');
+    const inspection = inspectProject(
+      new Map([
+        [helper, 'export const first = second; export const second = first;'],
+        [presenter, "import { first as execute } from './cyclic-apply.helper.js'; void execute('text');"],
+      ]),
+      [presenter],
+    );
+
+    expect(inspection.transactionApplyCalls).toEqual([]);
+  });
+
   test('does not confuse presenter text output or an unrelated apply method with application authority', () => {
     const presenter = join(projectFixtureRoot, 'terminal.presenter.ts');
     const source = `

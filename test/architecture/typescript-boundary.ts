@@ -676,12 +676,23 @@ function canonicalMigrationModeTypeNode(
   if (ts.isParenthesizedTypeNode(typeNode)) {
     return canonicalMigrationModeTypeNode(typeNode.type, checker, seenSymbols);
   }
-  if (ts.isUnionTypeNode(typeNode)) {
-    const definedTypes = typeNode.types.filter(type => type.kind !== ts.SyntaxKind.UndefinedKeyword);
-    return definedTypes.length === 1 && canonicalMigrationModeTypeNode(definedTypes[0], checker, seenSymbols);
+  if (ts.isUnionTypeNode(typeNode) || ts.isIntersectionTypeNode(typeNode)) {
+    return typeNode.types.some(type => canonicalMigrationModeTypeNode(type, checker, seenSymbols));
+  }
+  if (ts.isTupleTypeNode(typeNode)) {
+    return typeNode.elements.some(type => canonicalMigrationModeTypeNode(type, checker, seenSymbols));
+  }
+  if (ts.isArrayTypeNode(typeNode)) {
+    return canonicalMigrationModeTypeNode(typeNode.elementType, checker, seenSymbols);
+  }
+  if (ts.isTypeOperatorNode(typeNode)) {
+    return canonicalMigrationModeTypeNode(typeNode.type, checker, seenSymbols);
   }
   if (!ts.isTypeReferenceNode(typeNode)) return false;
-  return canonicalMigrationModeSymbol(checker.getSymbolAtLocation(typeNode.typeName), checker, seenSymbols);
+  return (
+    canonicalMigrationModeSymbol(checker.getSymbolAtLocation(typeNode.typeName), checker, seenSymbols) ||
+    typeNode.typeArguments?.some(type => canonicalMigrationModeTypeNode(type, checker, seenSymbols)) === true
+  );
 }
 
 function declarationHasCanonicalMigrationMode(declaration: ts.Declaration, checker: ts.TypeChecker): boolean {
@@ -942,7 +953,7 @@ function transactionApplySymbolProvenance(
   if (transactionApplySymbol(symbol)) return true;
   if ((symbol.flags & ts.SymbolFlags.Alias) !== 0) {
     const aliased = checker.getAliasedSymbol(symbol);
-    if (transactionApplySymbol(aliased)) return true;
+    if (transactionApplySymbolProvenance(aliased, checker, program, nextSeen)) return true;
   }
   return (symbol.declarations ?? []).some(declaration => {
     if (

@@ -115,6 +115,54 @@ describe('migration mode architecture boundary', () => {
   });
 
   test.each([
+    [
+      'nullable and optional union',
+      `
+        import type { MigrationMode as RequestedExecution } from '../migrator/migration-mode.js';
+        class CssAdapter { render(execution: RequestedExecution | null | undefined) { return execution; } }
+      `,
+      'execution',
+    ],
+    [
+      'union with a non-authorizing alternative',
+      `
+        import type { MigrationMode as RequestedExecution } from '../migrator/migration-mode.js';
+        class CssAdapter { render(execution: RequestedExecution | 'inherit') { return execution; } }
+      `,
+      'execution',
+    ],
+    [
+      'array container',
+      `
+        import type { MigrationMode as RequestedExecution } from '../migrator/migration-mode.js';
+        class CssAdapter { render(executions: RequestedExecution[]) { return executions; } }
+      `,
+      'executions',
+    ],
+    [
+      'readonly array container',
+      `
+        import type { MigrationMode as RequestedExecution } from '../migrator/migration-mode.js';
+        class CssAdapter { render(executions: ReadonlyArray<RequestedExecution>) { return executions; } }
+      `,
+      'executions',
+    ],
+    [
+      'nested generic containers',
+      `
+        import type { MigrationMode as RequestedExecution } from '../migrator/migration-mode.js';
+        interface Box<T> { readonly value: T }
+        class CssAdapter {
+          render(request: Promise<Box<ReadonlyArray<RequestedExecution | null>>>) { return request; }
+        }
+      `,
+      'request',
+    ],
+  ])('follows canonical MigrationMode through a %s', (_label, source, expectedName) => {
+    expect(fixtureModeInputs(source)).toEqual([{ sourcePath: fixturePath, name: expectedName }]);
+  });
+
+  test.each([
     ['unrelated write-prefixed property', 'class Planner { plan(options: { writeDisposition: boolean }) {} }'],
     ['unrelated mode type', "class Planner { plan(mode: 'compact' | 'expanded') {} }"],
     [
@@ -125,6 +173,14 @@ describe('migration mode architecture boundary', () => {
     [
       'same-named local mode alias without canonical provenance',
       "type MigrationMode = 'plan' | 'write'; class Planner { plan(options: { execution: MigrationMode }) {} }",
+    ],
+    [
+      'same-shaped named type inside nested generic containers',
+      `
+        type PreviewMode = 'plan' | 'write';
+        interface Box<T> { readonly value: T }
+        class Planner { plan(request: Promise<Box<ReadonlyArray<PreviewMode | null>>>) { return request; } }
+      `,
     ],
     [
       'documentation strings',
