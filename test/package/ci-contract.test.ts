@@ -1,19 +1,52 @@
 import { readFile } from 'node:fs/promises';
 import { describe, expect, it } from 'vitest';
+import { parse } from 'yaml';
 
 describe('continuous integration', () => {
-  it('prepares release pull requests from main and manual dispatch with pinned tooling', async () => {
-    const workflow = await readFile(new URL('../../.github/workflows/release-pr.yml', import.meta.url), 'utf8');
+  it('guards the exact release pull request job to the main ref', async () => {
+    const source = await readFile(new URL('../../.github/workflows/release-pr.yml', import.meta.url), 'utf8');
+    const workflow = parse(source);
 
-    expect(workflow).toContain('branches: [main]');
-    expect(workflow).toContain('workflow_dispatch:');
-    expect(workflow).toContain('actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1');
-    expect(workflow).toContain('actions/setup-node@820762786026740c76f36085b0efc47a31fe5020');
-    expect(workflow).toContain('node-version: 24');
-    expect(workflow).toContain('npm install --global npm@11.19.0');
-    expect(workflow).toContain('npm ci');
-    expect(workflow).toContain('version: npm run release:version');
-    expect(workflow).toContain('changesets/action@a45c4d594aa4e2c509dc14a9f2b3b67ba3780d0d');
+    expect(Object.keys(workflow).sort()).toEqual(['concurrency', 'jobs', 'name', 'on', 'permissions']);
+    expect(workflow.on).toEqual({
+      push: { branches: ['main'] },
+      workflow_dispatch: null,
+    });
+    expect(workflow.jobs).toEqual({
+      version: {
+        name: 'version',
+        if: "github.ref == 'refs/heads/main'",
+        'runs-on': 'ubuntu-latest',
+        steps: [
+          { uses: 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1' },
+          {
+            uses: 'actions/setup-node@820762786026740c76f36085b0efc47a31fe5020',
+            with: { 'node-version': 24 },
+          },
+          { run: 'npm install --global npm@11.19.0' },
+          { run: 'npm ci' },
+          {
+            uses: 'changesets/action@a45c4d594aa4e2c509dc14a9f2b3b67ba3780d0d',
+            with: {
+              version: 'npm run release:version',
+              title: 'chore: version packages',
+              commit: 'chore: version packages',
+            },
+            env: { GITHUB_TOKEN: '${{ secrets.GITHUB_TOKEN }}' },
+          },
+        ],
+      },
+    });
+  });
+
+  it('serializes release pull request updates without cancelling active runs', async () => {
+    const source = await readFile(new URL('../../.github/workflows/release-pr.yml', import.meta.url), 'utf8');
+    const workflow = parse(source);
+
+    expect(workflow.concurrency).toEqual({
+      group: 'release-pr',
+      'cancel-in-progress': false,
+    });
   });
 
   it('defines stable, least-privilege required jobs on Node 24', async () => {
