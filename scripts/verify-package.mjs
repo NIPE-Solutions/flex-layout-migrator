@@ -7,6 +7,7 @@ import { promisify } from 'node:util';
 const execFileAsync = promisify(execFile);
 const repository = resolve(import.meta.dirname, '..');
 const repositoryManifest = JSON.parse(await readFile(join(repository, 'package.json'), 'utf8'));
+const expectedPackageFiles = ['CHANGELOG.md', 'LICENSE', 'README.md', 'dist/cli.js', 'dist/cli.js.map', 'package.json'];
 const temporaryDirectory = await mkdtemp(join(tmpdir(), 'flex-layout-codemod-package-'));
 let tarball;
 
@@ -29,6 +30,15 @@ try {
   const forbiddenFiles = manifest.files.map(file => file.path).filter(path => forbidden.test(path));
   if (forbiddenFiles.length > 0) {
     throw new Error(`Package contains forbidden files: ${forbiddenFiles.join(', ')}`);
+  }
+
+  const actualPackageFiles = manifest.files.map(file => file.path).sort();
+  const missingFiles = expectedPackageFiles.filter(path => !actualPackageFiles.includes(path));
+  const unexpectedFiles = actualPackageFiles.filter(path => !expectedPackageFiles.includes(path));
+  if (missingFiles.length > 0 || unexpectedFiles.length > 0) {
+    throw new Error(
+      `Package file surface mismatch: missing [${missingFiles.join(', ')}]; unexpected [${unexpectedFiles.join(', ')}]`,
+    );
   }
 
   await writeFile(join(temporaryDirectory, 'package.json'), '{"private":true}', 'utf8');
