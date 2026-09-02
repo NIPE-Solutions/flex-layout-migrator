@@ -44,30 +44,40 @@ const preFinalizationFailurePoints = [
   [2, 'create namespace mkdir', []],
   [3, 'remove namespace mkdir', []],
   [4, 'replace stage open', []],
-  [5, 'replace stage sync', []],
-  [6, 'create stage open', []],
-  [7, 'create stage sync', []],
-  [8, 'replace backup open', []],
-  [9, 'replace backup sync', []],
-  [10, 'replace original quarantine', []],
-  [11, 'replace install', ['restore:a-replace.html']],
-  [12, 'create install', ['remove:a-replace.html', 'restore:a-replace.html']],
-  [13, 'remove backup open', ['remove:b-create.html', 'remove:a-replace.html', 'restore:a-replace.html']],
-  [14, 'remove backup sync', ['remove:b-create.html', 'remove:a-replace.html', 'restore:a-replace.html']],
-  [15, 'remove original quarantine', ['remove:b-create.html', 'remove:a-replace.html', 'restore:a-replace.html']],
+  [5, 'replace stage writeFile', []],
+  [6, 'replace stage sync', []],
+  [7, 'replace stage close', []],
+  [8, 'create stage open', []],
+  [9, 'create stage writeFile', []],
+  [10, 'create stage sync', []],
+  [11, 'create stage close', []],
+  [12, 'replace backup open', []],
+  [13, 'replace backup writeFile', []],
+  [14, 'replace backup sync', []],
+  [15, 'replace backup close', []],
+  [16, 'replace original quarantine', []],
+  [17, 'replace install', ['restore:a-replace.html']],
+  [18, 'create install', ['remove:a-replace.html', 'restore:a-replace.html']],
+  [19, 'remove backup open', ['remove:b-create.html', 'remove:a-replace.html', 'restore:a-replace.html']],
+  [20, 'remove backup writeFile', ['remove:b-create.html', 'remove:a-replace.html', 'restore:a-replace.html']],
+  [21, 'remove backup sync', ['remove:b-create.html', 'remove:a-replace.html', 'restore:a-replace.html']],
+  [22, 'remove backup close', ['remove:b-create.html', 'remove:a-replace.html', 'restore:a-replace.html']],
+  [23, 'remove original quarantine', ['remove:b-create.html', 'remove:a-replace.html', 'restore:a-replace.html']],
 ] as const;
 
 const finalizationFailurePoints = [
-  [16, 'replace stage unlink', 0],
-  [17, 'replace backup unlink', 0],
-  [18, 'replace quarantine unlink', 0],
-  [19, 'replace namespace rmdir', 0],
-  [20, 'create stage unlink', 1],
-  [21, 'create namespace rmdir', 1],
-  [22, 'remove backup unlink', 2],
-  [23, 'remove quarantine unlink', 2],
-  [24, 'remove namespace rmdir', 2],
+  [24, 'replace stage unlink', 0, ['.a-replace.html.txn', '.a-replace.html.txn/stage']],
+  [25, 'replace backup unlink', 0, ['.a-replace.html.txn', '.a-replace.html.txn/backup']],
+  [26, 'replace quarantine unlink', 0, ['.a-replace.html.txn', '.a-replace.html.txn/quarantine']],
+  [27, 'replace namespace rmdir', 0, ['.a-replace.html.txn']],
+  [28, 'create stage unlink', 1, ['.b-create.html.txn', '.b-create.html.txn/stage']],
+  [29, 'create namespace rmdir', 1, ['.b-create.html.txn']],
+  [30, 'remove backup unlink', 2, ['.c-remove.css.txn', '.c-remove.css.txn/backup']],
+  [31, 'remove quarantine unlink', 2, ['.c-remove.css.txn', '.c-remove.css.txn/quarantine']],
+  [32, 'remove namespace rmdir', 2, ['.c-remove.css.txn']],
 ] as const;
+
+const expectedOperationTrace = [...preFinalizationFailurePoints, ...finalizationFailurePoints].map(([, name]) => name);
 
 describe('MigrationTransaction', () => {
   let directory: string;
@@ -349,20 +359,25 @@ describe('MigrationTransaction', () => {
   );
 
   test.each(preFinalizationFailurePoints)(
-    'recovers counted filesystem operation %i (%s) and permits a byte-identical retry',
-    async (failurePoint, _label, expectedRecoveryOrder) => {
+    'recovers named filesystem operation %i (%s) and permits a byte-identical retry',
+    async (failurePoint, label, expectedRecoveryOrder) => {
       const fixture = await transactionFixture(directory);
-      const failure = new Error(`filesystem failure ${failurePoint}`);
+      const failure = new Error(`filesystem failure ${failurePoint}: ${label}`);
       const recoveryOrder: string[] = [];
-      const operations = countingFailureOperations(failurePoint, failure, recoveryOrder);
+      const harness = namedFailureOperations(label, failure, recoveryOrder);
       const registrar = new FakeSignalRegistrar();
 
-      await expect(new MigrationTransaction(operations, registrar).apply(fixture.plan)).rejects.toMatchObject({
+      const caught = await captureError(new MigrationTransaction(harness.operations, registrar).apply(fixture.plan));
+
+      expect(caught).toMatchObject({
         code: 'transaction-io',
         paths: [],
-        cause: failure,
         recoveryFailures: [],
       });
+      expect((caught as Error & { cause: unknown }).cause).toBe(failure);
+      expect(harness.failureCount()).toBe(1);
+      expect(harness.trace.at(-1)).toBe(label);
+      expect(harness.trace.filter(operation => operation === label)).toHaveLength(1);
 
       expect(await snapshot(fixture.paths)).toEqual(fixture.originalSnapshot);
       expect(recoveryOrder).toEqual(expectedRecoveryOrder);
@@ -377,25 +392,40 @@ describe('MigrationTransaction', () => {
   );
 
   test.each(finalizationFailurePoints)(
-    'reports counted filesystem operation %i (%s) after commit at its public path',
-    async (failurePoint, _label, affectedPathIndex) => {
+    'reports named filesystem operation %i (%s) after commit at its public path',
+    async (failurePoint, label, affectedPathIndex, expectedResidue) => {
       const fixture = await transactionFixture(directory);
-      const failure = new Error(`filesystem failure ${failurePoint}`);
+      const failure = new Error(`filesystem failure ${failurePoint}: ${label}`);
       const registrar = new FakeSignalRegistrar();
+      const harness = namedFailureOperations(label, failure);
 
-      await expect(
-        new MigrationTransaction(countingFailureOperations(failurePoint, failure), registrar).apply(fixture.plan),
-      ).rejects.toMatchObject({
+      const caught = await captureError(new MigrationTransaction(harness.operations, registrar).apply(fixture.plan));
+
+      expect(caught).toMatchObject({
         code: 'transaction-io',
         paths: [fixture.paths[affectedPathIndex]],
-        cause: failure,
       });
+      expect((caught as Error & { cause: unknown }).cause).toBe(failure);
+      expect(harness.failureCount()).toBe(1);
+      expect(harness.trace.at(-1)).toBe(label);
+      expect(harness.trace.filter(operation => operation === label)).toHaveLength(1);
 
       expect(await snapshot(fixture.paths)).toEqual(fixture.appliedSnapshot);
-      expect(await invocationResidue(directory)).not.toEqual([]);
+      expect(await invocationResidue(directory)).toEqual(expectedResidue);
       expect(registrar.activeRegistrations).toBe(0);
     },
   );
+
+  test('binds every failure-matrix row to the exact successful operation trace', async () => {
+    const fixture = await transactionFixture(directory);
+    const harness = namedFailureOperations();
+
+    await new MigrationTransaction(harness.operations).apply(fixture.plan);
+
+    expect(harness.trace).toEqual(expectedOperationTrace);
+    expect(harness.failureCount()).toBe(0);
+    expect(await invocationResidue(directory)).toEqual([]);
+  });
 
   test('retains the initiating cause and newly-created public path when rollback quarantine fails', async () => {
     const fixture = await transactionFixture(directory);
@@ -602,7 +632,17 @@ function recordingHandle(
 
 async function invocationResidue(root: string): Promise<readonly string[]> {
   const entries = await readdir(root, { recursive: true });
-  return entries.filter(entry => entry.endsWith('.txn')).sort();
+  return entries
+    .map(entry =>
+      entry
+        .replace(/^(\..+)\.[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.txn(?=\/|$)/u, '$1.txn')
+        .replace(
+          /quarantine(?:-rollback)?-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/u,
+          'quarantine',
+        ),
+    )
+    .filter(entry => entry.includes('.txn'))
+    .sort();
 }
 
 async function transactionFixture(root: string) {
@@ -666,61 +706,99 @@ function operationsFailingRename(
   };
 }
 
-function countingFailureOperations(
-  failurePoint: number,
-  failure: Error,
+function namedFailureOperations(
+  failureName?: string,
+  failure: Error = new Error('unexpected named operation failure'),
   recoveryOrder: string[] = [],
-): MigrationTransactionOperations {
-  let operationsSeen = 0;
+): {
+  readonly operations: MigrationTransactionOperations;
+  readonly trace: string[];
+  readonly failureCount: () => number;
+} {
+  const trace: string[] = [];
   let failed = false;
-  const fail = (): void => {
-    operationsSeen++;
-    if (!failed && operationsSeen === failurePoint) {
+  let failures = 0;
+  const attempt = (name: string): void => {
+    if (failed) return;
+    trace.push(name);
+    if (name === failureName) {
       failed = true;
+      failures++;
       throw failure;
     }
   };
-  return {
+  const ownerNames = new Map([
+    ['a-replace.html', 'replace'],
+    ['b-create.html', 'create'],
+    ['c-remove.css', 'remove'],
+  ]);
+  const namespacePattern = /^\.(.+)\.[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.txn$/u;
+  const owner = (target: string): string => {
+    for (let current = target; dirname(current) !== current; current = dirname(current)) {
+      const namespace = namespacePattern.exec(basename(current));
+      if (namespace?.[1] !== undefined) return ownerNames.get(namespace[1]) ?? namespace[1];
+    }
+    return ownerNames.get(basename(target)) ?? basename(target);
+  };
+  const privateKind = (target: string): 'backup' | 'quarantine' | 'stage' | undefined => {
+    const name = basename(target);
+    if (name === 'backup' || name === 'stage') return name;
+    return name.startsWith('quarantine-') ? 'quarantine' : undefined;
+  };
+  const operations: MigrationTransactionOperations = {
     ...nodeOperations,
     mkdir: async (target, options) => {
-      fail();
+      if (namespacePattern.test(basename(target))) attempt(`${owner(target)} namespace mkdir`);
       await mkdir(target, options);
     },
     open: async (target, flags) => {
-      if (flags === 'wx') fail();
+      const kind = privateKind(target);
+      if (flags === 'wx' && kind !== undefined) attempt(`${owner(target)} ${kind} open`);
       const handle = await open(target, flags);
       return {
-        writeFile: (contents, encoding) => handle.writeFile(contents, encoding),
+        writeFile: async (contents, encoding) => {
+          if (flags === 'wx' && kind !== undefined) attempt(`${owner(target)} ${kind} writeFile`);
+          await handle.writeFile(contents, encoding);
+        },
         readFile: options => handle.readFile(options),
         stat: () => handle.stat(),
         sync: async () => {
-          if (flags === 'wx') fail();
+          if (flags === 'wx' && kind !== undefined) attempt(`${owner(target)} ${kind} sync`);
           await handle.sync();
         },
-        close: () => handle.close(),
+        close: async () => {
+          if (flags === 'wx' && kind !== undefined) attempt(`${owner(target)} ${kind} close`);
+          await handle.close();
+        },
       };
     },
     link: async (source, destination) => {
-      fail();
-      if (failed && basename(source) === 'backup') recoveryOrder.push(`restore:${basename(destination)}`);
+      if (failed && basename(source) === 'backup') {
+        recoveryOrder.push(`restore:${basename(destination)}`);
+      } else if (basename(source) === 'stage') {
+        attempt(`${owner(source)} install`);
+      }
       await link(source, destination);
     },
     rename: async (source, destination) => {
-      fail();
       if (failed && basename(destination).startsWith('quarantine-rollback-')) {
         recoveryOrder.push(`remove:${basename(source)}`);
+      } else if (basename(destination).startsWith('quarantine-')) {
+        attempt(`${owner(destination)} original quarantine`);
       }
       await rename(source, destination);
     },
     rmdir: async target => {
-      fail();
+      if (namespacePattern.test(basename(target))) attempt(`${owner(target)} namespace rmdir`);
       await rmdir(target);
     },
     unlink: async target => {
-      fail();
+      const kind = privateKind(target);
+      if (kind !== undefined) attempt(`${owner(target)} ${kind} unlink`);
       await unlink(target);
     },
   };
+  return { operations, trace, failureCount: () => failures };
 }
 
 async function captureError(promise: Promise<unknown>): Promise<unknown> {

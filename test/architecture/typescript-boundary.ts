@@ -1,6 +1,12 @@
 import { readdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import ts from 'typescript';
+
+const filesystemModules = new Set(['fs', 'fs/promises', 'node:fs', 'node:fs/promises']);
+const filesystemMutationNames = new Set(['link', 'mkdir', 'open', 'rename', 'rmdir', 'unlink', 'writeFile']);
+const adapterPathNames = new Set(['stylesheetPath', 'reportPath']);
+const breakpointContextName = /(?:breakpoint|media|query)/iu;
+const exactMediaQuery = /^(?:@media\s*)?\([^)]*(?:min|max)-width\s*:\s*([0-9]+(?:\.[0-9]+)?)px[^)]*\)$/iu;
 
 export interface InspectedParameter {
   readonly name: string;
@@ -23,6 +29,7 @@ export interface TypeScriptInspection {
   readonly identifiers: readonly string[];
   readonly literalTexts: readonly string[];
   readonly numericLiterals: readonly number[];
+  readonly breakpointMediaValues: readonly number[];
   readonly objectPropertyTables: readonly (readonly string[])[];
   readonly callExpressionNames: readonly string[];
   readonly constructedExpressionNames: readonly string[];
@@ -32,8 +39,33 @@ export interface TypeScriptInspection {
   readonly exportedFunctions: readonly InspectedExportedFunction[];
 }
 
+export interface TypeScriptProjectInspection {
+  readonly filesystemMutationCalls: readonly { readonly sourcePath: string; readonly name: string }[];
+  readonly adapterPathInputs: readonly { readonly sourcePath: string; readonly name: string }[];
+}
+
+type FilesystemProvenance = '*' | string;
+
 function moduleText(expression: ts.Expression | undefined): string | undefined {
   return expression && ts.isStringLiteralLike(expression) ? expression.text : undefined;
+}
+
+function modulePathSegments(reference: string): readonly string[] {
+  return reference
+    .replaceAll('\\', '/')
+    .split('/')
+    .filter(segment => segment !== '' && segment !== '.' && segment !== '..')
+    .map(segment => segment.replace(/\.[cm]?[jt]sx?$/u, ''))
+    .filter(segment => segment !== 'index');
+}
+
+/** Matches complete normalized module-path segments, including endpoint and index-barrel references. */
+export function moduleReferenceContainsPath(reference: string, candidate: string): boolean {
+  const referenceSegments = modulePathSegments(reference);
+  const candidateSegments = modulePathSegments(candidate);
+  return referenceSegments.some((_, index) =>
+    candidateSegments.every((segment, offset) => referenceSegments[index + offset] === segment),
+  );
 }
 
 function hasExportModifier(node: ts.Node): boolean {
@@ -59,6 +91,40 @@ function expressionName(expression: ts.Expression): string | undefined {
 function declarationPropertyName(node: ts.PropertyDeclaration | ts.PropertySignature): string | undefined {
   const name = node.name;
   return ts.isIdentifier(name) || ts.isStringLiteralLike(name) || ts.isNumericLiteral(name) ? name.text : undefined;
+}
+
+function namedDeclarationText(
+  name: ts.DeclarationName | ts.BindingName | undefined,
+  sourceFile: ts.SourceFile,
+): string {
+  return name?.getText(sourceFile) ?? '';
+}
+
+function isBreakpointMediaContext(node: ts.Node, sourceFile: ts.SourceFile): boolean {
+  for (let current: ts.Node | undefined = node.parent; current !== undefined; current = current.parent) {
+    let name = '';
+    if (ts.isVariableDeclaration(current) || ts.isParameter(current)) {
+      name = namedDeclarationText(current.name, sourceFile);
+    } else if (
+      ts.isPropertyAssignment(current) ||
+      ts.isPropertyDeclaration(current) ||
+      ts.isPropertySignature(current) ||
+      ts.isMethodDeclaration(current)
+    ) {
+      name = namedDeclarationText(current.name, sourceFile);
+    } else if (ts.isFunctionDeclaration(current)) {
+      name = current.name?.text ?? '';
+    } else if (ts.isCallExpression(current)) {
+      name = expressionName(current.expression) ?? '';
+    }
+    if (breakpointContextName.test(name)) return true;
+  }
+  return false;
+}
+
+function exactMediaQueryValue(text: string): number | undefined {
+  const match = exactMediaQuery.exec(text.trim());
+  return match?.[1] === undefined ? undefined : Number(match[1]);
 }
 
 function runtimeImportReference(node: ts.ImportDeclaration): string | undefined {
@@ -106,7 +172,7 @@ function runtimeImportBindings(node: ts.ImportDeclaration): readonly InspectedRu
 
 /** Returns runtime module edges while excluding TypeScript-only imports and re-exports. */
 export function runtimeModuleReferences(source: string, sourcePath: string): readonly string[] {
-  const sourceFile = ts.createSourceFile(sourcePath, source, ts.ScriptTarget.Latest, false, ts.ScriptKind.TS);
+  const sourceFile = ts.createSourceFile(sourcePath, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
   const references: string[] = [];
 
   function visit(node: ts.Node): void {
@@ -137,11 +203,12 @@ export function runtimeModuleReferences(source: string, sourcePath: string): rea
 }
 
 export function inspectTypeScript(source: string, sourcePath: string): TypeScriptInspection {
-  const sourceFile = ts.createSourceFile(sourcePath, source, ts.ScriptTarget.Latest, false, ts.ScriptKind.TS);
+  const sourceFile = ts.createSourceFile(sourcePath, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
   const moduleReferences: string[] = [];
   const identifiers: string[] = [];
   const literalTexts: string[] = [];
   const numericLiterals: number[] = [];
+  const breakpointMediaValues: number[] = [];
   const objectPropertyTables: string[][] = [];
   const callExpressionNames: string[] = [];
   const constructedExpressionNames: string[] = [];
@@ -154,8 +221,18 @@ export function inspectTypeScript(source: string, sourcePath: string): TypeScrip
     if (ts.isIdentifier(node)) identifiers.push(node.text);
     if (ts.isStringLiteralLike(node) || ts.isTemplateLiteralToken(node) || ts.isRegularExpressionLiteral(node)) {
       literalTexts.push(node.text);
+      if (ts.isStringLiteralLike(node) || ts.isTemplateLiteralToken(node)) {
+        const mediaValue = exactMediaQueryValue(node.text);
+        if (mediaValue !== undefined && isBreakpointMediaContext(node, sourceFile)) {
+          breakpointMediaValues.push(mediaValue);
+        }
+      }
     }
-    if (ts.isNumericLiteral(node)) numericLiterals.push(Number(node.text));
+    if (ts.isNumericLiteral(node)) {
+      const value = Number(node.text);
+      numericLiterals.push(value);
+      if (isBreakpointMediaContext(node, sourceFile)) breakpointMediaValues.push(value);
+    }
     if (ts.isObjectLiteralExpression(node)) {
       objectPropertyTables.push(
         node.properties.flatMap(property => {
@@ -226,6 +303,7 @@ export function inspectTypeScript(source: string, sourcePath: string): TypeScrip
     identifiers,
     literalTexts,
     numericLiterals,
+    breakpointMediaValues,
     objectPropertyTables,
     callExpressionNames,
     constructedExpressionNames,
@@ -234,6 +312,261 @@ export function inspectTypeScript(source: string, sourcePath: string): TypeScrip
     runtimeImports,
     exportedFunctions,
   };
+}
+
+function createProjectProgram(
+  sourcePaths: readonly string[],
+  sourceOverrides: ReadonlyMap<string, string>,
+): { readonly checker: ts.TypeChecker; readonly program: ts.Program; readonly rootPaths: ReadonlySet<string> } {
+  const normalizedOverrides = new Map(
+    [...sourceOverrides].map(([sourcePath, source]) => [resolve(sourcePath), source] as const),
+  );
+  const overrideDirectories = new Set<string>();
+  for (const sourcePath of normalizedOverrides.keys()) {
+    for (let directory = dirname(sourcePath); !overrideDirectories.has(directory); directory = dirname(directory)) {
+      overrideDirectories.add(directory);
+      if (dirname(directory) === directory) break;
+    }
+  }
+  const rootNames = sourcePaths.map(sourcePath => resolve(sourcePath));
+  const options: ts.CompilerOptions = {
+    module: ts.ModuleKind.ESNext,
+    moduleResolution: ts.ModuleResolutionKind.Bundler,
+    target: ts.ScriptTarget.ESNext,
+    types: ['node'],
+  };
+  const host = ts.createCompilerHost(options);
+  const baseGetSourceFile = host.getSourceFile.bind(host);
+  host.fileExists = fileName => normalizedOverrides.has(resolve(fileName)) || ts.sys.fileExists(fileName);
+  host.directoryExists = directoryName =>
+    overrideDirectories.has(resolve(directoryName)) || ts.sys.directoryExists(directoryName);
+  host.readFile = fileName => normalizedOverrides.get(resolve(fileName)) ?? ts.sys.readFile(fileName);
+  host.getSourceFile = (fileName, languageVersion, onError, shouldCreateNewSourceFile) => {
+    const source = normalizedOverrides.get(resolve(fileName));
+    return source === undefined
+      ? baseGetSourceFile(fileName, languageVersion, onError, shouldCreateNewSourceFile)
+      : ts.createSourceFile(fileName, source, languageVersion, true, ts.ScriptKind.TS);
+  };
+  const program = ts.createProgram({ rootNames, options, host });
+  return { checker: program.getTypeChecker(), program, rootPaths: new Set(rootNames) };
+}
+
+function enclosingModuleReference(node: ts.Node): string | undefined {
+  for (let current: ts.Node | undefined = node; current !== undefined; current = current.parent) {
+    if (ts.isImportDeclaration(current) || ts.isExportDeclaration(current)) {
+      return moduleText(current.moduleSpecifier);
+    }
+    if (ts.isImportEqualsDeclaration(current) && ts.isExternalModuleReference(current.moduleReference)) {
+      return moduleText(current.moduleReference.expression);
+    }
+  }
+  return undefined;
+}
+
+function isNodeFilesystemDeclaration(declaration: ts.Declaration): boolean {
+  return /(?:^|\/)@types\/node\/fs(?:\/promises)?\.d\.ts$/u.test(
+    declaration.getSourceFile().fileName.replaceAll('\\', '/'),
+  );
+}
+
+function unwrapExpression(expression: ts.Expression): ts.Expression {
+  let current = expression;
+  while (
+    ts.isAwaitExpression(current) ||
+    ts.isParenthesizedExpression(current) ||
+    ts.isAsExpression(current) ||
+    ts.isTypeAssertionExpression(current) ||
+    ts.isNonNullExpression(current) ||
+    ts.isSatisfiesExpression(current)
+  ) {
+    current = current.expression;
+  }
+  return current;
+}
+
+function calledModule(expression: ts.CallExpression): string | undefined {
+  if (
+    expression.expression.kind !== ts.SyntaxKind.ImportKeyword &&
+    !(ts.isIdentifier(expression.expression) && expression.expression.text === 'require')
+  ) {
+    return undefined;
+  }
+  return moduleText(expression.arguments[0]);
+}
+
+function bindingElementPropertyName(declaration: ts.BindingElement): string | undefined {
+  const name = declaration.propertyName ?? declaration.name;
+  return ts.isIdentifier(name) || ts.isStringLiteralLike(name) || ts.isNumericLiteral(name) ? name.text : undefined;
+}
+
+function filesystemProvenance(
+  expression: ts.Expression,
+  checker: ts.TypeChecker,
+  seenSymbols: ReadonlySet<ts.Symbol> = new Set(),
+): FilesystemProvenance | undefined {
+  const unwrapped = unwrapExpression(expression);
+  if (ts.isCallExpression(unwrapped)) {
+    const reference = calledModule(unwrapped);
+    if (reference !== undefined) return filesystemModules.has(reference) ? '*' : undefined;
+  }
+
+  if (ts.isPropertyAccessExpression(unwrapped) || ts.isElementAccessExpression(unwrapped)) {
+    const propertyName = ts.isPropertyAccessExpression(unwrapped)
+      ? unwrapped.name.text
+      : moduleText(unwrapped.argumentExpression);
+    const receiver = filesystemProvenance(unwrapped.expression, checker, seenSymbols);
+    if (receiver === '*' && propertyName !== undefined && filesystemMutationNames.has(propertyName))
+      return propertyName;
+  }
+
+  const symbol = checker.getSymbolAtLocation(unwrapped);
+  if (symbol === undefined || seenSymbols.has(symbol)) return undefined;
+  const nextSeen = new Set(seenSymbols).add(symbol);
+
+  if ((symbol.flags & ts.SymbolFlags.Alias) !== 0) {
+    const aliased = checker.getAliasedSymbol(symbol);
+    if (aliased !== symbol) {
+      const provenance = filesystemSymbolProvenance(aliased, checker, nextSeen);
+      if (provenance !== undefined) return provenance;
+    }
+  }
+  return filesystemSymbolProvenance(symbol, checker, nextSeen);
+}
+
+function filesystemSymbolProvenance(
+  symbol: ts.Symbol,
+  checker: ts.TypeChecker,
+  seenSymbols: ReadonlySet<ts.Symbol>,
+): FilesystemProvenance | undefined {
+  const symbolName = symbol.getName();
+  if (
+    filesystemMutationNames.has(symbolName) &&
+    symbol.declarations?.some(declaration => isNodeFilesystemDeclaration(declaration)) === true
+  ) {
+    return symbolName;
+  }
+
+  for (const declaration of symbol.declarations ?? []) {
+    const reference = enclosingModuleReference(declaration);
+    if (reference !== undefined && filesystemModules.has(reference)) {
+      if (ts.isNamespaceImport(declaration) || ts.isImportClause(declaration)) return '*';
+      if (ts.isImportSpecifier(declaration)) {
+        const importedName = declaration.propertyName?.text ?? declaration.name.text;
+        if (filesystemMutationNames.has(importedName)) return importedName;
+      }
+    }
+    if (ts.isVariableDeclaration(declaration) && declaration.initializer !== undefined) {
+      const provenance = filesystemProvenance(declaration.initializer, checker, seenSymbols);
+      if (provenance !== undefined) return provenance;
+    }
+    if (
+      (ts.isPropertyAssignment(declaration) || ts.isPropertyDeclaration(declaration)) &&
+      declaration.initializer !== undefined
+    ) {
+      const provenance = filesystemProvenance(declaration.initializer, checker, seenSymbols);
+      if (provenance !== undefined) return provenance;
+    }
+    if (ts.isShorthandPropertyAssignment(declaration)) {
+      const valueSymbol = checker.getShorthandAssignmentValueSymbol(declaration);
+      if (valueSymbol !== undefined && !seenSymbols.has(valueSymbol)) {
+        const provenance = filesystemSymbolProvenance(valueSymbol, checker, new Set(seenSymbols).add(valueSymbol));
+        if (provenance !== undefined) return provenance;
+      }
+    }
+    if (ts.isBindingElement(declaration)) {
+      const pattern = declaration.parent;
+      const variable =
+        ts.isObjectBindingPattern(pattern) || ts.isArrayBindingPattern(pattern) ? pattern.parent : undefined;
+      if (variable !== undefined && ts.isVariableDeclaration(variable) && variable.initializer !== undefined) {
+        const receiver = filesystemProvenance(variable.initializer, checker, seenSymbols);
+        const propertyName = bindingElementPropertyName(declaration);
+        if (receiver === '*' && propertyName !== undefined && filesystemMutationNames.has(propertyName)) {
+          return propertyName;
+        }
+        if (propertyName !== undefined) {
+          const property = checker.getPropertyOfType(checker.getTypeAtLocation(variable.initializer), propertyName);
+          if (property !== undefined && !seenSymbols.has(property)) {
+            const provenance = filesystemSymbolProvenance(property, checker, new Set(seenSymbols).add(property));
+            if (provenance !== undefined) return provenance;
+          }
+        }
+      }
+    }
+  }
+  return undefined;
+}
+
+function bindingPathName(name: ts.BindingName): string | undefined {
+  if (ts.isIdentifier(name)) return adapterPathNames.has(name.text) ? name.text : undefined;
+  for (const element of name.elements) {
+    if (ts.isOmittedExpression(element)) continue;
+    const direct = bindingElementPropertyName(element);
+    if (direct !== undefined && adapterPathNames.has(direct)) return direct;
+    const nested = bindingPathName(element.name);
+    if (nested !== undefined) return nested;
+  }
+  return undefined;
+}
+
+function adapterPathsInType(type: ts.Type, checker: ts.TypeChecker, seen: Set<ts.Type>): readonly string[] {
+  if (seen.has(type)) return [];
+  seen.add(type);
+  const paths: string[] = [];
+  for (const property of checker.getPropertiesOfType(type)) {
+    const propertyName = property.getName();
+    if (adapterPathNames.has(propertyName)) paths.push(propertyName);
+    const declaration = property.valueDeclaration ?? property.declarations?.[0];
+    if (declaration !== undefined) {
+      paths.push(...adapterPathsInType(checker.getTypeOfSymbolAtLocation(property, declaration), checker, seen));
+    }
+  }
+  for (const part of type.isUnionOrIntersection() ? type.types : []) {
+    paths.push(...adapterPathsInType(part, checker, seen));
+  }
+  return paths;
+}
+
+/** Semantically inspects filesystem provenance and adapter input types across local module edges. */
+export function inspectTypeScriptProject(
+  sourcePaths: readonly string[],
+  sourceOverrides: ReadonlyMap<string, string> = new Map(),
+): TypeScriptProjectInspection {
+  const { checker, program, rootPaths } = createProjectProgram(sourcePaths, sourceOverrides);
+  const filesystemMutationCalls: { sourcePath: string; name: string }[] = [];
+  const adapterPathInputs: { sourcePath: string; name: string }[] = [];
+  const seenAdapterPaths = new Set<string>();
+
+  for (const sourceFile of program.getSourceFiles()) {
+    const sourcePath = resolve(sourceFile.fileName);
+    if (!rootPaths.has(sourcePath)) continue;
+    function visit(node: ts.Node): void {
+      if (ts.isCallExpression(node)) {
+        const provenance = filesystemProvenance(node.expression, checker);
+        if (provenance !== undefined && provenance !== '*' && filesystemMutationNames.has(provenance)) {
+          filesystemMutationCalls.push({ sourcePath, name: provenance });
+        }
+      }
+      if (ts.isFunctionLike(node)) {
+        for (const parameter of node.parameters) {
+          const paths = [
+            bindingPathName(parameter.name),
+            ...adapterPathsInType(checker.getTypeAtLocation(parameter), checker, new Set()),
+          ];
+          for (const name of paths) {
+            if (name === undefined) continue;
+            const key = `${sourcePath}\0${name}`;
+            if (seenAdapterPaths.has(key)) continue;
+            seenAdapterPaths.add(key);
+            adapterPathInputs.push({ sourcePath, name });
+          }
+        }
+      }
+      ts.forEachChild(node, visit);
+    }
+    visit(sourceFile);
+  }
+
+  return { filesystemMutationCalls, adapterPathInputs };
 }
 
 export function productionTypeScriptFiles(directory: string): readonly string[] {
