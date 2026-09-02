@@ -42,18 +42,46 @@ function sectionBody(markdown: string, heading: string): string[] {
   return nextHeading === -1 ? body : body.slice(0, nextHeading);
 }
 
+function leadingSafetyBullets(markdown: string, heading: string): string[] {
+  const body = sectionBody(markdown, heading);
+  const firstEntry = body.findIndex(line => line.trim().length > 0);
+  if (firstEntry === -1) throw new Error(`Missing visible safety entries: ${heading}`);
+
+  const entries: string[] = [];
+  for (const line of body.slice(firstEntry)) {
+    if (line.trim().length === 0) break;
+    if (!line.startsWith('- ')) throw new Error(`Malformed visible safety entry: ${line}`);
+    entries.push(line);
+  }
+  return entries;
+}
+
 function parseAvailableNowSafetyEntries(markdown: string): Map<string, string> {
   const entries = new Map<string, string>();
-  for (const line of sectionBody(markdown, '### Available now: directive-specific boundaries')) {
-    const match = line.match(/^- ((?:`[^`]+`(?: and )?)+): (.+)$/u);
-    if (!match) continue;
+  const knownDirectives = new Set<string>(COMPATIBILITY_INVENTORY.map(entry => entry.directive));
+  for (const heading of ['### Available now: directive-specific boundaries', '## Responsive class and style inputs']) {
+    for (const line of leadingSafetyBullets(markdown, heading)) {
+      const match = line.match(/^- (.+?): (.+)$/u);
+      if (!match) throw new Error(`Malformed visible safety entry: ${line}`);
 
-    const [label, note] = match.slice(1);
-    if (label === undefined || note === undefined) throw new Error('Malformed available-now safety entry');
-    for (const directive of label.matchAll(/`([^`]+)`/gu)) {
-      const name = directive[1];
-      if (name === undefined) throw new Error('Malformed available-now directive');
-      entries.set(name, note);
+      const [label, note] = match.slice(1);
+      if (label === undefined || note === undefined) throw new Error('Malformed visible safety entry');
+      const codeLabels = [...label.matchAll(/`([^`]+)`/gu)].map(labelMatch => labelMatch[1]);
+      const names = codeLabels
+        .map(name => name?.replace(/\.<alias>$/u, ''))
+        .filter((name): name is string => name !== undefined);
+      if (names.length !== codeLabels.length) throw new Error(`Malformed compatibility safety label: ${label}`);
+      if (names.length === 0) {
+        names.push(...[...knownDirectives].filter(directive => new RegExp(`\\b${directive}\\b`, 'u').test(label)));
+      }
+      if (names.length === 0 || names.some(name => !knownDirectives.has(name))) {
+        throw new Error(`Unknown compatibility safety label: ${label}`);
+      }
+
+      for (const name of names) {
+        if (entries.has(name)) throw new Error(`Duplicate compatibility safety entry "${name}"`);
+        entries.set(name, note);
+      }
     }
   }
   return entries;
@@ -210,10 +238,27 @@ describe('compatibility reference contract', () => {
           'fxHide',
           'Literal base and standard viewport states convert with `fxShow`; hiding emits exact base or responsive `hidden` utilities.',
         ],
+        ['ngClass', 'Converts complete families whose class tokens are proven Tailwind CSS v4 candidates.'],
+        ['ngStyle', 'Converts complete, sanitizer-safe declaration lists with exact CSS ownership.'],
+        ['class', 'Version-dependent replacement and merge behavior is not inferred.'],
+        ['style', 'Version-dependent replacement and merge behavior is not inferred.'],
+        ['imgSrc', 'Recognized and reported; no target conversion is implemented.'],
       ]),
     );
 
     expect(markdown).toContain('are currently converted together as one atomic visibility family per element');
     expect(markdown).not.toContain('are planned together as one atomic visibility family per element');
+  });
+
+  it('rejects duplicate visible safety entries', async () => {
+    const markdown = await readFile(compatibilityUrl, 'utf8');
+    const duplicate = markdown.replace(
+      '- `fxFlexFill`: Static full-size rule including its zero-margin behavior.',
+      '- `fxFlexFill`: Incorrect behavior.\n- `fxFlexFill`: Static full-size rule including its zero-margin behavior.',
+    );
+
+    expect(() => parseAvailableNowSafetyEntries(duplicate)).toThrow(
+      'Duplicate compatibility safety entry "fxFlexFill"',
+    );
   });
 });
