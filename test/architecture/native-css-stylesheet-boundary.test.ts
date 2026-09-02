@@ -10,7 +10,7 @@ const fixturePath = join(stylesheetRoot, 'fixture.ts');
 const nodeIoModule = /^(?:node:)?(?:fs|path)(?:\/|$)/u;
 const forbiddenLayer = /(?:^|\/)(?:analyzer|cli|migrator|planner|tailwind|template)(?:\/|$)/u;
 const atomicFileWriterModule = /(?:^|\/)atomic-file\.writer(?:\.[cm]?[jt]s)?$/u;
-const absolutePath = /^(?:\/(?![*/])(?=.)|[a-z]:[\\/]|\\\\)/iu;
+const absolutePath = /^(?:\/(?![*/])|[a-z]:[\\/]|\\\\)/iu;
 const packageVersionIdentifier = /^(?:PACKAGE_VERSION|npm_package_version|packageVersion)$/u;
 const packageManifestModule = /(?:^|\/)package\.json$/u;
 const ownedBlockSerializerModule = /(?:^|\/)owned-css-block\.serializer(?:\.[cm]?[jt]s)?$/u;
@@ -30,26 +30,25 @@ function forbiddenDependency(inspection: TypeScriptInspection): string | undefin
 }
 
 function sourceFile(source: string, sourcePath: string): ts.SourceFile {
-  return ts.createSourceFile(sourcePath, source, ts.ScriptTarget.Latest, false, ts.ScriptKind.TS);
+  return ts.createSourceFile(sourcePath, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
 }
 
-function stringFragments(source: string, sourcePath: string): readonly string[] {
-  const fragments: string[] = [];
+function isCssDelimiterComparison(node: ts.Node): boolean {
+  if (!ts.isStringLiteralLike(node) || node.text !== '/' || !ts.isBinaryExpression(node.parent)) return false;
 
-  function visit(node: ts.Node): void {
-    if (
-      ts.isStringLiteralLike(node) ||
-      ts.isTemplateHead(node) ||
-      ts.isTemplateMiddle(node) ||
-      ts.isTemplateTail(node)
-    ) {
-      fragments.push(node.text);
-    }
-    ts.forEachChild(node, visit);
-  }
+  const parent = node.parent;
+  const isEqualityOperator = [
+    ts.SyntaxKind.EqualsEqualsToken,
+    ts.SyntaxKind.EqualsEqualsEqualsToken,
+    ts.SyntaxKind.ExclamationEqualsToken,
+    ts.SyntaxKind.ExclamationEqualsEqualsToken,
+  ].includes(parent.operatorToken.kind);
+  const compared = parent.left === node ? parent.right : parent.left;
 
-  visit(sourceFile(source, sourcePath));
-  return fragments;
+  return (
+    isEqualityOperator &&
+    ((ts.isIdentifier(compared) && compared.text === 'codeUnit') || ts.isElementAccessExpression(compared))
+  );
 }
 
 function generatedMarkers(source: string, sourcePath: string): readonly string[] {
@@ -69,7 +68,26 @@ function generatedMarkers(source: string, sourcePath: string): readonly string[]
 }
 
 function absolutePathLiteral(source: string, sourcePath: string): string | undefined {
-  return stringFragments(source, sourcePath).find(fragment => absolutePath.test(fragment));
+  let match: string | undefined;
+
+  function visit(node: ts.Node): void {
+    if (match !== undefined) return;
+    if (
+      (ts.isStringLiteralLike(node) ||
+        ts.isTemplateHead(node) ||
+        ts.isTemplateMiddle(node) ||
+        ts.isTemplateTail(node)) &&
+      absolutePath.test(node.text) &&
+      !isCssDelimiterComparison(node)
+    ) {
+      match = node.text;
+      return;
+    }
+    ts.forEachChild(node, visit);
+  }
+
+  visit(sourceFile(source, sourcePath));
+  return match;
 }
 
 function packageVersionRead(inspection: TypeScriptInspection): string | undefined {
@@ -112,11 +130,21 @@ describe('native CSS stylesheet architecture boundary', () => {
   });
 
   test.each([
+    ['POSIX root', "const target = '/';"],
+    ['POSIX root comparison', "const isRoot = target === '/';"],
     ['POSIX', "const target = '/tmp/owned.css';"],
     ['Windows drive', String.raw`const target = 'C:\\temp\\owned.css';`],
     ['Windows UNC', String.raw`const target = '\\\\server\\share\\owned.css';`],
   ])('rejects a %s absolute-path mutation', (_label, source) => {
     expect(absolutePathLiteral(source, fixturePath)).toBeDefined();
+  });
+
+  test.each([
+    ['CSS slash delimiter comparison', "const isSlash = codeUnit === '/';"],
+    ['ownership comment prefix', "const marker = '/* flex-layout-codemod:start schema=1 */';"],
+    ['line-comment prefix', "const prefix = '//';"],
+  ])('does not mistake a %s for an absolute path', (_label, source) => {
+    expect(absolutePathLiteral(source, fixturePath)).toBeUndefined();
   });
 
   test.each([

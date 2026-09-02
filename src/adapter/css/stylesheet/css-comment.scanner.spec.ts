@@ -50,6 +50,36 @@ describe('scanCssComments', () => {
   });
 
   test.each([
+    ['escaped quote', String.raw`.escaped\"text"/* flex-layout-codemod:start schema=1 */"/* real */`],
+    ['escaped comment opener', String.raw`.escaped\/* flex-layout-codemod:start schema=1 */;/* real */`],
+  ])('does not expose marker text after an %s in normal CSS', (_label, source) => {
+    const realCommentStart = source.indexOf('/* real */');
+
+    expect(scanCssComments(source)).toEqual([{ start: realCommentStart, end: source.length, content: ' real ' }]);
+  });
+
+  test.each([
+    ['LF', '\n'],
+    ['CRLF', '\r\n'],
+    ['CR', '\r'],
+    ['form feed', '\f'],
+  ])('does not consume a %s terminator as a normal-state escape', (_label, terminator) => {
+    const source = `\\${terminator}/* real */`;
+    const commentStart = 1 + terminator.length;
+
+    expect(scanCssComments(source)).toEqual([{ start: commentStart, end: source.length, content: ' real ' }]);
+  });
+
+  test.each([
+    ['without trailing whitespace', String.raw`.escaped\2f/* real */`],
+    ['with CRLF trailing whitespace', `.escaped\\00002f\r\n/* real */`],
+  ])('recognizes a real comment after a hex escape %s', (_label, source) => {
+    const commentStart = source.indexOf('/* real */');
+
+    expect(scanCssComments(source)).toEqual([{ start: commentStart, end: source.length, content: ' real ' }]);
+  });
+
+  test.each([
     ['LF', '.x{}\n/* line\ncomment */', 5, 23, ' line\ncomment '],
     ['CRLF', '.x{}\r\n/* line\r\ncomment */', 6, 25, ' line\r\ncomment '],
   ] as const)('preserves exact offsets and content in %s input', (_label, source, start, end, content) => {

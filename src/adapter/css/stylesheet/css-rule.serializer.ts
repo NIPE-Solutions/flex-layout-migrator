@@ -6,13 +6,19 @@ import { serializeCssMedia } from './css-media.serializer';
 
 export type CssNewline = '\n' | '\r\n';
 
+interface BaseRuleGroup {
+  readonly kind: 'base';
+  readonly rule: OwnedCssRule;
+}
+
 interface ResponsiveGroup {
+  readonly kind: 'responsive';
   readonly key: string;
   readonly media: MediaDefinition;
   readonly rules: readonly OwnedCssRule[];
 }
 
-type RuleGroup = OwnedCssRule | ResponsiveGroup;
+type RuleGroup = BaseRuleGroup | ResponsiveGroup;
 
 function validateNewline(newline: CssNewline): void {
   if (newline !== '\n' && newline !== '\r\n') {
@@ -60,21 +66,23 @@ export function serializeCssRules(rules: readonly OwnedCssRule[], newline: CssNe
   const groups: RuleGroup[] = [];
   for (const rule of rules) {
     if (rule.context.media === undefined) {
-      groups.push(rule);
+      groups.push({ kind: 'base', rule });
       continue;
     }
 
     const key = mediaGroupKey(rule);
     const previous = groups.at(-1);
-    if (previous !== undefined && 'key' in previous && previous.key === key) {
+    if (previous?.kind === 'responsive' && previous.key === key) {
       groups[groups.length - 1] = { ...previous, rules: [...previous.rules, rule] };
       continue;
     }
 
-    groups.push({ key, media: rule.context.media, rules: [rule] });
+    groups.push({ kind: 'responsive', key, media: rule.context.media, rules: [rule] });
   }
 
   return groups
-    .map(group => ('key' in group ? serializeResponsiveGroup(group, newline) : serializeBaseRule(group, newline)))
+    .map(group =>
+      group.kind === 'responsive' ? serializeResponsiveGroup(group, newline) : serializeBaseRule(group.rule, newline),
+    )
     .join(newline);
 }

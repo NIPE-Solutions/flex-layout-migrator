@@ -49,6 +49,14 @@ describe('serializeCssRules', () => {
     );
   });
 
+  test('serializes a valid base rule with a caller-owned key property normally', () => {
+    const baseRule = { ...rule(A), key: 'caller-owned metadata' };
+
+    expect(serializeCssRules([baseRule], '\n')).toBe(
+      `/* flex-layout-codemod:rule id=${A} */\n.flm-${A} {\n  display: flex;\n}`,
+    );
+  });
+
   test('indents responsive rules inside their media block', () => {
     expect(serializeCssRules([rule(A, { priority: 900, media: MEDIA })], '\n')).toBe(
       `@media screen and (min-width: 600px) and (max-width: 959.98px) {\n  /* flex-layout-codemod:rule id=${A} */\n  .flm-${A} {\n    display: flex;\n  }\n}`,

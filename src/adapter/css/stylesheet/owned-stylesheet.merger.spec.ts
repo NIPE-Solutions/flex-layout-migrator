@@ -91,6 +91,16 @@ describe('mergeOwnedStylesheet', () => {
     expectMerge(existing, [], existing);
   });
 
+  test.each([
+    ['escaped quotes', String.raw`.before\"text"/* flex-layout-codemod:start schema=1 */".middle { color: red; }`],
+    [
+      'escaped comment openers',
+      String.raw`.before\/* flex-layout-codemod:start schema=1 */.middle { color: red; }\/* flex-layout-codemod:end */.after { color: blue; }`,
+    ],
+  ])('preserves every handwritten byte when ownership markers follow %s', (_label, existing) => {
+    expectMerge(existing, [], existing);
+  });
+
   test('replaces a smaller owned rule set with a larger one', () => {
     const prefix = '.before {}\n';
     const suffix = '\n.after {}';

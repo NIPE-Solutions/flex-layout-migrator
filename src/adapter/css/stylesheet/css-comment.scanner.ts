@@ -11,6 +11,33 @@ export interface CssCommentToken extends CssSourceRange {
 
 type ScannerState = 'normal' | 'single-quote' | 'double-quote' | 'comment';
 
+function cssNewlineEnd(source: string, start: number): number | undefined {
+  const codeUnit = source[start];
+  if (codeUnit === '\r') return source[start + 1] === '\n' ? start + 1 : start;
+  return codeUnit === '\n' || codeUnit === '\f' ? start : undefined;
+}
+
+function isHexDigit(codeUnit: string | undefined): boolean {
+  return codeUnit !== undefined && /^[0-9a-f]$/iu.test(codeUnit);
+}
+
+function consumeCssEscape(source: string, backslash: number): number | undefined {
+  let index = backslash + 1;
+  if (cssNewlineEnd(source, index) !== undefined) return undefined;
+  if (!isHexDigit(source[index])) return index < source.length ? index : backslash;
+
+  let hexDigits = 0;
+  while (hexDigits < 6 && isHexDigit(source[index])) {
+    index += 1;
+    hexDigits += 1;
+  }
+
+  const newlineEnd = cssNewlineEnd(source, index);
+  if (newlineEnd !== undefined) return newlineEnd;
+  if (source[index] === ' ' || source[index] === '\t') return index;
+  return index - 1;
+}
+
 export function scanCssComments(source: string): readonly CssCommentToken[] {
   const comments: CssCommentToken[] = [];
   let state: ScannerState = 'normal';
@@ -20,7 +47,9 @@ export function scanCssComments(source: string): readonly CssCommentToken[] {
     const codeUnit = source[index];
 
     if (state === 'normal') {
-      if (codeUnit === "'") {
+      if (codeUnit === '\\') {
+        index = consumeCssEscape(source, index) ?? index;
+      } else if (codeUnit === "'") {
         state = 'single-quote';
       } else if (codeUnit === '"') {
         state = 'double-quote';
@@ -46,7 +75,8 @@ export function scanCssComments(source: string): readonly CssCommentToken[] {
     }
 
     if (codeUnit === '\\') {
-      index += 1;
+      const newlineEnd = cssNewlineEnd(source, index + 1);
+      index = newlineEnd ?? consumeCssEscape(source, index) ?? index;
       continue;
     }
 

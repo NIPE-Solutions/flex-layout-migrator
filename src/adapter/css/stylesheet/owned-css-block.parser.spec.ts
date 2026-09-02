@@ -17,6 +17,13 @@ describe('parseOwnedCssBlock', () => {
     expect(parseOwnedCssBlock(source)).toEqual({ status: 'absent' });
   });
 
+  test.each([
+    ['an escaped quote', String.raw`.escaped\"text"/* flex-layout-codemod:start schema=1 */"`],
+    ['an escaped comment opener', String.raw`.escaped\/* flex-layout-codemod:start schema=1 */`],
+  ])('returns absent when marker text follows %s in normal CSS', (_label, source) => {
+    expect(parseOwnedCssBlock(source)).toEqual({ status: 'absent' });
+  });
+
   test('finds a valid LF block and its internal newline', () => {
     const source = `${START}\n${RULE_A}\n.flm-${A} {\n  display: flex;\n}\n${END}`;
 
