@@ -18,6 +18,15 @@ export function isByteExactHtmlClassToken(token: string): boolean {
   );
 }
 
+function isDoubleQuotedHtmlClassToken(token: string): boolean {
+  return (
+    token.length > 0 &&
+    ![...token].some(character => htmlSourceWhitespace.test(character)) &&
+    !/["<]/u.test(token) &&
+    !htmlReferencePrefix.test(token)
+  );
+}
+
 function appendedRawValue(rawValue: string, missingClassNames: readonly string[]): string {
   const separator = rawValue.length > 0 && !htmlSourceWhitespace.test(rawValue.at(-1) ?? '') ? ' ' : '';
   return `${rawValue}${separator}${missingClassNames.join(' ')}`;
@@ -38,7 +47,7 @@ export function appendLiteralClassNames(
   const missingClassNames = uniqueGenerated.filter(className => !existingRawClassNames.includes(className));
   if (missingClassNames.length === 0) return undefined;
 
-  if (!missingClassNames.every(isByteExactHtmlClassToken)) {
+  if (!missingClassNames.every(isDoubleQuotedHtmlClassToken)) {
     throw new Error('Generated class names must be byte-exact HTML source tokens before editing.');
   }
 
@@ -53,8 +62,18 @@ export function appendLiteralClassNames(
 
     const value = appendedRawValue(classAttribute.rawValue, missingClassNames);
     const delimiter = source[classAttribute.valueSource.start - 1];
-    if (delimiter === '"' || delimiter === "'") {
+    if (delimiter === '"') {
       return { range: classAttribute.valueSource, text: value, inputId };
+    }
+    if (delimiter === "'" && missingClassNames.every(isByteExactHtmlClassToken)) {
+      return { range: classAttribute.valueSource, text: value, inputId };
+    }
+    if (delimiter === "'" && !classAttribute.rawValue.includes('"')) {
+      return {
+        range: classAttribute.source,
+        text: `${classAttribute.rawName}="${value}"`,
+        inputId,
+      };
     }
 
     return {

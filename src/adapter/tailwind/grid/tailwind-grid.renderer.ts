@@ -1,4 +1,3 @@
-import { isByteExactHtmlClassToken } from '../../../edit/html-attribute-value';
 import type { GridSemanticPlan } from '../../../grid/grid-semantic.model';
 
 export type TailwindGridRenderResult =
@@ -17,15 +16,25 @@ function encode(property: string, value: string): string | undefined {
   if (
     value.length === 0 ||
     containsControl ||
-    /[_{}"'<>]/u.test(value) ||
+    /[{}'<>]/u.test(value) ||
     value.includes('\\') ||
     value.includes('/*') ||
     value.includes('*/')
   ) {
     return undefined;
   }
-  const candidate = `[${property}:${value.replaceAll(' ', '_')}]`;
-  return isByteExactHtmlClassToken(candidate) ? candidate : undefined;
+  let encodedValue: string;
+  if (property === 'grid-template-areas') {
+    if (!/^(?:"[^"]*")(?:\s+"[^"]*")*$/u.test(value)) return undefined;
+    encodedValue = value.replaceAll('"', "'").replaceAll(' ', '_');
+  } else {
+    if (value.includes('"')) return undefined;
+    encodedValue = value.replaceAll('_', '\\_').replaceAll(' ', '_');
+  }
+  const candidate = `[${property}:${encodedValue}]`;
+  return candidate.length > 0 && !/[\t\n\f\r "<]/u.test(candidate) && !/&(?:#|[a-z\d])/iu.test(candidate)
+    ? candidate
+    : undefined;
 }
 
 export class TailwindGridRenderer {

@@ -287,7 +287,7 @@ export class TailwindAdapter implements ConversionAdapter {
       (family, familyInputs, itemContext) => this.planExtendedFamily(family, familyInputs, itemContext),
     );
     const initialStrategyPlans = this.generatedPropertyCompositionPlanner.compose(
-      this.composeGridDisplay(plannedStrategies),
+      this.composeGridDisplay(this.closeGridContainerDependencies(plannedStrategies)),
     );
     if (!visibilityInputs.length) {
       return this.extendedDisplayCompositionPlanner.composeWithLayout(initialStrategyPlans);
@@ -563,6 +563,19 @@ export class TailwindAdapter implements ConversionAdapter {
         classNames: plan.classNames.filter(className => describeTailwindDisplay(className) === undefined),
       };
     });
+  }
+
+  private closeGridContainerDependencies(plans: readonly PlannedConversion[]): readonly PlannedConversion[] {
+    const containerPlans = plans.filter(
+      plan => gridContainerDirectives.has(plan.input.directive) || plan.input.directive === 'gdInline',
+    );
+    if (!containerPlans.some(plan => plan.status !== 'converted')) return plans;
+    return plans.map(plan =>
+      plan.status === 'converted' &&
+      (gridContainerDirectives.has(plan.input.directive) || plan.input.directive === 'gdInline')
+        ? contextUnverified(plan.input, 'The Grid container display family contains an unresolved member.')
+        : plan,
+    );
   }
 
   private planExtendedFamily(

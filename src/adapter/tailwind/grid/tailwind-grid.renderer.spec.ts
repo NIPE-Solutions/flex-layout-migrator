@@ -15,11 +15,13 @@ describe('TailwindGridRenderer', () => {
     ['grid-column', '1 / span 2', '[grid-column:1_/_span_2]'],
     ['grid-gap', '1rem 2rem', '[grid-gap:1rem_2rem]'],
     ['justify-self', 'stretch', '[justify-self:stretch]'],
+    ['grid-template-areas', '"header header" "nav main"', "[grid-template-areas:'header_header'_'nav_main']"],
+    ['grid-template-columns', 'var(--grid_columns)', '[grid-template-columns:var(--grid\\_columns)]'],
   ] as const)('encodes %s=%s deterministically', (property, value, candidate) => {
     expect(renderer.render(plan(property, value))).toEqual({ status: 'rendered', classNames: [candidate] });
   });
 
-  test.each(['', 'bad\nvalue', 'bad{value}', 'bad_value'])('rejects values Tailwind cannot own exactly: %j', value => {
+  test.each(['', 'bad\nvalue', 'bad{value}'])('rejects values Tailwind cannot own exactly: %j', value => {
     expect(renderer.render(plan('grid-column', value))).toMatchObject({
       status: 'review',
       code: 'tailwind-candidate-unverified',
@@ -33,6 +35,7 @@ describe('TailwindGridRenderer', () => {
       ['grid-column', '1 / span 2'],
       ['grid-gap', '1rem 2rem'],
       ['justify-self', 'stretch'],
+      ['grid-template-columns', 'var(--grid_columns)'],
     ] as const;
 
     for (const [property, value] of cases) {

@@ -16,7 +16,19 @@ export type DirectiveFamily =
   | 'flex-order'
   | 'visibility'
   | 'extended-class'
-  | 'extended-style';
+  | 'extended-style'
+  | 'grid-align-columns'
+  | 'grid-align-rows'
+  | 'grid-area'
+  | 'grid-areas'
+  | 'grid-auto'
+  | 'grid-column'
+  | 'grid-columns'
+  | 'grid-gap'
+  | 'grid-align'
+  | 'grid-inline'
+  | 'grid-row'
+  | 'grid-rows';
 
 export type PlanOne = (input: LocatedFlexLayoutInput, context: ConversionContext) => PlannedConversion;
 export type PlanExtendedFamily = (
@@ -43,6 +55,18 @@ const familyByDirective = new Map<LocatedFlexLayoutInput['directive'], Directive
   ['ngClass', 'extended-class'],
   ['style', 'extended-style'],
   ['ngStyle', 'extended-style'],
+  ['gdAlignColumns', 'grid-align-columns'],
+  ['gdAlignRows', 'grid-align-rows'],
+  ['gdArea', 'grid-area'],
+  ['gdAreas', 'grid-areas'],
+  ['gdAuto', 'grid-auto'],
+  ['gdColumn', 'grid-column'],
+  ['gdColumns', 'grid-columns'],
+  ['gdGap', 'grid-gap'],
+  ['gdGridAlign', 'grid-align'],
+  ['gdInline', 'grid-inline'],
+  ['gdRow', 'grid-row'],
+  ['gdRows', 'grid-rows'],
 ]);
 
 const localLayoutDependents = new Set<DirectiveFamily>(['layout-gap', 'layout-align']);

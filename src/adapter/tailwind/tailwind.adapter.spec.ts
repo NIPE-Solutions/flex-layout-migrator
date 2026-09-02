@@ -90,12 +90,13 @@ describe('TailwindAdapter', () => {
     });
   });
 
-  test('preserves unencodable Grid values with a compiler-verification diagnostic', () => {
+  test('encodes quoted gdAreas rows without introducing an HTML delimiter collision', () => {
     const gridInput = input({ directive: 'gdAreas', sourceName: 'gdAreas', value: 'header | main' });
 
-    expect(new TailwindAdapter().plan(gridInput, { element })).toMatchObject({
-      status: 'review',
-      code: 'tailwind-candidate-unverified',
+    expect(new TailwindAdapter().plan(gridInput, { element })).toEqual({
+      status: 'converted',
+      input: gridInput,
+      classNames: ['grid', "[grid-template-areas:'header'_'main']"],
     });
   });
 
@@ -116,6 +117,41 @@ describe('TailwindAdapter', () => {
     expect(new TailwindAdapter().planElement([columns, gap], { element, inputs: [columns, gap] })).toEqual([
       { status: 'converted', input: columns, classNames: ['grid', '[grid-template-columns:1fr]'] },
       { status: 'converted', input: gap, classNames: ['[grid-gap:1rem]'] },
+    ]);
+  });
+
+  test('preserves a complete Grid directive family when one responsive member is dynamic', () => {
+    const base = input({ id: 'fixture:columns', directive: 'gdColumns', sourceName: 'gdColumns', value: '1fr' });
+    const dynamic = input({
+      id: 'fixture:columns-sm',
+      directive: 'gdColumns',
+      sourceName: '[gdColumns.sm]',
+      breakpoint: 'sm',
+      binding: 'property',
+      value: 'columns',
+    });
+
+    expect(new TailwindAdapter().planElement([base, dynamic], { element, inputs: [base, dynamic] })).toEqual([
+      expect.objectContaining({ status: 'review', code: 'context-unverified' }),
+      expect.objectContaining({ status: 'review', code: 'dynamic-binding' }),
+    ]);
+  });
+
+  test('preserves every display-dependent Grid container when one container input is unresolved', () => {
+    const columns = input({ id: 'fixture:columns', directive: 'gdColumns', sourceName: 'gdColumns', value: '1fr' });
+    const dynamicGap = input({
+      id: 'fixture:gap',
+      directive: 'gdGap',
+      sourceName: '[gdGap]',
+      binding: 'property',
+      value: 'gap',
+    });
+
+    expect(
+      new TailwindAdapter().planElement([columns, dynamicGap], { element, inputs: [columns, dynamicGap] }),
+    ).toEqual([
+      expect.objectContaining({ status: 'review', code: 'context-unverified' }),
+      expect.objectContaining({ status: 'review', code: 'dynamic-binding' }),
     ]);
   });
 
