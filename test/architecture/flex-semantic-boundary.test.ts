@@ -3,7 +3,7 @@ import { join, relative } from 'node:path';
 
 const flexRoot = join(process.cwd(), 'src', 'flex');
 const targetTokens = ['flex-row', 'box-border', '[@media_'];
-const tailwindImport = /(?:\bfrom\s*|\bimport\s*\(|\brequire\s*\()\s*['"][^'"]*adapter\/tailwind[^'"]*['"]/u;
+const tailwindModuleReference = 'adapter/tailwind';
 
 function sourceFiles(directory: string): readonly string[] {
   return readdirSync(directory, { withFileTypes: true }).flatMap(entry => {
@@ -18,8 +18,10 @@ describe('flex semantic boundary', () => {
     "import { renderLayout } from '../../adapter/tailwind/directives/layout.strategy';",
     "await import('../../adapter/tailwind/tailwind.adapter');",
     "require('../../adapter/tailwind/tailwind.adapter');",
+    "import '../../adapter/tailwind/directives/layout.strategy';",
+    "import /* target renderer */ '../../adapter/tailwind/directives/layout.strategy';",
   ])('rejects Tailwind module reference: %s', source => {
-    expect(source).toMatch(tailwindImport);
+    expect(source).toContain(tailwindModuleReference);
   });
 
   test('contains no Tailwind dependencies or target syntax', () => {
@@ -27,7 +29,7 @@ describe('flex semantic boundary', () => {
       const source = readFileSync(path, 'utf8');
       const sourcePath = relative(process.cwd(), path);
 
-      expect(source, sourcePath).not.toMatch(tailwindImport);
+      expect(source, sourcePath).not.toContain(tailwindModuleReference);
       for (const token of targetTokens) {
         expect(source, sourcePath).not.toContain(token);
       }
