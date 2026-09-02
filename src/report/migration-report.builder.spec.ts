@@ -44,16 +44,30 @@ describe('MigrationReportBuilder', () => {
   test('aggregates sorted POSIX file reports without leaking internal paths or fields', () => {
     const inputRoot = '/private/checkout/templates';
     const outputRoot = '/private/checkout/generated';
-    const report = new MigrationReportBuilder().build(inputRoot, outputRoot, 'tailwind', true, 125, [
-      file('/private/checkout/templates/nested/b.html', '/private/checkout/generated/nested/b.html', false, [
-        locatedResult('/private/checkout/templates/nested/b.html', 'review', 30),
-        locatedResult('/private/checkout/templates/nested/b.html', 'unsupported', 45),
-      ]),
-      file('/private/checkout/templates/a.html', '/private/checkout/generated/a.html', true, [
-        locatedResult('/private/checkout/templates/a.html', 'converted', 5),
-      ]),
-    ]);
+    const report = new MigrationReportBuilder().build(
+      inputRoot,
+      outputRoot,
+      'tailwind',
+      'plan',
+      { status: 'skipped', reason: 'plan-only' },
+      125,
+      [
+        file('/private/checkout/templates/nested/b.html', '/private/checkout/generated/nested/b.html', false, [
+          locatedResult('/private/checkout/templates/nested/b.html', 'review', 30),
+          locatedResult('/private/checkout/templates/nested/b.html', 'unsupported', 45),
+        ]),
+        file('/private/checkout/templates/a.html', '/private/checkout/generated/a.html', true, [
+          locatedResult('/private/checkout/templates/a.html', 'converted', 5),
+        ]),
+      ],
+    );
 
+    expect(report).toMatchObject({
+      schemaVersion: 2,
+      mode: 'plan',
+      application: { status: 'skipped', reason: 'plan-only' },
+    });
+    expect(report).not.toHaveProperty('dryRun');
     expect(report.files.map(item => item.path)).toEqual(['a.html', 'nested/b.html']);
     expect(report.summary).toEqual({
       filesScanned: 2,
@@ -105,17 +119,25 @@ describe('MigrationReportBuilder', () => {
     const inputRoot = String.raw`C:\workspace\templates`;
     const outputRoot = String.raw`D:\artifacts\templates`;
     const inputPath = String.raw`C:\workspace\templates\nested\broken.html`;
-    const report = new MigrationReportBuilder().build(inputRoot, outputRoot, 'tailwind', false, 7.9, [
-      file(inputPath, String.raw`D:\artifacts\templates\nested\broken.html`, false, [
-        {
-          status: 'parse-error',
-          fileName: inputPath,
-          code: 'template-parse-error',
-          reason: 'Unexpected closing tag',
-          source: { start: 17, end: 23 },
-        },
-      ]),
-    ]);
+    const report = new MigrationReportBuilder().build(
+      inputRoot,
+      outputRoot,
+      'tailwind',
+      'write',
+      { status: 'skipped', reason: 'parse-errors' },
+      7.9,
+      [
+        file(inputPath, String.raw`D:\artifacts\templates\nested\broken.html`, false, [
+          {
+            status: 'parse-error',
+            fileName: inputPath,
+            code: 'template-parse-error',
+            reason: 'Unexpected closing tag',
+            source: { start: 17, end: 23 },
+          },
+        ]),
+      ],
+    );
 
     expect(report.files).toEqual([
       {
@@ -139,19 +161,33 @@ describe('MigrationReportBuilder', () => {
   });
 
   test('normalizes files under a relative Windows folder root', () => {
-    const report = new MigrationReportBuilder().build('templates', 'generated', 'tailwind', false, 0, [
-      file(String.raw`templates\nested\a.html`, String.raw`generated\nested\a.html`, false, []),
-    ]);
+    const report = new MigrationReportBuilder().build(
+      'templates',
+      'generated',
+      'tailwind',
+      'write',
+      { status: 'applied' },
+      0,
+      [file(String.raw`templates\nested\a.html`, String.raw`generated\nested\a.html`, false, [])],
+    );
 
     expect(report.files.map(item => item.path)).toEqual(['nested/a.html']);
   });
 
   test('sorts report paths by UTF-16 code units instead of the host locale', () => {
-    const report = new MigrationReportBuilder().build('/templates', '/generated', 'tailwind', false, 0, [
-      file('/templates/ä.html', '/generated/ä.html', false, []),
-      file('/templates/a.html', '/generated/a.html', false, []),
-      file('/templates/Z.html', '/generated/Z.html', false, []),
-    ]);
+    const report = new MigrationReportBuilder().build(
+      '/templates',
+      '/generated',
+      'tailwind',
+      'write',
+      { status: 'applied' },
+      0,
+      [
+        file('/templates/ä.html', '/generated/ä.html', false, []),
+        file('/templates/a.html', '/generated/a.html', false, []),
+        file('/templates/Z.html', '/generated/Z.html', false, []),
+      ],
+    );
 
     expect(report.files.map(item => item.path)).toEqual(['Z.html', 'a.html', 'ä.html']);
   });
@@ -162,7 +198,8 @@ describe('MigrationReportBuilder', () => {
       inputPath,
       '/private/output/card.component.html',
       'tailwind',
-      false,
+      'write',
+      { status: 'applied' },
       0,
       [file(inputPath, '/private/output/card.component.html', false, [])],
     );
@@ -176,10 +213,19 @@ describe('MigrationReportBuilder', () => {
     'reports a %s CSS stylesheet without including it in template totals',
     change => {
       const inputRoot = '/private/checkout/templates';
-      const report = new MigrationReportBuilder().build(inputRoot, inputRoot, 'css', false, 0, [], {
-        path: `${inputRoot}/flex-layout-migration.css`,
-        change,
-      });
+      const report = new MigrationReportBuilder().build(
+        inputRoot,
+        inputRoot,
+        'css',
+        'write',
+        { status: 'applied' },
+        0,
+        [],
+        {
+          path: `${inputRoot}/flex-layout-migration.css`,
+          change,
+        },
+      );
 
       expect(report.target).toBe('css');
       expect(report.stylesheet).toEqual({ path: 'flex-layout-migration.css', change });
@@ -195,14 +241,45 @@ describe('MigrationReportBuilder', () => {
     },
   );
 
-  test('keeps the serialized Tailwind report byte-compatible without a stylesheet field', () => {
-    const report = new MigrationReportBuilder().build('input.html', 'output.html', 'tailwind', true, 12, [
-      file('input.html', 'output.html', false, []),
-    ]);
+  test('serializes an exact schema-2 Tailwind report without a stylesheet field', () => {
+    const report = new MigrationReportBuilder().build(
+      'input.html',
+      'output.html',
+      'tailwind',
+      'plan',
+      { status: 'skipped', reason: 'plan-only' },
+      12,
+      [file('input.html', 'output.html', false, [])],
+    );
 
     expect(JSON.stringify(report)).toBe(
-      '{"schemaVersion":1,"target":"tailwind","dryRun":true,"input":"input.html","output":"output.html","durationMs":12,"summary":{"filesScanned":1,"filesChanged":0,"converted":0,"review":0,"unsupported":0,"invalid":0,"parseErrors":0},"files":[{"path":"input.html","changed":false,"results":[]}]}',
+      '{"schemaVersion":2,"mode":"plan","target":"tailwind","application":{"status":"skipped","reason":"plan-only"},"input":"input.html","output":"output.html","durationMs":12,"summary":{"filesScanned":1,"filesChanged":0,"converted":0,"review":0,"unsupported":0,"invalid":0,"parseErrors":0},"files":[{"path":"input.html","changed":false,"results":[]}]}',
     );
     expect(report).not.toHaveProperty('stylesheet');
+    expect(report).not.toHaveProperty('dryRun');
   });
+
+  test.each([
+    ['plan-only', 'plan', { status: 'skipped', reason: 'plan-only' }],
+    ['parse-errors', 'write', { status: 'skipped', reason: 'parse-errors' }],
+    ['applied', 'write', { status: 'applied' }],
+  ] as const)(
+    'copies the explicit %s application outcome without deriving it from parse counts',
+    (_name, mode, application) => {
+      const report = new MigrationReportBuilder().build('/templates', '/generated', 'tailwind', mode, application, 0, [
+        file('/templates/a.html', '/generated/a.html', false, [
+          {
+            status: 'parse-error',
+            fileName: '/templates/a.html',
+            code: 'template-parse-error',
+            reason: 'broken',
+            source: { start: 0, end: 1 },
+          },
+        ]),
+      ]);
+
+      expect(report.mode).toBe(mode);
+      expect(report.application).toEqual(application);
+    },
+  );
 });

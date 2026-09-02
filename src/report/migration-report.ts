@@ -1,19 +1,21 @@
+import type { MigrationMode } from '../migrator/migration-mode';
+
+export type { MigrationMode } from '../migrator/migration-mode';
+
+export type MigrationApplication =
+  { readonly status: 'applied' } | { readonly status: 'skipped'; readonly reason: 'plan-only' | 'parse-errors' };
+
 export interface MigrationReport {
-  readonly schemaVersion: 1;
+  readonly schemaVersion: 2;
+  readonly mode: MigrationMode;
   readonly target: 'css' | 'tailwind';
-  readonly dryRun: boolean;
+  readonly application: MigrationApplication;
   readonly input: string;
   readonly output: string;
   readonly durationMs: number;
   readonly summary: MigrationSummary;
   readonly files: readonly FileReport[];
   readonly stylesheet?: StylesheetReport;
-  readonly application?: SkippedApplicationReport;
-}
-
-export interface SkippedApplicationReport {
-  readonly status: 'skipped';
-  readonly reason: 'parse-errors';
 }
 
 export interface StylesheetReport {
