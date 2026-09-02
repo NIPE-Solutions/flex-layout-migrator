@@ -25,15 +25,18 @@ const standardAliases = new Set([
   'gt-md',
   'gt-lg',
 ]);
-const rendererParameterTypes: Readonly<Record<string, string>> = {
-  'layout.css-renderer.ts': 'LayoutSemantics',
-  'layout-align.css-renderer.ts': 'LayoutAlignmentSemantics',
-  'layout-gap.css-renderer.ts': 'LayoutGapSemantics',
-  'flex-item.css-renderer.ts': 'FlexItemSemantics',
-  'flex-align.css-renderer.ts': 'FlexAlignSemantics',
-  'flex-fill.css-renderer.ts': 'FlexFillSemantics',
-  'flex-offset.css-renderer.ts': 'FlexOffsetSemantics',
-  'flex-order.css-renderer.ts': 'FlexOrderSemantics',
+const rendererContracts: Readonly<Record<string, { readonly name: string; readonly parameterType: string }>> = {
+  'layout.css-renderer.ts': { name: 'renderLayoutCss', parameterType: 'LayoutSemantics' },
+  'layout-align.css-renderer.ts': {
+    name: 'renderLayoutAlignmentCss',
+    parameterType: 'LayoutAlignmentSemantics',
+  },
+  'layout-gap.css-renderer.ts': { name: 'renderLayoutGapCss', parameterType: 'LayoutGapSemantics' },
+  'flex-item.css-renderer.ts': { name: 'renderFlexItemCss', parameterType: 'FlexItemSemantics' },
+  'flex-align.css-renderer.ts': { name: 'renderFlexAlignCss', parameterType: 'FlexAlignSemantics' },
+  'flex-fill.css-renderer.ts': { name: 'renderFlexFillCss', parameterType: 'FlexFillSemantics' },
+  'flex-offset.css-renderer.ts': { name: 'renderFlexOffsetCss', parameterType: 'FlexOffsetSemantics' },
+  'flex-order.css-renderer.ts': { name: 'renderFlexOrderCss', parameterType: 'FlexOrderSemantics' },
 };
 
 function forbiddenCssModule(inspection: TypeScriptInspection): string | undefined {
@@ -48,7 +51,32 @@ function directiveSyntax(inspection: TypeScriptInspection): string | undefined {
 }
 
 function copiedBreakpointAlias(inspection: TypeScriptInspection): string | undefined {
-  return inspection.literalTexts.find(token => standardAliases.has(token));
+  const literalAlias = inspection.literalTexts.find(token => standardAliases.has(token));
+  if (literalAlias !== undefined) return literalAlias;
+
+  for (const propertyNames of inspection.objectPropertyTables) {
+    const aliases = propertyNames.filter(propertyName => standardAliases.has(propertyName));
+    if (aliases.length >= 2) return aliases[0];
+  }
+  return undefined;
+}
+
+function rendererSignatureViolation(
+  inspection: TypeScriptInspection,
+  contract: { readonly name: string; readonly parameterType: string },
+): string | undefined {
+  const renderers = inspection.exportedFunctions.filter(declaration => declaration.name.endsWith('Css'));
+  if (renderers.length !== 1) return 'expected exactly one CSS renderer export';
+  const renderer = renderers[0];
+  if (renderer?.name !== contract.name) return 'missing intended renderer';
+  if (
+    renderer.parameters.length !== 1 ||
+    renderer.parameters[0]?.name !== 'value' ||
+    renderer.parameters[0]?.type !== contract.parameterType
+  ) {
+    return 'renderer must accept only its semantic value type';
+  }
+  return undefined;
 }
 
 function semanticRendererLeak(inspection: TypeScriptInspection): string | undefined {
@@ -103,6 +131,7 @@ describe('native CSS architecture boundary', () => {
     'export function renderLayoutCss(value: string) { return value.trim().split(/\\s+/); }',
     "const directive = 'fxLayout';",
     'const input = { fxFlexOrder: value };',
+    'const directivePattern = /fxLayout|fxFlex/;',
   ])('rejects raw Flex-Layout directive interpretation in CSS production syntax: %s', source => {
     const inspection = inspectTypeScript(source, fixturePath);
     const rawParameter = inspection.exportedFunctions.some(
@@ -135,16 +164,29 @@ describe('native CSS architecture boundary', () => {
     expect(copiedBreakpointAlias(inspectTypeScript(source, fixturePath))).toBe('xs');
   });
 
-  test.each(["const selector = '.flm-' + digest;", 'function renderFlexItemCss() { return []; }'])(
-    'rejects target renderer leakage from semantic modules: %s',
-    source => {
-      const inspection = inspectTypeScript(source, join(flexRoot, 'fixture.semantic.ts'));
+  test('rejects a standard breakpoint table with identifier-keyed aliases', () => {
+    const source = `
+      const breakpoints = {
+        xs: { min: 0, max: 599.98 },
+        sm: { min: 600, max: 959.98 },
+        md: { min: 960, max: 1279.98 },
+      };
+    `;
 
-      expect(
-        inspection.literalTexts.some(text => text.includes('flm-')) || semanticRendererLeak(inspection) !== undefined,
-      ).toBe(true);
-    },
-  );
+    expect(copiedBreakpointAlias(inspectTypeScript(source, fixturePath))).toBe('xs');
+  });
+
+  test.each([
+    "const selector = '.flm-' + digest;",
+    'const selectorPattern = /^\\.flm-/;',
+    'function renderFlexItemCss() { return []; }',
+  ])('rejects target renderer leakage from semantic modules: %s', source => {
+    const inspection = inspectTypeScript(source, join(flexRoot, 'fixture.semantic.ts'));
+
+    expect(
+      inspection.literalTexts.some(text => text.includes('flm-')) || semanticRendererLeak(inspection) !== undefined,
+    ).toBe(true);
+  });
 
   test('keeps selector prefixes and renderer names out of semantic production code', () => {
     for (const path of productionTypeScriptFiles(flexRoot)) {
@@ -163,24 +205,37 @@ describe('native CSS architecture boundary', () => {
     const rendererRoot = join(cssRoot, 'flex');
 
     for (const path of productionTypeScriptFiles(rendererRoot)) {
-      const expectedType = rendererParameterTypes[basename(path)];
+      const contract = rendererContracts[basename(path)];
       const inspection = inspectTypeScript(readFileSync(path, 'utf8'), path);
-      const renderer = inspection.exportedFunctions.find(declaration => declaration.name.endsWith('Css'));
+      const renderers = inspection.exportedFunctions.filter(declaration => declaration.name.endsWith('Css'));
 
-      expect(expectedType, relative(process.cwd(), path)).toBeDefined();
-      expect(renderer?.parameters).toEqual([{ name: 'value', type: expectedType }]);
-      expect(
-        renderer?.parameters.some(
-          parameter => parameter.type === 'string' || parameter.type.includes('SemanticResult'),
-        ),
-      ).toBe(false);
+      expect(contract, relative(process.cwd(), path)).toBeDefined();
+      if (contract === undefined) continue;
+      expect(renderers, relative(process.cwd(), path)).toEqual([
+        { name: contract.name, parameters: [{ name: 'value', type: contract.parameterType }] },
+      ]);
+      expect(rendererSignatureViolation(inspection, contract), relative(process.cwd(), path)).toBeUndefined();
     }
+  });
+
+  test('rejects a raw-string renderer after a valid renderer export', () => {
+    const source = `
+      export function renderLayoutCss(value: LayoutSemantics) { return value; }
+      export function renderRawCss(value: string) { return value.trim(); }
+    `;
+    const inspection = inspectTypeScript(source, fixturePath);
+
+    expect(
+      rendererSignatureViolation(inspection, { name: 'renderLayoutCss', parameterType: 'LayoutSemantics' }),
+    ).toBeDefined();
   });
 
   test('does not scan comments as production syntax', () => {
     const source = `
       // import { renderLayoutCss } from '../adapter/css/flex/layout.css-renderer';
       // fxLayout='row' and .flm-deadbeef
+      // const directivePattern = /fxLayout|fxFlex/;
+      // const selectorPattern = /^\\.flm-/;
       /* const copied = [{ alias: 'xs', min: 0, max: 599.98 }]; */
       export function harmless(value: LayoutSemantics): LayoutSemantics { return value; }
     `;

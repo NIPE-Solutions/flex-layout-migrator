@@ -16,6 +16,7 @@ export interface TypeScriptInspection {
   readonly moduleReferences: readonly string[];
   readonly identifiers: readonly string[];
   readonly literalTexts: readonly string[];
+  readonly objectPropertyTables: readonly (readonly string[])[];
   readonly exportedFunctions: readonly InspectedExportedFunction[];
 }
 
@@ -30,16 +31,33 @@ function hasExportModifier(node: ts.Node): boolean {
   );
 }
 
+function objectPropertyName(property: ts.ObjectLiteralElementLike): string | undefined {
+  if (ts.isSpreadAssignment(property)) return undefined;
+  const name = property.name;
+  return ts.isIdentifier(name) || ts.isStringLiteralLike(name) || ts.isNumericLiteral(name) ? name.text : undefined;
+}
+
 export function inspectTypeScript(source: string, sourcePath: string): TypeScriptInspection {
   const sourceFile = ts.createSourceFile(sourcePath, source, ts.ScriptTarget.Latest, false, ts.ScriptKind.TS);
   const moduleReferences: string[] = [];
   const identifiers: string[] = [];
   const literalTexts: string[] = [];
+  const objectPropertyTables: string[][] = [];
   const exportedFunctions: InspectedExportedFunction[] = [];
 
   function visit(node: ts.Node): void {
     if (ts.isIdentifier(node)) identifiers.push(node.text);
-    if (ts.isStringLiteralLike(node) || ts.isTemplateLiteralToken(node)) literalTexts.push(node.text);
+    if (ts.isStringLiteralLike(node) || ts.isTemplateLiteralToken(node) || ts.isRegularExpressionLiteral(node)) {
+      literalTexts.push(node.text);
+    }
+    if (ts.isObjectLiteralExpression(node)) {
+      objectPropertyTables.push(
+        node.properties.flatMap(property => {
+          const name = objectPropertyName(property);
+          return name === undefined ? [] : [name];
+        }),
+      );
+    }
 
     if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) {
       const reference = moduleText(node.moduleSpecifier);
@@ -70,7 +88,7 @@ export function inspectTypeScript(source: string, sourcePath: string): TypeScrip
   }
 
   visit(sourceFile);
-  return { moduleReferences, identifiers, literalTexts, exportedFunctions };
+  return { moduleReferences, identifiers, literalTexts, objectPropertyTables, exportedFunctions };
 }
 
 export function productionTypeScriptFiles(directory: string): readonly string[] {
