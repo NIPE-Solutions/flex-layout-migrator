@@ -157,14 +157,21 @@ export class Migrator {
         continue;
       }
       for (const attribute of parsed.elements.flatMap(element => element.attributes)) {
+        const literalClass = attribute.name === 'class' && attribute.binding === 'literal';
+        const namedClassBinding = attribute.binding === 'property' && attribute.bindingTarget === 'class';
         const dynamicClass =
           attribute.binding === 'property' &&
-          (attribute.bindingTarget === 'class' || attribute.name === 'class' || attribute.name === 'ngClass');
-        const literalClass = attribute.name === 'class' && attribute.binding === 'literal';
-        if (!literalClass && !dynamicClass) continue;
+          (attribute.name === 'class' || attribute.name === 'className' || attribute.name === 'ngClass');
+        if (!literalClass && !namedClassBinding && !dynamicClass) continue;
 
-        for (const className of `${attribute.value} ${attribute.rawValue}`.matchAll(/flm-[a-f0-9]{64}/gu)) {
-          references.add(className[0]);
+        if (literalClass) {
+          for (const className of attribute.value.split(/\s+/u)) {
+            if (isGeneratedCssClassName(className)) references.add(className);
+          }
+        }
+        if (namedClassBinding) {
+          const className = namedGeneratedClassName(attribute.rawName);
+          if (className !== undefined) references.add(className);
         }
         if (
           dynamicClass ||
@@ -177,6 +184,15 @@ export class Migrator {
     }
     return { classNames: references, complete };
   }
+}
+
+function isGeneratedCssClassName(className: string): boolean {
+  return /^flm-[a-f0-9]{64}$/u.test(className);
+}
+
+function namedGeneratedClassName(rawName: string): string | undefined {
+  const match = rawName.match(/^\[class\.(flm-[a-f0-9]{64})\]$/u);
+  return match?.[1];
 }
 
 function isEnoent(error: unknown): error is NodeJS.ErrnoException {

@@ -1,8 +1,15 @@
 import { lstat, readFile } from 'node:fs/promises';
 import * as path from 'node:path';
+import { allBreakpointDefinitions } from '../breakpoint/breakpoint-catalog';
+import { cssRuleContext } from '../adapter/css/css-breakpoint.context';
 import type { OwnedCssRule } from '../adapter/css/css-artifact.model';
 import { CssStylesheetError } from '../adapter/css/stylesheet/css-stylesheet.error';
-import { mergeOwnedStylesheet, type OwnedCssReferences } from '../adapter/css/stylesheet/owned-stylesheet.merger';
+import {
+  mergeOwnedStylesheet,
+  type OwnedCssReferences,
+  type RetainedMediaContextResolver,
+} from '../adapter/css/stylesheet/owned-stylesheet.merger';
+import { serializeCssMedia } from '../adapter/css/stylesheet/css-media.serializer';
 import { MigrationApplicationError } from './migration-application.error';
 import { plannedOutputArtifact, type ArtifactState, type PlannedOutputArtifact } from './migration-plan';
 
@@ -15,6 +22,12 @@ const nodeFileSystem: StylesheetPlannerFileSystem = {
   readFile: target => readFile(target, 'utf8'),
   lstat,
 };
+
+const retainedMediaContexts = new Map(
+  allBreakpointDefinitions().map(definition => [serializeCssMedia(definition.media), cssRuleContext(definition)]),
+);
+
+const resolveRetainedMediaContext: RetainedMediaContextResolver = media => retainedMediaContexts.get(media);
 
 export class StylesheetPlanner {
   constructor(private readonly fileSystem: StylesheetPlannerFileSystem = nodeFileSystem) {}
@@ -30,7 +43,7 @@ export class StylesheetPlanner {
 
     let merged: ReturnType<typeof mergeOwnedStylesheet>;
     try {
-      merged = mergeOwnedStylesheet(existing, rules, references);
+      merged = mergeOwnedStylesheet(existing, rules, references, resolveRetainedMediaContext);
     } catch (error: unknown) {
       if (error instanceof CssStylesheetError) {
         throw new MigrationApplicationError(

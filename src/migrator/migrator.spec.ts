@@ -344,7 +344,7 @@ describe('Migrator', () => {
     await expect(access(stylesheetPath)).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
-  test.each(['class="%s {{ extra }}"', '[class]="extra"'])(
+  test.each(['class="%s {{ extra }}"', '[class]="extra"', '[className]="extra"'])(
     'preserves owned CSS when an in-place class reference is interpolation or binding uncertain',
     async classAttribute => {
       const inputPath = join(temporaryDirectory, 'input.html');
@@ -364,6 +364,65 @@ describe('Migrator', () => {
       });
 
       expect(report.stylesheet).toEqual({ path: 'flex-layout-migration.css', change: 'unchanged' });
+    },
+  );
+
+  test('retains and validates a statically named generated class binding', async () => {
+    const inputPath = join(temporaryDirectory, 'input.html');
+    const stylesheetPath = join(temporaryDirectory, 'flex-layout-migration.css');
+    await writeFile(inputPath, '<div fxLayout="row"></div>', 'utf8');
+    await new Migrator(AdapterFactory.createSession('css'), inputPath, inputPath, () => 0).migrate({
+      dryRun: false,
+      stylesheetPath,
+    });
+    const generatedClass = (await readFile(inputPath, 'utf8')).match(/flm-[a-f0-9]{64}/u)?.[0];
+    expect(generatedClass).toBeDefined();
+    await writeFile(inputPath, `<div [class.${generatedClass}]="enabled"></div>`, 'utf8');
+
+    const report = await new Migrator(AdapterFactory.createSession('css'), inputPath, inputPath, () => 0).migrate({
+      dryRun: false,
+      stylesheetPath,
+    });
+
+    expect(report.stylesheet).toEqual({ path: 'flex-layout-migration.css', change: 'unchanged' });
+  });
+
+  test('fails closed for a statically named generated class binding without an owned rule', async () => {
+    const inputPath = join(temporaryDirectory, 'input.html');
+    const stylesheetPath = join(temporaryDirectory, 'flex-layout-migration.css');
+    await writeFile(inputPath, '<div fxLayout="row"></div>', 'utf8');
+    await new Migrator(AdapterFactory.createSession('css'), inputPath, inputPath, () => 0).migrate({
+      dryRun: false,
+      stylesheetPath,
+    });
+    await writeFile(inputPath, `<div [class.flm-${'f'.repeat(64)}]="enabled"></div>`, 'utf8');
+
+    await expect(
+      new Migrator(AdapterFactory.createSession('css'), inputPath, inputPath, () => 0).migrate({
+        dryRun: false,
+        stylesheetPath,
+      }),
+    ).rejects.toMatchObject({ code: 'stylesheet-ownership-invalid' });
+  });
+
+  test.each([`flm-${'a'.repeat(64)}-modifier`, `handwritten-flm-${'f'.repeat(64)}`])(
+    'does not treat a boundary-adjacent handwritten class name as a generated authority',
+    async className => {
+      const inputPath = join(temporaryDirectory, 'input.html');
+      const stylesheetPath = join(temporaryDirectory, 'flex-layout-migration.css');
+      await writeFile(inputPath, '<div fxLayout="row"></div>', 'utf8');
+      await new Migrator(AdapterFactory.createSession('css'), inputPath, inputPath, () => 0).migrate({
+        dryRun: false,
+        stylesheetPath,
+      });
+      await writeFile(inputPath, `<div class="${className}"></div>`, 'utf8');
+
+      const report = await new Migrator(AdapterFactory.createSession('css'), inputPath, inputPath, () => 0).migrate({
+        dryRun: false,
+        stylesheetPath,
+      });
+
+      expect(report.stylesheet).toEqual({ path: 'flex-layout-migration.css', change: 'removed' });
     },
   );
 

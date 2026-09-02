@@ -1,5 +1,3 @@
-import { allBreakpointDefinitions } from '../../../breakpoint/breakpoint-catalog';
-import { cssRuleContext } from '../css-breakpoint.context';
 import type { CssRuleContext, OwnedCssRule } from '../css-artifact.model';
 import { CssStylesheetError } from './css-stylesheet.error';
 import { parseOwnedCssBlock } from './owned-css-block.parser';
@@ -21,6 +19,9 @@ export interface OwnedCssReferences {
   readonly complete: boolean;
 }
 
+/** Resolves a serialized media query from an existing owned block. */
+export type RetainedMediaContextResolver = (serializedMedia: string) => CssRuleContext | undefined;
+
 interface ParsedOwnedRule {
   readonly id: string;
   readonly source: string;
@@ -36,8 +37,6 @@ interface ParsedOwnedRuleGroup {
 const START_MARKER = '/* flex-layout-codemod:start schema=1 */';
 const END_MARKER = '/* flex-layout-codemod:end */';
 const RULE_MARKER = /^\/\* flex-layout-codemod:rule id=([a-f0-9]{64}) \*\/$/u;
-
-const retainedBreakpointDefinitions = allBreakpointDefinitions();
 
 function malformed(message: string): never {
   throw new CssStylesheetError('malformed-ownership-block', message);
@@ -75,14 +74,20 @@ function parseRule(
   };
 }
 
-function contextForMediaHeader(header: string): CssRuleContext {
+function contextForMediaHeader(
+  header: string,
+  resolveRetainedMediaContext: RetainedMediaContextResolver,
+): CssRuleContext {
   const media = header.slice('@media '.length, -' {'.length);
-  const definition = retainedBreakpointDefinitions.find(candidate => serializeCssMedia(candidate.media) === media);
-  if (definition === undefined) malformed(`Owned CSS media query is not a registered breakpoint: ${media}`);
-  return cssRuleContext(definition);
+  const context = resolveRetainedMediaContext(media);
+  if (context === undefined) malformed(`Owned CSS media query is not a registered breakpoint: ${media}`);
+  return context;
 }
 
-function parseOwnedRuleGroups(source: string): readonly ParsedOwnedRuleGroup[] {
+function parseOwnedRuleGroups(
+  source: string,
+  resolveRetainedMediaContext: RetainedMediaContextResolver,
+): readonly ParsedOwnedRuleGroup[] {
   const parsed = parseOwnedCssBlock(source);
   if (parsed.status === 'invalid') throw new CssStylesheetError(parsed.code, parsed.reason);
   if (parsed.status === 'absent') return [];
@@ -99,7 +104,7 @@ function parseOwnedRuleGroups(source: string): readonly ParsedOwnedRuleGroup[] {
     if (line === undefined) malformed('Owned CSS block ended unexpectedly');
     if (line.startsWith('@media ') && line.endsWith(' {')) {
       const start = line;
-      const context = contextForMediaHeader(start);
+      const context = contextForMediaHeader(start, resolveRetainedMediaContext);
       index += 1;
       const rules: ParsedOwnedRule[] = [];
       while (lines[index] !== '}') {
@@ -143,9 +148,20 @@ function mediaKey(context: CssRuleContext): string | undefined {
 }
 
 function parsedIncomingRules(rules: readonly OwnedCssRule[], newline: CssNewline): readonly ParsedOwnedRule[] {
-  if (rules.length === 0) return [];
-  const source = [START_MARKER, serializeCssRules(rules, newline), END_MARKER].join(newline);
-  return parseOwnedRuleGroups(source).flatMap(group => group.rules);
+  return rules.map(rule => {
+    const serialized = serializeCssRules([rule], newline);
+    if (rule.context.media === undefined) return { id: rule.id, source: serialized, context: rule.context };
+
+    const lines = serialized.split(newline);
+    const source = lines
+      .slice(1, -1)
+      .map(line => {
+        if (!line.startsWith('  ')) malformed('Incoming CSS rule does not use the serialized form');
+        return line;
+      })
+      .join(newline);
+    return { id: rule.id, source, context: rule.context };
+  });
 }
 
 function renderCanonicalRules(rules: readonly ParsedOwnedRule[], newline: CssNewline): string {
@@ -183,6 +199,7 @@ export function mergeOwnedStylesheet(
   existing: string,
   rules: readonly OwnedCssRule[],
   references?: ReadonlySet<string> | OwnedCssReferences,
+  resolveRetainedMediaContext: RetainedMediaContextResolver = () => undefined,
 ): OwnedStylesheetMergeResult {
   const parsed = parseOwnedCssBlock(existing);
   if (parsed.status === 'invalid') throw new CssStylesheetError(parsed.code, parsed.reason);
@@ -198,7 +215,7 @@ export function mergeOwnedStylesheet(
   }
 
   const referenceState = normalizeReferences(references);
-  const groups = parseOwnedRuleGroups(existing);
+  const groups = parseOwnedRuleGroups(existing, resolveRetainedMediaContext);
   const existingIds = new Set(groups.flatMap(group => group.rules.map(rule => rule.id)));
   const incomingIds = new Set(rules.map(rule => rule.id));
   for (const className of referenceState.classNames) {

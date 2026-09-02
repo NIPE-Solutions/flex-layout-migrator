@@ -1,5 +1,5 @@
-import { readFileSync } from 'node:fs';
-import { basename, join, relative } from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
+import { basename, dirname, join, relative, resolve } from 'node:path';
 import ts from 'typescript';
 
 import { inspectTypeScript, productionTypeScriptFiles, type TypeScriptInspection } from './typescript-boundary';
@@ -14,6 +14,7 @@ const absolutePath = /^(?:\/(?![*/])|[a-z]:[\\/]|\\\\)/iu;
 const packageVersionIdentifier = /^(?:PACKAGE_VERSION|npm_package_version|packageVersion)$/u;
 const packageManifestModule = /(?:^|\/)package\.json$/u;
 const ownedBlockSerializerModule = /(?:^|\/)owned-css-block\.serializer(?:\.[cm]?[jt]s)?$/u;
+const breakpointCatalogModule = /(?:^|\/)breakpoint-catalog(?:\.[cm]?[jt]s)?$/u;
 const generatedMarkerForms = new Set([
   '/* flex-layout-codemod:start schema=1 */',
   '/* flex-layout-codemod:rule id=${} */',
@@ -31,6 +32,86 @@ function forbiddenDependency(inspection: TypeScriptInspection): string | undefin
 
 function sourceFile(source: string, sourcePath: string): ts.SourceFile {
   return ts.createSourceFile(sourcePath, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+}
+
+function runtimeBreakpointCatalogDependency(source: string, sourcePath: string): string | undefined {
+  let match: string | undefined;
+
+  function visit(node: ts.Node): void {
+    if (match !== undefined) return;
+    if (
+      ts.isImportDeclaration(node) &&
+      ts.isStringLiteralLike(node.moduleSpecifier) &&
+      breakpointCatalogModule.test(node.moduleSpecifier.text) &&
+      !node.importClause?.isTypeOnly
+    ) {
+      match = node.moduleSpecifier.text;
+      return;
+    }
+    if (ts.isCallExpression(node)) {
+      const argument = node.arguments[0];
+      if (
+        argument !== undefined &&
+        (node.expression.kind === ts.SyntaxKind.ImportKeyword ||
+          (ts.isIdentifier(node.expression) && node.expression.text === 'require')) &&
+        ts.isStringLiteralLike(argument) &&
+        breakpointCatalogModule.test(argument.text)
+      ) {
+        match = argument.text;
+        return;
+      }
+    }
+    if (ts.isExportDeclaration(node)) {
+      const moduleSpecifier = node.moduleSpecifier;
+      if (
+        moduleSpecifier !== undefined &&
+        ts.isStringLiteralLike(moduleSpecifier) &&
+        breakpointCatalogModule.test(moduleSpecifier.text)
+      ) {
+        match = moduleSpecifier.text;
+        return;
+      }
+    }
+    ts.forEachChild(node, visit);
+  }
+
+  visit(sourceFile(source, sourcePath));
+  return match;
+}
+
+function runtimeLocalDependencies(source: string, sourcePath: string): readonly string[] {
+  const dependencies: string[] = [];
+  const sourceFile = ts.createSourceFile(sourcePath, source, ts.ScriptTarget.Latest, false, ts.ScriptKind.TS);
+
+  for (const statement of sourceFile.statements) {
+    if (!ts.isImportDeclaration(statement) || !ts.isStringLiteralLike(statement.moduleSpecifier)) continue;
+    const clause = statement.importClause;
+    const hasRuntimeBinding =
+      clause !== undefined &&
+      !clause.isTypeOnly &&
+      (clause.name !== undefined ||
+        (clause.namedBindings !== undefined &&
+          (!ts.isNamedImports(clause.namedBindings) ||
+            clause.namedBindings.elements.some(element => !element.isTypeOnly))));
+    if (!hasRuntimeBinding || !statement.moduleSpecifier.text.startsWith('.')) continue;
+
+    const base = resolve(dirname(sourcePath), statement.moduleSpecifier.text);
+    const target = [`${base}.ts`, join(base, 'index.ts')].find(candidate => existsSync(candidate));
+    if (target !== undefined) dependencies.push(target);
+  }
+  return dependencies;
+}
+
+function runtimeDependencyClosure(entry: string): readonly string[] {
+  const visited = new Set<string>();
+  const pending = [entry];
+  while (pending.length > 0) {
+    const current = pending.pop();
+    if (current === undefined || visited.has(current)) continue;
+    visited.add(current);
+    pending.push(...runtimeLocalDependencies(readFileSync(current, 'utf8'), current));
+  }
+  return [...visited];
 }
 
 function isCssDelimiterComparison(node: ts.Node): boolean {
@@ -115,9 +196,29 @@ describe('native CSS stylesheet architecture boundary', () => {
     ['template type import', "import type { Template } from '../../../template/template.model';"],
     ['Tailwind side-effect import', "import '../../tailwind/tailwind.adapter';"],
     ['analyzer re-export', "export * from '../../../analyzer/flex-layout-attribute.analyzer';"],
+    ['breakpoint catalog import', "import { allBreakpointDefinitions } from '../../../breakpoint/breakpoint-catalog';"],
     ['AtomicFileWriter import', "import { AtomicFileWriter } from '../../../lib/atomic-file.writer';"],
   ])('rejects the %s dependency mutation', (_label, source) => {
-    expect(forbiddenDependency(inspectTypeScript(source, fixturePath))).toBeDefined();
+    expect(
+      forbiddenDependency(inspectTypeScript(source, fixturePath)) ??
+        runtimeBreakpointCatalogDependency(source, fixturePath),
+    ).toBeDefined();
+  });
+
+  test('keeps stylesheet runtime production code independent from the breakpoint catalog', () => {
+    for (const path of productionTypeScriptFiles(stylesheetRoot)) {
+      expect(
+        runtimeBreakpointCatalogDependency(readFileSync(path, 'utf8'), path),
+        relative(process.cwd(), path),
+      ).toBeUndefined();
+    }
+  });
+
+  test('keeps the merger transitive runtime dependency graph independent from the breakpoint catalog', () => {
+    const mergerPath = join(stylesheetRoot, 'owned-stylesheet.merger.ts');
+    expect(runtimeDependencyClosure(mergerPath)).not.toContain(
+      join(process.cwd(), 'src', 'breakpoint', 'breakpoint-catalog.ts'),
+    );
   });
 
   test('recursively keeps stylesheet production modules independent from I/O and application layers', () => {

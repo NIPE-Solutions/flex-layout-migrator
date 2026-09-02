@@ -82,6 +82,15 @@ describe('StylesheetPlanner', () => {
     });
   });
 
+  test('accepts an incoming valid noncatalog media context without resolving it as retained CSS', async () => {
+    const noncatalog = responsiveRule(A, 123, 321, 654);
+
+    await expect(planner.plan(stylesheet, [noncatalog])).resolves.toMatchObject({
+      kind: 'stylesheet',
+      proposed: { status: 'present', contents: block('\n', [noncatalog]) },
+    });
+  });
+
   test('returns no artifact when an existing owned stylesheet is already current', async () => {
     await writeFile(stylesheet, block('\n', [rule(A)]), 'utf8');
 
