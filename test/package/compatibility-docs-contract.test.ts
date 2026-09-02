@@ -32,16 +32,51 @@ function hasFiveNonemptyCells(cells: string[] | undefined): cells is [string, st
   return cells !== undefined && cells.length === 5 && cells.every(cell => cell.length > 0);
 }
 
-function parseCompatibilityRows(markdown: string) {
-  const start = markdown.indexOf(startMarker);
-  if (start === -1) throw new Error('Missing compatibility inventory start marker');
+function sectionBody(markdown: string, heading: string): string[] {
+  const lines = markdown.replace(/<!--[\s\S]*?-->/gu, '').split('\n');
+  const headingLine = lines.findIndex(line => line.trim() === heading);
+  if (headingLine === -1) throw new Error(`Missing compatibility section: ${heading}`);
 
-  const end = markdown.indexOf(endMarker, start + startMarker.length);
-  if (end === -1) throw new Error('Missing compatibility inventory end marker');
+  const body = lines.slice(headingLine + 1);
+  const nextHeading = body.findIndex(line => /^#{1,3} /u.test(line));
+  return nextHeading === -1 ? body : body.slice(0, nextHeading);
+}
+
+function parseAvailableNowSafetyEntries(markdown: string): Map<string, string> {
+  const entries = new Map<string, string>();
+  for (const line of sectionBody(markdown, '### Available now: directive-specific boundaries')) {
+    const match = line.match(/^- ((?:`[^`]+`(?: and )?)+): (.+)$/u);
+    if (!match) continue;
+
+    const [label, note] = match.slice(1);
+    if (label === undefined || note === undefined) throw new Error('Malformed available-now safety entry');
+    for (const directive of label.matchAll(/`([^`]+)`/gu)) {
+      const name = directive[1];
+      if (name === undefined) throw new Error('Malformed available-now directive');
+      entries.set(name, note);
+    }
+  }
+  return entries;
+}
+
+function parseCompatibilityRows(markdown: string) {
+  const lines = markdown.split('\n');
+  const startLines = lines.flatMap((line, index) => (line.trim() === startMarker ? [index] : []));
+  const endLines = lines.flatMap((line, index) => (line.trim() === endMarker ? [index] : []));
+  if (startLines.length === 0) throw new Error('Missing compatibility inventory start marker');
+  if (endLines.length === 0) throw new Error('Missing compatibility inventory end marker');
+  if (startLines.length !== 1) throw new Error('Expected exactly one compatibility inventory start marker');
+  if (endLines.length !== 1) throw new Error('Expected exactly one compatibility inventory end marker');
+  const startLine = startLines.at(0);
+  const endLine = endLines.at(0);
+  if (startLine === undefined || endLine === undefined) {
+    throw new Error('Compatibility inventory marker lookup failed');
+  }
+  if (startLine > endLine) throw new Error('Compatibility inventory markers are out of order');
 
   const tableLines = markdown
-    .slice(start + startMarker.length, end)
     .split('\n')
+    .slice(startLine + 1, endLine)
     .filter(line => line.trim().length > 0);
   for (const line of tableLines) {
     if (!line.startsWith('|')) {
@@ -114,6 +149,17 @@ describe('compatibility reference contract', () => {
     ['missing start marker', `${endMarker}\n`, 'Missing compatibility inventory start marker'],
     ['missing end marker', `${startMarker}\n`, 'Missing compatibility inventory end marker'],
     [
+      'duplicate start marker',
+      `${startMarker}\n${startMarker}\n| Directive | Family | Tailwind CSS 4 | Native CSS | Responsive image |\n| --- | --- | --- | --- | --- |\n| \`fxLayout\` | Flex | Limited | Planned | Not applicable |\n${endMarker}`,
+      'Expected exactly one compatibility inventory start marker',
+    ],
+    [
+      'duplicate end marker',
+      `${startMarker}\n| Directive | Family | Tailwind CSS 4 | Native CSS | Responsive image |\n| --- | --- | --- | --- | --- |\n| \`fxLayout\` | Flex | Limited | Planned | Not applicable |\n${endMarker}\n${endMarker}`,
+      'Expected exactly one compatibility inventory end marker',
+    ],
+    ['out-of-order markers', `${endMarker}\n${startMarker}`, 'Compatibility inventory markers are out of order'],
+    [
       'malformed cells',
       `${startMarker}\n| Directive | Family | Tailwind CSS 4 | Native CSS | Responsive image |\n| --- | --- | --- | --- | --- |\n| \`fxLayout\` | Flex | Limited | Planned |\n${endMarker}`,
       'Malformed compatibility inventory row 1',
@@ -140,26 +186,32 @@ describe('compatibility reference contract', () => {
   it('retains the detailed current Tailwind safety boundaries', async () => {
     const markdown = await readFile(compatibilityUrl, 'utf8');
 
-    for (const safetyBoundary of [
-      'Static directions plus wrap and inline modifiers; coupled unresolved gaps preserve the layout.',
-      'Static main/cross axes with layout, content alignment, sizing, and border-box semantics.',
-      'Static nonnegative non-wrapping gaps; unitless values remain pixels. Grid, computed, negative, and wrapped gaps are review.',
-      'Static basis, keyword, and three-part forms with parent-axis min/max sizing.',
-      'Converted atomically with a static `fxFlex`; standalone use is invalid.',
-      'Static `align-self` keywords.',
-      'Static full-size rule including its zero-margin behavior.',
-      'Non-responsive alias of `fxFlexFill`.',
-      'Static values with a statically known parent axis; unitless values remain percentages.',
-      'Static integer values emitted independently of the Tailwind theme.',
-      'Literal base and standard viewport states convert when display restoration and the complete visibility family are safe.',
-      'Literal base and standard viewport states convert with `fxShow`; hiding emits exact base or responsive `hidden` utilities.',
-      'Converts complete families whose class tokens are proven Tailwind CSS v4 candidates.',
-      'Converts complete, sanitizer-safe declaration lists with exact CSS ownership.',
-      'Version-dependent replacement and merge behavior is not inferred.',
-      'Recognized and reported; no target conversion is implemented.',
-    ]) {
-      expect(markdown).toContain(safetyBoundary);
-    }
+    expect(parseAvailableNowSafetyEntries(markdown)).toEqual(
+      new Map([
+        ['fxLayout', 'Static directions plus wrap and inline modifiers; coupled unresolved gaps preserve the layout.'],
+        ['fxLayoutAlign', 'Static main/cross axes with layout, content alignment, sizing, and border-box semantics.'],
+        [
+          'fxLayoutGap',
+          'Static nonnegative non-wrapping gaps; unitless values remain pixels. Grid, computed, negative, and wrapped gaps are review.',
+        ],
+        ['fxFlex', 'Static basis, keyword, and three-part forms with parent-axis min/max sizing.'],
+        ['fxGrow', 'Converted atomically with a static `fxFlex`; standalone use is invalid.'],
+        ['fxShrink', 'Converted atomically with a static `fxFlex`; standalone use is invalid.'],
+        ['fxFlexAlign', 'Static `align-self` keywords.'],
+        ['fxFlexFill', 'Static full-size rule including its zero-margin behavior.'],
+        ['fxFill', 'Non-responsive alias of `fxFlexFill`.'],
+        ['fxFlexOffset', 'Static values with a statically known parent axis; unitless values remain percentages.'],
+        ['fxFlexOrder', 'Static integer values emitted independently of the Tailwind theme.'],
+        [
+          'fxShow',
+          'Literal base and standard viewport states convert when display restoration and the complete visibility family are safe.',
+        ],
+        [
+          'fxHide',
+          'Literal base and standard viewport states convert with `fxShow`; hiding emits exact base or responsive `hidden` utilities.',
+        ],
+      ]),
+    );
 
     expect(markdown).toContain('are currently converted together as one atomic visibility family per element');
     expect(markdown).not.toContain('are planned together as one atomic visibility family per element');
