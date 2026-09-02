@@ -1,12 +1,14 @@
 import { stat } from 'node:fs/promises';
 import * as path from 'node:path';
 import type { ConversionAdapter } from '../adapter/conversion-adapter';
+import { AtomicFileWriter } from '../lib/atomic-file.writer';
 import { loadGitIgnore } from '../lib/gitignore.helper';
 import { MigrationReportBuilder } from '../report/migration-report.builder';
 import type { MigrationReport } from '../report/migration-report';
-import type { FileMigrationResult } from './file-migration-result';
 import { FileMigrator } from './file.migrator';
 import { FolderMigrator } from './folder.migrator';
+import { migrationPlan, type FileMigrationPlan } from './migration-plan';
+import { compareCodeUnits } from '../util/compare-code-units';
 
 export interface MigrationOptions {
   readonly dryRun: boolean;
@@ -19,6 +21,7 @@ export class Migrator {
     private readonly inputPath: string,
     private readonly outputPath: string,
     private readonly now: () => number = Date.now,
+    private readonly writer: AtomicFileWriter = new AtomicFileWriter(),
   ) {}
 
   public async migrate(options: MigrationOptions = { dryRun: false }): Promise<MigrationReport> {
@@ -31,7 +34,7 @@ export class Migrator {
 
     await loadGitIgnore(this.inputPath);
 
-    let files: readonly FileMigrationResult[];
+    let filePlans: readonly FileMigrationPlan[];
     if (inputStat.isFile()) {
       if (path.extname(this.inputPath).toLowerCase() !== '.html') {
         throw new Error(`Unsupported file type: ${this.inputPath}`);
@@ -39,19 +42,31 @@ export class Migrator {
       if (path.extname(this.outputPath).toLowerCase() !== '.html') {
         throw new Error('Single-file output path must have a .html extension.');
       }
-      files = [
-        await new FileMigrator(this.adapter, this.inputPath, this.outputPath).migrate({
-          write: !options.dryRun,
+      filePlans = [
+        await new FileMigrator(this.adapter, this.inputPath, this.outputPath).plan({
           responsiveImages: options.responsiveImages ?? false,
         }),
       ];
     } else if (inputStat.isDirectory()) {
-      files = await new FolderMigrator(this.adapter, this.inputPath, this.outputPath).migrate({
-        write: !options.dryRun,
+      filePlans = await new FolderMigrator(this.adapter, this.inputPath, this.outputPath).plan({
         responsiveImages: options.responsiveImages ?? false,
       });
     } else {
       throw new Error(`Unsupported input type: ${this.inputPath}`);
+    }
+
+    const plan = migrationPlan({
+      target: 'tailwind',
+      files: filePlans.map(filePlan => filePlan.file),
+      artifacts: filePlans.flatMap(filePlan => (filePlan.artifact ? [filePlan.artifact] : [])),
+    });
+    const hasParseError = plan.files.some(file => file.results.some(result => result.status === 'parse-error'));
+    if (!options.dryRun && !hasParseError) {
+      for (const artifact of [...plan.artifacts].sort((left, right) => compareCodeUnits(left.path, right.path))) {
+        if (artifact.proposed.status === 'present') {
+          await this.writer.write(artifact.path, artifact.proposed.contents);
+        }
+      }
     }
 
     return new MigrationReportBuilder().build(
@@ -60,7 +75,7 @@ export class Migrator {
       this.adapter.name,
       options.dryRun,
       this.now() - startedAt,
-      files,
+      plan.files,
     );
   }
 }

@@ -51,6 +51,20 @@ describe('Migrator', () => {
     await expect(access(outputPath)).rejects.toThrow();
   });
 
+  test('applies planned template artifacts after a successful Tailwind migration', async () => {
+    const inputPath = join(temporaryDirectory, 'input', 'card.html');
+    const outputPath = join(temporaryDirectory, 'output', 'card.html');
+    await mkdir(join(temporaryDirectory, 'input'), { recursive: true });
+    await writeFile(inputPath, '<div fxLayout="row"></div>', 'utf8');
+
+    const report = await new Migrator(new TailwindAdapter(), inputPath, outputPath, () => 0).migrate({
+      dryRun: false,
+    });
+
+    expect(report.summary).toMatchObject({ filesScanned: 1, filesChanged: 1, converted: 1 });
+    expect(await readFile(outputPath, 'utf8')).toBe('<div class="flex flex-row box-border"></div>');
+  });
+
   test('aggregates every nested folder template into the application report', async () => {
     const inputPath = join(temporaryDirectory, 'input');
     const outputPath = join(temporaryDirectory, 'output');
@@ -65,6 +79,21 @@ describe('Migrator', () => {
       { path: 'nested/b.html', changed: false },
     ]);
     expect(report.summary).toMatchObject({ filesScanned: 2, filesChanged: 1, converted: 1 });
+  });
+
+  test('does not apply any planned template artifact when a folder contains a parse error', async () => {
+    const inputPath = join(temporaryDirectory, 'input');
+    const outputPath = join(temporaryDirectory, 'output');
+    await mkdir(inputPath, { recursive: true });
+    await writeFile(join(inputPath, 'a-convert.html'), '<div fxLayout="row"></div>', 'utf8');
+    await writeFile(join(inputPath, 'z-invalid.html'), '<span fxLayout="row" />', 'utf8');
+
+    const report = await new Migrator(new TailwindAdapter(), inputPath, outputPath, () => 0).migrate({
+      dryRun: false,
+    });
+
+    expect(report.summary).toMatchObject({ filesScanned: 2, filesChanged: 1, parseErrors: 1 });
+    await expect(access(outputPath)).rejects.toThrow();
   });
 
   test('rejects unsupported file extensions', async () => {

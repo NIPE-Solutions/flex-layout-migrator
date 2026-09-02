@@ -4,36 +4,36 @@ import type { ConversionAdapter } from '../adapter/conversion-adapter';
 import { shouldIgnore } from '../lib/gitignore.helper';
 import { logger } from '../logger';
 import { compareCodeUnits } from '../util/compare-code-units';
-import { BaseMigrator } from './base.migrator';
-import type { FileMigrationOptions, FileMigrationResult } from './file-migration-result';
+import type { FileMigrationOptions } from './file-migration-result';
 import { FileMigrator } from './file.migrator';
+import type { FileMigrationPlan } from './migration-plan';
 
 interface FileEntry {
   readonly input: string;
   readonly relativePath: string;
 }
 
-export class FolderMigrator extends BaseMigrator<readonly FileMigrationResult[]> {
+export class FolderMigrator {
   constructor(
     private readonly adapter: ConversionAdapter,
     private readonly inputFolder: string,
     private readonly outputFolder: string,
-  ) {
-    super();
-  }
+  ) {}
 
-  public async migrate(options: FileMigrationOptions = { write: true }): Promise<readonly FileMigrationResult[]> {
+  public async plan(
+    options: FileMigrationOptions = { responsiveImages: false },
+  ): Promise<readonly FileMigrationPlan[]> {
     const files = await this.collectFiles(this.inputFolder, '');
     files.sort((left, right) => compareCodeUnits(path.normalize(left.input), path.normalize(right.input)));
 
-    const results: FileMigrationResult[] = [];
+    const plans: FileMigrationPlan[] = [];
     for (const file of files) {
       const output = path.join(this.outputFolder, file.relativePath);
       const fileMigrator = new FileMigrator(this.adapter, file.input, output);
-      results.push(await fileMigrator.migrate(options));
+      plans.push(await fileMigrator.plan(options));
     }
 
-    return results;
+    return Object.freeze(plans);
   }
 
   private async collectFiles(directory: string, relativeDirectory: string): Promise<FileEntry[]> {
