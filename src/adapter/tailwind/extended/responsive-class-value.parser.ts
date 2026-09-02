@@ -1,5 +1,4 @@
 import type { LocatedFlexLayoutInput } from '../../../analyzer/flex-layout-attribute.analyzer';
-import { BreakpointCatalog } from '../../../breakpoint/breakpoint-catalog';
 import type { ResponsiveClassValueResult } from './responsive-class.model';
 import type { TailwindCandidateClassifier } from './tailwind-candidate-classifier';
 
@@ -39,8 +38,6 @@ export function parseResponsiveClassValue(
   if (input.directive !== 'ngClass') {
     return { status: 'unverified', reason: 'Deprecated responsive class aliases are not converted.' };
   }
-  if (input.breakpoint === undefined || new BreakpointCatalog().classify(input.breakpoint).kind !== 'verified') {
-    return { status: 'unverified', reason: 'The responsive class breakpoint is not a verified viewport alias.' };
-  }
+  if (!input.breakpoint) return { status: 'unverified', reason: 'A responsive class alias is required.' };
   return parseLiteralResponsiveClassValue(input.value, classifier);
 }

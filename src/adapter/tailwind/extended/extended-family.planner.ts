@@ -1,7 +1,7 @@
 import type { LocatedFlexLayoutInput } from '../../../analyzer/flex-layout-attribute.analyzer';
 import {
   BreakpointCatalog,
-  mediaRangesIntersect,
+  mediaDefinitionsIntersect,
   type BreakpointClassification,
 } from '../../../breakpoint/breakpoint-catalog';
 import type { PlannedConversion } from '../../conversion-adapter';
@@ -194,7 +194,7 @@ export class ExtendedFamilyPlanner {
         .some(
           right =>
             !equals(left.value, right.value) &&
-            mediaRangesIntersect(left.activation.definition.range, right.activation.definition.range),
+            mediaDefinitionsIntersect(left.activation.definition.media, right.activation.definition.media),
         ),
     );
   }

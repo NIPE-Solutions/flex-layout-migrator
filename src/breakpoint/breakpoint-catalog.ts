@@ -4,11 +4,10 @@ import type { BreakpointMigrationConfig } from '../config/breakpoint-migration-c
 export interface MediaRange {
   readonly min?: number;
   readonly max?: number;
-}
-
-export interface MediaClause extends MediaRange {
   readonly orientation?: 'portrait' | 'landscape';
 }
+
+export type MediaClause = MediaRange;
 
 export interface MediaDefinition {
   readonly type: 'screen' | 'print';
@@ -144,6 +143,9 @@ export class BreakpointCatalog {
 }
 
 export function mediaRangesIntersect(left: MediaRange, right: MediaRange): boolean {
+  if (left.orientation !== undefined && right.orientation !== undefined && left.orientation !== right.orientation) {
+    return false;
+  }
   const leftMin = left.min ?? Number.NEGATIVE_INFINITY;
   const leftMax = left.max ?? Number.POSITIVE_INFINITY;
   const rightMin = right.min ?? Number.NEGATIVE_INFINITY;

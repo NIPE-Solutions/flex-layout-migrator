@@ -53,8 +53,10 @@ const displayUtilities = new Set([
   'hidden',
 ]);
 
-const generatedMediaVariant =
+const generatedScreenMediaVariant =
   /^\[@media_screen_and_(?:(?:\(min-width:_(\d+(?:\.\d+)?)px\))(?:_and_\(max-width:_(\d+(?:\.\d+)?)px\))?|\(max-width:_(\d+(?:\.\d+)?)px\))\]$/u;
+const generatedOrientationMediaVariant =
+  /^\[@media_\(orientation:_(portrait|landscape)\)(?:_and_\(min-width:_(\d+(?:\.\d+)?)px\))?(?:_and_\(max-width:_(\d+(?:\.\d+)?)px\))?\]$/u;
 
 function splitVariants(
   className: string,
@@ -94,7 +96,19 @@ function splitVariants(
 
 function activation(variants: readonly string[]): TailwindActivation {
   for (const variant of variants) {
-    const match = variant.match(generatedMediaVariant);
+    const orientationMatch = variant.match(generatedOrientationMediaVariant);
+    if (orientationMatch) {
+      return {
+        kind: 'media',
+        range: {
+          orientation: orientationMatch[1] as 'portrait' | 'landscape',
+          min: orientationMatch[2] === undefined ? undefined : Number(orientationMatch[2]),
+          max: orientationMatch[3] === undefined ? undefined : Number(orientationMatch[3]),
+        },
+      };
+    }
+
+    const match = variant.match(generatedScreenMediaVariant);
     if (!match) continue;
     const min = match[1] === undefined ? undefined : Number(match[1]);
     const maxValue = match[2] ?? match[3];
@@ -107,7 +121,7 @@ function activation(variants: readonly string[]): TailwindActivation {
 }
 
 function hasGeneratedMediaVariant(variants: readonly string[]): boolean {
-  return variants.some(variant => variant.startsWith('[@media_screen_and_'));
+  return variants.some(variant => variant.startsWith('[@media_'));
 }
 
 function hasInternalDeclarationImportance(utility: string): boolean {

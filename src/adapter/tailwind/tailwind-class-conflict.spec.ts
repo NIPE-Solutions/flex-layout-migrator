@@ -579,6 +579,13 @@ describe('findTailwindClassConflicts', () => {
     expect(findTailwindClassConflicts([xs('flex-row')], [sm('flex-col')])).toEqual(new Set());
   });
 
+  test('does not conflict when generated orientation conditions are disjoint', () => {
+    const portrait = '[@media_(orientation:_portrait)_and_(max-width:_599.98px)]:flex-row';
+    const landscape = '[@media_(orientation:_landscape)_and_(max-width:_959.98px)]:flex-col';
+
+    expect(findTailwindClassConflicts([portrait], [landscape])).toEqual(new Set());
+  });
+
   test('returns the generated token when responsive ranges overlap', () => {
     const generated = sm('flex-col');
 

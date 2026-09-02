@@ -1,5 +1,10 @@
 import type { LocatedFlexLayoutInput } from '../../analyzer/flex-layout-attribute.analyzer';
-import { BreakpointCatalog, mediaRangesIntersect, type MediaRange } from '../../breakpoint/breakpoint-catalog';
+import {
+  BreakpointCatalog,
+  mediaDefinitionsIntersect,
+  mediaRangesIntersect,
+  type MediaRange,
+} from '../../breakpoint/breakpoint-catalog';
 import type { ConversionContext, PlannedConversion } from '../conversion-adapter';
 import { planResponsiveClasses } from './responsive-plan';
 import { ResponsiveVariantEmitter } from './responsive-variant.emitter';
@@ -514,7 +519,7 @@ export class ResponsiveFamilyPlanner {
         const rightClassification = this.catalog.classify(rightInput.breakpoint);
         if (
           rightClassification.kind === 'verified' &&
-          mediaRangesIntersect(leftClassification.definition.range, rightClassification.definition.range) &&
+          mediaDefinitionsIntersect(leftClassification.definition.media, rightClassification.definition.media) &&
           !sameClasses(leftPlan, rightPlan)
         ) {
           return inputs.map(input => ({
