@@ -5,9 +5,19 @@ import { inspectTypeScript, productionTypeScriptFiles, type TypeScriptInspection
 
 const flexRoot = join(process.cwd(), 'src', 'flex');
 const cssRoot = join(process.cwd(), 'src', 'adapter', 'css');
+const productionRoot = join(process.cwd(), 'src');
 const fixturePath = join(cssRoot, 'flex', 'fixture.css-renderer.ts');
 
-const cssForbiddenModuleSegments = ['/analyzer/', '/template/', '/edit/', '/tailwind/', '/cli/'];
+const cssForbiddenModuleSegments = [
+  '/analyzer/',
+  '/template/',
+  '/edit/',
+  '/tailwind/',
+  '/cli/',
+  '/report/',
+  '/migrator/',
+];
+const flexForbiddenModuleSegments = ['/adapter/css/', '/transaction/', '/migrator/', '/cli/', '/report/'];
 const filesystemModules = new Set(['fs', 'fs/promises', 'node:fs', 'node:fs/promises']);
 const directiveNames = /\bfx(?:Layout(?:Align|Gap)?|Flex(?:Align|Fill|Offset|Order)?|Fill)\b/u;
 const standardAliases = new Set([
@@ -25,6 +35,7 @@ const standardAliases = new Set([
   'gt-md',
   'gt-lg',
 ]);
+const standardBreakpointMediaValues = new Set([599.98, 600, 959.98, 960, 1279.98, 1280, 1919.98, 1920]);
 const rendererContracts: Readonly<Record<string, { readonly name: string; readonly parameterType: string }>> = {
   'layout.css-renderer.ts': { name: 'renderLayoutCss', parameterType: 'LayoutSemantics' },
   'layout-align.css-renderer.ts': {
@@ -44,6 +55,16 @@ function forbiddenCssModule(inspection: TypeScriptInspection): string | undefine
     reference =>
       filesystemModules.has(reference) || cssForbiddenModuleSegments.some(segment => reference.includes(segment)),
   );
+}
+
+function forbiddenFlexModule(inspection: TypeScriptInspection): string | undefined {
+  return inspection.moduleReferences.find(reference =>
+    flexForbiddenModuleSegments.some(segment => reference.includes(segment)),
+  );
+}
+
+function duplicatedStandardBreakpointMediaValue(inspection: TypeScriptInspection): number | undefined {
+  return (inspection.numericLiterals ?? []).find(value => standardBreakpointMediaValues.has(value));
 }
 
 function directiveSyntax(inspection: TypeScriptInspection): string | undefined {
@@ -108,11 +129,31 @@ describe('native CSS architecture boundary', () => {
   });
 
   test.each([
+    "import { renderLayoutCss } from '../adapter/css/flex/layout.css-renderer';",
+    "const transaction = await import('../transaction/migration-transaction');",
+    "export { Migrator } from '../migrator/migrator';",
+    "const report = require('../report/migration-report');",
+  ])('rejects a CSS or application dependency from Flex semantics: %s', source => {
+    expect(forbiddenFlexModule(inspectTypeScript(source, join(flexRoot, 'fixture.ts')))).toBeDefined();
+  });
+
+  test('keeps target-neutral Flex semantics independent from CSS and application modules', () => {
+    for (const path of productionTypeScriptFiles(flexRoot)) {
+      expect(
+        forbiddenFlexModule(inspectTypeScript(readFileSync(path, 'utf8'), path)),
+        relative(process.cwd(), path),
+      ).toBeUndefined();
+    }
+  });
+
+  test.each([
     "import type { FlexLayoutInput } from '../../../analyzer/flex-layout-attribute.analyzer';",
     "export type { TemplateElement } from '../../../template/template.model';",
     "const editor = await import('../../../edit/source-editor');",
     "const tailwind = require('../../tailwind/directives/layout.strategy');",
     "import '../../../cli/run-cli';",
+    "import { JsonReportWriter } from '../../../report/json-report.writer';",
+    "import { Migrator } from '../../../migrator/migrator';",
     "import { readFile } from 'node:fs/promises';",
   ])('rejects a forbidden CSS dependency: %s', source => {
     expect(forbiddenCssModule(inspectTypeScript(source, fixturePath))).toBeDefined();
@@ -176,6 +217,27 @@ describe('native CSS architecture boundary', () => {
     `;
 
     expect(copiedBreakpointAlias(inspectTypeScript(source, fixturePath))).toBe('xs');
+  });
+
+  test.each([599.98, 600, 959.98, 960, 1279.98, 1280, 1919.98, 1920])(
+    'rejects a duplicated standard breakpoint media value: %s',
+    value => {
+      expect(
+        duplicatedStandardBreakpointMediaValue(inspectTypeScript(`const duplicateMediaValue = ${value};`, fixturePath)),
+      ).toBe(value);
+    },
+  );
+
+  test('keeps standard breakpoint media values in the breakpoint catalog only', () => {
+    const breakpointCatalog = join(productionRoot, 'breakpoint', 'breakpoint-catalog.ts');
+
+    for (const path of productionTypeScriptFiles(productionRoot)) {
+      if (path === breakpointCatalog) continue;
+      expect(
+        duplicatedStandardBreakpointMediaValue(inspectTypeScript(readFileSync(path, 'utf8'), path)),
+        relative(process.cwd(), path),
+      ).toBeUndefined();
+    }
   });
 
   test.each([
@@ -246,6 +308,7 @@ describe('native CSS architecture boundary', () => {
     expect(inspection.moduleReferences).toEqual([]);
     expect(directiveSyntax(inspection)).toBeUndefined();
     expect(copiedBreakpointAlias(inspection)).toBeUndefined();
+    expect(duplicatedStandardBreakpointMediaValue(inspection)).toBeUndefined();
     expect(inspection.literalTexts.some(text => text.includes('flm-'))).toBe(false);
   });
 });

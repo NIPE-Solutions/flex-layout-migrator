@@ -39,6 +39,36 @@ const nodeOperations: MigrationTransactionOperations = {
   unlink,
 };
 
+const preFinalizationFailurePoints = [
+  [1, 'replace namespace mkdir', []],
+  [2, 'create namespace mkdir', []],
+  [3, 'remove namespace mkdir', []],
+  [4, 'replace stage open', []],
+  [5, 'replace stage sync', []],
+  [6, 'create stage open', []],
+  [7, 'create stage sync', []],
+  [8, 'replace backup open', []],
+  [9, 'replace backup sync', []],
+  [10, 'replace original quarantine', []],
+  [11, 'replace install', ['restore:a-replace.html']],
+  [12, 'create install', ['remove:a-replace.html', 'restore:a-replace.html']],
+  [13, 'remove backup open', ['remove:b-create.html', 'remove:a-replace.html', 'restore:a-replace.html']],
+  [14, 'remove backup sync', ['remove:b-create.html', 'remove:a-replace.html', 'restore:a-replace.html']],
+  [15, 'remove original quarantine', ['remove:b-create.html', 'remove:a-replace.html', 'restore:a-replace.html']],
+] as const;
+
+const finalizationFailurePoints = [
+  [16, 'replace stage unlink', 0],
+  [17, 'replace backup unlink', 0],
+  [18, 'replace quarantine unlink', 0],
+  [19, 'replace namespace rmdir', 0],
+  [20, 'create stage unlink', 1],
+  [21, 'create namespace rmdir', 1],
+  [22, 'remove backup unlink', 2],
+  [23, 'remove quarantine unlink', 2],
+  [24, 'remove namespace rmdir', 2],
+] as const;
+
 describe('MigrationTransaction', () => {
   let directory: string;
 
@@ -318,20 +348,52 @@ describe('MigrationTransaction', () => {
     },
   );
 
-  test.each([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15])(
-    'restores exact originals when counted filesystem operation %i fails before finalization',
-    async failurePoint => {
+  test.each(preFinalizationFailurePoints)(
+    'recovers counted filesystem operation %i (%s) and permits a byte-identical retry',
+    async (failurePoint, _label, expectedRecoveryOrder) => {
       const fixture = await transactionFixture(directory);
       const failure = new Error(`filesystem failure ${failurePoint}`);
-      const operations = countingFailureOperations(failurePoint, failure);
+      const recoveryOrder: string[] = [];
+      const operations = countingFailureOperations(failurePoint, failure, recoveryOrder);
+      const registrar = new FakeSignalRegistrar();
 
-      await expect(new MigrationTransaction(operations).apply(fixture.plan)).rejects.toMatchObject({
+      await expect(new MigrationTransaction(operations, registrar).apply(fixture.plan)).rejects.toMatchObject({
         code: 'transaction-io',
+        paths: [],
         cause: failure,
+        recoveryFailures: [],
       });
 
       expect(await snapshot(fixture.paths)).toEqual(fixture.originalSnapshot);
+      expect(recoveryOrder).toEqual(expectedRecoveryOrder);
       expect(await invocationResidue(directory)).toEqual([]);
+      expect(registrar.activeRegistrations).toBe(0);
+
+      await new MigrationTransaction().apply(fixture.plan);
+
+      expect(await snapshot(fixture.paths)).toEqual(fixture.appliedSnapshot);
+      expect(await invocationResidue(directory)).toEqual([]);
+    },
+  );
+
+  test.each(finalizationFailurePoints)(
+    'reports counted filesystem operation %i (%s) after commit at its public path',
+    async (failurePoint, _label, affectedPathIndex) => {
+      const fixture = await transactionFixture(directory);
+      const failure = new Error(`filesystem failure ${failurePoint}`);
+      const registrar = new FakeSignalRegistrar();
+
+      await expect(
+        new MigrationTransaction(countingFailureOperations(failurePoint, failure), registrar).apply(fixture.plan),
+      ).rejects.toMatchObject({
+        code: 'transaction-io',
+        paths: [fixture.paths[affectedPathIndex]],
+        cause: failure,
+      });
+
+      expect(await snapshot(fixture.paths)).toEqual(fixture.appliedSnapshot);
+      expect(await invocationResidue(directory)).not.toEqual([]);
+      expect(registrar.activeRegistrations).toBe(0);
     },
   );
 
@@ -341,6 +403,7 @@ describe('MigrationTransaction', () => {
     const initiatingError = new Error('removal backup failed');
     const rollbackError = new Error('created destination cleanup failed');
     let backupOpens = 0;
+    const registrar = new FakeSignalRegistrar();
     const operations: MigrationTransactionOperations = {
       ...nodeOperations,
       open: async (candidate, flags) => {
@@ -353,13 +416,14 @@ describe('MigrationTransaction', () => {
       },
     };
 
-    const caught = await captureError(new MigrationTransaction(operations).apply(fixture.plan));
+    const caught = await captureError(new MigrationTransaction(operations, registrar).apply(fixture.plan));
 
     expect(caught).toMatchObject({ code: 'transaction-io', paths: [createPath], cause: initiatingError });
     expect(await readFile(createPath, 'utf8')).toBe('<div>create after</div>');
     expect(await readFile(fixture.paths[0], 'utf8')).toBe('replace before');
     expect(await readFile(fixture.paths[2], 'utf8')).toBe('remove before');
     expect(await invocationResidue(directory)).toEqual([]);
+    expect(registrar.activeRegistrations).toBe(0);
   });
 
   test('retains the initiating cause and public recovery path when restoration cannot be confirmed', async () => {
@@ -602,7 +666,11 @@ function operationsFailingRename(
   };
 }
 
-function countingFailureOperations(failurePoint: number, failure: Error): MigrationTransactionOperations {
+function countingFailureOperations(
+  failurePoint: number,
+  failure: Error,
+  recoveryOrder: string[] = [],
+): MigrationTransactionOperations {
   let operationsSeen = 0;
   let failed = false;
   const fail = (): void => {
@@ -634,10 +702,14 @@ function countingFailureOperations(failurePoint: number, failure: Error): Migrat
     },
     link: async (source, destination) => {
       fail();
+      if (failed && basename(source) === 'backup') recoveryOrder.push(`restore:${basename(destination)}`);
       await link(source, destination);
     },
     rename: async (source, destination) => {
       fail();
+      if (failed && basename(destination).startsWith('quarantine-rollback-')) {
+        recoveryOrder.push(`remove:${basename(source)}`);
+      }
       await rename(source, destination);
     },
     rmdir: async target => {

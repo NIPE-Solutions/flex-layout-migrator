@@ -12,11 +12,23 @@ export interface InspectedExportedFunction {
   readonly parameters: readonly InspectedParameter[];
 }
 
+export interface InspectedRuntimeImport {
+  readonly moduleReference: string;
+  readonly importedName: string;
+  readonly localName: string;
+}
+
 export interface TypeScriptInspection {
   readonly moduleReferences: readonly string[];
   readonly identifiers: readonly string[];
   readonly literalTexts: readonly string[];
+  readonly numericLiterals: readonly number[];
   readonly objectPropertyTables: readonly (readonly string[])[];
+  readonly callExpressionNames: readonly string[];
+  readonly constructedExpressionNames: readonly string[];
+  readonly parameters: readonly InspectedParameter[];
+  readonly declaredPropertyNames: readonly string[];
+  readonly runtimeImports: readonly InspectedRuntimeImport[];
   readonly exportedFunctions: readonly InspectedExportedFunction[];
 }
 
@@ -37,6 +49,18 @@ function objectPropertyName(property: ts.ObjectLiteralElementLike): string | und
   return ts.isIdentifier(name) || ts.isStringLiteralLike(name) || ts.isNumericLiteral(name) ? name.text : undefined;
 }
 
+function expressionName(expression: ts.Expression): string | undefined {
+  if (ts.isIdentifier(expression)) return expression.text;
+  if (ts.isPropertyAccessExpression(expression)) return expression.name.text;
+  if (ts.isElementAccessExpression(expression)) return moduleText(expression.argumentExpression);
+  return undefined;
+}
+
+function declarationPropertyName(node: ts.PropertyDeclaration | ts.PropertySignature): string | undefined {
+  const name = node.name;
+  return ts.isIdentifier(name) || ts.isStringLiteralLike(name) || ts.isNumericLiteral(name) ? name.text : undefined;
+}
+
 function runtimeImportReference(node: ts.ImportDeclaration): string | undefined {
   const reference = moduleText(node.moduleSpecifier);
   if (reference === undefined) return undefined;
@@ -53,6 +77,31 @@ function runtimeExportReference(node: ts.ExportDeclaration): string | undefined 
   if (reference === undefined || node.isTypeOnly) return undefined;
   if (node.exportClause === undefined || !ts.isNamedExports(node.exportClause)) return reference;
   return node.exportClause.elements.some(element => !element.isTypeOnly) ? reference : undefined;
+}
+
+function runtimeImportBindings(node: ts.ImportDeclaration): readonly InspectedRuntimeImport[] {
+  const moduleReference = moduleText(node.moduleSpecifier);
+  const clause = node.importClause;
+  if (moduleReference === undefined || clause === undefined || clause.isTypeOnly) return [];
+
+  const bindings: InspectedRuntimeImport[] = [];
+  if (clause.name !== undefined) {
+    bindings.push({ moduleReference, importedName: 'default', localName: clause.name.text });
+  }
+  if (clause.namedBindings === undefined) return bindings;
+  if (ts.isNamespaceImport(clause.namedBindings)) {
+    bindings.push({ moduleReference, importedName: '*', localName: clause.namedBindings.name.text });
+    return bindings;
+  }
+  for (const element of clause.namedBindings.elements) {
+    if (element.isTypeOnly) continue;
+    bindings.push({
+      moduleReference,
+      importedName: element.propertyName?.text ?? element.name.text,
+      localName: element.name.text,
+    });
+  }
+  return bindings;
 }
 
 /** Returns runtime module edges while excluding TypeScript-only imports and re-exports. */
@@ -92,7 +141,13 @@ export function inspectTypeScript(source: string, sourcePath: string): TypeScrip
   const moduleReferences: string[] = [];
   const identifiers: string[] = [];
   const literalTexts: string[] = [];
+  const numericLiterals: number[] = [];
   const objectPropertyTables: string[][] = [];
+  const callExpressionNames: string[] = [];
+  const constructedExpressionNames: string[] = [];
+  const parameters: InspectedParameter[] = [];
+  const declaredPropertyNames: string[] = [];
+  const runtimeImports: InspectedRuntimeImport[] = [];
   const exportedFunctions: InspectedExportedFunction[] = [];
 
   function visit(node: ts.Node): void {
@@ -100,6 +155,7 @@ export function inspectTypeScript(source: string, sourcePath: string): TypeScrip
     if (ts.isStringLiteralLike(node) || ts.isTemplateLiteralToken(node) || ts.isRegularExpressionLiteral(node)) {
       literalTexts.push(node.text);
     }
+    if (ts.isNumericLiteral(node)) numericLiterals.push(Number(node.text));
     if (ts.isObjectLiteralExpression(node)) {
       objectPropertyTables.push(
         node.properties.flatMap(property => {
@@ -108,6 +164,27 @@ export function inspectTypeScript(source: string, sourcePath: string): TypeScrip
         }),
       );
     }
+    if (ts.isCallExpression(node)) {
+      const name = expressionName(node.expression);
+      if (name !== undefined) callExpressionNames.push(name);
+    }
+    if (ts.isNewExpression(node)) {
+      const name = expressionName(node.expression);
+      if (name !== undefined) constructedExpressionNames.push(name);
+    }
+    if (ts.isFunctionLike(node)) {
+      parameters.push(
+        ...node.parameters.map(parameter => ({
+          name: parameter.name.getText(sourceFile),
+          type: parameter.type?.getText(sourceFile) ?? '',
+        })),
+      );
+    }
+    if (ts.isPropertyDeclaration(node) || ts.isPropertySignature(node)) {
+      const name = declarationPropertyName(node);
+      if (name !== undefined) declaredPropertyNames.push(name);
+    }
+    if (ts.isImportDeclaration(node)) runtimeImports.push(...runtimeImportBindings(node));
 
     if (
       ts.isImportTypeNode(node) &&
@@ -144,7 +221,19 @@ export function inspectTypeScript(source: string, sourcePath: string): TypeScrip
   }
 
   visit(sourceFile);
-  return { moduleReferences, identifiers, literalTexts, objectPropertyTables, exportedFunctions };
+  return {
+    moduleReferences,
+    identifiers,
+    literalTexts,
+    numericLiterals,
+    objectPropertyTables,
+    callExpressionNames,
+    constructedExpressionNames,
+    parameters,
+    declaredPropertyNames,
+    runtimeImports,
+    exportedFunctions,
+  };
 }
 
 export function productionTypeScriptFiles(directory: string): readonly string[] {

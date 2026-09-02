@@ -1,5 +1,5 @@
 import { execFile, spawn } from 'node:child_process';
-import { access, copyFile, cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { access, copyFile, cp, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
@@ -118,5 +118,53 @@ describe('native CSS public compatibility', () => {
     expect(result).toMatchObject({ status: 2, stderr: '' });
     await expect(access(output)).rejects.toMatchObject({ code: 'ENOENT' });
     await expect(access(stylesheet)).rejects.toMatchObject({ code: 'ENOENT' });
+    expect(await transactionResidue(directory)).toEqual([]);
+  });
+
+  test('preserves project bytes on parse error and succeeds byte-identically after repair', async () => {
+    directory = await mkdtemp(join(tmpdir(), 'native-css-public-retry-'));
+    const input = join(directory, 'input');
+    const stylesheet = join(directory, 'migration.css');
+    const report = join(directory, 'report.json');
+    const first = join(input, 'first.html');
+    const second = join(input, 'second.html');
+    const invalid = '<span fxLayout="row" />\n';
+    const original = await readFile(inputFixture, 'utf8');
+    const expectedHtml = await readFile(expectedHtmlFixture, 'utf8');
+    const expectedCss = (await readFile(expectedCssFixture, 'utf8')).replace(/\n$/u, '');
+    await mkdir(input);
+    await writeFile(first, original, 'utf8');
+    await writeFile(second, invalid, 'utf8');
+    await writeFile(stylesheet, handwrittenCss, 'utf8');
+
+    const failed = await execute([input, '--target', 'css', '--stylesheet', stylesheet, '--report', report], directory);
+
+    expect(failed.status).toBe(1);
+    expect(failed.stdout).toBe('');
+    expect(failed.stderr).toContain('2 files scanned, 1 changed');
+    expect(JSON.parse(await readFile(report, 'utf8'))).toMatchObject({
+      target: 'css',
+      summary: { filesScanned: 2, filesChanged: 1, parseErrors: 1 },
+    });
+    expect(await readFile(first, 'utf8')).toBe(original);
+    expect(await readFile(second, 'utf8')).toBe(invalid);
+    expect(await readFile(stylesheet, 'utf8')).toBe(handwrittenCss);
+    expect(await transactionResidue(directory)).toEqual([]);
+
+    await writeFile(second, original, 'utf8');
+    const retried = await execute(
+      [input, '--target', 'css', '--stylesheet', stylesheet, '--report', report, '--allow-unresolved'],
+      directory,
+    );
+
+    expect(retried).toMatchObject({ status: 0, stderr: '' });
+    expect(await readFile(first, 'utf8')).toBe(expectedHtml);
+    expect(await readFile(second, 'utf8')).toBe(expectedHtml);
+    expect(await readFile(stylesheet, 'utf8')).toBe(expectedCss);
+    expect(await transactionResidue(directory)).toEqual([]);
   });
 });
+
+async function transactionResidue(root: string): Promise<readonly string[]> {
+  return (await readdir(root, { recursive: true })).filter(path => path.endsWith('.txn')).sort();
+}

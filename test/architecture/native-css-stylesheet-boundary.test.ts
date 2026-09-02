@@ -13,7 +13,7 @@ const stylesheetRoot = join(process.cwd(), 'src', 'adapter', 'css', 'stylesheet'
 const fixturePath = join(stylesheetRoot, 'fixture.ts');
 
 const nodeIoModule = /^(?:node:)?(?:fs|path)(?:\/|$)/u;
-const forbiddenLayer = /(?:^|\/)(?:analyzer|cli|migrator|planner|tailwind|template)(?:\/|$)/u;
+const forbiddenLayer = /(?:^|\/)(?:analyzer|cli|migrator|planner|report|tailwind|template|transaction)(?:\/|$)/u;
 const atomicFileWriterModule = /(?:^|\/)atomic-file\.writer(?:\.[cm]?[jt]s)?$/u;
 const absolutePath = /^(?:\/(?![*/])|[a-z]:[\\/]|\\\\)/iu;
 const packageVersionIdentifier = /^(?:PACKAGE_VERSION|npm_package_version|packageVersion)$/u;
@@ -142,6 +142,8 @@ describe('native CSS stylesheet architecture boundary', () => {
     ['template type import', "import type { Template } from '../../../template/template.model';"],
     ['Tailwind side-effect import', "import '../../tailwind/tailwind.adapter';"],
     ['analyzer re-export', "export * from '../../../analyzer/flex-layout-attribute.analyzer';"],
+    ['report import', "import { JsonReportWriter } from '../../../report/json-report.writer';"],
+    ['transaction re-export', "export { MigrationTransaction } from '../../../transaction/migration-transaction';"],
     ['breakpoint catalog import', "import { allBreakpointDefinitions } from '../../../breakpoint/breakpoint-catalog';"],
     ['AtomicFileWriter import', "import { AtomicFileWriter } from '../../../lib/atomic-file.writer';"],
   ])('rejects the %s dependency mutation', (_label, source) => {

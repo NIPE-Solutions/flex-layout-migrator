@@ -35,6 +35,24 @@ describe('TransactionSignalRegistrar', () => {
     expect(first).not.toHaveBeenCalled();
     expect(second).toHaveBeenCalledWith('SIGTERM');
   });
+
+  test('restores the surrounding signal-listener set after the transaction scope closes', () => {
+    const target = new FakeSignalTarget();
+    const registrar = new TransactionSignalRegistrar(target);
+    const existing = vi.fn();
+    const scoped = vi.fn();
+    target.on('SIGINT', existing);
+
+    const unregister = registrar.register(scoped);
+    unregister();
+    target.emit('SIGINT');
+    target.emit('SIGTERM');
+
+    expect(existing).toHaveBeenCalledOnce();
+    expect(existing).toHaveBeenCalledWith('SIGINT');
+    expect(scoped).not.toHaveBeenCalled();
+    expect([...target.listeners.keys()]).toEqual(['SIGINT']);
+  });
 });
 
 class FakeSignalTarget implements TransactionSignalTarget {
