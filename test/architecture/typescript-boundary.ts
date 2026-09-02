@@ -5,8 +5,11 @@ import ts from 'typescript';
 const filesystemModules = new Set(['fs', 'fs/promises', 'node:fs', 'node:fs/promises']);
 const filesystemMutationNames = new Set(['link', 'mkdir', 'open', 'rename', 'rmdir', 'unlink', 'writeFile']);
 const adapterPathNames = new Set(['stylesheetPath', 'reportPath']);
-const breakpointContextName = /(?:breakpoint|media|query)/iu;
-const exactMediaQuery = /^(?:@media\s*)?\([^)]*(?:min|max)-width\s*:\s*([0-9]+(?:\.[0-9]+)?)px[^)]*\)$/iu;
+const mediaWidthSyntax = /\((?:min|max)-width\s*:\s*([0-9]+(?:\.[0-9]+)?)px\s*\)/giu;
+const mediaQuerySyntax = new RegExp(
+  String.raw`^(?:@media\s+)?(?:(?:(?:only|not)\s+)?(?:all|screen|print|speech)\s+and\s+)?(?:\([^()]*\)|\$\{\})(?:\s+and\s+(?:\([^()]*\)|\$\{\}))*$`,
+  'iu',
+);
 
 export interface InspectedParameter {
   readonly name: string;
@@ -93,38 +96,50 @@ function declarationPropertyName(node: ts.PropertyDeclaration | ts.PropertySigna
   return ts.isIdentifier(name) || ts.isStringLiteralLike(name) || ts.isNumericLiteral(name) ? name.text : undefined;
 }
 
-function namedDeclarationText(
-  name: ts.DeclarationName | ts.BindingName | undefined,
-  sourceFile: ts.SourceFile,
-): string {
-  return name?.getText(sourceFile) ?? '';
-}
-
-function isBreakpointMediaContext(node: ts.Node, sourceFile: ts.SourceFile): boolean {
+function isErrorArgument(node: ts.Node): boolean {
   for (let current: ts.Node | undefined = node.parent; current !== undefined; current = current.parent) {
-    let name = '';
-    if (ts.isVariableDeclaration(current) || ts.isParameter(current)) {
-      name = namedDeclarationText(current.name, sourceFile);
-    } else if (
-      ts.isPropertyAssignment(current) ||
-      ts.isPropertyDeclaration(current) ||
-      ts.isPropertySignature(current) ||
-      ts.isMethodDeclaration(current)
-    ) {
-      name = namedDeclarationText(current.name, sourceFile);
-    } else if (ts.isFunctionDeclaration(current)) {
-      name = current.name?.text ?? '';
-    } else if (ts.isCallExpression(current)) {
-      name = expressionName(current.expression) ?? '';
+    if (ts.isCallExpression(current) || ts.isNewExpression(current)) {
+      const name = expressionName(current.expression);
+      if (name !== undefined && /Error$/u.test(name)) return true;
     }
-    if (breakpointContextName.test(name)) return true;
   }
   return false;
 }
 
-function exactMediaQueryValue(text: string): number | undefined {
-  const match = exactMediaQuery.exec(text.trim());
-  return match?.[1] === undefined ? undefined : Number(match[1]);
+function isMediaQuery(text: string): boolean {
+  return text
+    .trim()
+    .split(/\s*,\s*/u)
+    .every(query => mediaQuerySyntax.test(query));
+}
+
+function isInterpolatedMediaQuery(text: string): boolean {
+  return (
+    text.includes('${}') &&
+    text
+      .replaceAll('${}', '')
+      .replace(/\([^()]*\)/gu, '')
+      .replace(/@media\b/giu, '')
+      .replace(/\b(?:only|not|all|screen|print|speech|and|or)\b/giu, '')
+      .replace(/[\s,]/gu, '') === ''
+  );
+}
+
+function hardcodedMediaWidths(text: string): readonly number[] {
+  return [...text.matchAll(mediaWidthSyntax)].map(match => Number(match[1]));
+}
+
+function templateMediaText(node: ts.TemplateExpression, preserveNumericLiterals: boolean): string {
+  return (
+    node.head.text +
+    node.templateSpans
+      .map(span => {
+        const expression = unwrapExpression(span.expression);
+        const interpolation = preserveNumericLiterals && ts.isNumericLiteral(expression) ? expression.text : '${}';
+        return interpolation + span.literal.text;
+      })
+      .join('')
+  );
 }
 
 function runtimeImportReference(node: ts.ImportDeclaration): string | undefined {
@@ -221,17 +236,23 @@ export function inspectTypeScript(source: string, sourcePath: string): TypeScrip
     if (ts.isIdentifier(node)) identifiers.push(node.text);
     if (ts.isStringLiteralLike(node) || ts.isTemplateLiteralToken(node) || ts.isRegularExpressionLiteral(node)) {
       literalTexts.push(node.text);
-      if (ts.isStringLiteralLike(node) || ts.isTemplateLiteralToken(node)) {
-        const mediaValue = exactMediaQueryValue(node.text);
-        if (mediaValue !== undefined && isBreakpointMediaContext(node, sourceFile)) {
-          breakpointMediaValues.push(mediaValue);
-        }
+      if (
+        (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) &&
+        !isErrorArgument(node) &&
+        isMediaQuery(node.text)
+      ) {
+        breakpointMediaValues.push(...hardcodedMediaWidths(node.text));
       }
     }
     if (ts.isNumericLiteral(node)) {
       const value = Number(node.text);
       numericLiterals.push(value);
-      if (isBreakpointMediaContext(node, sourceFile)) breakpointMediaValues.push(value);
+    }
+    if (ts.isTemplateExpression(node) && !isErrorArgument(node)) {
+      const queryShape = templateMediaText(node, false);
+      if (isMediaQuery(queryShape) || isInterpolatedMediaQuery(queryShape)) {
+        breakpointMediaValues.push(...hardcodedMediaWidths(templateMediaText(node, true)));
+      }
     }
     if (ts.isObjectLiteralExpression(node)) {
       objectPropertyTables.push(

@@ -248,26 +248,37 @@ describe('native CSS architecture boundary', () => {
   });
 
   test.each([599.98, 600, 959.98, 960, 1279.98, 1280, 1919.98, 1920])(
-    'rejects a duplicated standard breakpoint media value: %s',
+    'rejects a duplicated standard breakpoint in a hardcoded media feature: %s',
     value => {
       expect(
         duplicatedStandardBreakpointMediaValue(
-          inspectTypeScript(`const duplicateBreakpointMediaValue = ${value};`, fixturePath),
+          inspectTypeScript(`const condition = '(min-width: ${value}px)';`, fixturePath),
         ),
       ).toBe(value);
     },
   );
 
   test.each([
-    ["const mediaQuery = '(max-width: 599.98px)';", 599.98],
-    ['const mediaQuery = `(min-width: ${600}px)`;', 600],
-  ])('rejects a duplicated standard breakpoint in media syntax: %s', (source, expected) => {
-    expect(duplicatedStandardBreakpointMediaValue(inspectTypeScript(source, fixturePath))).toBe(expected);
+    ["const condition = '(max-width: 599.98px)';", [599.98]],
+    ["const condition = 'screen and (min-width: 600px)';", [600]],
+    ["const condition = '(min-width: 600px) and (max-width: 959.98px)';", [600, 959.98]],
+    ['const condition = `screen and (min-width: 600px)`;', [600]],
+    ['const condition = `screen and ${orientation} and (min-width: 600px)`;', [600]],
+    ['const condition = `(min-width: ${minimum}px) and (max-width: 959.98px)`;', [959.98]],
+    ['const condition = `(min-width: ${600}px)`;', [600]],
+    ['const condition = `${prefix}(min-width: 600px) and (max-width: 959.98px)${suffix}`;', [600, 959.98]],
+  ])('rejects duplicated standard breakpoints in media syntax: %s', (source, expected) => {
+    expect(inspectTypeScript(source, fixturePath).breakpointMediaValues).toEqual(expected);
   });
 
   test.each([
     'const timeoutMs = 600;',
+    'const queryTimeoutMs = 600;',
+    'const breakpointRetryDelayMs = 960;',
+    'const mediaBufferSize = 1280;',
+    'const componentSize = { minWidth: 600, maxWidth: 960 };',
     "const documentation = 'Use (max-width: 599.98px) in the legacy example.';",
+    "const documentation = 'Use screen and (min-width: 600px) in the legacy example.';",
     "throw new Error('Unexpected breakpoint-looking text (min-width: 600px)');",
     "throw new Error('(min-width: 600px)');",
   ])('ignores unrelated numeric or prose values: %s', source => {
