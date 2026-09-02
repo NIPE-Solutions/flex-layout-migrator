@@ -89,7 +89,7 @@ Equivalent semantics share one class and rule. Source filename, element ID, sour
 One focused renderer per semantic family maps domain values to ordered CSS declarations:
 
 - layout: `display`, `box-sizing`, `flex-direction`, and explicit wrapping behavior;
-- layout alignment: `justify-content`, `align-items`, `align-content`, and the verified stretch maximum;
+- layout alignment: `justify-content`, `align-items`, `align-content`, the active layout declarations carried by the semantic value, and the verified stretch maximum;
 - gap: `gap`;
 - flex item: `flex` shorthand when valid, otherwise ordered `flex-grow`, `flex-shrink`, and `flex-basis`, followed by the axis-dependent minimum and maximum;
 - self alignment: `align-self`;
