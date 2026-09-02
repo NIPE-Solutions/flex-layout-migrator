@@ -1,91 +1,23 @@
 import type { TailwindStrategyResult } from '../tailwind-semantic.model';
-import { parseLayout } from '../../../flex/layout.semantic';
-import { parseCssLength } from '../tailwind-value.parser';
+import { planFlexItemSemantics, type FlexItemInput, type FlexItemSemantics } from '../../../flex/flex-item.semantic';
 
-export interface FlexItemInput {
-  readonly basis: string;
-  readonly grow?: string;
-  readonly shrink?: string;
-  readonly layout: string | undefined;
-}
+export type { FlexItemInput } from '../../../flex/flex-item.semantic';
 
-const FACTOR = /^\d+(?:\.\d+)?$/;
-function property(name: string, value: string): string {
-  return `[${name}:${value.replaceAll(/\s+/g, '_')}]`;
+const property = (name: string, value: string) => `[${name}:${value.replaceAll(/\s+/g, '_')}]`;
+
+export function renderFlexItem(value: FlexItemSemantics): readonly string[] {
+  const flexClasses = value.splitProperties
+    ? [property('flex-grow', value.grow), property('flex-shrink', value.shrink), property('flex-basis', value.basis)]
+    : [property('flex', `${value.grow} ${value.shrink} ${value.basis}`)];
+  return [
+    ...flexClasses,
+    ...(value.min ? [property(`min-${value.axis}`, value.min)] : []),
+    ...(value.max ? [property(`max-${value.axis}`, value.max)] : []),
+    'box-border',
+  ];
 }
 
 export function planFlexItem(input: FlexItemInput): TailwindStrategyResult {
-  if (input.layout === undefined) {
-    return {
-      status: 'review',
-      code: 'context-unverified',
-      reason: 'Flex sizing depends on a dynamic parent direction or wrapping mode.',
-      suggestion: 'Make the parent layout static or migrate this flex item manually.',
-    };
-  }
-  const layout = parseLayout(input.layout);
-  if (!layout.ok) return { status: 'invalid', code: 'invalid-value' };
-
-  let grow = input.grow?.trim() || '1';
-  let shrink = input.shrink?.trim() || '1';
-  let basis = input.basis.trim();
-  const shorthand = basis.startsWith('calc(') ? undefined : basis.match(/^(\S+)\s+(\S+)\s+(.+)$/);
-  if (shorthand) {
-    grow = shorthand[1] ?? grow;
-    shrink = shorthand[2] ?? shrink;
-    basis = shorthand[3] ?? basis;
-  } else if (basis.split(/\s+/).length > 1 && !basis.startsWith('calc(')) {
-    return { status: 'invalid', code: 'invalid-value' };
-  }
-  if (!FACTOR.test(grow) || !FACTOR.test(shrink)) return { status: 'invalid', code: 'invalid-value' };
-
-  const direction = layout.value.direction.startsWith('column') ? 'height' : 'width';
-  let isValue = false;
-  let usingCalc = false;
-
-  if (!basis) {
-    basis = direction === 'width' ? '0%' : '0.000000001px';
-  } else if (basis === 'initial' || basis === 'nogrow') {
-    grow = '0';
-    basis = 'auto';
-  } else if (basis === 'grow') {
-    basis = '100%';
-  } else if (basis === 'noshrink') {
-    shrink = '0';
-    basis = 'auto';
-  } else if (basis === 'none') {
-    grow = '0';
-    shrink = '0';
-    basis = 'auto';
-  } else if (basis !== 'auto') {
-    const parsed = parseCssLength(basis, { fallbackUnit: '%' });
-    if (!parsed.ok) return { status: 'invalid', code: 'invalid-value' };
-    basis = parsed.value;
-    usingCalc = basis.startsWith('calc(');
-    isValue = usingCalc || !basis.endsWith('%');
-    if (basis === '0px') basis = '0%';
-  }
-
-  const fixed = grow === '0' && shrink === '0';
-  const min =
-    !['0%', '0px', '0.000000001px', 'auto'].includes(basis) && (fixed || (isValue && grow !== '0')) ? basis : undefined;
-  const max =
-    !['0%', '0px', '0.000000001px', 'auto'].includes(basis) && (fixed || (!usingCalc && shrink !== '0'))
-      ? basis
-      : undefined;
-
-  const effectiveBasis =
-    min || max ? (layout.value.wrap === 'wrap' ? (max ?? min ?? basis) : isValue ? basis : '100%') : basis;
-  const flexClasses = usingCalc
-    ? [property('flex-grow', grow), property('flex-shrink', shrink), property('flex-basis', effectiveBasis)]
-    : [property('flex', `${grow} ${shrink} ${effectiveBasis}`)];
-  return {
-    status: 'converted',
-    classNames: [
-      ...flexClasses,
-      ...(min ? [property(`min-${direction}`, min)] : []),
-      ...(max ? [property(`max-${direction}`, max)] : []),
-      'box-border',
-    ],
-  };
+  const planned = planFlexItemSemantics(input);
+  return planned.status === 'planned' ? { status: 'converted', classNames: renderFlexItem(planned.value) } : planned;
 }

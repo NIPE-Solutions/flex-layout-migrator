@@ -581,6 +581,24 @@ describe('TailwindAdapter', () => {
     });
   });
 
+  test('preserves split calc sizing and column constraints through adapter rendering', () => {
+    expect(
+      new TailwindAdapter().plan(input({ directive: 'fxFlex', value: '3 2 calc(100% - 2rem)' }), {
+        element,
+        activeParentLayout: 'column',
+      }),
+    ).toMatchObject({
+      status: 'converted',
+      classNames: [
+        '[flex-grow:3]',
+        '[flex-shrink:2]',
+        '[flex-basis:calc(100%_-_2rem)]',
+        '[min-height:calc(100%_-_2rem)]',
+        'box-border',
+      ],
+    });
+  });
+
   test('preserves every responsive family member when one generated token conflicts', () => {
     const adapter = new TailwindAdapter();
     const inputs = [

@@ -1,4 +1,5 @@
-import { planFlexItem } from './flex-item.strategy';
+import type { CssLength } from '../../../flex/css-length';
+import { planFlexItem, renderFlexItem } from './flex-item.strategy';
 
 describe('planFlexItem', () => {
   test.each([
@@ -44,5 +45,40 @@ describe('planFlexItem', () => {
     [{ basis: '25', layout: undefined }, 'context-unverified'],
   ] as const)('preserves or rejects invalid flex input %o', (input, code) => {
     expect(planFlexItem(input)).toMatchObject({ code });
+  });
+});
+
+describe('renderFlexItem', () => {
+  test('renders shorthand sizing and semantic axis constraints in the existing order', () => {
+    expect(
+      renderFlexItem({
+        grow: '1',
+        shrink: '1',
+        basis: '10rem',
+        axis: 'height',
+        min: '10rem' as CssLength,
+        max: '10rem' as CssLength,
+        splitProperties: false,
+      }),
+    ).toEqual(['[flex:1_1_10rem]', '[min-height:10rem]', '[max-height:10rem]', 'box-border']);
+  });
+
+  test('renders calc sizing as separate arbitrary properties without interpreting it', () => {
+    expect(
+      renderFlexItem({
+        grow: '3',
+        shrink: '2',
+        basis: 'calc(100% - 2rem)',
+        axis: 'width',
+        min: 'calc(100% - 2rem)' as CssLength,
+        splitProperties: true,
+      }),
+    ).toEqual([
+      '[flex-grow:3]',
+      '[flex-shrink:2]',
+      '[flex-basis:calc(100%_-_2rem)]',
+      '[min-width:calc(100%_-_2rem)]',
+      'box-border',
+    ]);
   });
 });
