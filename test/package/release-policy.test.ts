@@ -118,6 +118,19 @@ describe('release policy', () => {
     );
   });
 
+  it('keeps every package script outside direct publication and tagging boundaries', async () => {
+    const source = await readFile(new URL('../../package.json', import.meta.url), 'utf8');
+    const manifest = JSON.parse(source);
+    const packageScriptSource = Object.entries(manifest.scripts)
+      .map(([name, command]) => `${name}: ${command}`)
+      .join('\n');
+
+    expect(manifest.scripts.release).toBeUndefined();
+    expect(packageScriptSource).not.toMatch(
+      /\b(?:npm|pnpm|yarn)\s+(?:publish|version\b|stage\s+(?:publish|approve|reject))|\bchangesets?\s+(?:publish|git-tag)\b|\bgit\s+tag\b|\bgh\s+release\b/iu,
+    );
+  });
+
   it('publishes public packages from main without automated release commits', async () => {
     const config = JSON.parse(await readFile(new URL('../../.changeset/config.json', import.meta.url), 'utf8'));
 
