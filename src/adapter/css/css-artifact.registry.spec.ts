@@ -1,4 +1,5 @@
-import type { MediaDefinition } from '../../breakpoint/breakpoint-catalog';
+import { BreakpointCatalog, type MediaDefinition } from '../../breakpoint/breakpoint-catalog';
+import { cssRuleContext } from './css-breakpoint.context';
 import { CssInvariantError } from './css-invariant.error';
 import { CssArtifactRegistry } from './css-artifact.registry';
 
@@ -54,6 +55,22 @@ describe('CssArtifactRegistry', () => {
 
     expect(responsive.className).not.toBe(base.className);
     expect(responsive.context).toEqual({ media: viewportMedia, priority: 900 });
+  });
+
+  test('accepts a defensive context copied from a verified breakpoint definition', () => {
+    const breakpoint = new BreakpointCatalog().classify('sm');
+    if (breakpoint.kind !== 'verified') throw new Error('Expected sm to be verified');
+
+    const rule = new CssArtifactRegistry().register(
+      'layout-gap',
+      [{ property: 'gap', value: '1rem' }],
+      cssRuleContext(breakpoint.definition),
+    );
+
+    expect(rule.context).toEqual({
+      priority: 900,
+      media: { type: 'screen', clauses: [{ min: 600, max: 959.98 }] },
+    });
   });
 
   test('deduplicates equivalent rules by canonical identity', () => {
