@@ -65,13 +65,13 @@ describe('native CSS public compatibility', () => {
     await cp(inputFixture, second, { recursive: false });
     await writeFile(stylesheet, handwrittenCss, 'utf8');
 
-    const dryRun = await execute([input, '--target', 'css', '--stylesheet', stylesheet, '--dry-run'], directory);
-    expect(dryRun).toMatchObject({ status: 2, stderr: '' });
-    expect(dryRun.stdout).toContain('Dry run: 2 files scanned, 2 would change');
+    const plan = await execute([input, '--target', 'css', '--stylesheet', stylesheet], directory);
+    expect(plan).toMatchObject({ status: 2, stderr: '' });
+    expect(plan.stdout).toContain('Plan: 2 files scanned, 2 would change');
     expect(await readFile(first, 'utf8')).toEqual(await readFile(inputFixture, 'utf8'));
     expect(await readFile(stylesheet, 'utf8')).toBe(handwrittenCss);
 
-    const migrated = await execute([input, '--target', 'css', '--stylesheet', stylesheet], directory);
+    const migrated = await execute([input, '--target', 'css', '--stylesheet', stylesheet, '--write'], directory);
     expect(migrated).toMatchObject({ status: 2, stderr: '' });
     expect(migrated.stdout).toContain('Unsupported 12');
     expect(await readFile(first, 'utf8')).toBe(expectedHtml);
@@ -82,7 +82,7 @@ describe('native CSS public compatibility', () => {
     await writeFile(first, '<div fxLayout="row"></div>\n', 'utf8');
     await writeFile(second, '<div fxLayout="row"></div>\n', 'utf8');
     const shrunk = await execute(
-      [input, '--target', 'css', '--stylesheet', stylesheet, '--allow-unresolved'],
+      [input, '--target', 'css', '--stylesheet', stylesheet, '--allow-unresolved', '--write'],
       directory,
     );
     expect(shrunk).toMatchObject({ status: 0, stderr: '' });
@@ -90,29 +90,31 @@ describe('native CSS public compatibility', () => {
     expect(shrunkCss).toContain(handwrittenCss);
     expect(shrunkCss).toContain('gap: 8px;');
     expect(shrunkCss).toContain('display: flex;');
+    const shrunkFirst = await readFile(first, 'utf8');
+    const shrunkSecond = await readFile(second, 'utf8');
 
     const rerun = await execute(
-      [input, '--target', 'css', '--stylesheet', stylesheet, '--allow-unresolved'],
+      [input, '--target', 'css', '--stylesheet', stylesheet, '--allow-unresolved', '--write'],
       directory,
     );
     expect(rerun).toMatchObject({ status: 0, stderr: '' });
     expect(rerun.stdout).toContain('2 files scanned, 0 changed');
+    expect(await readFile(first, 'utf8')).toBe(shrunkFirst);
+    expect(await readFile(second, 'utf8')).toBe(shrunkSecond);
     expect(await readFile(stylesheet, 'utf8')).toBe(shrunkCss);
   });
 
-  test('does not create template or stylesheet paths during a CSS dry run', async () => {
-    directory = await mkdtemp(join(tmpdir(), 'native-css-public-dry-run-'));
+  test('does not create template or stylesheet paths during the default CSS plan', async () => {
+    directory = await mkdtemp(join(tmpdir(), 'native-css-public-plan-'));
     const input = join(directory, 'input.html');
     const output = join(directory, 'generated', 'output.html');
     const stylesheet = join(directory, 'styles', 'migration.css');
     await cp(inputFixture, input, { recursive: false });
 
-    const result = await execute(
-      [input, '--output', output, '--target', 'css', '--stylesheet', stylesheet, '--dry-run'],
-      directory,
-    );
+    const result = await execute([input, '--output', output, '--target', 'css', '--stylesheet', stylesheet], directory);
 
     expect(result).toMatchObject({ status: 2, stderr: '' });
+    expect(result.stdout).toContain('Plan: 1 files scanned, 1 would change');
     await expect(access(output)).rejects.toMatchObject({ code: 'ENOENT' });
     await expect(access(stylesheet)).rejects.toMatchObject({ code: 'ENOENT' });
     expect(await transactionResidue(directory)).toEqual([]);
@@ -134,16 +136,23 @@ describe('native CSS public compatibility', () => {
     await writeFile(second, invalid, 'utf8');
     await writeFile(stylesheet, handwrittenCss, 'utf8');
 
-    const failed = await execute([input, '--target', 'css', '--stylesheet', stylesheet, '--report', report], directory);
+    const failed = await execute(
+      [input, '--target', 'css', '--stylesheet', stylesheet, '--report', report, '--write'],
+      directory,
+    );
 
     expect(failed.status).toBe(1);
     expect(failed.stdout).toBe('');
-    expect(failed.stderr).toContain('Application skipped: 2 files scanned, 1 planned change');
-    expect(JSON.parse(await readFile(report, 'utf8'))).toMatchObject({
+    expect(failed.stderr).toContain('Write: 2 files scanned, 1 would change');
+    const failedReport = JSON.parse(await readFile(report, 'utf8')) as Record<string, unknown>;
+    expect(failedReport).toMatchObject({
+      schemaVersion: 2,
+      mode: 'write',
       target: 'css',
       application: { status: 'skipped', reason: 'parse-errors' },
       summary: { filesScanned: 2, filesChanged: 1, parseErrors: 1 },
     });
+    expect(failedReport).not.toHaveProperty('dryRun');
     expect(await readFile(first, 'utf8')).toBe(original);
     expect(await readFile(second, 'utf8')).toBe(invalid);
     expect(await readFile(stylesheet, 'utf8')).toBe(handwrittenCss);
@@ -151,7 +160,7 @@ describe('native CSS public compatibility', () => {
 
     await writeFile(second, original, 'utf8');
     const retried = await execute(
-      [input, '--target', 'css', '--stylesheet', stylesheet, '--report', report, '--allow-unresolved'],
+      [input, '--target', 'css', '--stylesheet', stylesheet, '--report', report, '--allow-unresolved', '--write'],
       directory,
     );
 

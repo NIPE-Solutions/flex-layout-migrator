@@ -1,5 +1,7 @@
 # CLI reporting and execution contract
 
+> **Superseded current behavior:** This document records the original schema-1 and `--dry-run` reporting slice. [Plan-by-default CLI and explicit application](adaptive-cli-plan-default.md) now defines the public command and schema-2 contract; the historical design below is retained as implemented context.
+
 ## Decision
 
 The CLI treats migration as a result-producing operation. Migration services return a complete, immutable report; terminal and JSON presenters render that report without participating in parsing, conversion, or file mutation.

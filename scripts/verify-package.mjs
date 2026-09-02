@@ -86,7 +86,7 @@ export async function smokePackageTarball({
     const executableArguments = platform === 'win32' ? [installedModuleExecutable] : [];
     const help = await execFileImpl(executable, [...executableArguments, '--help'], { cwd: temporaryDirectory });
     for (const option of [
-      '--dry-run',
+      '--write',
       '--report <path>',
       '--allow-unresolved',
       '--stylesheet <path>',
@@ -96,6 +96,9 @@ export async function smokePackageTarball({
       if (!help.stdout.includes(option)) {
         throw new Error(`Packaged CLI help is missing ${option}`);
       }
+    }
+    if (help.stdout.includes('--dry-run')) {
+      throw new Error('Packaged CLI help still exposes the removed --dry-run option');
     }
     if (!/path must\s+end in \.json/u.test(help.stdout)) {
       throw new Error('Packaged CLI help is missing the JSON report extension requirement');
@@ -112,26 +115,58 @@ export async function smokePackageTarball({
     const input = join(temporaryDirectory, 'input.html');
     const outputDirectory = join(temporaryDirectory, 'generated');
     const output = join(outputDirectory, 'output.html');
+    const report = join(temporaryDirectory, 'reports', 'migration.json');
     const source = '<div fxLayout="row"></div>';
     await writeFile(input, source, 'utf8');
 
-    const dryRun = await execFileImpl(executable, [...executableArguments, input, '--output', output, '--dry-run'], {
-      cwd: temporaryDirectory,
-    });
-    if (!dryRun.stdout.includes('Dry run: 1 files scanned, 1 would change')) {
-      throw new Error(`Unexpected packaged CLI dry-run output: ${dryRun.stdout.trim()}`);
+    const planArguments = [...executableArguments, input, '--output', output, '--report', report];
+    const plan = await execFileImpl(executable, planArguments, { cwd: temporaryDirectory });
+    if (!plan.stdout.includes('Plan: 1 files scanned, 1 would change')) {
+      throw new Error(`Unexpected packaged CLI plan output: ${plan.stdout.trim()}`);
     }
-    if (dryRun.stderr) {
-      throw new Error(`Unexpected packaged CLI dry-run error output: ${dryRun.stderr.trim()}`);
+    if (plan.stderr) {
+      throw new Error(`Unexpected packaged CLI plan error output: ${plan.stderr.trim()}`);
     }
     if ((await readFile(input, 'utf8')) !== source) {
-      throw new Error('Packaged CLI dry-run changed its input template');
+      throw new Error('Packaged CLI plan changed its input template');
     }
     if (await pathExists(output)) {
-      throw new Error('Packaged CLI dry-run wrote template output');
+      throw new Error('Packaged CLI plan wrote template output');
     }
     if (await pathExists(outputDirectory)) {
-      throw new Error('Packaged CLI dry-run created the template output directory');
+      throw new Error('Packaged CLI plan created the template output directory');
+    }
+    const planReport = JSON.parse(await readFile(report, 'utf8'));
+    if (planReport.schemaVersion !== 2) {
+      throw new Error('Packaged CLI report did not use schema version 2');
+    }
+    if (
+      planReport.mode !== 'plan' ||
+      planReport.application?.status !== 'skipped' ||
+      planReport.application?.reason !== 'plan-only' ||
+      Object.hasOwn(planReport, 'dryRun')
+    ) {
+      throw new Error('Packaged CLI plan report did not expose the expected execution and application state');
+    }
+
+    const write = await execFileImpl(executable, [...planArguments, '--write'], { cwd: temporaryDirectory });
+    if (!write.stdout.includes('Applied: 1 files scanned, 1 changed')) {
+      throw new Error(`Unexpected packaged CLI write output: ${write.stdout.trim()}`);
+    }
+    if (write.stderr) {
+      throw new Error(`Unexpected packaged CLI write error output: ${write.stderr.trim()}`);
+    }
+    if ((await readFile(output, 'utf8')) !== '<div class="flex flex-row box-border"></div>') {
+      throw new Error('Packaged CLI write did not produce the expected Tailwind template bytes');
+    }
+    const writeReport = JSON.parse(await readFile(report, 'utf8'));
+    if (
+      writeReport.schemaVersion !== 2 ||
+      writeReport.mode !== 'write' ||
+      writeReport.application?.status !== 'applied' ||
+      Object.hasOwn(writeReport, 'dryRun')
+    ) {
+      throw new Error('Packaged CLI write report did not expose the expected execution and application state');
     }
 
     const cssOutput = join(temporaryDirectory, 'css-generated', 'output.html');
@@ -148,25 +183,26 @@ export async function smokePackageTarball({
       '--stylesheet',
       stylesheet,
     ];
-    const cssDryRun = await execFileImpl(executable, [...cssArguments, '--dry-run'], { cwd: temporaryDirectory });
-    if (!cssDryRun.stdout.includes('Dry run: 1 files scanned, 1 would change')) {
-      throw new Error(`Unexpected packaged CLI CSS dry-run output: ${cssDryRun.stdout.trim()}`);
+    const cssPlan = await execFileImpl(executable, cssArguments, { cwd: temporaryDirectory });
+    if (!cssPlan.stdout.includes('Plan: 1 files scanned, 1 would change')) {
+      throw new Error(`Unexpected packaged CLI CSS plan output: ${cssPlan.stdout.trim()}`);
     }
-    if (cssDryRun.stderr) {
-      throw new Error(`Unexpected packaged CLI CSS dry-run error output: ${cssDryRun.stderr.trim()}`);
+    if (cssPlan.stderr) {
+      throw new Error(`Unexpected packaged CLI CSS plan error output: ${cssPlan.stderr.trim()}`);
     }
     if (await pathExists(cssOutput)) {
-      throw new Error('Packaged CLI CSS dry-run wrote template output');
+      throw new Error('Packaged CLI CSS plan wrote template output');
     }
     if (await pathExists(stylesheet)) {
-      throw new Error('Packaged CLI CSS dry-run wrote stylesheet output');
+      throw new Error('Packaged CLI CSS plan wrote stylesheet output');
     }
     if ((await pathExists(cssOutputDirectory)) || (await pathExists(stylesheetDirectory))) {
-      throw new Error('Packaged CLI CSS dry-run created output directories');
+      throw new Error('Packaged CLI CSS plan created output directories');
     }
 
-    const cssWrite = await execFileImpl(executable, cssArguments, { cwd: temporaryDirectory });
-    if (!cssWrite.stdout.includes('1 files scanned, 1 changed')) {
+    const cssWriteArguments = [...cssArguments, '--write'];
+    const cssWrite = await execFileImpl(executable, cssWriteArguments, { cwd: temporaryDirectory });
+    if (!cssWrite.stdout.includes('Applied: 1 files scanned, 1 changed')) {
       throw new Error(`Unexpected packaged CLI CSS write output: ${cssWrite.stdout.trim()}`);
     }
     if (cssWrite.stderr) {
@@ -187,6 +223,22 @@ export async function smokePackageTarball({
     }
     if ((await readFile(stylesheet, 'utf8')) !== expectedStylesheet) {
       throw new Error('Packaged CLI CSS write did not produce the expected stylesheet bytes');
+    }
+    const writtenTemplate = await readFile(cssOutput, 'utf8');
+    const writtenStylesheet = await readFile(stylesheet, 'utf8');
+
+    const cssRerun = await execFileImpl(executable, cssWriteArguments, { cwd: temporaryDirectory });
+    if (!cssRerun.stdout.includes('Applied: 1 files scanned, 0 changed')) {
+      throw new Error(`Unexpected packaged CLI CSS rerun output: ${cssRerun.stdout.trim()}`);
+    }
+    if (cssRerun.stderr) {
+      throw new Error(`Unexpected packaged CLI CSS rerun error output: ${cssRerun.stderr.trim()}`);
+    }
+    if ((await readFile(cssOutput, 'utf8')) !== writtenTemplate) {
+      throw new Error('Packaged CLI CSS rerun changed template bytes');
+    }
+    if ((await readFile(stylesheet, 'utf8')) !== writtenStylesheet) {
+      throw new Error('Packaged CLI CSS rerun changed stylesheet bytes');
     }
   } finally {
     await rm(temporaryDirectory, { recursive: true, force: true });

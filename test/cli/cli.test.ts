@@ -51,16 +51,36 @@ describe('packaged CLI execution', () => {
     expect(result.stdout).not.toContain('Flex-Layout Migrator');
   });
 
-  test('exits zero after writing a clean migration', async () => {
+  test('plans a clean Tailwind migration by default and applies it only with --write', async () => {
     const input = join(temporaryDirectory, 'input.html');
     const output = join(temporaryDirectory, 'output.html');
+    const report = join(temporaryDirectory, 'report.json');
     await writeFile(input, '<div fxLayout="row"></div>', 'utf8');
 
-    const result = await execute([input, '--output', output, '--write']);
+    const plan = await execute([input, '--output', output, '--report', report]);
 
-    expect(result).toMatchObject({ status: 0, stderr: '' });
-    expect(result.stdout).toContain('1 files scanned, 1 changed');
+    expect(plan).toMatchObject({ status: 0, stderr: '' });
+    expect(plan.stdout).toContain('Plan: 1 files scanned, 1 would change');
+    await expect(access(output)).rejects.toMatchObject({ code: 'ENOENT' });
+    expect(await readFile(input, 'utf8')).toBe('<div fxLayout="row"></div>');
+    const planReport = JSON.parse(await readFile(report, 'utf8')) as Record<string, unknown>;
+    expect(planReport).toMatchObject({
+      schemaVersion: 2,
+      mode: 'plan',
+      application: { status: 'skipped', reason: 'plan-only' },
+    });
+    expect(planReport).not.toHaveProperty('dryRun');
+
+    const applied = await execute([input, '--output', output, '--report', report, '--write']);
+
+    expect(applied).toMatchObject({ status: 0, stderr: '' });
+    expect(applied.stdout).toContain('Applied: 1 files scanned, 1 changed');
     expect(await readFile(output, 'utf8')).toBe('<div class="flex flex-row box-border"></div>');
+    expect(JSON.parse(await readFile(report, 'utf8'))).toMatchObject({
+      schemaVersion: 2,
+      mode: 'write',
+      application: { status: 'applied' },
+    });
   });
 
   test('executes the packaged CSS target with its companion stylesheet', async () => {
