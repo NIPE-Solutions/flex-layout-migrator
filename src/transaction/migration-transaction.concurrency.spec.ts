@@ -10,6 +10,7 @@ import {
   rename,
   rm,
   rmdir,
+  stat,
   symlink,
   unlink,
   writeFile,
@@ -156,6 +157,34 @@ describe('MigrationTransaction concurrency boundaries', () => {
     await expect(access(join(redirectedParent, 'card.html'))).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
+  test('rejects a non-immediate ancestor symlink whose followed directory identity changes', async () => {
+    const followed = join(root, 'followed');
+    const displaced = join(root, 'displaced');
+    const ancestorLink = join(root, 'ancestor-link');
+    const target = join(ancestorLink, 'missing', 'card.html');
+    await mkdir(followed);
+    await symlink(followed, ancestorLink, 'dir');
+    let ancestorChecks = 0;
+    const operations = operationsWith({
+      lstat: async candidate => {
+        const result = await lstat(candidate, { bigint: true });
+        if (candidate === ancestorLink && ++ancestorChecks === 3) {
+          await rename(followed, displaced);
+          await mkdir(followed);
+        }
+        return result;
+      },
+    });
+
+    const error = await captureError(
+      new MigrationTransaction(operations).apply(plan([template(target, absent(), present('<div>ours</div>'))])),
+    );
+
+    expect(error).toMatchObject({ code: 'concurrent-modification', paths: [target] });
+    await expect(access(join(followed, 'missing'))).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(access(join(displaced, 'missing'))).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
   test('does not install or unlink a staged pathname replaced after its handle closes', async () => {
     const target = join(root, 'card.html');
     let foreignStage = '';
@@ -281,6 +310,42 @@ describe('MigrationTransaction concurrency boundaries', () => {
     expect(await findFileContaining(root, 'original bytes')).toBeDefined();
   });
 
+  test('does not accept a same-byte foreign rollback destination as restored', async () => {
+    const replace = join(root, 'a-replace.html');
+    const fail = join(root, 'b-fail.html');
+    await writeFile(replace, 'original bytes', 'utf8');
+    const initiating = new Error('later install failed');
+    const recoveryFailure = Object.assign(new Error('same-byte restore collision'), { code: 'EEXIST' });
+    const operations = operationsWith({
+      link: async (source, destination) => {
+        if (destination === fail) throw initiating;
+        if (destination === replace && basename(source) === 'backup') {
+          await writeFile(replace, 'original bytes', 'utf8');
+          throw recoveryFailure;
+        }
+        await link(source, destination);
+      },
+    });
+
+    const error = await captureError(
+      new MigrationTransaction(operations).apply(
+        plan([
+          template(replace, present('original bytes'), present('<div>replacement</div>')),
+          template(fail, absent(), present('<div>fail</div>')),
+        ]),
+      ),
+    );
+
+    expect(error).toMatchObject({
+      code: 'transaction-io',
+      paths: [replace],
+      cause: initiating,
+      recoveryFailures: [recoveryFailure],
+    });
+    expect(await readFile(replace, 'utf8')).toBe('original bytes');
+    expect(await findNamedFile(root, 'backup')).toBeDefined();
+  });
+
   test('rolls back when an atomic no-replace install takes effect and then throws', async () => {
     const target = join(root, 'card.html');
     const initiating = new Error('install completion uncertain');
@@ -357,6 +422,76 @@ describe('MigrationTransaction concurrency boundaries', () => {
     expect(error).toMatchObject({ code: 'transaction-io', paths: [], cause: closeFailure });
     await expect(access(target)).rejects.toMatchObject({ code: 'ENOENT' });
     expect(await transactionResidue(root)).toEqual([]);
+  });
+
+  test('preserves a public read failure when closing the handle also fails', async () => {
+    const target = join(root, 'card.html');
+    await writeFile(target, 'original bytes', 'utf8');
+    const readFailure = new Error('read failed');
+    const closeFailure = new Error('close failed');
+    let closeAttempts = 0;
+    const operations = operationsWith({
+      open: async (candidate, flags) => {
+        const handle = await open(candidate, flags);
+        if (candidate !== target || flags !== 'r') return handle;
+        return proxyHandle(handle, {
+          readFile: async () => Promise.reject(readFailure),
+          close: async () => {
+            if (++closeAttempts === 1) throw closeFailure;
+            await handle.close();
+          },
+        });
+      },
+    });
+
+    const error = await captureError(
+      new MigrationTransaction(operations).preflight(
+        plan([template(target, present('original bytes'), present('<div>ours</div>'))]),
+      ),
+    );
+
+    expect(error).toMatchObject({
+      code: 'transaction-io',
+      paths: [target],
+      cause: readFailure,
+      recoveryFailures: [closeFailure],
+    });
+    expect(closeAttempts).toBe(2);
+  });
+
+  test('preserves a public inspection failure when closing the handle also fails', async () => {
+    const target = join(root, 'card.html');
+    await writeFile(target, 'original bytes', 'utf8');
+    const inspectionFailure = new Error('inspection failed');
+    const closeFailure = new Error('close failed');
+    let closeAttempts = 0;
+    const operations = operationsWith({
+      open: async (candidate, flags) => {
+        const handle = await open(candidate, flags);
+        if (candidate !== target || flags !== 'r') return handle;
+        return proxyHandle(handle, {
+          stat: async () => Promise.reject(inspectionFailure),
+          close: async () => {
+            if (++closeAttempts === 1) throw closeFailure;
+            await handle.close();
+          },
+        });
+      },
+    });
+
+    const error = await captureError(
+      new MigrationTransaction(operations).preflight(
+        plan([template(target, present('original bytes'), present('<div>ours</div>'))]),
+      ),
+    );
+
+    expect(error).toMatchObject({
+      code: 'transaction-io',
+      paths: [target],
+      cause: inspectionFailure,
+      recoveryFailures: [closeFailure],
+    });
+    expect(closeAttempts).toBe(2);
   });
 
   test('attaches every cleanup failure and derives paths from final cleanup inspection', async () => {
@@ -480,6 +615,97 @@ describe('MigrationTransaction concurrency boundaries', () => {
     await expect(access(join(root, 'one'))).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
+  test('post-inspects a created-directory rmdir that took effect and then threw', async () => {
+    const parent = join(root, 'one');
+    const target = join(parent, 'card.html');
+    const initiating = new Error('install failed');
+    const cleanupFailure = new Error('rmdir completion uncertain');
+    const operations = operationsWith({
+      link: async (_source, destination) => {
+        if (destination === target) throw initiating;
+        throw new Error(`Unexpected link destination: ${destination}`);
+      },
+      rmdir: async candidate => {
+        await rmdir(candidate);
+        if (candidate === parent) throw cleanupFailure;
+      },
+    });
+
+    const error = await captureError(
+      new MigrationTransaction(operations).apply(plan([template(target, absent(), present('<div>ours</div>'))])),
+    );
+
+    expect(error).toMatchObject({
+      code: 'transaction-io',
+      paths: [],
+      cause: initiating,
+      recoveryFailures: [cleanupFailure],
+    });
+    await expect(access(parent)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  test('reports a concurrent entry that keeps a created directory nonempty', async () => {
+    const parent = join(root, 'one');
+    const target = join(parent, 'card.html');
+    const foreign = join(parent, 'foreign.txt');
+    const initiating = new Error('install failed');
+    const cleanupFailure = Object.assign(new Error('directory is not empty'), { code: 'ENOTEMPTY' });
+    const operations = operationsWith({
+      link: async (_source, destination) => {
+        if (destination === target) throw initiating;
+        throw new Error(`Unexpected link destination: ${destination}`);
+      },
+      rmdir: async candidate => {
+        if (candidate === parent) {
+          await writeFile(foreign, 'concurrent bytes', 'utf8');
+          throw cleanupFailure;
+        }
+        await rmdir(candidate);
+      },
+    });
+
+    const error = await captureError(
+      new MigrationTransaction(operations).apply(plan([template(target, absent(), present('<div>ours</div>'))])),
+    );
+
+    expect(error).toMatchObject({
+      code: 'transaction-io',
+      paths: [target],
+      cause: initiating,
+      recoveryFailures: [cleanupFailure],
+    });
+    expect(await readFile(foreign, 'utf8')).toBe('concurrent bytes');
+  });
+
+  test('reports and preserves a created parent replaced during rmdir', async () => {
+    const parent = join(root, 'one');
+    const displaced = join(root, 'displaced-one');
+    const target = join(parent, 'card.html');
+    const initiating = new Error('install failed');
+    const operations = operationsWith({
+      link: async (_source, destination) => {
+        if (destination === target) throw initiating;
+        throw new Error(`Unexpected link destination: ${destination}`);
+      },
+      rmdir: async candidate => {
+        if (candidate === parent) {
+          await rename(parent, displaced);
+          await mkdir(parent);
+          return;
+        }
+        await rmdir(candidate);
+      },
+    });
+
+    const error = await captureError(
+      new MigrationTransaction(operations).apply(plan([template(target, absent(), present('<div>ours</div>'))])),
+    );
+
+    expect(error).toMatchObject({ code: 'transaction-io', paths: [target], cause: initiating });
+    expect((await lstat(parent)).isDirectory()).toBe(true);
+    expect((await lstat(displaced)).isDirectory()).toBe(true);
+  });
+
   test('preserves and reports a parent whose mkdir took effect and then threw', async () => {
     const parent = join(root, 'one');
     const target = join(parent, 'card.html');
@@ -512,6 +738,7 @@ function operationsWith(overrides: OperationOverrides = {}): MigrationTransactio
     open: (target, flags) => open(target, flags),
     rename,
     rmdir,
+    stat: target => stat(target, { bigint: true }),
     unlink,
     ...overrides,
   } as MigrationTransactionOperations;
@@ -579,6 +806,12 @@ async function findFileContaining(parent: string, contents: string): Promise<str
     if ((await readFile(candidate, 'utf8')) === contents) return candidate;
   }
   return undefined;
+}
+
+async function findNamedFile(parent: string, name: string): Promise<string | undefined> {
+  const entries = await readdir(parent, { recursive: true, withFileTypes: true });
+  const entry = entries.find(candidate => candidate.isFile() && candidate.name === name);
+  return entry ? join(entry.parentPath, entry.name) : undefined;
 }
 
 class FakeSignalRegistrar implements TransactionSignalRegistrarLike {

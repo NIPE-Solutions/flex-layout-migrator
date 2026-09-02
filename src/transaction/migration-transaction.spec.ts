@@ -11,6 +11,7 @@ import {
   rename,
   rm,
   rmdir,
+  stat,
   symlink,
   unlink,
   writeFile,
@@ -34,6 +35,7 @@ const nodeOperations: MigrationTransactionOperations = {
   open: (target, flags) => open(target, flags),
   rename,
   rmdir,
+  stat,
   unlink,
 };
 
@@ -505,6 +507,7 @@ function throwingOperations(): MigrationTransactionOperations {
     open: unexpected,
     rename: unexpected,
     rmdir: unexpected,
+    stat: unexpected,
     unlink: unexpected,
   };
 }
