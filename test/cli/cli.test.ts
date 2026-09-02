@@ -69,6 +69,22 @@ describe('packaged CLI execution', () => {
     expect(await readFile(output, 'utf8')).toBe('<div class="flex flex-row box-border"></div>');
   });
 
+  test('executes the packaged CSS target with its companion stylesheet', async () => {
+    const input = join(temporaryDirectory, 'input.html');
+    const output = join(temporaryDirectory, 'output.html');
+    const stylesheet = join(temporaryDirectory, 'flex-layout-migration.css');
+    await writeFile(input, '<div fxLayout="row"></div>', 'utf8');
+
+    const result = await execute([input, '--output', output, '--target', 'css', '--stylesheet', stylesheet]);
+
+    expect(result).toMatchObject({ status: 0, stderr: '' });
+    expect(result.stdout).toContain('Stylesheet: created flex-layout-migration.css');
+    const migrated = await readFile(output, 'utf8');
+    const generatedClass = migrated.match(/class="(flm-[a-f0-9]+)"/)?.[1];
+    expect(generatedClass).toBeDefined();
+    expect(await readFile(stylesheet, 'utf8')).toContain(`.${generatedClass} {`);
+  });
+
   test('exits one and preserves output after a parse failure', async () => {
     const input = join(temporaryDirectory, 'input.html');
     const output = join(temporaryDirectory, 'output.html');

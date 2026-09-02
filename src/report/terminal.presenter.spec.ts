@@ -138,4 +138,37 @@ describe('TerminalPresenter', () => {
     expect(output.text).not.toContain('\u001b[');
     expect(output.text).not.toMatch(/Thank you|Phase 1|Phase 2|[\u{1F300}-\u{1FAFF}]/u);
   });
+
+  test.each([
+    ['created', false, 'created'],
+    ['created', true, 'would create'],
+    ['updated', false, 'updated'],
+    ['updated', true, 'would update'],
+    ['removed', false, 'removed'],
+    ['removed', true, 'would remove'],
+    ['unchanged', false, 'unchanged'],
+    ['unchanged', true, 'unchanged'],
+  ] as const)('presents a %s stylesheet in dry-run=%s as %s', (change, dryRun, wording) => {
+    const output = new MemoryOutput(false);
+
+    new TerminalPresenter().present(
+      report({
+        target: 'css',
+        dryRun,
+        stylesheet: { path: 'flex-layout-migration.css', change },
+      }),
+      output,
+    );
+
+    const lines = output.text.split('\n');
+    expect(lines[2]).toBe(`Stylesheet: ${wording} flex-layout-migration.css`);
+  });
+
+  test('does not add a stylesheet line to Tailwind output', () => {
+    const output = new MemoryOutput(false);
+
+    new TerminalPresenter().present(report(), output);
+
+    expect(output.text).not.toContain('Stylesheet:');
+  });
 });

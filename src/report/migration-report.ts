@@ -1,12 +1,18 @@
 export interface MigrationReport {
   readonly schemaVersion: 1;
-  readonly target: 'tailwind';
+  readonly target: 'css' | 'tailwind';
   readonly dryRun: boolean;
   readonly input: string;
   readonly output: string;
   readonly durationMs: number;
   readonly summary: MigrationSummary;
   readonly files: readonly FileReport[];
+  readonly stylesheet?: StylesheetReport;
+}
+
+export interface StylesheetReport {
+  readonly path: string;
+  readonly change: 'created' | 'updated' | 'removed' | 'unchanged';
 }
 
 export interface MigrationSummary {

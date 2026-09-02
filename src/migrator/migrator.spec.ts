@@ -1,8 +1,7 @@
 import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
-import type { ConversionAdapter } from '../adapter/conversion-adapter';
-import { TailwindAdapter } from '../adapter/tailwind/tailwind.adapter';
+import { AdapterFactory } from '../adapter/adapter.factory';
 import type { MigrationTransaction } from '../transaction/migration-transaction';
 import { Migrator } from './migrator';
 
@@ -25,7 +24,7 @@ describe('Migrator', () => {
     const clockValues = [1000, 1125];
     const now = () => clockValues.shift() ?? 1125;
 
-    const report = await new Migrator(new TailwindAdapter(), inputPath, outputPath, now).migrate({ dryRun: true });
+    const report = await new Migrator(tailwindSession(), inputPath, outputPath, now).migrate({ dryRun: true });
 
     expect(report).toMatchObject({
       schemaVersion: 1,
@@ -59,7 +58,7 @@ describe('Migrator', () => {
     await writeFile(inputPath, '<div fxLayout="row"></div>', 'utf8');
     const transaction = transactionDouble();
 
-    await new Migrator(new TailwindAdapter(), inputPath, outputPath, () => 0, transaction).migrate({ dryRun: true });
+    await new Migrator(tailwindSession(), inputPath, outputPath, () => 0, transaction).migrate({ dryRun: true });
 
     expect(transaction.preflight).toHaveBeenCalledOnce();
     expect(transaction.preflight).toHaveBeenCalledWith(
@@ -79,7 +78,7 @@ describe('Migrator', () => {
     await writeFile(inputPath, '<div fxLayout="row"></div>', 'utf8');
 
     const report = await new Migrator(
-      new TailwindAdapter(),
+      tailwindSession(),
       relative(process.cwd(), inputPath),
       relative(process.cwd(), outputPath),
       () => 0,
@@ -95,7 +94,7 @@ describe('Migrator', () => {
     await mkdir(join(temporaryDirectory, 'input'), { recursive: true });
     await writeFile(inputPath, '<div fxLayout="row"></div>', 'utf8');
 
-    const report = await new Migrator(new TailwindAdapter(), inputPath, outputPath, () => 0).migrate({
+    const report = await new Migrator(tailwindSession(), inputPath, outputPath, () => 0).migrate({
       dryRun: false,
     });
 
@@ -110,7 +109,7 @@ describe('Migrator', () => {
     await writeFile(inputPath, '<div fxLayout="row"></div>', 'utf8');
     const transaction = transactionDouble();
 
-    const report = await new Migrator(new TailwindAdapter(), inputPath, outputPath, () => 0, transaction).migrate({
+    const report = await new Migrator(tailwindSession(), inputPath, outputPath, () => 0, transaction).migrate({
       dryRun: false,
     });
 
@@ -127,7 +126,7 @@ describe('Migrator', () => {
     await writeFile(join(inputPath, 'a.html'), '<div fxLayout="column"></div>', 'utf8');
     await writeFile(join(inputPath, 'nested', 'b.html'), '<div class="card"></div>', 'utf8');
 
-    const report = await new Migrator(new TailwindAdapter(), inputPath, outputPath, () => 20).migrate({ dryRun: true });
+    const report = await new Migrator(tailwindSession(), inputPath, outputPath, () => 20).migrate({ dryRun: true });
 
     expect(report.files.map(file => ({ path: file.path, changed: file.changed }))).toEqual([
       { path: 'a.html', changed: true },
@@ -144,7 +143,7 @@ describe('Migrator', () => {
     await writeFile(join(inputPath, 'nested', 'panel.html'), '<div fxLayout="column"></div>', 'utf8');
 
     const report = await new Migrator(
-      new TailwindAdapter(),
+      tailwindSession(),
       relative(process.cwd(), inputPath),
       relative(process.cwd(), outputPath),
       () => 0,
@@ -164,7 +163,7 @@ describe('Migrator', () => {
     await writeFile(join(inputPath, 'a-convert.html'), '<div fxLayout="row"></div>', 'utf8');
     await writeFile(join(inputPath, 'z-invalid.html'), '<span fxLayout="row" />', 'utf8');
 
-    const report = await new Migrator(new TailwindAdapter(), inputPath, outputPath, () => 0).migrate({
+    const report = await new Migrator(tailwindSession(), inputPath, outputPath, () => 0).migrate({
       dryRun: false,
     });
 
@@ -180,7 +179,7 @@ describe('Migrator', () => {
     await writeFile(join(inputPath, 'z-invalid.html'), '<span fxLayout="row" />', 'utf8');
     const transaction = transactionDouble();
 
-    const report = await new Migrator(new TailwindAdapter(), inputPath, outputPath, () => 0, transaction).migrate({
+    const report = await new Migrator(tailwindSession(), inputPath, outputPath, () => 0, transaction).migrate({
       dryRun: false,
     });
 
@@ -196,7 +195,7 @@ describe('Migrator', () => {
     await writeFile(inputPath, '<div class="card"></div>', 'utf8');
     const transaction = transactionDouble();
 
-    await new Migrator(new TailwindAdapter(), inputPath, outputPath, () => 0, transaction).migrate({ dryRun: false });
+    await new Migrator(tailwindSession(), inputPath, outputPath, () => 0, transaction).migrate({ dryRun: false });
 
     expect(transaction.preflight).toHaveBeenCalledWith(expect.objectContaining({ artifacts: [] }));
     expect(transaction.apply).not.toHaveBeenCalled();
@@ -207,32 +206,172 @@ describe('Migrator', () => {
     await writeFile(inputPath, '.card {}', 'utf8');
 
     await expect(
-      new Migrator(new TailwindAdapter(), inputPath, inputPath, () => 0).migrate({ dryRun: false }),
+      new Migrator(tailwindSession(), inputPath, inputPath, () => 0).migrate({ dryRun: false }),
     ).rejects.toThrow(`Unsupported file type: ${inputPath}`);
   });
 
-  test('rejects unsupported targets before creating or changing output', async () => {
+  test('preflights one complete CSS template and stylesheet plan during dry-run', async () => {
     const inputPath = join(temporaryDirectory, 'input.html');
-    const missingOutputPath = join(temporaryDirectory, 'new', 'output.html');
-    const existingOutputPath = join(temporaryDirectory, 'existing.html');
+    const outputPath = join(temporaryDirectory, 'output.html');
+    const stylesheetPath = join(temporaryDirectory, 'flex-layout-migration.css');
     await writeFile(inputPath, '<div fxLayout="row"></div>', 'utf8');
-    await writeFile(existingOutputPath, 'preserve me', 'utf8');
-    const cssAdapter: ConversionAdapter = {
-      name: 'css',
-      plan: input => ({ status: 'converted', input, classNames: ['must-not-be-written'] }),
-    };
+    const transaction = transactionDouble();
 
-    await expect(new Migrator(cssAdapter, inputPath, missingOutputPath, () => 0).migrate()).rejects.toThrow(
-      'Unsupported migration target: css',
-    );
-    await expect(access(missingOutputPath)).rejects.toThrow();
+    const report = await new Migrator(
+      AdapterFactory.createSession('css'),
+      inputPath,
+      outputPath,
+      () => 0,
+      transaction,
+    ).migrate({ dryRun: true, stylesheetPath });
 
-    await expect(new Migrator(cssAdapter, inputPath, existingOutputPath, () => 0).migrate()).rejects.toThrow(
-      'Unsupported migration target: css',
+    expect(report).toMatchObject({
+      target: 'css',
+      dryRun: true,
+      summary: { filesScanned: 1, filesChanged: 1, converted: 1 },
+      stylesheet: { path: 'flex-layout-migration.css', change: 'created' },
+    });
+    expect(transaction.preflight).toHaveBeenCalledOnce();
+    expect(transaction.preflight).toHaveBeenCalledWith(
+      expect.objectContaining({
+        target: 'css',
+        artifacts: expect.arrayContaining([
+          expect.objectContaining({ kind: 'template', path: outputPath }),
+          expect.objectContaining({ kind: 'stylesheet', path: stylesheetPath }),
+        ]),
+      }),
     );
-    expect(await readFile(existingOutputPath, 'utf8')).toBe('preserve me');
+    expect(transaction.apply).not.toHaveBeenCalled();
+    await expect(access(outputPath)).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(access(stylesheetPath)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  test('applies CSS template and stylesheet artifacts through one transaction', async () => {
+    const inputPath = join(temporaryDirectory, 'input.html');
+    const outputPath = join(temporaryDirectory, 'output.html');
+    const stylesheetPath = join(temporaryDirectory, 'flex-layout-migration.css');
+    await writeFile(inputPath, '<div fxLayout="row"></div>', 'utf8');
+
+    const report = await new Migrator(AdapterFactory.createSession('css'), inputPath, outputPath, () => 0).migrate({
+      dryRun: false,
+      stylesheetPath,
+    });
+
+    expect(report.stylesheet).toEqual({ path: 'flex-layout-migration.css', change: 'created' });
+    const migrated = await readFile(outputPath, 'utf8');
+    const generatedClass = migrated.match(/class="(flm-[a-f0-9]+)"/)?.[1];
+    expect(generatedClass).toBeDefined();
+    expect(await readFile(stylesheetPath, 'utf8')).toContain(`.${generatedClass} {`);
+  });
+
+  test('reports an unchanged stylesheet when the generated rules are already current', async () => {
+    const inputPath = join(temporaryDirectory, 'input.html');
+    const outputPath = join(temporaryDirectory, 'output.html');
+    const stylesheetPath = join(temporaryDirectory, 'flex-layout-migration.css');
+    await writeFile(inputPath, '<div fxLayout="row"></div>', 'utf8');
+    await new Migrator(AdapterFactory.createSession('css'), inputPath, outputPath, () => 0).migrate({
+      dryRun: false,
+      stylesheetPath,
+    });
+
+    const report = await new Migrator(AdapterFactory.createSession('css'), inputPath, outputPath, () => 0).migrate({
+      dryRun: false,
+      stylesheetPath,
+    });
+
+    expect(report.stylesheet).toEqual({ path: 'flex-layout-migration.css', change: 'unchanged' });
+  });
+
+  test('reports and applies a stylesheet update when generated rules change', async () => {
+    const inputPath = join(temporaryDirectory, 'input.html');
+    const outputPath = join(temporaryDirectory, 'output.html');
+    const stylesheetPath = join(temporaryDirectory, 'flex-layout-migration.css');
+    await writeFile(inputPath, '<div fxLayout="row"></div>', 'utf8');
+    await new Migrator(AdapterFactory.createSession('css'), inputPath, outputPath, () => 0).migrate({
+      dryRun: false,
+      stylesheetPath,
+    });
+    const originalStylesheet = await readFile(stylesheetPath, 'utf8');
+    await writeFile(inputPath, '<div fxLayout="column"></div>', 'utf8');
+
+    const report = await new Migrator(AdapterFactory.createSession('css'), inputPath, outputPath, () => 0).migrate({
+      dryRun: false,
+      stylesheetPath,
+    });
+
+    expect(report.stylesheet).toEqual({ path: 'flex-layout-migration.css', change: 'updated' });
+    expect(await readFile(stylesheetPath, 'utf8')).not.toBe(originalStylesheet);
+  });
+
+  test('reports and applies stylesheet removal when no generated rules remain', async () => {
+    const inputPath = join(temporaryDirectory, 'input.html');
+    const outputPath = join(temporaryDirectory, 'output.html');
+    const stylesheetPath = join(temporaryDirectory, 'flex-layout-migration.css');
+    await writeFile(inputPath, '<div fxLayout="row"></div>', 'utf8');
+    await new Migrator(AdapterFactory.createSession('css'), inputPath, outputPath, () => 0).migrate({
+      dryRun: false,
+      stylesheetPath,
+    });
+    await writeFile(inputPath, '<div></div>', 'utf8');
+
+    const report = await new Migrator(AdapterFactory.createSession('css'), inputPath, outputPath, () => 0).migrate({
+      dryRun: false,
+      stylesheetPath,
+    });
+
+    expect(report.stylesheet).toEqual({ path: 'flex-layout-migration.css', change: 'removed' });
+    await expect(access(stylesheetPath)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  test('finalizes CSS after planning every folder template', async () => {
+    const inputPath = join(temporaryDirectory, 'input');
+    const outputPath = join(temporaryDirectory, 'output');
+    const stylesheetPath = join(temporaryDirectory, 'flex-layout-migration.css');
+    await mkdir(inputPath);
+    await writeFile(join(inputPath, 'a.html'), '<div fxLayout="row"></div>', 'utf8');
+    await writeFile(join(inputPath, 'b.html'), '<div fxLayout="column"></div>', 'utf8');
+
+    const report = await new Migrator(AdapterFactory.createSession('css'), inputPath, outputPath, () => 0).migrate({
+      dryRun: true,
+      stylesheetPath,
+    });
+
+    expect(report.summary).toMatchObject({ filesScanned: 2, filesChanged: 2, converted: 2 });
+    expect(report.stylesheet).toEqual({ path: '../flex-layout-migration.css', change: 'created' });
+  });
+
+  test('returns a complete CSS parse-error report without preflighting or applying the plan', async () => {
+    const inputPath = join(temporaryDirectory, 'input');
+    const outputPath = join(temporaryDirectory, 'output');
+    const stylesheetPath = join(temporaryDirectory, 'flex-layout-migration.css');
+    await mkdir(inputPath);
+    await writeFile(join(inputPath, 'a.html'), '<div fxLayout="row"></div>', 'utf8');
+    await writeFile(join(inputPath, 'z.html'), '<span fxLayout="row" />', 'utf8');
+    const transaction = transactionDouble();
+
+    const report = await new Migrator(
+      AdapterFactory.createSession('css'),
+      inputPath,
+      outputPath,
+      () => 0,
+      transaction,
+    ).migrate({ dryRun: false, stylesheetPath });
+
+    expect(report).toMatchObject({
+      target: 'css',
+      summary: { filesScanned: 2, filesChanged: 1, converted: 1, parseErrors: 1 },
+      stylesheet: { path: '../flex-layout-migration.css', change: 'created' },
+    });
+    expect(transaction.preflight).not.toHaveBeenCalled();
+    expect(transaction.apply).not.toHaveBeenCalled();
+    await expect(access(outputPath)).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(access(stylesheetPath)).rejects.toMatchObject({ code: 'ENOENT' });
   });
 });
+
+function tailwindSession() {
+  return AdapterFactory.createSession('tailwind');
+}
 
 function transactionDouble() {
   return {

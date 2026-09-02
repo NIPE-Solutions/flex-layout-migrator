@@ -170,4 +170,38 @@ describe('MigrationReportBuilder', () => {
     expect(JSON.stringify(report)).not.toContain('/private/checkout');
     expect(JSON.stringify(report)).not.toContain('/private/output');
   });
+
+  test.each(['created', 'updated', 'removed', 'unchanged'] as const)(
+    'reports a %s CSS stylesheet without including it in template totals',
+    change => {
+      const inputRoot = '/private/checkout/templates';
+      const report = new MigrationReportBuilder().build(inputRoot, inputRoot, 'css', false, 0, [], {
+        path: `${inputRoot}/flex-layout-migration.css`,
+        change,
+      });
+
+      expect(report.target).toBe('css');
+      expect(report.stylesheet).toEqual({ path: 'flex-layout-migration.css', change });
+      expect(report.summary).toEqual({
+        filesScanned: 0,
+        filesChanged: 0,
+        converted: 0,
+        review: 0,
+        unsupported: 0,
+        invalid: 0,
+        parseErrors: 0,
+      });
+    },
+  );
+
+  test('keeps the serialized Tailwind report byte-compatible without a stylesheet field', () => {
+    const report = new MigrationReportBuilder().build('input.html', 'output.html', 'tailwind', true, 12, [
+      file('input.html', 'output.html', false, []),
+    ]);
+
+    expect(JSON.stringify(report)).toBe(
+      '{"schemaVersion":1,"target":"tailwind","dryRun":true,"input":"input.html","output":"output.html","durationMs":12,"summary":{"filesScanned":1,"filesChanged":0,"converted":0,"review":0,"unsupported":0,"invalid":0,"parseErrors":0},"files":[{"path":"input.html","changed":false,"results":[]}]}',
+    );
+    expect(report).not.toHaveProperty('stylesheet');
+  });
 });

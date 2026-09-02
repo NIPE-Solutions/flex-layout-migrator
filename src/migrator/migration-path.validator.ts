@@ -4,8 +4,8 @@ import { MigrationApplicationError } from './migration-application.error';
 
 export interface MigrationPathValidationRequest {
   readonly templates: readonly { readonly inputPath: string; readonly outputPath: string }[];
-  readonly stylesheetPath: string;
-  readonly reportPath: string;
+  readonly stylesheetPath?: string;
+  readonly reportPath?: string;
 }
 
 interface PathClaim {
@@ -30,8 +30,8 @@ function normalizedClaims(request: MigrationPathValidationRequest): readonly Pat
       { path: path.resolve(template.inputPath), kind: 'template-input' as const, templateIndex },
       { path: path.resolve(template.outputPath), kind: 'template-output' as const, templateIndex },
     ]),
-    { path: path.resolve(request.stylesheetPath), kind: 'stylesheet' as const },
-    { path: path.resolve(request.reportPath), kind: 'report' as const },
+    ...(request.stylesheetPath ? [{ path: path.resolve(request.stylesheetPath), kind: 'stylesheet' as const }] : []),
+    ...(request.reportPath ? [{ path: path.resolve(request.reportPath), kind: 'report' as const }] : []),
   ];
 }
 
