@@ -3,7 +3,7 @@ import * as path from 'node:path';
 import type { ConversionAdapterSession } from '../adapter/conversion-adapter.session';
 import { loadGitIgnore } from '../lib/gitignore.helper';
 import { MigrationReportBuilder, type StylesheetMigrationResult } from '../report/migration-report.builder';
-import type { MigrationReport } from '../report/migration-report';
+import type { MigrationApplication, MigrationReport } from '../report/migration-report';
 import { AngularTemplateParser } from '../template/angular-template.parser';
 import { MigrationTransaction } from '../transaction/migration-transaction';
 import { FileMigrator } from './file.migrator';
@@ -14,9 +14,10 @@ import { migrationPlan, type FileMigrationPlan, type PlannedOutputArtifact } fro
 import { StylesheetPlanner } from './stylesheet.planner';
 import type { OwnedCssReferences } from '../adapter/css/stylesheet/owned-stylesheet.merger';
 import { templateAttributeKeys } from '../template/template-attribute';
+import type { MigrationMode } from './migration-mode';
 
 export interface MigrationOptions {
-  readonly dryRun: boolean;
+  readonly mode: MigrationMode;
   readonly responsiveImages?: boolean;
   readonly stylesheetPath?: string;
   readonly reportPath?: string;
@@ -32,7 +33,7 @@ export class Migrator {
     private readonly stylesheetPlanner: Pick<StylesheetPlanner, 'plan'> = new StylesheetPlanner(),
   ) {}
 
-  public async migrate(options: MigrationOptions = { dryRun: false }): Promise<MigrationReport> {
+  public async migrate(options: MigrationOptions = { mode: 'plan' }): Promise<MigrationReport> {
     this.validateOptions(options);
 
     const startedAt = this.now();
@@ -108,16 +109,24 @@ export class Migrator {
       reportPath: options.reportPath,
     });
     const hasParseError = plan.files.some(file => file.results.some(result => result.status === 'parse-error'));
-    if (!hasParseError) {
+    let application: MigrationApplication;
+    if (options.mode === 'plan') {
+      if (!hasParseError) await this.transaction.preflight(plan);
+      application = { status: 'skipped', reason: 'plan-only' };
+    } else if (hasParseError) {
+      application = { status: 'skipped', reason: 'parse-errors' };
+    } else {
       await this.transaction.preflight(plan);
-      if (!options.dryRun && plan.artifacts.length > 0) await this.transaction.apply(plan);
+      if (plan.artifacts.length > 0) await this.transaction.apply(plan);
+      application = { status: 'applied' };
     }
 
     return new MigrationReportBuilder().build(
       this.inputPath,
       this.outputPath,
       sessionResult.target,
-      options.dryRun,
+      options.mode,
+      application,
       this.now() - startedAt,
       plan.files,
       stylesheetResult,
