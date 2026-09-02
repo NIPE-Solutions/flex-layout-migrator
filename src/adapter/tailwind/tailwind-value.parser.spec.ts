@@ -1,4 +1,5 @@
-import { arbitraryValue, parseCssLength } from './tailwind-value.parser';
+import { parseCssLength } from '../../flex/css-length';
+import { arbitraryValue } from './tailwind-value.parser';
 
 describe('parseCssLength', () => {
   test.each([

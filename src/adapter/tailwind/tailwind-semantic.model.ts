@@ -1,6 +1,5 @@
-export type ParsedValue<T> = { readonly ok: true; readonly value: T } | { readonly ok: false };
-
-export type CssLength = string & { readonly __cssLength: unique symbol };
+export type { CssLength, ParsedValue } from '../../flex/css-length';
+export type { SemanticDiagnostic, SemanticResult } from '../../flex/flex-semantic.model';
 
 export type TailwindStrategyResult =
   | { readonly status: 'converted'; readonly classNames: readonly string[] }
