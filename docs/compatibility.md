@@ -51,6 +51,21 @@ The Tailwind CSS 4 column identifies current target behavior. Native CSS and res
 
 ## Current Tailwind CSS 4 safety boundaries
 
+### Available now: directive-specific boundaries
+
+- `fxLayout`: Static directions plus wrap and inline modifiers; coupled unresolved gaps preserve the layout.
+- `fxLayoutAlign`: Static main/cross axes with layout, content alignment, sizing, and border-box semantics.
+- `fxLayoutGap`: Static nonnegative non-wrapping gaps; unitless values remain pixels. Grid, computed, negative, and wrapped gaps are review.
+- `fxFlex`: Static basis, keyword, and three-part forms with parent-axis min/max sizing.
+- `fxGrow` and `fxShrink`: Converted atomically with a static `fxFlex`; standalone use is invalid.
+- `fxFlexAlign`: Static `align-self` keywords.
+- `fxFlexFill`: Static full-size rule including its zero-margin behavior.
+- `fxFill`: Non-responsive alias of `fxFlexFill`.
+- `fxFlexOffset`: Static values with a statically known parent axis; unitless values remain percentages.
+- `fxFlexOrder`: Static integer values emitted independently of the Tailwind theme.
+- `fxShow`: Literal base and standard viewport states convert when display restoration and the complete visibility family are safe.
+- `fxHide`: Literal base and standard viewport states convert with `fxShow`; hiding emits exact base or responsive `hidden` utilities.
+
 All generated lengths that originate in the template use Tailwind arbitrary values. This prevents a project spacing scale from changing `fxLayoutGap="4"` from Angular Flex-Layout's `4px`, or `fxFlexOffset="4"` from its `4%` meaning.
 
 The complete static semantic and diagnostic contract is documented in [Tailwind CSS v4 static conversion semantics](architecture/tailwind-v4-static-semantics.md).
@@ -59,7 +74,7 @@ If an existing recognized Tailwind utility conflicts with a generated class in a
 
 ## Visibility semantics
 
-`fxShow` and `fxHide` are planned together as one atomic visibility family per element. Literal values use Angular Flex-Layout's coercion and inversion rules:
+`fxShow` and `fxHide` are currently converted together as one atomic visibility family per element. Literal values use Angular Flex-Layout's coercion and inversion rules. Additional visibility behavior that cannot meet these current safety conditions remains preserved for review:
 
 | Input            | Resulting state |
 | ---------------- | --------------- |
@@ -87,6 +102,11 @@ When layout and visibility both control `display`, the planner composes them bef
 All grid directives are recognized and preserved. Target conversion has not been implemented.
 
 ## Responsive class and style inputs
+
+- literal `ngClass.<alias>`: Converts complete families whose class tokens are proven Tailwind CSS v4 candidates.
+- literal `ngStyle.<alias>`: Converts complete, sanitizer-safe declaration lists with exact CSS ownership.
+- deprecated `class.<alias>` and `style.<alias>`: Version-dependent replacement and merge behavior is not inferred.
+- responsive `imgSrc`: Recognized and reported; no target conversion is implemented.
 
 The supported aliases are `xs`, `sm`, `md`, `lg`, `xl`, `lt-sm`, `lt-md`, `lt-lg`, `lt-xl`, `gt-xs`, `gt-sm`, `gt-md`, and `gt-lg`. Each emitted class contains the exact Angular Flex-Layout media range rather than a project-defined Tailwind breakpoint.
 

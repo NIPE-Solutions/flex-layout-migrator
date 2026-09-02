@@ -12,6 +12,13 @@ const statusLabels = new Map([
   ['Preserved', 'preserved'],
   ['Not applicable', 'not-applicable'],
 ]);
+const familyLabels = new Map([
+  ['Flex', 'flex'],
+  ['Grid', 'grid'],
+  ['Visibility', 'visibility'],
+  ['Class/style', 'class-style'],
+  ['Image', 'image'],
+]);
 
 function tableCells(row: string): string[] | undefined {
   if (!row.startsWith('|') || !row.endsWith('|')) return undefined;
@@ -30,9 +37,13 @@ function parseCompatibilityRows(markdown: string) {
 
   const tableLines = markdown
     .slice(start + startMarker.length, end)
-    .trim()
     .split('\n')
-    .filter(line => line.startsWith('|'));
+    .filter(line => line.trim().length > 0);
+  for (const line of tableLines) {
+    if (!line.startsWith('|')) {
+      throw new Error(`Unexpected compatibility inventory content: ${line.trim()}`);
+    }
+  }
   const [header, separator, ...dataRows] = tableLines;
 
   const headerCells = header ? tableCells(header) : undefined;
@@ -54,7 +65,7 @@ function parseCompatibilityRows(markdown: string) {
       throw new Error(`Malformed compatibility inventory row ${index + 1}`);
     }
 
-    const [directiveCell, _family, tailwindCell, cssCell, imageCell] = cells;
+    const [directiveCell, familyCell, tailwindCell, cssCell, imageCell] = cells;
     const directive = directiveCell.match(/^`(.+)`$/u)?.[1];
     if (!directive) throw new Error(`Malformed compatibility inventory row ${index + 1}`);
     if (directives.has(directive)) {
@@ -67,9 +78,12 @@ function parseCompatibilityRows(markdown: string) {
       if (!status) throw new Error(`Unknown compatibility status "${label}"`);
       return status;
     };
+    const family = familyLabels.get(familyCell);
+    if (!family) throw new Error(`Unknown compatibility family "${familyCell}"`);
 
     return {
       directive,
+      family,
       tailwind: parseStatus(tailwindCell),
       css: parseStatus(cssCell),
       image: parseStatus(imageCell),
@@ -84,6 +98,7 @@ describe('compatibility reference contract', () => {
     expect(rows).toEqual(
       COMPATIBILITY_INVENTORY.map(entry => ({
         directive: entry.directive,
+        family: entry.family,
         tailwind: entry.tailwind,
         css: entry.css,
         image: entry.image,
@@ -100,6 +115,11 @@ describe('compatibility reference contract', () => {
       'Malformed compatibility inventory row 1',
     ],
     [
+      'unexpected nonblank content',
+      `${startMarker}\n| Directive | Family | Tailwind CSS 4 | Native CSS | Responsive image |\n| --- | --- | --- | --- | --- |\nunexpected markdown\n| \`fxLayout\` | Flex | Limited | Planned | Not applicable |\n${endMarker}`,
+      'Unexpected compatibility inventory content: unexpected markdown',
+    ],
+    [
       'unknown status label',
       `${startMarker}\n| Directive | Family | Tailwind CSS 4 | Native CSS | Responsive image |\n| --- | --- | --- | --- | --- |\n| \`fxLayout\` | Flex | Available | Planned | Not applicable |\n${endMarker}`,
       'Unknown compatibility status "Available"',
@@ -111,5 +131,33 @@ describe('compatibility reference contract', () => {
     ],
   ])('rejects %s', (_description, markdown, message) => {
     expect(() => parseCompatibilityRows(markdown)).toThrow(message);
+  });
+
+  it('retains the detailed current Tailwind safety boundaries', async () => {
+    const markdown = await readFile(compatibilityUrl, 'utf8');
+
+    for (const safetyBoundary of [
+      'Static directions plus wrap and inline modifiers; coupled unresolved gaps preserve the layout.',
+      'Static main/cross axes with layout, content alignment, sizing, and border-box semantics.',
+      'Static nonnegative non-wrapping gaps; unitless values remain pixels. Grid, computed, negative, and wrapped gaps are review.',
+      'Static basis, keyword, and three-part forms with parent-axis min/max sizing.',
+      'Converted atomically with a static `fxFlex`; standalone use is invalid.',
+      'Static `align-self` keywords.',
+      'Static full-size rule including its zero-margin behavior.',
+      'Non-responsive alias of `fxFlexFill`.',
+      'Static values with a statically known parent axis; unitless values remain percentages.',
+      'Static integer values emitted independently of the Tailwind theme.',
+      'Literal base and standard viewport states convert when display restoration and the complete visibility family are safe.',
+      'Literal base and standard viewport states convert with `fxShow`; hiding emits exact base or responsive `hidden` utilities.',
+      'Converts complete families whose class tokens are proven Tailwind CSS v4 candidates.',
+      'Converts complete, sanitizer-safe declaration lists with exact CSS ownership.',
+      'Version-dependent replacement and merge behavior is not inferred.',
+      'Recognized and reported; no target conversion is implemented.',
+    ]) {
+      expect(markdown).toContain(safetyBoundary);
+    }
+
+    expect(markdown).toContain('are currently converted together as one atomic visibility family per element');
+    expect(markdown).not.toContain('are planned together as one atomic visibility family per element');
   });
 });
