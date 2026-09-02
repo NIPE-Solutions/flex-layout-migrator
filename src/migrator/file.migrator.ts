@@ -72,7 +72,12 @@ export class FileMigrator {
 
     return fileMigrationPlan({
       file: this.result(true, conversionPlan.results),
-      artifact: plannedOutputArtifact({ kind: 'template', path: this.output, original, proposed }),
+      artifact: plannedOutputArtifact({
+        kind: 'template',
+        path: path.normalize(path.resolve(this.output)),
+        original,
+        proposed,
+      }),
     });
   }
 

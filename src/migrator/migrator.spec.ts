@@ -1,6 +1,6 @@
 import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 import type { ConversionAdapter } from '../adapter/conversion-adapter';
 import { TailwindAdapter } from '../adapter/tailwind/tailwind.adapter';
 import { Migrator } from './migrator';
@@ -51,6 +51,23 @@ describe('Migrator', () => {
     await expect(access(outputPath)).rejects.toThrow();
   });
 
+  test('plans a changed single file from relative paths during a dry run', async () => {
+    const inputPath = join(temporaryDirectory, 'input', 'card.html');
+    const outputPath = join(temporaryDirectory, 'output', 'card.html');
+    await mkdir(join(temporaryDirectory, 'input'), { recursive: true });
+    await writeFile(inputPath, '<div fxLayout="row"></div>', 'utf8');
+
+    const report = await new Migrator(
+      new TailwindAdapter(),
+      relative(process.cwd(), inputPath),
+      relative(process.cwd(), outputPath),
+      () => 0,
+    ).migrate({ dryRun: true });
+
+    expect(report.summary).toMatchObject({ filesScanned: 1, filesChanged: 1, converted: 1 });
+    await expect(access(outputPath)).rejects.toThrow();
+  });
+
   test('applies planned template artifacts after a successful Tailwind migration', async () => {
     const inputPath = join(temporaryDirectory, 'input', 'card.html');
     const outputPath = join(temporaryDirectory, 'output', 'card.html');
@@ -79,6 +96,27 @@ describe('Migrator', () => {
       { path: 'nested/b.html', changed: false },
     ]);
     expect(report.summary).toMatchObject({ filesScanned: 2, filesChanged: 1, converted: 1 });
+  });
+
+  test('applies changed folder templates from relative paths', async () => {
+    const inputPath = join(temporaryDirectory, 'input');
+    const outputPath = join(temporaryDirectory, 'output');
+    await mkdir(join(inputPath, 'nested'), { recursive: true });
+    await writeFile(join(inputPath, 'card.html'), '<div fxLayout="row"></div>', 'utf8');
+    await writeFile(join(inputPath, 'nested', 'panel.html'), '<div fxLayout="column"></div>', 'utf8');
+
+    const report = await new Migrator(
+      new TailwindAdapter(),
+      relative(process.cwd(), inputPath),
+      relative(process.cwd(), outputPath),
+      () => 0,
+    ).migrate({ dryRun: false });
+
+    expect(report.summary).toMatchObject({ filesScanned: 2, filesChanged: 2, converted: 2 });
+    expect(await readFile(join(outputPath, 'card.html'), 'utf8')).toBe('<div class="flex flex-row box-border"></div>');
+    expect(await readFile(join(outputPath, 'nested', 'panel.html'), 'utf8')).toBe(
+      '<div class="flex flex-col box-border"></div>',
+    );
   });
 
   test('does not apply any planned template artifact when a folder contains a parse error', async () => {
