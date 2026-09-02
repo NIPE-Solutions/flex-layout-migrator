@@ -13,6 +13,7 @@ const atomicFileWriterModule = /(?:^|\/)atomic-file\.writer(?:\.[cm]?[jt]s)?$/u;
 const absolutePath = /^(?:\/(?![*/])(?=.)|[a-z]:[\\/]|\\\\)/iu;
 const packageVersionIdentifier = /^(?:PACKAGE_VERSION|npm_package_version|packageVersion)$/u;
 const packageManifestModule = /(?:^|\/)package\.json$/u;
+const ownedBlockSerializerModule = /(?:^|\/)owned-css-block\.serializer(?:\.[cm]?[jt]s)?$/u;
 const generatedMarkerForms = new Set([
   '/* flex-layout-codemod:start schema=1 */',
   '/* flex-layout-codemod:rule id=${} */',
@@ -78,52 +79,17 @@ function packageVersionRead(inspection: TypeScriptInspection): string | undefine
   );
 }
 
-function containsIdentifier(node: ts.Node, name: string): boolean {
-  let found = false;
-
-  function visit(current: ts.Node): void {
-    if (found) return;
-    if (ts.isIdentifier(current) && current.text === name) {
-      found = true;
-      return;
-    }
-    ts.forEachChild(current, visit);
-  }
-
-  visit(node);
-  return found;
-}
-
-function composesExistingWithGeneratedOutput(source: string, sourcePath: string): boolean {
-  let serializesOwnedBlock = false;
-  let concatenatesExistingAndBlock = false;
-
-  function visit(node: ts.Node): void {
-    if (
-      ts.isCallExpression(node) &&
-      ts.isIdentifier(node.expression) &&
-      node.expression.text === 'serializeOwnedCssBlock'
-    ) {
-      serializesOwnedBlock = true;
-    }
-    if (
-      ts.isBinaryExpression(node) &&
-      node.operatorToken.kind === ts.SyntaxKind.PlusToken &&
-      containsIdentifier(node, 'existing') &&
-      containsIdentifier(node, 'block')
-    ) {
-      concatenatesExistingAndBlock = true;
-    }
-    ts.forEachChild(node, visit);
-  }
-
-  visit(sourceFile(source, sourcePath));
-  return serializesOwnedBlock && concatenatesExistingAndBlock;
+function usesOwnedBlockSerializer(inspection: TypeScriptInspection): boolean {
+  return (
+    inspection.moduleReferences.some(reference => ownedBlockSerializerModule.test(reference)) &&
+    inspection.identifiers.includes('serializeOwnedCssBlock')
+  );
 }
 
 describe('native CSS stylesheet architecture boundary', () => {
   test.each([
     ['Node filesystem import', "import { readFileSync } from 'node:fs';"],
+    ['Node filesystem import type', "type Path = import('node:fs').PathLike;"],
     ['Node path re-export', "export { join } from 'node:path';"],
     ['CLI dynamic import', "const cli = import('../../../cli/run-cli');"],
     ['migrator require', "const migrator = require('../../../migrator/file.migrator');"],
@@ -188,30 +154,44 @@ describe('native CSS stylesheet architecture boundary', () => {
     expect([...new Set(markers)].sort()).toEqual([...generatedMarkerForms].sort());
   });
 
-  test('detects a non-merger module composing handwritten input with a generated owned block', () => {
-    const source = `
-      import { serializeOwnedCssBlock } from './owned-css-block.serializer';
-      export function compose(existing: string, rules: readonly OwnedCssRule[]): string {
-        const block = serializeOwnedCssBlock(rules, '\\n');
-        return existing + block;
-      }
-    `;
-
-    expect(composesExistingWithGeneratedOutput(source, fixturePath)).toBe(true);
+  test.each([
+    [
+      'direct call and concatenation',
+      `
+        import { serializeOwnedCssBlock } from './owned-css-block.serializer';
+        export function compose(existing: string, rules: readonly OwnedCssRule[]): string {
+          const block = serializeOwnedCssBlock(rules, '\\n');
+          return existing + block;
+        }
+      `,
+    ],
+    [
+      'aliased call with renamed values and template interpolation',
+      `
+        import { serializeOwnedCssBlock as emitOwned } from './owned-css-block.serializer';
+        export function compose(original: string, artifacts: readonly OwnedCssRule[]): string {
+          const generated = emitOwned(artifacts, '\\n');
+          return \`\${original}\${generated}\`;
+        }
+      `,
+    ],
+  ])('detects a non-merger owned-block serializer import: %s', (_label, source) => {
+    expect(usesOwnedBlockSerializer(inspectTypeScript(source, fixturePath))).toBe(true);
   });
 
-  test('makes the merger the only stylesheet module that composes existing CSS with generated output', () => {
-    const composers = productionTypeScriptFiles(stylesheetRoot).flatMap(path => {
-      const source = readFileSync(path, 'utf8');
-      return composesExistingWithGeneratedOutput(source, path) ? [basename(path)] : [];
+  test('makes the merger the only stylesheet module that imports and uses the owned-block serializer', () => {
+    const consumers = productionTypeScriptFiles(stylesheetRoot).flatMap(path => {
+      const inspection = inspectTypeScript(readFileSync(path, 'utf8'), path);
+      return usesOwnedBlockSerializer(inspection) ? [basename(path)] : [];
     });
 
-    expect(composers).toEqual(['owned-stylesheet.merger.ts']);
+    expect(consumers).toEqual(['owned-stylesheet.merger.ts']);
   });
 
   test('ignores prohibited dependency, marker, path, version, and composition text in comments', () => {
     const source = `
       // import { readFileSync } from 'node:fs';
+      // import { serializeOwnedCssBlock } from './owned-css-block.serializer';
       // export * from '../../../planner/native-css.planner';
       // const target = '/tmp/owned.css';
       // const packageVersion = process.env.npm_package_version;
@@ -226,6 +206,6 @@ describe('native CSS stylesheet architecture boundary', () => {
     expect(absolutePathLiteral(source, fixturePath)).toBeUndefined();
     expect(packageVersionRead(inspection)).toBeUndefined();
     expect(generatedMarkers(source, fixturePath)).toEqual([]);
-    expect(composesExistingWithGeneratedOutput(source, fixturePath)).toBe(false);
+    expect(usesOwnedBlockSerializer(inspection)).toBe(false);
   });
 });
