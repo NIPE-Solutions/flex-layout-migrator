@@ -1,6 +1,7 @@
+import { Buffer } from 'node:buffer';
 import { execFile } from 'node:child_process';
 import console from 'node:console';
-import { appendFile, readFile, writeFile } from 'node:fs/promises';
+import { appendFile, lstat, readFile, rm, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import process from 'node:process';
 import { pathToFileURL } from 'node:url';
@@ -16,6 +17,49 @@ const expectedPackageFiles = Object.freeze([
   'dist/cli.js.map',
   'package.json',
 ]);
+
+function isCanonicalSha512Integrity(integrity) {
+  if (typeof integrity !== 'string') return false;
+  const match = /^sha512-([A-Za-z0-9+/]+={0,2})$/.exec(integrity);
+  if (!match) return false;
+
+  const encodedDigest = match[1];
+  const digest = Buffer.from(encodedDigest, 'base64');
+  return digest.length === 64 && digest.toString('base64') === encodedDigest;
+}
+
+function tarballFilename({ name, version }) {
+  return `${name.replace(/^@/, '').replace('/', '-')}-${version}.tgz`;
+}
+
+async function requireInvocationOwnedPaths(paths) {
+  for (const [label, path] of paths) {
+    try {
+      await lstat(path);
+    } catch (error) {
+      if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') continue;
+      throw new Error(`Release artifact ownership boundary could not inspect ${label}`, { cause: error });
+    }
+    throw new Error(`Release artifact ownership boundary refuses preexisting ${label}: ${path}`);
+  }
+}
+
+async function cleanupInvocationArtifacts(paths, rmImpl) {
+  const failures = [];
+  for (const path of paths) {
+    try {
+      await rmImpl(path, { force: true });
+    } catch (error) {
+      failures.push(error);
+    }
+  }
+
+  if (failures.length > 0) {
+    const cause =
+      failures.length === 1 ? failures[0] : new AggregateError(failures, 'Multiple release artifact cleanup failures');
+    throw new Error('Release artifact cleanup boundary failed', { cause });
+  }
+}
 
 export function validateReleaseVersion(version) {
   if (!/^2\.0\.0-beta\.[1-9]\d*$/.test(version)) {
@@ -67,15 +111,15 @@ export function inspectPackManifest({ repositoryManifest, packManifest }) {
     );
   }
 
-  const expectedFilename = `${repositoryManifest.name.replace(/^@/, '').replace('/', '-')}-${repositoryManifest.version}.tgz`;
+  const expectedFilename = tarballFilename(repositoryManifest);
   if (packManifest.filename !== expectedFilename) {
     throw new Error(
       `Tarball filename boundary mismatch: expected ${expectedFilename}; received ${packManifest.filename}`,
     );
   }
 
-  if (typeof packManifest.integrity !== 'string' || !/^sha512-[A-Za-z0-9+/]+={0,2}$/.test(packManifest.integrity)) {
-    throw new Error('Package integrity boundary requires SHA-512 npm pack integrity');
+  if (!isCanonicalSha512Integrity(packManifest.integrity)) {
+    throw new Error('Package integrity boundary requires canonical 64-byte SHA-512 SRI');
   }
 
   return Object.freeze({
@@ -95,12 +139,24 @@ function githubOutputPath(args) {
   return outputPath;
 }
 
-export async function runReleaseArtifact({ args, env, repository, fetchImpl, execFileImpl } = {}) {
+export async function runReleaseArtifact({
+  args,
+  env,
+  repository,
+  fetchImpl,
+  execFileImpl,
+  writeFileImpl,
+  appendFileImpl,
+  rmImpl,
+} = {}) {
   const effectiveArgs = args ?? process.argv.slice(2);
   const effectiveEnv = env ?? process.env;
   const effectiveRepository = repository ?? resolve(import.meta.dirname, '..');
   const effectiveFetch = fetchImpl ?? globalThis.fetch;
   const effectiveExecFile = execFileImpl ?? execFileAsync;
+  const effectiveWriteFile = writeFileImpl ?? writeFile;
+  const effectiveAppendFile = appendFileImpl ?? appendFile;
+  const effectiveRm = rmImpl ?? rm;
 
   if (effectiveEnv.GITHUB_REF_NAME !== 'main') {
     throw new Error(
@@ -109,7 +165,19 @@ export async function runReleaseArtifact({ args, env, repository, fetchImpl, exe
   }
 
   const outputPath = githubOutputPath(effectiveArgs);
-  const repositoryManifest = JSON.parse(await readFile(join(effectiveRepository, 'package.json'), 'utf8'));
+  let manifestSource;
+  try {
+    manifestSource = await readFile(join(effectiveRepository, 'package.json'), 'utf8');
+  } catch (error) {
+    throw new Error('Repository manifest release boundary read failed', { cause: error });
+  }
+
+  let repositoryManifest;
+  try {
+    repositoryManifest = JSON.parse(manifestSource);
+  } catch (error) {
+    throw new Error('Repository manifest release boundary parse failed', { cause: error });
+  }
   validateReleaseVersion(repositoryManifest.version);
 
   if (
@@ -124,39 +192,66 @@ export async function runReleaseArtifact({ args, env, repository, fetchImpl, exe
     );
   }
 
-  const packed = await effectiveExecFile('npm', ['pack', '--json', '--ignore-scripts'], {
-    cwd: effectiveRepository,
-  });
-  let descriptors;
+  const tarballPath = join(effectiveRepository, tarballFilename(repositoryManifest));
+  const metadataPath = join(effectiveRepository, 'release-artifact.json');
+  await requireInvocationOwnedPaths([
+    ['tarball', tarballPath],
+    ['release metadata', metadataPath],
+  ]);
+
   try {
-    descriptors = JSON.parse(packed.stdout);
+    let packed;
+    try {
+      packed = await effectiveExecFile('npm', ['pack', '--json', '--ignore-scripts'], {
+        cwd: effectiveRepository,
+      });
+    } catch (error) {
+      throw new Error('Pack process release boundary failed', { cause: error });
+    }
+
+    let descriptors;
+    try {
+      descriptors = JSON.parse(packed.stdout);
+    } catch (error) {
+      throw new Error('Pack manifest boundary received invalid npm pack JSON', { cause: error });
+    }
+    if (!Array.isArray(descriptors) || descriptors.length !== 1) {
+      throw new Error(
+        `Pack manifest boundary requires exactly one npm pack descriptor; received ${Array.isArray(descriptors) ? descriptors.length : 'non-array output'}`,
+      );
+    }
+
+    const artifact = inspectPackManifest({
+      repositoryManifest,
+      packManifest: descriptors[0],
+    });
+    try {
+      await effectiveWriteFile(metadataPath, `${JSON.stringify(artifact, null, 2)}\n`, 'utf8');
+    } catch (error) {
+      throw new Error('Release metadata boundary write failed', { cause: error });
+    }
+
+    try {
+      await effectiveAppendFile(
+        outputPath,
+        [
+          `tarball=${artifact.tarball}`,
+          `name=${artifact.name}`,
+          `version=${artifact.version}`,
+          `integrity=${artifact.integrity}`,
+          '',
+        ].join('\n'),
+        'utf8',
+      );
+    } catch (error) {
+      throw new Error('GitHub output release boundary append failed', { cause: error });
+    }
+
+    return artifact;
   } catch (error) {
-    throw new Error('Pack manifest boundary received invalid npm pack JSON', { cause: error });
+    await cleanupInvocationArtifacts([tarballPath, metadataPath], effectiveRm);
+    throw error;
   }
-  if (!Array.isArray(descriptors) || descriptors.length !== 1) {
-    throw new Error(
-      `Pack manifest boundary requires exactly one npm pack descriptor; received ${Array.isArray(descriptors) ? descriptors.length : 'non-array output'}`,
-    );
-  }
-
-  const artifact = inspectPackManifest({
-    repositoryManifest,
-    packManifest: descriptors[0],
-  });
-  await writeFile(join(effectiveRepository, 'release-artifact.json'), `${JSON.stringify(artifact, null, 2)}\n`, 'utf8');
-  await appendFile(
-    outputPath,
-    [
-      `tarball=${artifact.tarball}`,
-      `name=${artifact.name}`,
-      `version=${artifact.version}`,
-      `integrity=${artifact.integrity}`,
-      '',
-    ].join('\n'),
-    'utf8',
-  );
-
-  return artifact;
 }
 
 const invokedPath = process.argv[1] ? pathToFileURL(resolve(process.argv[1])).href : undefined;
