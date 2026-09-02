@@ -1,6 +1,3 @@
-export type { CssLength, ParsedValue } from '../../flex/css-length';
-export type { SemanticDiagnostic, SemanticResult } from '../../flex/flex-semantic.model';
-
 export type TailwindStrategyResult =
   | { readonly status: 'converted'; readonly classNames: readonly string[] }
   | {

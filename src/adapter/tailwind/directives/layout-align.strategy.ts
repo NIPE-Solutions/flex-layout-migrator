@@ -1,4 +1,4 @@
-import type { ParsedValue } from '../tailwind-semantic.model';
+import type { ParsedValue } from '../../../flex/css-length';
 import {
   planLayoutAlignment,
   type LayoutAlignmentSemantics,

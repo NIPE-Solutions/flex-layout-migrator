@@ -1,18 +1,29 @@
 import { parseCssLength } from './css-length';
 
 describe('parseCssLength', () => {
-  test('adds the directive fallback unit to a unitless number', () => {
-    expect(parseCssLength('4', { fallbackUnit: 'px' })).toEqual({ ok: true, value: '4px' });
+  test.each([
+    ['4', 'px', '4px'],
+    ['12.5', '%', '12.5%'],
+    ['-2', 'px', '-2px'],
+    ['0', 'px', '0px'],
+    ['10px', 'px', '10px'],
+    ['1.5rem', 'px', '1.5rem'],
+    ['25%', 'px', '25%'],
+    ['calc(100% - 2rem)', '%', 'calc(100% - 2rem)'],
+    ['var(--layout-gap)', 'px', 'var(--layout-gap)'],
+  ] as const)('normalizes %s with a %s fallback unit', (source, fallbackUnit, expected) => {
+    expect(parseCssLength(source, { fallbackUnit })).toEqual({ ok: true, value: expected });
   });
 
-  test('preserves an allowed CSS calculation', () => {
-    expect(parseCssLength('calc(100% - 2rem)', { fallbackUnit: '%' })).toEqual({
-      ok: true,
-      value: 'calc(100% - 2rem)',
-    });
-  });
-
-  test('rejects unsupported CSS functions', () => {
-    expect(parseCssLength('expression(alert(1))', { fallbackUnit: 'px' })).toEqual({ ok: false });
+  test.each([
+    '',
+    'four',
+    '10 px',
+    '1;display:none',
+    'url(example.test)',
+    'calc(100%);color:red',
+    'expression(alert(1))',
+  ])('rejects unsafe or unsupported value %j', source => {
+    expect(parseCssLength(source, { fallbackUnit: 'px' })).toEqual({ ok: false });
   });
 });

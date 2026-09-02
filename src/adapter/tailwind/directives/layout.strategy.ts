@@ -1,5 +1,5 @@
 import { parseLayout, type LayoutSemantics } from '../../../flex/layout.semantic';
-import type { ParsedValue } from '../tailwind-semantic.model';
+import type { ParsedValue } from '../../../flex/css-length';
 
 export interface TailwindClassPlan {
   readonly classNames: readonly string[];
