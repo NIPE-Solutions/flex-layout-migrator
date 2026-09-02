@@ -188,6 +188,10 @@ export class ConversionPlanner {
       for (const input of imageInputs) plansByInputId.set(input.id, { ...familyFailure, input });
     }
 
+    adapter.acceptPlans?.(
+      inputs.map(input => plansByInputId.get(input.id)).filter((plan): plan is PlannedConversion => plan !== undefined),
+    );
+
     for (const input of inputs) {
       const element = elementById.get(input.elementId);
       if (!element) continue;

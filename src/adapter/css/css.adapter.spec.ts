@@ -1,4 +1,7 @@
 import type { LocatedFlexLayoutInput } from '../../analyzer/flex-layout-attribute.analyzer';
+import { TemplateAnalyzer } from '../../analyzer/template.analyzer';
+import { ConversionPlanner } from '../../planner/conversion-planner';
+import { AngularTemplateParser } from '../../template/angular-template.parser';
 import type { TemplateElement } from '../../template/template.model';
 import { AdapterFactory } from '../adapter.factory';
 import type { ConversionAdapterSession } from '../conversion-adapter.session';
@@ -47,6 +50,13 @@ function finalizeCss(session: ConversionAdapterSession): readonly OwnedCssRule[]
   expect(finalized.target).toBe('css');
   if (finalized.target !== 'css') throw new Error('Expected a CSS adapter session');
   return finalized.rules;
+}
+
+function planTemplate(session: ConversionAdapterSession, source: string, responsiveImages = false) {
+  const parsed = new AngularTemplateParser().parse(source, 'fixture.html');
+  if (parsed.status !== 'parsed') throw new Error('Expected CSS adapter fixture to parse');
+  const inputs = new TemplateAnalyzer().analyze('fixture.html', parsed.elements);
+  return new ConversionPlanner().plan(source, parsed.elements, inputs, session.adapter, { responsiveImages });
 }
 
 interface FamilyCase {
@@ -400,6 +410,32 @@ describe('CssAdapter', () => {
   });
 
   test.each([
+    ['custom', 'desktop', false],
+    ['custom', 'desktop', true],
+    ['orientation', 'handset', false],
+    ['orientation', 'handset', true],
+    ['print', 'print', false],
+    ['print', 'print', true],
+  ] as const)('establishes %s breakpoint ineligibility before interpreting an %s value', (_kind, breakpoint, bound) => {
+    const session = AdapterFactory.createSession('css', {
+      orientationBreakpoints: true,
+      printWithBreakpoints: ['md'],
+    });
+    const member = input({
+      sourceName: bound ? `[fxLayout.${breakpoint}]` : `fxLayout.${breakpoint}`,
+      breakpoint,
+      binding: bound ? 'property' : 'literal',
+      value: bound ? 'direction' : 'not-a-layout',
+    });
+
+    expect(session.adapter.plan(member, { element })).toMatchObject({
+      status: 'unsupported',
+      code: 'target-unsupported',
+    });
+    expect(finalizeCss(session)).toEqual([]);
+  });
+
+  test.each([
     ['Grid', { directive: 'gdColumns', sourceName: 'gdColumns', value: '1fr' }],
     ['visibility', { directive: 'fxShow', sourceName: 'fxShow', value: '' }],
     ['responsive class', { directive: 'ngClass', sourceName: 'ngClass.sm', breakpoint: 'sm', value: 'flex' }],
@@ -437,5 +473,48 @@ describe('CssAdapter', () => {
     ]);
     expect(rules).toHaveLength(1);
     expect(firstPlan.status === 'converted' ? firstPlan.classNames : []).toEqual([rules[0]?.className]);
+  });
+
+  test('finalizes no rule for a conversion rejected by bound-class handling', () => {
+    const session = cssSession();
+
+    const plan = planTemplate(session, '<div [class]="classes" fxLayout="row"></div>');
+
+    expect(plan.results).toEqual([expect.objectContaining({ status: 'review', code: 'bound-class' })]);
+    expect(finalizeCss(session)).toEqual([]);
+  });
+
+  test('finalizes no child rule after parent dependency closure rejects it', () => {
+    const session = cssSession();
+
+    const plan = planTemplate(session, '<div [class]="classes" fxLayout="column"><span fxFlexOffset="4"></span></div>');
+
+    expect(plan.results).toEqual([
+      expect.objectContaining({ status: 'review', code: 'bound-class' }),
+      expect.objectContaining({ status: 'review', code: 'context-unverified' }),
+    ]);
+    expect(finalizeCss(session)).toEqual([]);
+  });
+
+  test('finalizes no rule after responsive-image atomicity rejects a converted sibling', () => {
+    const session = cssSession();
+
+    const plan = planTemplate(session, '<img fxFlex="25" fxShow src.sm="small.png">', true);
+
+    expect(plan.results).toEqual([
+      expect.objectContaining({ status: 'review', code: 'context-unverified' }),
+      expect.objectContaining({ status: 'unsupported', code: 'target-unsupported' }),
+      expect.objectContaining({ status: 'review', code: 'context-unverified' }),
+    ]);
+    expect(finalizeCss(session)).toEqual([]);
+  });
+
+  test('retains a rule referenced by a conversion accepted by ConversionPlanner', () => {
+    const session = cssSession();
+
+    const plan = planTemplate(session, '<div fxLayout="row"></div>');
+
+    expect(plan.results).toEqual([expect.objectContaining({ status: 'converted' })]);
+    expect(finalizeCss(session)).toHaveLength(1);
   });
 });

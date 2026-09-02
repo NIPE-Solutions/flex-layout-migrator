@@ -39,6 +39,10 @@ export function sessionBoundAdapter(adapter: ConversionAdapter, assertActive: ()
       assertActive();
       return adapter.closePlanDependencies?.(plans, context, plansByInputId) ?? plans;
     },
+    acceptPlans(plans: readonly PlannedConversion[]): void {
+      assertActive();
+      adapter.acceptPlans?.(plans);
+    },
   });
 }
 

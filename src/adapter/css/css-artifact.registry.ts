@@ -131,4 +131,10 @@ export class CssArtifactRegistry {
   rules(): readonly OwnedCssRule[] {
     return Object.freeze([...this.registeredRules].sort(compareOwnedCssRules));
   }
+
+  rulesReferencedBy(classNames: ReadonlySet<string>): readonly OwnedCssRule[] {
+    return Object.freeze(
+      this.registeredRules.filter(rule => classNames.has(rule.className)).sort(compareOwnedCssRules),
+    );
+  }
 }

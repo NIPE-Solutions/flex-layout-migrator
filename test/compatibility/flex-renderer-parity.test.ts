@@ -315,6 +315,36 @@ describe('cross-target Flex adapter parity', () => {
     expect(css).toEqual(tailwind);
     expect(cssRegistry.rules()).toEqual([]);
   });
+
+  test('makes the same responsive precedence decision for overlapping Flex families', () => {
+    const broad: LocatedFlexLayoutInput = {
+      ...gap,
+      id: 'fixture:broad',
+      sourceName: 'fxFlexAlign.lt-md',
+      directive: 'fxFlexAlign',
+      value: 'start',
+      breakpoint: 'lt-md',
+    };
+    const narrow: LocatedFlexLayoutInput = {
+      ...gap,
+      id: 'fixture:narrow',
+      sourceName: 'fxFlexAlign.sm',
+      directive: 'fxFlexAlign',
+      value: 'end',
+      breakpoint: 'sm',
+    };
+    const inputs = [broad, narrow];
+    const tailwind = new TailwindAdapter().planElement(inputs, { element, inputs });
+    const css = new CssAdapter(new CssArtifactRegistry()).planElement(inputs, { element, inputs });
+    const decisions = (plans: typeof tailwind) =>
+      plans.map(plan => ({ status: plan.status, code: plan.status === 'converted' ? undefined : plan.code }));
+
+    expect(decisions(css)).toEqual(decisions(tailwind));
+    expect(decisions(css)).toEqual([
+      { status: 'review', code: 'responsive-precedence-unverified' },
+      { status: 'review', code: 'responsive-precedence-unverified' },
+    ]);
+  });
 });
 
 const breakpointRows = [

@@ -1,9 +1,5 @@
-import type { BreakpointDefinition, MediaRange } from '../../breakpoint/breakpoint-catalog';
-import {
-  BreakpointCatalog,
-  mediaDefinitionsIntersect,
-  mediaRangesIntersect,
-} from '../../breakpoint/breakpoint-catalog';
+import type { BreakpointDefinition } from '../../breakpoint/breakpoint-catalog';
+import { BreakpointCatalog } from '../../breakpoint/breakpoint-catalog';
 import type { BreakpointMigrationConfig } from '../../config/breakpoint-migration-config';
 import { planFlexAlignSemantics } from '../../flex/flex-align.semantic';
 import { planFlexFillSemantics } from '../../flex/flex-fill.semantic';
@@ -17,6 +13,7 @@ import { parseLayout } from '../../flex/layout.semantic';
 import type { AdapterSessionResult, ConversionAdapterSession } from '../conversion-adapter.session';
 import { sessionBoundAdapter } from '../conversion-adapter.session';
 import type { ConversionAdapter, ConversionContext, PlannedConversion } from '../conversion-adapter';
+import { SharedResponsiveFamilyPlanner } from '../responsive-family.planner';
 import type { CssDeclaration, CssSemanticFamily } from './css-artifact.model';
 import { CssArtifactRegistry } from './css-artifact.registry';
 import { cssRuleContext } from './css-breakpoint.context';
@@ -37,22 +34,15 @@ type UnresolvedPlan = Exclude<PlannedConversion, { readonly status: 'converted' 
 interface ConvertedCssPlan {
   readonly status: 'converted';
   readonly input: AdapterInput;
-  readonly family: CssSemanticFamily;
-  readonly declarations: readonly CssDeclaration[];
+  readonly classNames: readonly string[];
+  readonly family?: CssSemanticFamily;
+  readonly declarations?: readonly CssDeclaration[];
 }
 
 type CssPlan = ConvertedCssPlan | UnresolvedPlan;
 
-interface NumericRange {
-  readonly min: number;
-  readonly max: number;
-}
-
 const flexItemDirectives = new Set<AdapterDirective>(['fxFlex', 'fxGrow', 'fxShrink']);
 const visibilityDirectives = new Set<AdapterDirective>(['fxShow', 'fxHide']);
-const localLayoutFamilies = new Set<CssSemanticFamily>(['layout-gap', 'layout-align']);
-const parentLayoutFamilies = new Set<CssSemanticFamily>(['flex-item', 'flex-offset']);
-const localDependencyFamilies = new Set<CssSemanticFamily>(['layout', 'layout-gap', 'layout-align']);
 const familyByDirective = new Map<AdapterDirective, CssSemanticFamily>([
   ['fxLayout', 'layout'],
   ['fxLayoutGap', 'layout-gap'],
@@ -144,187 +134,88 @@ function fromSemantic<T>(
   render: (value: T) => readonly CssDeclaration[],
 ): CssPlan {
   if (result.status === 'planned') {
-    return { status: 'converted', input, family, declarations: render(result.value) };
+    return { status: 'converted', input, classNames: [], family, declarations: render(result.value) };
   }
   if (result.status === 'invalid') return invalid(input);
   return { ...result, input };
 }
 
-function sameDeclarations(left: CssPlan, right: CssPlan): boolean {
+function canonicalClasses(plan: ConvertedCssPlan): readonly string[] {
+  return [...new Set(plan.classNames)].sort();
+}
+
+function sameOutput(left: CssPlan, right: CssPlan): boolean {
+  if (left.status !== 'converted' || right.status !== 'converted') return false;
+  if (left.declarations !== undefined && right.declarations !== undefined) {
+    return (
+      left.family === right.family &&
+      left.declarations.length === right.declarations.length &&
+      left.declarations.every(
+        (declaration, index) =>
+          declaration.property === right.declarations?.[index]?.property &&
+          declaration.value === right.declarations?.[index]?.value,
+      )
+    );
+  }
+  const leftClasses = canonicalClasses(left);
+  const rightClasses = canonicalClasses(right);
   return (
-    left.status === 'converted' &&
-    right.status === 'converted' &&
-    left.family === right.family &&
-    left.declarations.length === right.declarations.length &&
-    left.declarations.every(
-      (declaration, index) =>
-        declaration.property === right.declarations[index]?.property &&
-        declaration.value === right.declarations[index]?.value,
-    )
+    leftClasses.length === rightClasses.length &&
+    leftClasses.every((className, index) => className === rightClasses[index])
   );
 }
 
-function numericRange(range: MediaRange): NumericRange {
-  return {
-    min: range.min ?? Number.NEGATIVE_INFINITY,
-    max: range.max ?? Number.POSITIVE_INFINITY,
-  };
-}
-
-function mediaRange(range: NumericRange): MediaRange {
-  return {
-    min: range.min === Number.NEGATIVE_INFINITY ? undefined : range.min,
-    max: range.max === Number.POSITIVE_INFINITY ? undefined : range.max,
-  };
-}
-
-function nextBelow(value: number): number {
-  return value - Math.max(1, Math.abs(value)) * Number.EPSILON;
-}
-
-function nextAbove(value: number): number {
-  return value + Math.max(1, Math.abs(value)) * Number.EPSILON;
-}
-
-function subtractRange(source: NumericRange, excluded: NumericRange): readonly NumericRange[] {
-  if (source.max < excluded.min || excluded.max < source.min) return [source];
-  const remaining: NumericRange[] = [];
-  if (source.min < excluded.min) remaining.push({ min: source.min, max: nextBelow(excluded.min) });
-  if (excluded.max < source.max) remaining.push({ min: nextAbove(excluded.max), max: source.max });
-  return remaining;
-}
-
-function rangesCover(target: NumericRange, ranges: readonly NumericRange[]): boolean {
-  const clipped = ranges
-    .map(range => ({ min: Math.max(target.min, range.min), max: Math.min(target.max, range.max) }))
-    .filter(range => range.min <= range.max)
-    .sort((left, right) => left.min - right.min);
-  if (!clipped.length || clipped[0]?.min !== target.min) return false;
-
-  let coveredUntil = clipped[0].max;
-  for (const range of clipped.slice(1)) {
-    if (range.min > coveredUntil) return false;
-    coveredUntil = Math.max(coveredUntil, range.max);
-  }
-  return coveredUntil >= target.max;
+function closeDisplayDependencies<TPlan extends CssPlan>(
+  plans: readonly TPlan[],
+  downgrade: (input: AdapterInput) => TPlan,
+): readonly TPlan[] {
+  const visibilityIsUnresolved = plans.some(
+    plan => visibilityDirectives.has(plan.input.directive) && plan.status !== 'converted',
+  );
+  if (!visibilityIsUnresolved) return plans;
+  return plans.map(plan =>
+    plan.status === 'converted' && plan.input.directive === 'fxLayout' ? downgrade(plan.input) : plan,
+  );
 }
 
 export class CssAdapter implements ConversionAdapter {
   readonly name = 'css' as const;
   private readonly breakpointCatalog = new BreakpointCatalog();
+  private readonly responsiveFamilyPlanner: SharedResponsiveFamilyPlanner<CssPlan>;
+  private readonly referencedClassNamesByInputId = new Map<string, readonly string[]>();
 
-  constructor(private readonly registry: CssArtifactRegistry) {}
+  constructor(private readonly registry: CssArtifactRegistry) {
+    this.responsiveFamilyPlanner = new SharedResponsiveFamilyPlanner(this.breakpointCatalog, {
+      emptyPlan: input => this.emptyPlan(input),
+      targetEligibility: input => this.targetEligibility(input),
+      validateActivation: plan => plan,
+      isTargetEligibilityFailure: plan => plan.status === 'unsupported' && plan.code === 'target-unsupported',
+      sameOutput,
+      contextUnverified,
+      contextualOutputUnverified: input =>
+        contextUnverified(
+          input,
+          'This directive emits different declarations across its active responsive layout contexts.',
+        ),
+      responsivePrecedenceUnverified,
+      decorate: plan => plan,
+      addPrintFallback: plan => plan,
+    });
+  }
 
   plan(input: AdapterInput, context: ConversionContext): PlannedConversion {
-    return this.emit(this.validateBreakpoint(this.planSemantic(input, context)));
+    return this.emit(this.targetEligibility(input) ?? this.planSemantic(input, context));
   }
 
   planElement(inputs: readonly AdapterInput[], context: ConversionContext): readonly PlannedConversion[] {
-    const groups = new Map<CssSemanticFamily, AdapterInput[]>();
-    const unsupportedInputs: AdapterInput[] = [];
-    for (const input of inputs) {
-      const family = familyByDirective.get(input.directive);
-      if (!family) {
-        unsupportedInputs.push(input);
-        continue;
-      }
-      const members = groups.get(family) ?? [];
-      members.push(input);
-      groups.set(family, members);
-    }
-
     const completeContext: ConversionContext = { ...context, inputs };
-    const rawPlansByFamily = new Map<CssSemanticFamily, readonly CssPlan[]>();
-    const layoutInputs = groups.get('layout') ?? [];
-    const layoutPlans = this.planFamily(layoutInputs, completeContext, true);
-    if (layoutInputs.length) rawPlansByFamily.set('layout', layoutPlans);
-
-    const parentLayoutInputs = context.parentInputs?.filter(input => input.directive === 'fxLayout');
-    const parentLayoutSafe =
-      parentLayoutInputs === undefined ||
-      this.isLayoutContextSafe(
-        context.parentInputs ?? [],
-        {
-          ...context,
-          element: context.parent ?? context.element,
-          inputs: context.parentInputs,
-          parent: undefined,
-          parentInputs: undefined,
-        },
-        true,
-      );
-    const localLayoutSafe = layoutPlans.every(plan => plan.status === 'converted');
-
-    for (const [family, familyInputs] of groups) {
-      if (family === 'layout') continue;
-
-      let plans: readonly CssPlan[];
-      if (localLayoutFamilies.has(family)) {
-        plans = localLayoutSafe
-          ? this.planContextualFamily(familyInputs, completeContext, layoutInputs, 'activeLayout', true)
-          : this.planBlockedContextFamily(
-              familyInputs,
-              completeContext,
-              'The responsive layout family contains an unresolved member.',
-            );
-      } else if (parentLayoutFamilies.has(family)) {
-        plans = parentLayoutSafe
-          ? this.planContextualFamily(
-              familyInputs,
-              completeContext,
-              parentLayoutInputs ?? [],
-              'activeParentLayout',
-              true,
-            )
-          : this.planBlockedContextFamily(
-              familyInputs,
-              completeContext,
-              'The responsive parent layout family contains an unresolved member.',
-            );
-      } else {
-        plans = this.planFamily(familyInputs, completeContext, true);
-      }
-      rawPlansByFamily.set(family, plans);
-    }
-
-    if (unsupportedInputs.some(input => visibilityDirectives.has(input.directive))) {
-      const plans = rawPlansByFamily.get('layout');
-      if (plans) {
-        rawPlansByFamily.set(
-          'layout',
-          plans.map(plan => (plan.status === 'converted' ? displayContextUnverified(plan.input) : plan)),
-        );
-      }
-    }
-
-    const localContextUnresolved = [...localDependencyFamilies].some(family =>
-      rawPlansByFamily.get(family)?.some(plan => plan.status !== 'converted'),
+    let plans = this.responsiveFamilyPlanner.plan(inputs, completeContext, (input, itemContext) =>
+      this.planSemantic(input, itemContext),
     );
-    if (localContextUnresolved) {
-      for (const family of localDependencyFamilies) {
-        const plans = rawPlansByFamily.get(family);
-        if (!plans) continue;
-        rawPlansByFamily.set(
-          family,
-          plans.map(plan =>
-            plan.status === 'converted'
-              ? contextUnverified(
-                  plan.input,
-                  'The element layout context contains an unresolved dependent directive family.',
-                )
-              : plan,
-          ),
-        );
-      }
-    }
-
-    const plansById = new Map<string, PlannedConversion>();
-    for (const plans of rawPlansByFamily.values()) {
-      for (const plan of plans) plansById.set(plan.input.id, this.emit(plan));
-    }
-    for (const input of unsupportedInputs) plansById.set(input.id, targetUnsupported(input));
-
-    return inputs.map(input => plansById.get(input.id) ?? targetUnsupported(input));
+    plans = closeDisplayDependencies(plans, input => displayContextUnverified(input) as CssPlan);
+    plans = this.closeResponsiveDependencies(plans, completeContext, new Map());
+    plans = closeDisplayDependencies(plans, input => displayContextUnverified(input) as CssPlan);
+    return plans.map(plan => this.emit(plan));
   }
 
   closePlanDependencies(
@@ -332,70 +223,53 @@ export class CssAdapter implements ConversionAdapter {
     context: ConversionContext,
     plansByInputId: ReadonlyMap<string, PlannedConversion>,
   ): readonly PlannedConversion[] {
-    const closedByFamily = new Map<CssSemanticFamily, PlannedConversion[]>();
-    const plansById = new Map(plans.map(plan => [plan.input.id, plan]));
+    let closed: readonly CssPlan[] = this.closeResponsiveDependencies(plans, context, plansByInputId);
+    closed = closeDisplayDependencies(closed, input => displayContextUnverified(input) as CssPlan);
+    closed = this.closeResponsiveDependencies(closed, context, plansByInputId);
+    return closeDisplayDependencies(closed, input => displayContextUnverified(input) as CssPlan);
+  }
+
+  acceptPlans(plans: readonly PlannedConversion[]): void {
     for (const plan of plans) {
-      const family = familyByDirective.get(plan.input.directive);
-      if (!family) continue;
-      const members = closedByFamily.get(family) ?? [];
-      members.push(plan);
-      closedByFamily.set(family, members);
+      this.referencedClassNamesByInputId.set(plan.input.id, plan.status === 'converted' ? plan.classNames : []);
     }
+  }
 
-    for (const members of closedByFamily.values()) {
-      if (!members.some(plan => plan.status !== 'converted')) continue;
-      for (const plan of members) {
-        if (plan.status === 'converted') {
-          plansById.set(
-            plan.input.id,
-            contextUnverified(plan.input, 'Another member of this responsive directive family is unresolved.'),
-          );
-        }
-      }
-    }
+  referencedClassNames(): ReadonlySet<string> {
+    return new Set([...this.referencedClassNamesByInputId.values()].flatMap(classNames => [...classNames]));
+  }
 
-    const visibilityIsUnresolved = plans.some(
-      plan => visibilityDirectives.has(plan.input.directive) && plan.status !== 'converted',
+  private closeResponsiveDependencies(
+    plans: readonly CssPlan[],
+    context: ConversionContext,
+    plansByInputId: ReadonlyMap<string, PlannedConversion>,
+  ): readonly CssPlan[] {
+    const inputs = plans.map(plan => plan.input);
+    const currentPlans = new Map(plans.map(plan => [plan.input.id, plan]));
+    return this.responsiveFamilyPlanner.closeDependencies(
+      inputs,
+      { ...context, inputs },
+      (input, itemContext) =>
+        currentPlans.get(input.id) ??
+        plansByInputId.get(input.id) ??
+        this.targetEligibility(input) ??
+        this.planSemantic(input, itemContext),
     );
-    if (visibilityIsUnresolved) {
-      for (const plan of plansById.values()) {
-        if (plan.status === 'converted' && plan.input.directive === 'fxLayout') {
-          plansById.set(plan.input.id, displayContextUnverified(plan.input));
-        }
-      }
-    }
+  }
 
-    const localPlans = [...plansById.values()].filter(plan => {
-      const family = familyByDirective.get(plan.input.directive);
-      return family !== undefined && localDependencyFamilies.has(family);
-    });
-    if (localPlans.some(plan => plan.status !== 'converted')) {
-      for (const plan of localPlans) {
-        if (plan.status === 'converted') {
-          plansById.set(
-            plan.input.id,
-            contextUnverified(
-              plan.input,
-              'The element layout context contains an unresolved dependent directive family.',
-            ),
-          );
-        }
-      }
+  private targetEligibility(input: AdapterInput): UnresolvedPlan | undefined {
+    if (!familyByDirective.has(input.directive)) return targetUnsupported(input);
+    if (input.breakpoint !== undefined && this.breakpointCatalog.classify(input.breakpoint).kind !== 'verified') {
+      return targetUnsupported(input);
     }
+    return undefined;
+  }
 
-    if (!this.parentLayoutPlansAreSafe(context, plansByInputId)) {
-      for (const plan of plansById.values()) {
-        const family = familyByDirective.get(plan.input.directive);
-        if (plan.status === 'converted' && family !== undefined && parentLayoutFamilies.has(family)) {
-          plansById.set(
-            plan.input.id,
-            contextUnverified(plan.input, 'The responsive parent layout family contains an unresolved member.'),
-          );
-        }
-      }
-    }
-
-    return plans.map(plan => plansById.get(plan.input.id) ?? plan);
+  private emptyPlan(input: AdapterInput): CssPlan {
+    const family = familyByDirective.get(input.directive);
+    return family === undefined
+      ? targetUnsupported(input)
+      : { status: 'converted', input, classNames: [], family, declarations: [] };
   }
 
   private planSemantic(input: AdapterInput, context: ConversionContext): CssPlan {
@@ -406,7 +280,13 @@ export class CssAdapter implements ConversionAdapter {
     if (input.directive === 'fxLayout') {
       const layout = parseLayout(input.value);
       return layout.ok
-        ? { status: 'converted', input, family, declarations: renderLayoutCss(layout.value) }
+        ? {
+            status: 'converted',
+            input,
+            classNames: [],
+            family,
+            declarations: renderLayoutCss(layout.value),
+          }
         : invalid(input);
     }
 
@@ -491,219 +371,36 @@ export class CssAdapter implements ConversionAdapter {
     );
   }
 
-  private validateBreakpoint(plan: CssPlan): CssPlan {
-    if (plan.status !== 'converted' || plan.input.breakpoint === undefined) return plan;
-    return this.breakpointCatalog.classify(plan.input.breakpoint).kind === 'verified'
-      ? plan
-      : targetUnsupported(plan.input);
-  }
-
-  private planFamily(
-    inputs: readonly AdapterInput[],
-    context: ConversionContext,
-    validateResponsivePrecedence: boolean,
-  ): readonly CssPlan[] {
-    return this.validateFamily(
-      inputs,
-      inputs.map(input => this.planSemantic(input, context)),
-      validateResponsivePrecedence,
-    );
-  }
-
-  private validateFamily(
-    inputs: readonly AdapterInput[],
-    semanticPlans: readonly CssPlan[],
-    validateResponsivePrecedence: boolean,
-  ): readonly CssPlan[] {
-    if (inputs.some(input => input.binding !== 'literal')) {
-      return inputs.map((input, index) => {
-        const semanticPlan = semanticPlans[index] ?? dynamicBinding(input);
-        if (input.binding !== 'literal') return semanticPlan;
-        const breakpointPlan = this.validateBreakpoint(semanticPlan);
-        return breakpointPlan.status === 'unsupported'
-          ? breakpointPlan
-          : contextUnverified(input, 'Another member of this responsive directive family is dynamic.');
-      });
-    }
-
-    const supportedPlans = semanticPlans.map(plan => this.validateBreakpoint(plan));
-    if (supportedPlans.some(plan => plan.status !== 'converted')) {
-      return supportedPlans.map(plan =>
-        plan.status === 'converted'
-          ? contextUnverified(plan.input, 'Another member of this responsive directive family is unresolved.')
-          : plan,
-      );
-    }
-    if (!validateResponsivePrecedence) return supportedPlans;
-
-    for (let leftIndex = 0; leftIndex < inputs.length; leftIndex += 1) {
-      const leftInput = inputs[leftIndex];
-      const leftPlan = supportedPlans[leftIndex];
-      if (!leftInput?.breakpoint || !leftPlan) continue;
-      const leftClassification = this.breakpointCatalog.classify(leftInput.breakpoint);
-      if (leftClassification.kind !== 'verified') continue;
-
-      for (let rightIndex = leftIndex + 1; rightIndex < inputs.length; rightIndex += 1) {
-        const rightInput = inputs[rightIndex];
-        const rightPlan = supportedPlans[rightIndex];
-        if (!rightInput?.breakpoint || !rightPlan) continue;
-        const rightClassification = this.breakpointCatalog.classify(rightInput.breakpoint);
-        if (
-          rightClassification.kind === 'verified' &&
-          mediaDefinitionsIntersect(leftClassification.definition.media, rightClassification.definition.media) &&
-          !sameDeclarations(leftPlan, rightPlan)
-        ) {
-          return inputs.map(input => responsivePrecedenceUnverified(input));
-        }
-      }
-    }
-    return supportedPlans;
-  }
-
-  private planContextualFamily(
-    inputs: readonly AdapterInput[],
-    context: ConversionContext,
-    layoutInputs: readonly AdapterInput[],
-    contextKey: 'activeLayout' | 'activeParentLayout',
-    validateResponsivePrecedence: boolean,
-  ): readonly CssPlan[] {
-    const semanticPlans = inputs.map(input => {
-      if (input.binding !== 'literal') return this.planSemantic(input, context);
-      const family = familyByDirective.get(input.directive);
-      if (family === undefined) return targetUnsupported(input);
-      const breakpointPlan = this.validateBreakpoint({
-        status: 'converted',
-        input,
-        family,
-        declarations: [],
-      });
-      if (breakpointPlan.status !== 'converted') return breakpointPlan;
-
-      const layoutValues = this.layoutValuesFor(input, inputs, layoutInputs);
-      if (!layoutValues.length) {
-        return contextUnverified(input, 'The active responsive layout cannot be resolved for this input.');
-      }
-      const candidates = layoutValues.map(value => this.planSemantic(input, { ...context, [contextKey]: value }));
-      const unresolved = candidates.find(candidate => candidate.status !== 'converted');
-      if (unresolved) return unresolved;
-      const first = candidates[0];
-      if (!first || candidates.some(candidate => !sameDeclarations(first, candidate))) {
-        return contextUnverified(
-          input,
-          'This directive emits different declarations across its active responsive layout contexts.',
-        );
-      }
-      return first;
-    });
-    return this.validateFamily(inputs, semanticPlans, validateResponsivePrecedence);
-  }
-
-  private planBlockedContextFamily(
-    inputs: readonly AdapterInput[],
-    context: ConversionContext,
-    reason: string,
-  ): readonly CssPlan[] {
-    return inputs.map(input => {
-      if (input.binding !== 'literal') return this.planSemantic(input, context);
-      const family = familyByDirective.get(input.directive);
-      if (family === undefined) return targetUnsupported(input);
-      const breakpointPlan = this.validateBreakpoint({
-        status: 'converted',
-        input,
-        family,
-        declarations: [],
-      });
-      return breakpointPlan.status === 'converted' ? contextUnverified(input, reason) : breakpointPlan;
-    });
-  }
-
-  private isLayoutContextSafe(
-    inputs: readonly AdapterInput[],
-    context: ConversionContext,
-    validateResponsivePrecedence: boolean,
-  ): boolean {
-    const layoutInputs = inputs.filter(input => input.directive === 'fxLayout');
-    if (
-      this.planFamily(layoutInputs, context, validateResponsivePrecedence).some(plan => plan.status !== 'converted')
-    ) {
-      return false;
-    }
-
-    return (['layout-gap', 'layout-align'] as const).every(family => {
-      const familyInputs = inputs.filter(input => familyByDirective.get(input.directive) === family);
-      return this.planContextualFamily(
-        familyInputs,
-        context,
-        layoutInputs,
-        'activeLayout',
-        validateResponsivePrecedence,
-      ).every(plan => plan.status === 'converted');
-    });
-  }
-
-  private layoutValuesFor(
-    input: AdapterInput,
-    familyInputs: readonly AdapterInput[],
-    layoutInputs: readonly AdapterInput[],
-  ): readonly string[] {
-    const baseLayouts = layoutInputs.filter(layout => layout.breakpoint === undefined);
-    const responsiveLayouts = layoutInputs.flatMap(layout => {
-      if (!layout.breakpoint) return [];
-      const classification = this.breakpointCatalog.classify(layout.breakpoint);
-      return classification.kind === 'verified'
-        ? [{ value: layout.value, range: numericRange(classification.definition.range) }]
-        : [];
-    });
-    const values = new Set<string>();
-
-    for (const target of this.effectiveRanges(input, familyInputs)) {
-      const activeResponsive = responsiveLayouts.filter(layout =>
-        mediaRangesIntersect(mediaRange(target), mediaRange(layout.range)),
-      );
-      for (const layout of activeResponsive) values.add(layout.value);
-      if (
-        !rangesCover(
-          target,
-          activeResponsive.map(layout => layout.range),
-        )
-      ) {
-        if (baseLayouts.length) {
-          for (const layout of baseLayouts) values.add(layout.value);
-        } else {
-          values.add('row');
-        }
-      }
-    }
-    return [...values];
-  }
-
-  private effectiveRanges(input: AdapterInput, familyInputs: readonly AdapterInput[]): readonly NumericRange[] {
-    if (input.breakpoint) {
-      const classification = this.breakpointCatalog.classify(input.breakpoint);
-      return classification.kind === 'verified' ? [numericRange(classification.definition.range)] : [];
-    }
-
-    let ranges: readonly NumericRange[] = [{ min: Number.NEGATIVE_INFINITY, max: Number.POSITIVE_INFINITY }];
-    for (const sibling of familyInputs) {
-      if (!sibling.breakpoint || sibling.binding !== 'literal') continue;
-      const classification = this.breakpointCatalog.classify(sibling.breakpoint);
-      if (classification.kind !== 'verified') continue;
-      const excluded = numericRange(classification.definition.range);
-      ranges = ranges.flatMap(range => subtractRange(range, excluded));
-    }
-    return ranges;
-  }
-
   private emit(plan: CssPlan): PlannedConversion {
-    if (plan.status !== 'converted') return plan;
-    if (plan.declarations.length === 0) return { status: 'converted', input: plan.input, classNames: [] };
+    if (plan.status !== 'converted') {
+      this.referencedClassNamesByInputId.set(plan.input.id, []);
+      return plan;
+    }
+    if (plan.declarations === undefined) {
+      this.referencedClassNamesByInputId.set(plan.input.id, plan.classNames);
+      return plan;
+    }
+    if (plan.declarations.length === 0) {
+      this.referencedClassNamesByInputId.set(plan.input.id, []);
+      return { status: 'converted', input: plan.input, classNames: [] };
+    }
 
     const rule = this.registry.register(
-      plan.family,
+      plan.family ?? this.requireFamily(plan.input),
       plan.declarations,
       cssRuleContext(this.breakpointDefinition(plan.input)),
     );
-    return { status: 'converted', input: plan.input, classNames: [rule.className] };
+    const classNames = [rule.className];
+    this.referencedClassNamesByInputId.set(plan.input.id, classNames);
+    return { status: 'converted', input: plan.input, classNames };
+  }
+
+  private requireFamily(input: AdapterInput): CssSemanticFamily {
+    const family = familyByDirective.get(input.directive);
+    if (family === undefined) {
+      throw new CssInvariantError(`CSS emission received an unsupported directive: ${input.directive}`);
+    }
+    return family;
   }
 
   private breakpointDefinition(input: AdapterInput): BreakpointDefinition | undefined {
@@ -714,36 +411,25 @@ export class CssAdapter implements ConversionAdapter {
     }
     return classification.definition;
   }
-
-  private parentLayoutPlansAreSafe(
-    context: ConversionContext,
-    plansByInputId: ReadonlyMap<string, PlannedConversion>,
-  ): boolean {
-    if (context.parentInputs === undefined) return true;
-    const relevant = context.parentInputs.filter(input => {
-      const family = familyByDirective.get(input.directive);
-      return family !== undefined && localDependencyFamilies.has(family);
-    });
-    return relevant.every(input => {
-      const plan = plansByInputId.get(input.id);
-      return plan?.status === 'converted';
-    });
-  }
 }
 
 export class CssAdapterSession implements ConversionAdapterSession {
   readonly adapter: ConversionAdapter;
   private readonly registry = new CssArtifactRegistry();
+  private readonly cssAdapter = new CssAdapter(this.registry);
   private finalized = false;
 
   constructor(_config: BreakpointMigrationConfig = { orientationBreakpoints: false }) {
-    this.adapter = sessionBoundAdapter(new CssAdapter(this.registry), () => this.assertActive());
+    this.adapter = sessionBoundAdapter(this.cssAdapter, () => this.assertActive());
   }
 
   finalize(): AdapterSessionResult {
     if (this.finalized) throw new Error('Adapter session already finalized');
     this.finalized = true;
-    return Object.freeze({ target: 'css' as const, rules: this.registry.rules() });
+    return Object.freeze({
+      target: 'css' as const,
+      rules: this.registry.rulesReferencedBy(this.cssAdapter.referencedClassNames()),
+    });
   }
 
   private assertActive(): void {
