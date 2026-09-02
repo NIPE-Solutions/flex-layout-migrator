@@ -141,3 +141,5 @@ Repository verification, audit, package-surface checks, clean-status checks, and
 10. Run a stable-release readiness audit and address every documented compatibility gap or explicitly retained limitation.
 
 Milestones may be split into smaller pull requests when reviewability or risk requires it. Architectural cleanup follows demonstrated duplication and ownership needs rather than speculative abstraction.
+
+Milestone 5 is delivered through the Grid slice and the project-aware orientation/print slice. The latter remains deliberately Limited because conversion requires explicit evidence of the source application's Flex-Layout configuration.

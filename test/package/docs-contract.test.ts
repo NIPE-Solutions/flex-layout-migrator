@@ -36,7 +36,9 @@ function expectCurrentBetaBoundaries(readme: string): void {
   expect(readme).toContain('a native CSS target is not available');
   expect(readme).toContain('Literal Grid directives have limited conversion support');
   expect(readme).toContain('responsive `imgSrc` remains unchanged');
-  expect(readme).toContain('Orientation, print, and custom breakpoint aliases remain preserved for review');
+  expect(readme).toContain('Orientation and print conversion require explicit source-configuration evidence');
+  expect(readme).toContain('--orientation-breakpoints');
+  expect(readme).toContain('--print-with-breakpoints');
 }
 
 describe('maintainer documentation', () => {
@@ -183,7 +185,7 @@ describe('maintainer documentation', () => {
   it('rejects a paraphrased false-current-capability claim that the former blacklist misses', async () => {
     const readme = await readRepositoryFile('README.md');
     const falseCurrentCapability = readme.replace(
-      'This beta has a Tailwind CSS v4 target only; a native CSS target is not available. Literal Grid directives have limited conversion support; responsive `imgSrc` remains unchanged. Orientation, print, and custom breakpoint aliases remain preserved for review.',
+      'This beta has a Tailwind CSS v4 target only; a native CSS target is not available. Literal Grid directives have limited conversion support; responsive `imgSrc` remains unchanged. Orientation and print conversion require explicit source-configuration evidence; custom breakpoint aliases remain preserved for review.',
       'This beta has native CSS and Tailwind CSS targets. Grid directives, responsive `imgSrc`, orientation, print, and custom breakpoint aliases convert directly.',
     );
 

@@ -220,7 +220,7 @@ async function withRealPackRepository(run: (repository: string) => Promise<void>
       `#!/usr/bin/env node
 const arguments_ = process.argv.slice(2);
 if (arguments_.includes('--help')) {
-  console.log('--dry-run --report <path> --allow-unresolved path must end in .json single-file output must end in .html');
+  console.log('--dry-run --report <path> --allow-unresolved --orientation-breakpoints --print-with-breakpoints <aliases> path must end in .json single-file output must end in .html');
 } else if (arguments_.includes('--version')) {
   console.log('${repositoryManifest.version}');
 } else if (arguments_.includes('--dry-run')) {

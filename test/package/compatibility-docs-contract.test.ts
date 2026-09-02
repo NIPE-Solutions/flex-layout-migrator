@@ -270,11 +270,11 @@ describe('compatibility reference contract', () => {
         ['fxFlexOrder', 'Static integer values emitted independently of the Tailwind theme.'],
         [
           'fxShow',
-          'Literal base and standard viewport states convert when display restoration and the complete visibility family are safe.',
+          'Literal base and configured viewport, orientation, or print states convert when display restoration and the complete visibility family are safe.',
         ],
         [
           'fxHide',
-          'Literal base and standard viewport states convert with `fxShow`; hiding emits exact base or responsive `hidden` utilities.',
+          'Literal base and configured responsive states convert with `fxShow`; hiding emits exact base or responsive `hidden` utilities.',
         ],
         ...[
           'gdAlignColumns',
@@ -306,6 +306,11 @@ describe('compatibility reference contract', () => {
 
     expect(markdown).toContain('are currently converted together as one atomic visibility family per element');
     expect(markdown).not.toContain('are planned together as one atomic visibility family per element');
+    expect(markdown).toContain('--orientation-breakpoints');
+    expect(markdown).toContain('--print-with-breakpoints');
+    expect(markdown).toContain('handset.portrait');
+    expect(markdown).toContain('web.landscape');
+    expect(markdown).toContain('printWithBreakpoints');
   });
 
   it('rejects duplicate visible safety entries', async () => {

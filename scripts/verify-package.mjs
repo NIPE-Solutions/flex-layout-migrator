@@ -85,15 +85,21 @@ export async function smokePackageTarball({
       platform === 'win32' ? nodeExecutable : join(temporaryDirectory, 'node_modules', '.bin', 'flex-layout-codemod');
     const executableArguments = platform === 'win32' ? [installedModuleExecutable] : [];
     const help = await execFileImpl(executable, [...executableArguments, '--help'], { cwd: temporaryDirectory });
-    for (const option of ['--dry-run', '--report <path>', '--allow-unresolved']) {
+    for (const option of [
+      '--dry-run',
+      '--report <path>',
+      '--allow-unresolved',
+      '--orientation-breakpoints',
+      '--print-with-breakpoints <aliases>',
+    ]) {
       if (!help.stdout.includes(option)) {
         throw new Error(`Packaged CLI help is missing ${option}`);
       }
     }
-    if (!help.stdout.includes('path must end in .json')) {
+    if (!/path must\s+end in \.json/u.test(help.stdout)) {
       throw new Error('Packaged CLI help is missing the JSON report extension requirement');
     }
-    if (!/single-file output must end\s+in \.html/.test(help.stdout)) {
+    if (!/single-file\s+output must\s+end\s+in \.html/u.test(help.stdout)) {
       throw new Error('Packaged CLI help is missing the HTML single-file output requirement');
     }
 

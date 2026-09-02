@@ -64,8 +64,8 @@ The Tailwind CSS 4 column identifies current target behavior. Native CSS and res
 - `fxFill`: Non-responsive alias of `fxFlexFill`.
 - `fxFlexOffset`: Static values with a statically known parent axis; unitless values remain percentages.
 - `fxFlexOrder`: Static integer values emitted independently of the Tailwind theme.
-- `fxShow`: Literal base and standard viewport states convert when display restoration and the complete visibility family are safe.
-- `fxHide`: Literal base and standard viewport states convert with `fxShow`; hiding emits exact base or responsive `hidden` utilities.
+- `fxShow`: Literal base and configured viewport, orientation, or print states convert when display restoration and the complete visibility family are safe.
+- `fxHide`: Literal base and configured responsive states convert with `fxShow`; hiding emits exact base or responsive `hidden` utilities.
 - `gdAlignColumns`, `gdAlignRows`, `gdArea`, `gdAreas`, `gdAuto`, `gdColumn`, `gdColumns`, `gdGap`, `gdGridAlign`, `gdInline`, `gdRow`, and `gdRows`: Literal values convert when compiler output, display composition, context, and ownership are exact.
 
 All generated lengths that originate in the template use Tailwind arbitrary values. This prevents a project spacing scale from changing `fxLayoutGap="4"` from Angular Flex-Layout's `4px`, or `fxFlexOffset="4"` from its `4%` meaning.
@@ -101,7 +101,7 @@ When layout and visibility both control `display`, the planner composes them bef
 
 ## Grid directives
 
-Grid container and child directives convert for literal base values and the 13 standard viewport aliases when their complete declaration, display, parent context, and existing ownership are safe. Container directives share one `grid` or `inline-grid` display state; `gdInline` is composed with that state. Bound values, orientation and print aliases, custom breakpoints, unsafe parent context, and compiler-unverified values remain unchanged with diagnostics.
+Grid container and child directives convert for literal base values, the 13 standard viewport aliases, and explicitly configured orientation and print aliases when their complete declaration, display, parent context, and existing ownership are safe. Container directives share one `grid` or `inline-grid` display state; `gdInline` is composed with that state. Bound values, unconfigured or custom breakpoints, unsafe parent context, and compiler-unverified values remain unchanged with diagnostics.
 
 ## Responsive class and style inputs
 
@@ -110,7 +110,7 @@ Grid container and child directives convert for literal base values and the 13 s
 - deprecated `class.<alias>` and `style.<alias>`: Version-dependent replacement and merge behavior is not inferred.
 - responsive `imgSrc`: Recognized and reported; no target conversion is implemented.
 
-The supported aliases are `xs`, `sm`, `md`, `lg`, `xl`, `lt-sm`, `lt-md`, `lt-lg`, `lt-xl`, `gt-xs`, `gt-sm`, `gt-md`, and `gt-lg`. Each emitted class contains the exact Angular Flex-Layout media range rather than a project-defined Tailwind breakpoint.
+The always-supported aliases are `xs`, `sm`, `md`, `lg`, `xl`, `lt-sm`, `lt-md`, `lt-lg`, `lt-xl`, `gt-xs`, `gt-sm`, `gt-md`, and `gt-lg`. Each emitted class contains the exact Angular Flex-Layout media range rather than a project-defined Tailwind breakpoint. Explicit configuration additionally enables orientation and print as described below.
 
 ```html
 <!-- input -->
@@ -138,7 +138,7 @@ The following inputs are always preserved:
 
 - property, two-way, and `bind-` forms, even when an expression appears constant;
 - interpolated values;
-- orientation, print, custom, and empty breakpoint suffixes;
+- unconfigured orientation or print aliases, custom aliases, and empty breakpoint suffixes;
 - deprecated `class.<alias>` and `style.<alias>` selectors;
 - project-specific classes, plugin utilities, and candidates whose meaning depends on custom Tailwind theme values;
 - style values that cannot be encoded with equivalent sanitized CSS semantics;
@@ -154,10 +154,18 @@ Literal responsive values using the standard Angular Flex-Layout viewport aliase
 
 Base values and disjoint responsive values may convert together. Overlapping responsive values convert only when they emit the same utility. A conflicting overlap preserves the entire directive family with `responsive-precedence-unverified`; an existing utility that controls the same property in an intersecting range preserves the family with `class-conflict`. See [Exact responsive breakpoint conversion](architecture/responsive-breakpoints.md) for the exact ranges, conflict rules, and diagnostic contract.
 
+### Project-aware orientation and print
+
+Orientation and print conversion require explicit source-configuration evidence. `--orientation-breakpoints` confirms the source application uses the archived `addOrientationBps: true` definitions. It enables `handset`, `handset.portrait`, `handset.landscape`, `tablet`, `tablet.portrait`, `tablet.landscape`, `web`, `web.portrait`, and `web.landscape` with their exact width-and-orientation conditions. Composite aliases emit separate portrait and landscape media variants; conflicting overlaps remain atomic and preserved.
+
+`--print-with-breakpoints <aliases>` confirms the source application's `printWithBreakpoints` value. Supply a comma-separated list such as `md,handset`, or use `none` to assert an empty list. The list accepts standard aliases and orientation aliases enabled in the same invocation. During print, configured responsive values become print fallbacks even though their screen queries do not match; an explicit `.print` value wins. Duplicate, unknown, `print`, empty, or disabled-orientation entries are configuration errors before migration.
+
+Omitting either flag preserves the corresponding aliases with `breakpoint-unverified`. The flags are assertions, not discovery: verify the application's Flex-Layout provider configuration before using them. See [Tailwind orientation and print migration](architecture/tailwind-orientation-print-migration.md) for the exact definitions and planner contract.
+
 The current safety gate preserves these cases for review:
 
 - every Angular property binding, including bindings whose expression appears constant;
-- orientation and print aliases;
+- orientation and print aliases without their corresponding explicit configuration;
 - unknown aliases, because they may be registered as custom project breakpoints;
 - visibility whose shown state needs a display value that cannot be proven from template and layout semantics;
 - visibility on an element whose literal or bound style may control `display`;
