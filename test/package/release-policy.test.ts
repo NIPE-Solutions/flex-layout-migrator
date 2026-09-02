@@ -131,6 +131,27 @@ describe('release policy', () => {
     );
   });
 
+  it('pins the contributor Changesets script to add instead of forwarding arbitrary subcommands', async () => {
+    const source = await readFile(new URL('../../package.json', import.meta.url), 'utf8');
+    const manifest = JSON.parse(source);
+
+    expect(manifest.scripts.changeset).toBe('changeset add');
+  });
+
+  it('allowlists only add and version Changesets commands in package scripts', async () => {
+    const source = await readFile(new URL('../../package.json', import.meta.url), 'utf8');
+    const manifest = JSON.parse(source);
+    const changesetsScripts = Object.fromEntries(
+      Object.entries(manifest.scripts).filter(([, command]) => /\bchangesets?\b/u.test(String(command))),
+    );
+
+    expect(changesetsScripts).toEqual({
+      changeset: 'changeset add',
+      'version-packages': 'changeset version',
+      'release:version': 'changeset version && npm install --package-lock-only --ignore-scripts',
+    });
+  });
+
   it('publishes public packages from main without automated release commits', async () => {
     const config = JSON.parse(await readFile(new URL('../../.changeset/config.json', import.meta.url), 'utf8'));
 

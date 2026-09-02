@@ -30,7 +30,7 @@
     "format:write": "prettier --write .",
     "verify": "npm run format && npm run lint && npm run typecheck && npm run test:coverage && npm run build && npm run package:check",
     "package:check": "node scripts/verify-package.mjs",
-    "changeset": "changeset",
+    "changeset": "changeset add",
     "version-packages": "changeset version",
     "release:prepare": "node scripts/release-artifact.mjs",
     "release:version": "changeset version && npm install --package-lock-only --ignore-scripts",
