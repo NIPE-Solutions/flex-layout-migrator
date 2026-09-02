@@ -1,5 +1,20 @@
 import { constants } from 'node:fs';
-import { access, lstat, mkdir, mkdtemp, open, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
+import {
+  access,
+  link,
+  lstat,
+  mkdir,
+  mkdtemp,
+  open,
+  readFile,
+  readdir,
+  rename,
+  rm,
+  rmdir,
+  symlink,
+  unlink,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { fileMigrationResult } from '../migrator/file-migration-result';
@@ -13,12 +28,13 @@ import type { TransactionInterruptionHandler, TransactionSignalRegistrarLike } f
 
 const nodeOperations: MigrationTransactionOperations = {
   access,
+  link,
   lstat,
   mkdir,
   open: (target, flags) => open(target, flags),
-  readFile: target => readFile(target, 'utf8'),
-  rename: (source, destination) => import('node:fs/promises').then(fs => fs.rename(source, destination)),
-  unlink: target => import('node:fs/promises').then(fs => fs.unlink(target)),
+  rename,
+  rmdir,
+  unlink,
 };
 
 describe('MigrationTransaction', () => {
@@ -164,7 +180,7 @@ describe('MigrationTransaction', () => {
     const operations: MigrationTransactionOperations = {
       ...nodeOperations,
       open: async (target, flags) => {
-        if (target.endsWith('.tmp') && ++temporaryOpens === 2) throw openError;
+        if (flags === 'wx' && basename(target) === 'stage' && ++temporaryOpens === 2) throw openError;
         return open(target, flags);
       },
     };
@@ -196,7 +212,11 @@ describe('MigrationTransaction', () => {
       },
       rename: async (source, destination) => {
         events.push(`rename:${basename(source)}:${basename(destination)}`);
-        await import('node:fs/promises').then(fs => fs.rename(source, destination));
+        await rename(source, destination);
+      },
+      link: async (source, destination) => {
+        events.push(`link:${basename(source)}:${basename(destination)}`);
+        await link(source, destination);
       },
     };
 
@@ -204,21 +224,20 @@ describe('MigrationTransaction', () => {
       plan([template(target, present('before'), present('<div>after</div>'))]),
     );
 
-    const temporaryName = events.find(event => event.startsWith('open:') && event.includes('.tmp:wx'))?.split(':')[1];
-    expect(temporaryName).toBeDefined();
-    expect(events.filter(event => event.startsWith('open:')).every(event => event.endsWith(':wx'))).toBe(true);
+    const temporaryName = 'stage';
+    expect(events.filter(event => event.endsWith(':stage:wx'))).toHaveLength(1);
     expect(events).toEqual(
       expect.arrayContaining([
         `write:${temporaryName}`,
         `sync:${temporaryName}`,
         `close:${temporaryName}`,
-        `rename:${temporaryName}:${basename(target)}`,
+        `link:${temporaryName}:${basename(target)}`,
       ]),
     );
     expect(events.indexOf(`write:${temporaryName}`)).toBeLessThan(events.indexOf(`sync:${temporaryName}`));
     expect(events.indexOf(`sync:${temporaryName}`)).toBeLessThan(events.indexOf(`close:${temporaryName}`));
     expect(events.indexOf(`close:${temporaryName}`)).toBeLessThan(
-      events.indexOf(`rename:${temporaryName}:${basename(target)}`),
+      events.indexOf(`link:${temporaryName}:${basename(target)}`),
     );
     expect(await readFile(target, 'utf8')).toBe('<div>after</div>');
     expect(await invocationResidue(directory)).toEqual([]);
@@ -262,9 +281,9 @@ describe('MigrationTransaction', () => {
     const installed: string[] = [];
     const operations: MigrationTransactionOperations = {
       ...nodeOperations,
-      rename: async (source, destination) => {
-        if (source.endsWith('.tmp')) installed.push(destination);
-        await import('node:fs/promises').then(fs => fs.rename(source, destination));
+      link: async (source, destination) => {
+        if (basename(source) === 'stage') installed.push(destination);
+        await link(source, destination);
       },
     };
 
@@ -297,7 +316,7 @@ describe('MigrationTransaction', () => {
     },
   );
 
-  test.each([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11])(
+  test.each([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15])(
     'restores exact originals when counted filesystem operation %i fails before finalization',
     async failurePoint => {
       const fixture = await transactionFixture(directory);
@@ -314,41 +333,21 @@ describe('MigrationTransaction', () => {
     },
   );
 
-  test.each([
-    [12, 0],
-    [13, 2],
-  ] as const)(
-    'reports counted finalization unlink failure %i without rolling back committed outputs',
-    async (failurePoint, unconfirmedPathIndex) => {
-      const fixture = await transactionFixture(directory);
-      const failure = new Error(`filesystem failure ${failurePoint}`);
-      const operations = countingFailureOperations(failurePoint, failure);
-
-      await expect(new MigrationTransaction(operations).apply(fixture.plan)).rejects.toMatchObject({
-        code: 'transaction-io',
-        paths: [fixture.paths[unconfirmedPathIndex]],
-        cause: failure,
-      });
-
-      expect(await snapshot(fixture.paths)).toEqual(fixture.appliedSnapshot);
-    },
-  );
-
-  test('retains the initiating cause and newly-created public path when rollback unlink fails', async () => {
+  test('retains the initiating cause and newly-created public path when rollback quarantine fails', async () => {
     const fixture = await transactionFixture(directory);
     const createPath = fixture.paths[1];
     const initiatingError = new Error('removal backup failed');
     const rollbackError = new Error('created destination cleanup failed');
-    let backupRenames = 0;
+    let backupOpens = 0;
     const operations: MigrationTransactionOperations = {
       ...nodeOperations,
-      rename: async (source, destination) => {
-        if (destination.endsWith('.bak') && ++backupRenames === 2) throw initiatingError;
-        await import('node:fs/promises').then(fs => fs.rename(source, destination));
+      open: async (candidate, flags) => {
+        if (flags === 'wx' && basename(candidate) === 'backup' && ++backupOpens === 2) throw initiatingError;
+        return open(candidate, flags);
       },
-      unlink: async candidate => {
-        if (candidate === createPath) throw rollbackError;
-        await import('node:fs/promises').then(fs => fs.unlink(candidate));
+      rename: async (source, destination) => {
+        if (source === createPath) throw rollbackError;
+        await rename(source, destination);
       },
     };
 
@@ -369,13 +368,13 @@ describe('MigrationTransaction', () => {
     let installFailed = false;
     const operations: MigrationTransactionOperations = {
       ...nodeOperations,
-      rename: async (source, destination) => {
-        if (source.endsWith('.tmp') && !installFailed) {
+      link: async (source, destination) => {
+        if (basename(source) === 'stage' && !installFailed) {
           installFailed = true;
           throw initiatingError;
         }
-        if (source.endsWith('.bak') && destination === target) throw rollbackError;
-        await import('node:fs/promises').then(fs => fs.rename(source, destination));
+        if (basename(source) === 'backup' && destination === target) throw rollbackError;
+        await link(source, destination);
       },
     };
 
@@ -397,8 +396,8 @@ describe('MigrationTransaction', () => {
     const operations: MigrationTransactionOperations = {
       ...nodeOperations,
       unlink: async candidate => {
-        if (candidate.endsWith('.bak')) throw cleanupError;
-        await import('node:fs/promises').then(fs => fs.unlink(candidate));
+        if (basename(candidate) === 'backup') throw cleanupError;
+        await unlink(candidate);
       },
     };
 
@@ -417,9 +416,9 @@ describe('MigrationTransaction', () => {
     let installed = 0;
     const operations: MigrationTransactionOperations = {
       ...nodeOperations,
-      rename: async (source, destination) => {
-        await import('node:fs/promises').then(fs => fs.rename(source, destination));
-        if (source.endsWith('.tmp') && ++installed === 1) registrar.interrupt('SIGINT');
+      link: async (source, destination) => {
+        await link(source, destination);
+        if (basename(source) === 'stage' && ++installed === 1) registrar.interrupt('SIGINT');
       },
     };
 
@@ -440,12 +439,14 @@ describe('MigrationTransaction', () => {
       ...nodeOperations,
       open: async (candidate, flags) => {
         const handle = await open(candidate, flags);
-        if (!candidate.endsWith('.tmp')) return handle;
+        if (basename(candidate) !== 'stage') return handle;
         return {
           writeFile: async (contents, encoding) => {
             await handle.writeFile(contents, encoding);
             registrar.interrupt('SIGTERM');
           },
+          readFile: options => handle.readFile(options),
+          stat: () => handle.stat(),
           sync: () => handle.sync(),
           close: () => handle.close(),
         };
@@ -498,11 +499,12 @@ function throwingOperations(): MigrationTransactionOperations {
   };
   return {
     access: unexpected,
+    link: unexpected,
     lstat: unexpected,
     mkdir: unexpected,
     open: unexpected,
-    readFile: unexpected,
     rename: unexpected,
+    rmdir: unexpected,
     unlink: unexpected,
   };
 }
@@ -518,6 +520,8 @@ function recordingHandle(
       events.push(`write:${name}`);
       await handle.writeFile(contents, encoding);
     },
+    readFile: options => handle.readFile(options),
+    stat: () => handle.stat(),
     sync: async () => {
       events.push(`sync:${name}`);
       await handle.sync();
@@ -531,7 +535,7 @@ function recordingHandle(
 
 async function invocationResidue(root: string): Promise<readonly string[]> {
   const entries = await readdir(root, { recursive: true });
-  return entries.filter(entry => entry.endsWith('.tmp') || entry.endsWith('.bak')).sort();
+  return entries.filter(entry => entry.endsWith('.txn')).sort();
 }
 
 async function transactionFixture(root: string) {
@@ -583,9 +587,14 @@ function operationsFailingRename(
   return {
     ...nodeOperations,
     rename: async (source, destination) => {
-      const current = source.endsWith('.tmp') ? 'install' : destination.endsWith('.bak') ? 'backup' : 'rollback';
-      if (current === operation && ++seen === occurrence) throw failure;
-      await import('node:fs/promises').then(fs => fs.rename(source, destination));
+      if (operation === 'backup' && basename(destination).startsWith('quarantine-') && ++seen === occurrence) {
+        throw failure;
+      }
+      await rename(source, destination);
+    },
+    link: async (source, destination) => {
+      if (operation === 'install' && basename(source) === 'stage' && ++seen === occurrence) throw failure;
+      await link(source, destination);
     },
   };
 }
@@ -607,24 +616,34 @@ function countingFailureOperations(failurePoint: number, failure: Error): Migrat
       await mkdir(target, options);
     },
     open: async (target, flags) => {
-      fail();
+      if (flags === 'wx') fail();
       const handle = await open(target, flags);
       return {
         writeFile: (contents, encoding) => handle.writeFile(contents, encoding),
+        readFile: options => handle.readFile(options),
+        stat: () => handle.stat(),
         sync: async () => {
-          fail();
+          if (flags === 'wx') fail();
           await handle.sync();
         },
         close: () => handle.close(),
       };
     },
+    link: async (source, destination) => {
+      fail();
+      await link(source, destination);
+    },
     rename: async (source, destination) => {
       fail();
-      await import('node:fs/promises').then(fs => fs.rename(source, destination));
+      await rename(source, destination);
+    },
+    rmdir: async target => {
+      fail();
+      await rmdir(target);
     },
     unlink: async target => {
       fail();
-      await import('node:fs/promises').then(fs => fs.unlink(target));
+      await unlink(target);
     },
   };
 }

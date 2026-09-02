@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, readdir, rename, rm, unlink, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, mkdtemp, open, readFile, readdir, rename, rm, rmdir, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { AtomicFileWriter, type AtomicFileOperations } from './atomic-file.writer';
@@ -27,24 +27,37 @@ describe('AtomicFileWriter', () => {
   test('preserves the existing file and cleans up when rename fails', async () => {
     const target = join(directory, 'template.html');
     await writeFile(target, 'before', 'utf8');
-    const temporaryFile = {
-      writeFile: vi.fn().mockResolvedValue(undefined),
-      sync: vi.fn().mockResolvedValue(undefined),
-      close: vi.fn().mockResolvedValue(undefined),
-    };
+    const sync = vi.fn();
+    const close = vi.fn();
     const operations: AtomicFileOperations = {
-      mkdir: vi.fn().mockResolvedValue(undefined),
-      open: vi.fn().mockResolvedValue(temporaryFile),
+      mkdir,
+      open: async (candidate, flags) => {
+        const handle = await open(candidate, flags);
+        return {
+          writeFile: (contents, encoding) => handle.writeFile(contents, encoding),
+          stat: () => handle.stat(),
+          sync: async () => {
+            sync();
+            await handle.sync();
+          },
+          close: async () => {
+            close();
+            await handle.close();
+          },
+        };
+      },
+      lstat,
       rename: vi.fn().mockRejectedValue(new Error('rename failed')),
-      unlink: vi.fn().mockResolvedValue(undefined),
+      rmdir,
+      unlink,
     };
 
     await expect(new AtomicFileWriter(operations).write(target, 'after')).rejects.toThrow('rename failed');
 
     expect(await readFile(target, 'utf8')).toBe('before');
-    expect(temporaryFile.sync).toHaveBeenCalledOnce();
-    expect(temporaryFile.close).toHaveBeenCalledOnce();
-    expect(operations.unlink).toHaveBeenCalledOnce();
+    expect(sync).toHaveBeenCalledOnce();
+    expect(close).toHaveBeenCalledOnce();
+    expect(await readdir(directory)).toEqual(['template.html']);
   });
 
   test('does not delete an unowned path when exclusive temporary creation fails', async () => {
@@ -59,12 +72,52 @@ describe('AtomicFileWriter', () => {
         await writeFile(candidate, 'owned by another invocation', 'utf8');
         throw collision;
       },
+      lstat,
       rename,
+      rmdir,
       unlink,
     };
 
-    await expect(new AtomicFileWriter(operations).write(target, 'after')).rejects.toBe(collision);
+    await expect(new AtomicFileWriter(operations).write(target, 'after')).rejects.toMatchObject({
+      message: `Atomic write cleanup could not be confirmed for ${target}.`,
+      cause: collision,
+    });
 
     expect(await readFile(collidingPath, 'utf8')).toBe('owned by another invocation');
+  });
+
+  test('refuses to install or unlink a temporary pathname whose stable identity changed', async () => {
+    const target = join(directory, 'report.json');
+    await writeFile(target, 'existing report', 'utf8');
+    let temporaryPath = '';
+    let foreignPath = '';
+    let swapped = false;
+    const operations = {
+      mkdir,
+      open: async (candidate: string, flags: 'wx' | 'r') => {
+        const handle = await import('node:fs/promises').then(fs => fs.open(candidate, flags));
+        if (flags === 'wx' && candidate !== temporaryPath) temporaryPath = candidate;
+        return handle;
+      },
+      lstat: async (candidate: string) => {
+        if (candidate === temporaryPath && !swapped) {
+          swapped = true;
+          foreignPath = temporaryPath;
+          await rename(temporaryPath, `${temporaryPath}.owned`);
+          await writeFile(temporaryPath, 'foreign temporary entry', 'utf8');
+        }
+        return lstat(candidate, { bigint: true });
+      },
+      rename,
+      rmdir,
+      unlink,
+    } as AtomicFileOperations;
+
+    await expect(new AtomicFileWriter(operations).write(target, 'new report')).rejects.toMatchObject({
+      message: `Atomic write cleanup could not be confirmed for ${target}.`,
+    });
+
+    expect(await readFile(target, 'utf8')).toBe('existing report');
+    expect(await readFile(foreignPath, 'utf8')).toBe('foreign temporary entry');
   });
 });

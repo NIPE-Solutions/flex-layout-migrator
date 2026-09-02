@@ -9,14 +9,17 @@ export type MigrationApplicationErrorCode =
   | 'internal-invariant';
 
 export class MigrationApplicationError extends Error {
+  readonly recoveryFailures: readonly unknown[];
+
   constructor(
     readonly code: MigrationApplicationErrorCode,
     message: string,
     readonly paths: readonly string[] = [],
-    options?: ErrorOptions,
+    options?: ErrorOptions & { readonly recoveryFailures?: readonly unknown[] },
   ) {
     super(message, options);
     this.name = 'MigrationApplicationError';
     this.paths = Object.freeze([...paths]);
+    this.recoveryFailures = Object.freeze([...(options?.recoveryFailures ?? [])]);
   }
 }
