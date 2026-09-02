@@ -67,6 +67,12 @@ const gridContainerDirectives = new Set<LocatedFlexLayoutInput['directive']>([
   'gdGap',
   'gdRows',
 ]);
+const gridChildDirectives = new Set<LocatedFlexLayoutInput['directive']>([
+  'gdArea',
+  'gdColumn',
+  'gdGridAlign',
+  'gdRow',
+]);
 
 const supportedDirectives = new Set<LocatedFlexLayoutInput['directive']>([
   'fxFlex',
@@ -265,7 +271,8 @@ export class TailwindAdapter implements ConversionAdapter {
     let closed = closeResponsiveDependencies(plans);
     closed = this.closeDisplayDependencies(closed);
     closed = closeResponsiveDependencies(closed);
-    return this.closeDisplayDependencies(closed);
+    closed = this.closeDisplayDependencies(closed);
+    return this.closeGridParentDependencies(closed, context, plansByInputId);
   }
 
   private directiveFamily(directive: LocatedFlexLayoutInput['directive']): string {
@@ -533,6 +540,32 @@ export class TailwindAdapter implements ConversionAdapter {
 
   private hasGridParentContext(context: ConversionContext): boolean {
     if (context.parentInputs?.some(input => gridContainerDirectives.has(input.directive))) return true;
+    return this.hasLiteralGridParentClass(context);
+  }
+
+  private closeGridParentDependencies(
+    plans: readonly PlannedConversion[],
+    context: ConversionContext,
+    plansByInputId: ReadonlyMap<string, PlannedConversion>,
+  ): readonly PlannedConversion[] {
+    if (!plans.some(plan => gridChildDirectives.has(plan.input.directive))) return plans;
+    const parentGridInputs =
+      context.parentInputs?.filter(
+        input => gridContainerDirectives.has(input.directive) || input.directive === 'gdInline',
+      ) ?? [];
+    const parentPlansAreSafe =
+      parentGridInputs.some(input => gridContainerDirectives.has(input.directive)) &&
+      parentGridInputs.every(input => plansByInputId.get(input.id)?.status === 'converted');
+    if (parentPlansAreSafe || (parentGridInputs.length === 0 && this.hasLiteralGridParentClass(context))) return plans;
+
+    return plans.map(plan =>
+      plan.status === 'converted' && gridChildDirectives.has(plan.input.directive)
+        ? contextUnverified(plan.input, 'The parent Grid container conversion is unresolved.')
+        : plan,
+    );
+  }
+
+  private hasLiteralGridParentClass(context: ConversionContext): boolean {
     return Boolean(
       context.parent?.attributes.some(attribute => {
         if (attribute.binding !== 'literal' || !templateAttributeKeys(attribute).has('class')) return false;

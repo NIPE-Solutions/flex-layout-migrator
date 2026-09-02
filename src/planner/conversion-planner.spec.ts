@@ -1106,6 +1106,17 @@ describe('ConversionPlanner', () => {
     expect(migrate(first.output)).toMatchObject({ output: expected, edits: [], results: [] });
   });
 
+  test('preserves a Grid child when its parent Grid container is unresolved', () => {
+    const source = '<section [gdColumns]="columns"><div gdColumn="1"></div></section>';
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.results).toEqual([
+      expect.objectContaining({ status: 'review', code: 'dynamic-binding' }),
+      expect.objectContaining({ status: 'review', code: 'context-unverified' }),
+    ]);
+  });
+
   test('removes a responsive class family whose literal unsuffixed fallback has the exact same value', () => {
     const source = '<div ngClass="flex" ngClass.sm="flex"></div>';
     const expected = '<div ngClass="flex"></div>';
