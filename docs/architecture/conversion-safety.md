@@ -4,7 +4,7 @@ The codemod must preserve layout behavior or clearly explain why it cannot. It m
 
 This document defines the contract shared by the analyzer, target adapters, CLI, and compatibility tests.
 
-[Plan-by-default CLI and explicit application](adaptive-cli-plan-default.md) defines the current execution and reporting contract. The current CLI plans and preflights every invocation by default; `--write` authorizes transactional application. Reports use schema version `2` with required `mode` and `application` fields.
+[Plan-by-default CLI and explicit application](adaptive-cli-plan-default.md) defines the current execution and reporting contract. The current CLI uses plan mode by default; `--write` authorizes transactional application. After successful parsing, it preflights the complete transaction plan. Parse-error runs still complete configuration and path validation, return a complete report, and apply nothing. Reports use schema version `2` with required `mode` and `application` fields.
 
 ## Source contract
 

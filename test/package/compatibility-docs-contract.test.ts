@@ -326,7 +326,12 @@ describe('compatibility reference contract', () => {
     const markdown = await readFile(conversionSafetyUrl, 'utf8');
 
     expect(markdown).toContain('[Plan-by-default CLI and explicit application](adaptive-cli-plan-default.md)');
-    expect(markdown).toContain('The current CLI plans and preflights every invocation by default');
+    expect(markdown).not.toContain('plans and preflights every invocation');
+    expect(markdown).toContain('The current CLI uses plan mode by default');
+    expect(markdown).toContain('After successful parsing, it preflights the complete transaction plan');
+    expect(markdown).toContain(
+      'Parse-error runs still complete configuration and path validation, return a complete report, and apply nothing',
+    );
     expect(markdown).toContain('`--write` authorizes transactional application');
     expect(markdown).toContain('schema version `2`');
     expect(markdown).toContain('required `mode` and `application` fields');
