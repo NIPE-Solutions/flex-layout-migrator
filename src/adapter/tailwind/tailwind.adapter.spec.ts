@@ -5,13 +5,17 @@ import { TailwindAdapter } from './tailwind.adapter';
 const element: TemplateElement = {
   id: '0',
   name: 'div',
+  source: { start: 0, end: 5 },
   startTag: { start: 0, end: 5 },
+  structural: false,
   attributes: [],
 };
 const parent: TemplateElement = {
   id: 'parent',
   name: 'section',
+  source: { start: 0, end: 9 },
   startTag: { start: 0, end: 9 },
+  structural: false,
   attributes: [],
 };
 

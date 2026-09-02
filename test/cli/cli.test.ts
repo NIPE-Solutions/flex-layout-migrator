@@ -93,4 +93,18 @@ describe('packaged CLI execution', () => {
     expect(result.stdout).toContain('[dynamic-binding]');
     expect(await readFile(input, 'utf8')).toBe('<div [fxFlex]="basis"></div>');
   });
+
+  test('documents and executes the packaged responsive image opt-in', async () => {
+    const help = await execute(['--help']);
+    expect(help.stdout).toContain('--responsive-images');
+
+    const input = join(temporaryDirectory, 'input.html');
+    const output = join(temporaryDirectory, 'output.html');
+    await writeFile(input, '<img src="base.png" src.sm="small.png">', 'utf8');
+
+    const result = await execute([input, '--output', output, '--responsive-images']);
+
+    expect(result).toMatchObject({ status: 0, stderr: '' });
+    expect(await readFile(output, 'utf8')).toContain('<picture>');
+  });
 });

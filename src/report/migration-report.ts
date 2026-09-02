@@ -44,6 +44,6 @@ export type ReportResult =
   | {
       readonly status: 'parse-error';
       readonly offset: number;
-      readonly code: 'template-parse-error';
+      readonly code: 'template-parse-error' | 'generated-template-parse-error';
       readonly reason: string;
     };

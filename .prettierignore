@@ -11,3 +11,5 @@ test/fixtures/compatibility/visibility.input.html
 test/fixtures/compatibility/visibility.expected.html
 test/fixtures/compatibility/extended-responsive.input.html
 test/fixtures/compatibility/extended-responsive.expected.html
+test/fixtures/compatibility/responsive-image.input.html
+test/fixtures/compatibility/responsive-image.expected.html

@@ -300,7 +300,10 @@ describe('compatibility reference contract', () => {
         ['ngStyle', 'Converts complete, sanitizer-safe declaration lists with exact CSS ownership.'],
         ['class', 'Version-dependent replacement and merge behavior is not inferred.'],
         ['style', 'Version-dependent replacement and merge behavior is not inferred.'],
-        ['imgSrc', 'Recognized and reported; no target conversion is implemented.'],
+        [
+          'imgSrc',
+          'Opt-in literal standard aliases convert to picture markup when URL, fallback, and structural context are safe.',
+        ],
       ]),
     );
 
@@ -308,6 +311,8 @@ describe('compatibility reference contract', () => {
     expect(markdown).not.toContain('are planned together as one atomic visibility family per element');
     expect(markdown).toContain('--orientation-breakpoints');
     expect(markdown).toContain('--print-with-breakpoints');
+    expect(markdown).toContain('--responsive-images');
+    expect(markdown).toContain('schema version `1`');
     expect(markdown).toContain('handset.portrait');
     expect(markdown).toContain('web.landscape');
     expect(markdown).toContain('printWithBreakpoints');

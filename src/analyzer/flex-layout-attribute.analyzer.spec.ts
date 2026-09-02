@@ -32,11 +32,28 @@ describe('analyzeFlexLayoutAttribute', () => {
   });
 
   test.each([
+    ['src.xs', 'small.png', 'literal'],
+    ['src.gt-lg', 'wide.png', 'literal'],
+    ['[src.md]', 'mediumImage', 'property'],
+    ['[src.handset.landscape]', 'handsetImage', 'property'],
+  ] as const)('recognizes upstream responsive image input %s as imgSrc', (sourceName, value, binding) => {
+    expect(analyzeFlexLayoutAttribute(sourceName, value)).toEqual({
+      sourceName,
+      value,
+      directive: 'imgSrc',
+      breakpoint: sourceName.replace(/^\[?src\./, '').replace(/\]$/, ''),
+      binding,
+    });
+  });
+
+  test.each([
     ['aria-label', 'Menu'],
     ['class', 'card'],
     ['style', 'display: block'],
     ['[class]', 'cardClass'],
     ['[style]', 'cardStyle'],
+    ['src', 'fallback.png'],
+    ['[src]', 'fallbackImage'],
     ['fxLayout]', 'row'],
   ])('ignores unrelated or malformed attribute %s', (sourceName, value) => {
     expect(analyzeFlexLayoutAttribute(sourceName, value)).toBeUndefined();

@@ -15,13 +15,14 @@ export class FileMigrator extends BaseMigrator<FileMigrationResult> {
     private readonly input: string,
     private readonly output: string,
     private readonly writer: AtomicFileWriter = new AtomicFileWriter(),
+    private readonly parser: AngularTemplateParser = new AngularTemplateParser(),
   ) {
     super();
   }
 
   public async migrate(options: FileMigrationOptions = { write: true }): Promise<FileMigrationResult> {
     const source = await readFile(this.input, 'utf8');
-    const parsed = new AngularTemplateParser().parse(source, this.input);
+    const parsed = this.parser.parse(source, this.input);
     if (parsed.status === 'parse-error') {
       const results: readonly ConversionResult[] = parsed.diagnostics.map(diagnostic => ({
         status: 'parse-error',
@@ -38,7 +39,9 @@ export class FileMigrator extends BaseMigrator<FileMigrationResult> {
       return this.result(false, []);
     }
 
-    const plan = new ConversionPlanner().plan(source, parsed.elements, inputs, this.adapter);
+    const plan = new ConversionPlanner().plan(source, parsed.elements, inputs, this.adapter, {
+      responsiveImages: options.responsiveImages ?? false,
+    });
     const edited = new SourceEditor().apply(source, plan.edits);
     if (edited.status === 'invalid') {
       throw new Error(
@@ -47,6 +50,21 @@ export class FileMigrator extends BaseMigrator<FileMigrationResult> {
     }
 
     const changed = edited.output !== source;
+    if (changed) {
+      const reparsed = this.parser.parse(edited.output, this.output);
+      if (reparsed.status === 'parse-error') {
+        return this.result(
+          false,
+          reparsed.diagnostics.map(diagnostic => ({
+            status: 'parse-error' as const,
+            fileName: this.output,
+            code: 'generated-template-parse-error' as const,
+            reason: diagnostic.message,
+            source: diagnostic.source,
+          })),
+        );
+      }
+    }
     if (changed && options.write) {
       await this.writer.write(this.output, edited.output);
     }

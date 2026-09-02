@@ -2,6 +2,7 @@ import type { ConversionResult } from '../analyzer/conversion-result';
 
 export interface FileMigrationOptions {
   readonly write: boolean;
+  readonly responsiveImages?: boolean;
 }
 
 export interface FileMigrationResult {

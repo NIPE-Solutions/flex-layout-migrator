@@ -84,6 +84,25 @@ npx flex-layout-codemod ./src --print-with-breakpoints none
 
 With orientation enabled, all nine archived aliases are available: `handset`, `handset.portrait`, `handset.landscape`, `tablet`, `tablet.portrait`, `tablet.landscape`, `web`, `web.portrait`, and `web.landscape`. Print conversion reproduces configured responsive fallback values, while an explicit `.print` value takes precedence.
 
+Responsive image migration is a separate opt-in because introducing `<picture>` changes the image's parent and may affect CSS or test selectors. After reviewing that risk, enable literal standard-breakpoint sources with `--responsive-images`:
+
+```bash
+npx flex-layout-codemod ./src --responsive-images --report ./reports/flex-layout.json
+```
+
+```html
+<!-- input -->
+<img src="hero.png" src.lt-sm="hero-mobile.png" alt="Hero" />
+
+<!-- output -->
+<picture
+  ><source media="screen and (max-width: 599.98px)" srcset="hero-mobile.png" />
+  <img src="hero.png" alt="Hero"
+/></picture>
+```
+
+Only literal values using the 13 standard viewport aliases convert. Dynamic values, orientation, print, custom aliases, ambiguous URLs, structural directives on the image, and images already inside `<picture>` remain unchanged. Use the JSON report's file paths and source offsets to review every converted `imgSrc` occurrence and check selectors that assume the `<img>` has its former parent. Interactive file navigation is deferred to the CLI upgrade.
+
 This fixture is intentionally preserved because the value is a runtime Angular expression. The report records a `dynamic-binding` review diagnostic and the source remains unchanged:
 
 ```html
@@ -112,7 +131,7 @@ npx flex-layout-codemod ./src --dry-run --report ./reports/flex-layout.json --al
 
 ## Known boundaries
 
-This beta has a Tailwind CSS v4 target only; a native CSS target is not available. Literal Grid directives have limited conversion support; responsive `imgSrc` remains unchanged. Orientation and print conversion require explicit source-configuration evidence; custom breakpoint aliases remain preserved for review. See [docs/compatibility.md](docs/compatibility.md) for exact supported forms and diagnostic codes before planning a large migration.
+This beta has a Tailwind CSS v4 target only; a native CSS target is not available. Literal Grid directives have limited conversion support; responsive `imgSrc` has an opt-in native `<picture>` migration for safe literal standard aliases. Orientation and print conversion require explicit source-configuration evidence; custom breakpoint aliases remain preserved for review. See [docs/compatibility.md](docs/compatibility.md) for exact supported forms and diagnostic codes before planning a large migration.
 
 The codemod does not inspect project styles, Tailwind configuration, Sass, Less, or CSS, and it does not generate a companion stylesheet. Dynamic Angular bindings are not evaluated.
 

@@ -275,6 +275,48 @@ describe('runCli', () => {
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain('--orientation-breakpoints');
     expect(result.stdout).toContain('--print-with-breakpoints <aliases>');
+    expect(result.stdout).toContain('--responsive-images');
+    expect(result.stdout).toContain('picture');
+  });
+
+  test('preserves responsive images by default and identifies the opt-in', async () => {
+    const input = join(temporaryDirectory, 'input.html');
+    const source = '<img src="base.png" src.sm="small.png">';
+    await writeFile(input, source, 'utf8');
+
+    const result = await run([input]);
+
+    expect(result.exitCode).toBe(2);
+    expect(result.stdout).toContain('[target-unsupported]');
+    expect(await readFile(input, 'utf8')).toBe(source);
+  });
+
+  test('converts responsive images only with explicit acknowledgement and reports their location', async () => {
+    const input = join(temporaryDirectory, 'input.html');
+    const output = join(temporaryDirectory, 'output.html');
+    const report = join(temporaryDirectory, 'report.json');
+    await writeFile(input, '<img src="base.png" src.sm="small.png">', 'utf8');
+
+    const result = await run([input, '--output', output, '--responsive-images', '--report', report]);
+
+    expect(result.exitCode).toBe(0);
+    expect(await readFile(output, 'utf8')).toContain('<picture>');
+    expect(JSON.parse(await readFile(report, 'utf8'))).toMatchObject({
+      schemaVersion: 1,
+      files: [{ results: [{ status: 'converted', directive: 'imgSrc', sourceName: 'src.sm', offset: 20 }] }],
+    });
+  });
+
+  test('plans responsive image output without writing during dry-run', async () => {
+    const input = join(temporaryDirectory, 'input.html');
+    const output = join(temporaryDirectory, 'output.html');
+    await writeFile(input, '<img src.sm="small.png">', 'utf8');
+
+    const result = await run([input, '--output', output, '--responsive-images', '--dry-run']);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('1 would change');
+    await expect(access(output)).rejects.toThrow();
   });
 
   test('rejects invalid print breakpoint configuration before reading input', async () => {

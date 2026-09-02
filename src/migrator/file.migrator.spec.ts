@@ -2,6 +2,7 @@ import { access, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { TailwindAdapter } from '../adapter/tailwind/tailwind.adapter';
+import { AngularTemplateParser } from '../template/angular-template.parser';
 import { FileMigrator } from './file.migrator';
 
 describe('FileMigrator', () => {
@@ -32,10 +33,51 @@ describe('FileMigrator', () => {
   test('returns conversion results without writing in dry-run mode', async () => {
     await writeFile(input, '<div fxLayout="row"></div>', 'utf8');
 
-    const result = await new FileMigrator(new TailwindAdapter(), input, output).migrate({ write: false });
+    const result = await new FileMigrator(new TailwindAdapter(), input, output).migrate({
+      write: false,
+      responsiveImages: false,
+    });
 
     expect(result).toMatchObject({ inputPath: input, outputPath: output, changed: true });
     expect(result.results.map(item => item.status)).toEqual(['converted']);
+    await expect(access(output)).rejects.toThrow();
+  });
+
+  test('writes an enabled responsive image and produces zero edits on an in-place second run', async () => {
+    await writeFile(input, '<img src="base.png" src.sm="small.png">', 'utf8');
+    const migrator = new FileMigrator(new TailwindAdapter(), input, input);
+
+    const first = await migrator.migrate({ write: true, responsiveImages: true });
+    expect(first.changed).toBe(true);
+    expect(await readFile(input, 'utf8')).toBe(
+      '<picture><source media="screen and (min-width: 600px) and (max-width: 959.98px)" srcset="small.png"><img src="base.png"></picture>',
+    );
+    expect(await migrator.migrate({ write: true, responsiveImages: true })).toMatchObject({
+      changed: false,
+      results: [],
+    });
+  });
+
+  test('does not write when the complete generated template fails reparsing', async () => {
+    await writeFile(input, '<div fxLayout="row"></div>', 'utf8');
+    let calls = 0;
+    const parser = {
+      parse: (source: string) => {
+        calls++;
+        if (calls === 1) return new AngularTemplateParser().parse(source, input);
+        return {
+          status: 'parse-error' as const,
+          diagnostics: [{ message: 'injected generated failure', source: { start: 0, end: 1 } }],
+        };
+      },
+    };
+
+    const result = await new FileMigrator(new TailwindAdapter(), input, output, undefined, parser).migrate();
+
+    expect(result).toMatchObject({
+      changed: false,
+      results: [{ status: 'parse-error', code: 'generated-template-parse-error' }],
+    });
     await expect(access(output)).rejects.toThrow();
   });
 
