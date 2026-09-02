@@ -92,7 +92,19 @@ gh run download <run-id> --repo NIPE-Solutions/flex-layout-migrator --name npm-r
 npm stage download <stage-id>
 ```
 
-Compare the staged package name, version, file list, and integrity with `release-artifact.json`, and run the packaged CLI smoke checks. If every value matches and the release is approved, a maintainer completes npm's two-factor prompt with:
+Set `downloaded_tarball` to the staged `.tgz` returned by npm. Compute its SHA-512 SRI with built-in Node APIs and compare it byte-for-byte with the recorded integrity:
+
+```bash
+downloaded_tarball="/absolute/path/to/downloaded-stage.tgz"
+expected_sri="$(node -p "require('./release-artifact.json').integrity")"
+downloaded_sri="$(
+  node -e "const { createHash } = require('node:crypto'); const { readFileSync } = require('node:fs'); console.log('sha512-' + createHash('sha512').update(readFileSync(process.argv[1])).digest('base64'))" "$downloaded_tarball"
+)"
+printf '%s\n' "$downloaded_sri"
+test "$downloaded_sri" = "$expected_sri"
+```
+
+The final `test` must exit successfully. Any difference means the downloaded bytes are not the reviewed artifact and the stage must not be approved. Compare the staged package name, version, and file list with `release-artifact.json`, and run the packaged CLI smoke checks against `downloaded_tarball`. If every value matches and the release is approved, a maintainer completes npm's two-factor prompt with:
 
 ```bash
 npm stage approve <stage-id>
@@ -122,7 +134,8 @@ gh release create <version> --repo NIPE-Solutions/flex-layout-migrator --verify-
 
 - If verification or staging fails before npm accepts a stage, correct the cause and rerun from the same unchanged versioned commit.
 - If OIDC or Trusted Publisher matching fails, correct the npm publisher configuration or GitHub environment. Do not fall back to a token.
-- If inspection fails after staging, run `npm stage reject <stage-id>` and complete two-factor authentication. A staged version is reserved and cannot be reused; add a Changeset and prepare the next beta.
+- If inspection fails after staging, run `npm stage reject <stage-id>` and complete two-factor authentication. Successful rejection removes the staged record. An operational retry may restage the same version only after rejection, and only when the artifact is byte-identical and re-verification produces an identical SHA-512 SRI to the retained `release-artifact.json` from the rejected stage.
+- Changed or rebuilt bytes always require a new beta version and Changeset; never stage different bytes under the rejected version.
 - If an approved package is incorrect, do not overwrite or unpublish it. Correct the issue in a new beta version.
 - If tagging or GitHub prerelease creation fails after npm approval, retry those steps against the already published version and exact staged commit.
 

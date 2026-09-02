@@ -102,7 +102,7 @@ The bootstrap command is never embedded in repository automation. It runs only a
 
 ## Approval and finalization
 
-For later releases, a maintainer reviews the staged package on npmjs.com or downloads it with `npm stage download <stage-id>`. Approval uses `npm stage approve <stage-id>` or the npmjs.com approval interface and always requires two-factor authentication.
+For later releases, a maintainer reviews the staged package on npmjs.com or downloads it with `npm stage download <stage-id>`. For a download, the maintainer computes its SHA-512 SRI from the tarball bytes and compares the complete SRI string byte-for-byte with `release-artifact.json`. Approval uses `npm stage approve <stage-id>` or the npmjs.com approval interface and always requires two-factor authentication.
 
 After registry approval, the maintainer verifies the published integrity and `beta` distribution tag, then creates the matching signed or protected Git tag and GitHub prerelease from the exact staged commit. Tags and GitHub releases are not created before npm approval, so a rejected staged artifact cannot appear as a completed release.
 
@@ -111,7 +111,8 @@ After registry approval, the maintainer verifies the published integrity and `be
 - A failed verification, audit, package inspection, or smoke test stops before OIDC authentication and staging.
 - A registry version collision stops without changing dist-tags.
 - An OIDC or trusted-publisher mismatch fails without falling back to a token.
-- A staged package that fails manual inspection is rejected with two-factor authentication; its version cannot be reused.
+- A staged package that fails manual inspection is rejected with `npm stage reject <stage-id>` and two-factor authentication. Successful rejection removes the staged record. An operational retry may restage the same version only after rejection, and only when the artifact is byte-identical and re-verification produces an identical SHA-512 SRI to the retained `release-artifact.json` from the rejected stage.
+- Changed or rebuilt bytes always require a new beta version and Changeset; different bytes are never staged under the rejected version.
 - A successful stage is not described as published until npm approval completes.
 - A published package is immutable. Corrections require a new beta version and Changeset rather than overwriting or unpublishing the release.
 
