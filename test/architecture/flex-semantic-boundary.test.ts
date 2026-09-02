@@ -1,9 +1,10 @@
 import { readdirSync, readFileSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import ts from 'typescript';
 
 const flexRoot = join(process.cwd(), 'src', 'flex');
 const tailwindRoot = join(process.cwd(), 'src', 'adapter', 'tailwind');
+const strategyFixturePath = join(tailwindRoot, 'directives', 'strategy.ts');
 const targetTokens = ['flex-row', 'box-border', '[@media_'];
 const tailwindModuleReference = 'adapter/tailwind';
 const adapterModuleReference = 'adapter/';
@@ -19,12 +20,12 @@ const scopedStrategies = [
   ['flex-order.strategy.ts', 'planFlexOrderSemantics', 'flex-order.semantic'],
 ] as const;
 
-function hasSemanticCoreReExport(source: string): boolean {
-  const sourceFile = ts.createSourceFile('strategy.ts', source, ts.ScriptTarget.Latest, false, ts.ScriptKind.TS);
+function hasSemanticCoreReExport(source: string, sourcePath = strategyFixturePath): boolean {
+  const sourceFile = ts.createSourceFile(sourcePath, source, ts.ScriptTarget.Latest, false, ts.ScriptKind.TS);
   const semanticCoreImports = new Set<string>();
 
   for (const statement of sourceFile.statements) {
-    if (!ts.isImportDeclaration(statement) || !isSemanticCoreModule(statement.moduleSpecifier)) continue;
+    if (!ts.isImportDeclaration(statement) || !isSemanticCoreModule(statement.moduleSpecifier, sourcePath)) continue;
 
     const importClause = statement.importClause;
     if (!importClause) continue;
@@ -39,8 +40,11 @@ function hasSemanticCoreReExport(source: string): boolean {
   }
 
   return sourceFile.statements.some(statement => {
+    if (ts.isExportAssignment(statement)) {
+      return ts.isIdentifier(statement.expression) && semanticCoreImports.has(statement.expression.text);
+    }
     if (!ts.isExportDeclaration(statement)) return false;
-    if (statement.moduleSpecifier) return isSemanticCoreModule(statement.moduleSpecifier);
+    if (statement.moduleSpecifier) return isSemanticCoreModule(statement.moduleSpecifier, sourcePath);
     if (!statement.exportClause || !ts.isNamedExports(statement.exportClause)) return false;
 
     return statement.exportClause.elements.some(element =>
@@ -49,8 +53,16 @@ function hasSemanticCoreReExport(source: string): boolean {
   });
 }
 
-function isSemanticCoreModule(moduleSpecifier: ts.Expression): boolean {
-  return ts.isStringLiteralLike(moduleSpecifier) && /(?:^|\/)flex\//u.test(moduleSpecifier.text);
+function isSemanticCoreModule(moduleSpecifier: ts.Expression, sourcePath: string): boolean {
+  if (!ts.isStringLiteralLike(moduleSpecifier) || !/^\.{1,2}(?:\/|$)/u.test(moduleSpecifier.text)) return false;
+
+  const resolvedModule = resolve(dirname(sourcePath), moduleSpecifier.text);
+  const pathFromFlexRoot = relative(flexRoot, resolvedModule);
+
+  return (
+    pathFromFlexRoot === '' ||
+    (pathFromFlexRoot !== '..' && !isAbsolute(pathFromFlexRoot) && !pathFromFlexRoot.startsWith(`..${sep}`))
+  );
 }
 
 function sourceFiles(directory: string): readonly string[] {
@@ -97,9 +109,10 @@ describe('flex semantic boundary', () => {
   });
 
   test.each(scopedStrategies)('%s does not re-export target-neutral semantic-core types', fileName => {
-    const source = readFileSync(join(tailwindRoot, 'directives', fileName), 'utf8');
+    const sourcePath = join(tailwindRoot, 'directives', fileName);
+    const source = readFileSync(sourcePath, 'utf8');
 
-    expect(hasSemanticCoreReExport(source)).toBe(false);
+    expect(hasSemanticCoreReExport(source, sourcePath)).toBe(false);
   });
 
   test.each([
@@ -110,6 +123,22 @@ describe('flex semantic boundary', () => {
   ])('rejects semantic-core type re-export: %s', source => {
     expect(hasSemanticCoreReExport(source)).toBe(true);
   });
+
+  test('rejects an imported semantic-core planner assigned as the default export', () => {
+    const source = [
+      "import { planFlexItemSemantics } from '../../../flex/flex-item.semantic';",
+      'export default planFlexItemSemantics;',
+    ].join('\n');
+
+    expect(hasSemanticCoreReExport(source)).toBe(true);
+  });
+
+  test.each(["export * from '@vendor/flex/helpers';", "export * from '../../../';"])(
+    'allows modules outside the project semantic core: %s',
+    source => {
+      expect(hasSemanticCoreReExport(source)).toBe(false);
+    },
+  );
 
   test('Tailwind modules no longer originate target-neutral semantic exports', () => {
     const semanticModel = readFileSync(join(tailwindRoot, 'tailwind-semantic.model.ts'), 'utf8');
