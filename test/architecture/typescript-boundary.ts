@@ -41,6 +41,8 @@ export interface TypeScriptInspection {
 export interface TypeScriptProjectInspection {
   readonly filesystemMutationCalls: readonly { readonly sourcePath: string; readonly name: string }[];
   readonly adapterPathInputs: readonly { readonly sourcePath: string; readonly name: string }[];
+  readonly executionModeInputs: readonly { readonly sourcePath: string; readonly name: string }[];
+  readonly transactionApplyCalls: readonly { readonly sourcePath: string; readonly name: 'apply' }[];
 }
 
 type FilesystemProvenance = '*' | string;
@@ -619,7 +621,129 @@ function adapterPathsInType(type: ts.Type, checker: ts.TypeChecker, seen: Set<ts
   return paths;
 }
 
-/** Semantically inspects filesystem provenance and adapter input types across local module edges. */
+function normalizedDeclarationPath(declaration: ts.Declaration): string {
+  return declaration.getSourceFile().fileName.replaceAll('\\', '/');
+}
+
+function typeHasDeclaration(type: ts.Type, symbolName: string, sourcePathSuffix: string): boolean {
+  return [type.aliasSymbol, type.getSymbol()].some(
+    symbol =>
+      symbol?.getName() === symbolName &&
+      symbol.declarations?.some(declaration => normalizedDeclarationPath(declaration).endsWith(sourcePathSuffix)) ===
+        true,
+  );
+}
+
+function isMigrationModeType(type: ts.Type): boolean {
+  return typeHasDeclaration(type, 'MigrationMode', '/migrator/migration-mode.ts');
+}
+
+function isMigrationReportType(type: ts.Type): boolean {
+  return typeHasDeclaration(type, 'MigrationReport', '/report/migration-report.ts');
+}
+
+function isExactModeUnion(type: ts.Type): boolean {
+  const parts = type.isUnion() ? type.types : [type];
+  if (parts.length !== 2) return false;
+  const values = parts.flatMap(part => (part.isStringLiteral() ? [part.value] : []));
+  return values.length === 2 && values.includes('plan') && values.includes('write');
+}
+
+function isBooleanType(type: ts.Type): boolean {
+  if ((type.flags & ts.TypeFlags.Boolean) !== 0) return true;
+  const parts = type.isUnion() ? type.types : [];
+  return parts.length === 2 && parts.every(part => (part.flags & ts.TypeFlags.BooleanLiteral) !== 0);
+}
+
+function executionModeInputsInType(type: ts.Type, checker: ts.TypeChecker, seen: Set<ts.Type>): readonly string[] {
+  if (seen.has(type) || isMigrationReportType(type)) return [];
+  seen.add(type);
+
+  const inputs: string[] = [];
+  for (const property of checker.getPropertiesOfType(type)) {
+    const declaration = property.valueDeclaration ?? property.declarations?.[0];
+    if (declaration === undefined) continue;
+    const name = property.getName();
+    const propertyType = checker.getTypeOfSymbolAtLocation(property, declaration);
+    if (name === 'mode' && (isMigrationModeType(propertyType) || isExactModeUnion(propertyType))) {
+      inputs.push(name);
+      continue;
+    }
+    if (name === 'write' && isBooleanType(propertyType)) {
+      inputs.push(name);
+      continue;
+    }
+    inputs.push(...executionModeInputsInType(propertyType, checker, seen));
+  }
+  for (const part of type.isUnionOrIntersection() ? type.types : []) {
+    inputs.push(...executionModeInputsInType(part, checker, seen));
+  }
+  return inputs;
+}
+
+function executionModeInputsInParameter(
+  parameter: ts.ParameterDeclaration,
+  checker: ts.TypeChecker,
+): readonly string[] {
+  const type = checker.getTypeAtLocation(parameter);
+  if (ts.isIdentifier(parameter.name)) {
+    const name = parameter.name.text;
+    if (isMigrationModeType(type)) return [name];
+    if (name === 'mode' && isExactModeUnion(type)) return [name];
+    if (name === 'write' && isBooleanType(type)) return [name];
+  }
+  return executionModeInputsInType(type, checker, new Set());
+}
+
+function transactionApplyDeclaration(declaration: ts.Declaration): boolean {
+  if (!normalizedDeclarationPath(declaration).endsWith('/transaction/migration-transaction.ts')) return false;
+  for (let current: ts.Node | undefined = declaration; current !== undefined; current = current.parent) {
+    if (ts.isClassDeclaration(current)) return current.name?.text === 'MigrationTransaction';
+  }
+  return false;
+}
+
+function transactionApplySymbol(symbol: ts.Symbol | undefined): boolean {
+  return (
+    symbol?.getName() === 'apply' &&
+    symbol.declarations?.some(declaration => transactionApplyDeclaration(declaration)) === true
+  );
+}
+
+function transactionApplyProvenance(
+  expression: ts.Expression,
+  checker: ts.TypeChecker,
+  seenSymbols: ReadonlySet<ts.Symbol> = new Set(),
+): boolean {
+  const unwrapped = unwrapExpression(expression);
+  if (ts.isPropertyAccessExpression(unwrapped) || ts.isElementAccessExpression(unwrapped)) {
+    const name = ts.isPropertyAccessExpression(unwrapped)
+      ? unwrapped.name.text
+      : moduleText(unwrapped.argumentExpression);
+    if (name !== 'apply') return false;
+    const property = checker.getPropertyOfType(checker.getTypeAtLocation(unwrapped.expression), name);
+    if (transactionApplySymbol(property)) return true;
+    const propertyNode = ts.isPropertyAccessExpression(unwrapped) ? unwrapped.name : unwrapped.argumentExpression;
+    if (propertyNode !== undefined && transactionApplySymbol(checker.getSymbolAtLocation(propertyNode))) return true;
+  }
+
+  const symbol = checker.getSymbolAtLocation(unwrapped);
+  if (symbol === undefined || seenSymbols.has(symbol)) return false;
+  const nextSeen = new Set(seenSymbols).add(symbol);
+  if (transactionApplySymbol(symbol)) return true;
+  if ((symbol.flags & ts.SymbolFlags.Alias) !== 0) {
+    const aliased = checker.getAliasedSymbol(symbol);
+    if (transactionApplySymbol(aliased)) return true;
+  }
+  return (symbol.declarations ?? []).some(declaration => {
+    if (ts.isVariableDeclaration(declaration) && declaration.initializer !== undefined) {
+      return transactionApplyProvenance(declaration.initializer, checker, nextSeen);
+    }
+    return false;
+  });
+}
+
+/** Semantically inspects mutation authority and boundary inputs across local module edges. */
 export function inspectTypeScriptProject(
   sourcePaths: readonly string[],
   sourceOverrides: ReadonlyMap<string, string> = new Map(),
@@ -627,7 +751,10 @@ export function inspectTypeScriptProject(
   const { checker, program, rootPaths } = createProjectProgram(sourcePaths, sourceOverrides);
   const filesystemMutationCalls: { sourcePath: string; name: string }[] = [];
   const adapterPathInputs: { sourcePath: string; name: string }[] = [];
+  const executionModeInputs: { sourcePath: string; name: string }[] = [];
+  const transactionApplyCalls: { sourcePath: string; name: 'apply' }[] = [];
   const seenAdapterPaths = new Set<string>();
+  const seenExecutionModeInputs = new Set<string>();
 
   for (const sourceFile of program.getSourceFiles()) {
     const sourcePath = resolve(sourceFile.fileName);
@@ -637,6 +764,9 @@ export function inspectTypeScriptProject(
         const provenance = filesystemProvenance(node.expression, checker);
         if (provenance !== undefined && provenance !== '*' && filesystemMutationNames.has(provenance)) {
           filesystemMutationCalls.push({ sourcePath, name: provenance });
+        }
+        if (transactionApplyProvenance(node.expression, checker)) {
+          transactionApplyCalls.push({ sourcePath, name: 'apply' });
         }
       }
       if (ts.isFunctionLike(node)) {
@@ -652,6 +782,12 @@ export function inspectTypeScriptProject(
             seenAdapterPaths.add(key);
             adapterPathInputs.push({ sourcePath, name });
           }
+          for (const name of executionModeInputsInParameter(parameter, checker)) {
+            const key = `${sourcePath}\0${name}`;
+            if (seenExecutionModeInputs.has(key)) continue;
+            seenExecutionModeInputs.add(key);
+            executionModeInputs.push({ sourcePath, name });
+          }
         }
       }
       ts.forEachChild(node, visit);
@@ -659,7 +795,7 @@ export function inspectTypeScriptProject(
     visit(sourceFile);
   }
 
-  return { filesystemMutationCalls, adapterPathInputs };
+  return { filesystemMutationCalls, adapterPathInputs, executionModeInputs, transactionApplyCalls };
 }
 
 export function productionTypeScriptFiles(directory: string): readonly string[] {

@@ -13,6 +13,7 @@ const productionRoot = join(process.cwd(), 'src');
 const transactionRoot = join(productionRoot, 'transaction');
 const adapterRoot = join(productionRoot, 'adapter');
 const migratorRoot = join(productionRoot, 'migrator');
+const reportRoot = join(productionRoot, 'report');
 const atomicFileWriterPath = join(productionRoot, 'lib', 'atomic-file.writer.ts');
 const jsonReportWriterPath = join(productionRoot, 'report', 'json-report.writer.ts');
 const fixturePath = join(productionRoot, 'fixture.ts');
@@ -43,6 +44,18 @@ function forbiddenMigratorMutation(inspection: TypeScriptInspection): string | u
 
 function adapterPathInput(source: string, sourcePath = fixturePath): string | undefined {
   return inspectProject(new Map([[sourcePath, source]]), [sourcePath]).adapterPathInputs[0]?.name;
+}
+
+interface TransactionApplyCall {
+  readonly sourcePath: string;
+  readonly name: 'apply';
+}
+
+function transactionApplyCalls(
+  sources: ReadonlyMap<string, string>,
+  entryPaths: readonly string[],
+): readonly TransactionApplyCall[] {
+  return inspectProject(sources, entryPaths).transactionApplyCalls;
 }
 
 describe('migration transaction architecture boundary', () => {
@@ -161,6 +174,48 @@ describe('migration transaction architecture boundary', () => {
     );
 
     expect(consumers).toEqual([jsonReportWriterPath]);
+  });
+
+  test('detects a presenter invoking MigrationTransaction.apply', () => {
+    const presenter = join(projectFixtureRoot, 'terminal.presenter.ts');
+    const source = `
+      import type { MigrationReport } from '../report/migration-report.js';
+      import type { MigrationTransaction } from '../transaction/migration-transaction.js';
+      import type { MigrationPlan } from '../migrator/migration-plan.js';
+      declare const transaction: Pick<MigrationTransaction, 'apply'>;
+      declare const plan: MigrationPlan;
+      class TerminalPresenter {
+        async present(report: MigrationReport) { await transaction.apply(plan); return report; }
+      }
+    `;
+
+    expect(transactionApplyCalls(new Map([[presenter, source]]), [presenter])).toEqual([
+      { sourcePath: presenter, name: 'apply' },
+    ]);
+  });
+
+  test('does not confuse presenter text output or an unrelated apply method with application authority', () => {
+    const presenter = join(projectFixtureRoot, 'terminal.presenter.ts');
+    const source = `
+      interface TextOutput { write(text: string): void }
+      interface Formatter { apply(value: string): string }
+      declare const formatter: Formatter;
+      class TerminalPresenter {
+        present(text: string, output: TextOutput) { output.write(formatter.apply(text)); }
+      }
+    `;
+    const inspection = inspectProject(new Map([[presenter, source]]), [presenter]);
+
+    expect(inspection.filesystemMutationCalls).toEqual([]);
+    expect(transactionApplyCalls(new Map([[presenter, source]]), [presenter])).toEqual([]);
+  });
+
+  test('keeps filesystem and transaction application authority out of production presenters', () => {
+    const presenterPaths = productionTypeScriptFiles(reportRoot).filter(path => path.endsWith('.presenter.ts'));
+    const inspection = inspectProject(new Map(), presenterPaths);
+
+    expect(inspection.filesystemMutationCalls).toEqual([]);
+    expect(transactionApplyCalls(new Map(), presenterPaths)).toEqual([]);
   });
 
   test(
