@@ -186,6 +186,7 @@ describe('native CSS stylesheet architecture boundary', () => {
   test.each([
     "import type { BreakpointDefinition } from './breakpoint-catalog';",
     "import { type BreakpointDefinition } from './breakpoint-catalog';",
+    "import type Catalog = require('./breakpoint-catalog');",
     "export type { BreakpointDefinition } from './breakpoint-catalog';",
   ])('excludes a type-only edge from the runtime dependency graph: %s', source => {
     expect(runtimeModuleReferences(source, fixturePath)).toEqual([]);

@@ -66,7 +66,11 @@ export function runtimeModuleReferences(source: string, sourcePath: string): rea
       reference = runtimeImportReference(node);
     } else if (ts.isExportDeclaration(node)) {
       reference = runtimeExportReference(node);
-    } else if (ts.isImportEqualsDeclaration(node) && ts.isExternalModuleReference(node.moduleReference)) {
+    } else if (
+      ts.isImportEqualsDeclaration(node) &&
+      !node.isTypeOnly &&
+      ts.isExternalModuleReference(node.moduleReference)
+    ) {
       reference = moduleText(node.moduleReference.expression);
     } else if (
       ts.isCallExpression(node) &&
