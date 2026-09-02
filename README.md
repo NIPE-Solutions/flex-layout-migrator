@@ -62,6 +62,16 @@ This converted example is the same static layout and gap case exercised by the m
 <div class="flex flex-col box-border gap-[4px]"></div>
 ```
 
+Literal Grid containers and children use compiler-verified arbitrary properties when no exact built-in utility exists:
+
+```html
+<!-- input -->
+<section gdColumns="12rem 1fr" gdGap="1rem"><div gdColumn="2"></div></section>
+
+<!-- output -->
+<section class="grid [grid-template-columns:12rem_1fr] [grid-gap:1rem]"><div class="[grid-column:2]"></div></section>
+```
+
 This fixture is intentionally preserved because the value is a runtime Angular expression. The report records a `dynamic-binding` review diagnostic and the source remains unchanged:
 
 ```html
@@ -90,7 +100,7 @@ npx flex-layout-codemod ./src --dry-run --report ./reports/flex-layout.json --al
 
 ## Known boundaries
 
-This beta has a Tailwind CSS v4 target only; a native CSS target is not available. Grid directives and responsive `imgSrc` are recognized, reported, and remain unchanged. Orientation, print, and custom breakpoint aliases remain preserved for review. See [docs/compatibility.md](docs/compatibility.md) for exact supported forms and diagnostic codes before planning a large migration.
+This beta has a Tailwind CSS v4 target only; a native CSS target is not available. Literal Grid directives have limited conversion support; responsive `imgSrc` remains unchanged. Orientation, print, and custom breakpoint aliases remain preserved for review. See [docs/compatibility.md](docs/compatibility.md) for exact supported forms and diagnostic codes before planning a large migration.
 
 The codemod does not inspect project styles, Tailwind configuration, Sass, Less, or CSS, and it does not generate a companion stylesheet. Dynamic Angular bindings are not evaluated.
 
