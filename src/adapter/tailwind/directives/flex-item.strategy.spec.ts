@@ -54,24 +54,22 @@ describe('renderFlexItem', () => {
       renderFlexItem({
         grow: '1',
         shrink: '1',
-        basis: '10rem',
+        basis: { kind: 'literal', value: '10rem' as CssLength },
         axis: 'height',
         min: '10rem' as CssLength,
         max: '10rem' as CssLength,
-        splitProperties: false,
       }),
     ).toEqual(['[flex:1_1_10rem]', '[min-height:10rem]', '[max-height:10rem]', 'box-border']);
   });
 
-  test('renders calc sizing as separate arbitrary properties without interpreting it', () => {
+  test('renders a computed basis as separate arbitrary properties', () => {
     expect(
       renderFlexItem({
         grow: '3',
         shrink: '2',
-        basis: 'calc(100% - 2rem)',
+        basis: { kind: 'computed', value: 'calc(100% - 2rem)' as CssLength },
         axis: 'width',
         min: 'calc(100% - 2rem)' as CssLength,
-        splitProperties: true,
       }),
     ).toEqual([
       '[flex-grow:3]',

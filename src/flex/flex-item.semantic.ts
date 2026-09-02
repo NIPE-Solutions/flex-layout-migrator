@@ -9,14 +9,17 @@ export interface FlexItemInput {
   readonly layout?: string;
 }
 
+export type FlexBasisSemantics =
+  | { readonly kind: 'keyword'; readonly value: 'auto' }
+  | { readonly kind: 'literal' | 'computed'; readonly value: CssLength };
+
 export interface FlexItemSemantics {
   readonly grow: string;
   readonly shrink: string;
-  readonly basis: string;
+  readonly basis: FlexBasisSemantics;
   readonly axis: 'width' | 'height';
   readonly min?: CssLength;
   readonly max?: CssLength;
-  readonly splitProperties: boolean;
 }
 
 const FACTOR = /^\d+(?:\.\d+)?$/;
@@ -86,9 +89,13 @@ export function planFlexItemSemantics(input: FlexItemInput): SemanticResult<Flex
     !unconstrainedBases.has(basis) && (fixed || (!usingCalc && shrink !== '0')) ? constrainedBasis : undefined;
   const effectiveBasis =
     min || max ? (layout.value.wrap === 'wrap' ? (max ?? min ?? basis) : isValue ? basis : '100%') : basis;
+  const semanticBasis: FlexBasisSemantics =
+    effectiveBasis === 'auto'
+      ? { kind: 'keyword', value: effectiveBasis }
+      : { kind: effectiveBasis.startsWith('calc(') ? 'computed' : 'literal', value: effectiveBasis as CssLength };
 
   return {
     status: 'planned',
-    value: { grow, shrink, basis: effectiveBasis, axis, min, max, splitProperties: usingCalc },
+    value: { grow, shrink, basis: semanticBasis, axis, min, max },
   };
 }

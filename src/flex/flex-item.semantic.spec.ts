@@ -4,38 +4,37 @@ describe('planFlexItemSemantics', () => {
   test.each([
     [
       { basis: '', layout: 'row' },
-      { grow: '1', shrink: '1', basis: '0%', axis: 'width', splitProperties: false },
+      { grow: '1', shrink: '1', basis: { kind: 'literal', value: '0%' }, axis: 'width' },
     ],
     [
       { basis: '0px', layout: 'row-reverse' },
-      { grow: '1', shrink: '1', basis: '0%', axis: 'width', splitProperties: false },
+      { grow: '1', shrink: '1', basis: { kind: 'literal', value: '0%' }, axis: 'width' },
     ],
     [
       { basis: '', layout: 'column' },
-      { grow: '1', shrink: '1', basis: '0.000000001px', axis: 'height', splitProperties: false },
+      { grow: '1', shrink: '1', basis: { kind: 'literal', value: '0.000000001px' }, axis: 'height' },
     ],
     [
       { basis: '25', layout: 'row' },
-      { grow: '1', shrink: '1', basis: '100%', axis: 'width', max: '25%', splitProperties: false },
+      { grow: '1', shrink: '1', basis: { kind: 'literal', value: '100%' }, axis: 'width', max: '25%' },
     ],
     [
       { basis: '25%', layout: 'row wrap' },
-      { grow: '1', shrink: '1', basis: '25%', axis: 'width', max: '25%', splitProperties: false },
+      { grow: '1', shrink: '1', basis: { kind: 'literal', value: '25%' }, axis: 'width', max: '25%' },
     ],
     [
       { basis: '25%', layout: 'row wrap-reverse' },
-      { grow: '1', shrink: '1', basis: '100%', axis: 'width', max: '25%', splitProperties: false },
+      { grow: '1', shrink: '1', basis: { kind: 'literal', value: '100%' }, axis: 'width', max: '25%' },
     ],
     [
       { basis: '10rem', layout: 'column' },
       {
         grow: '1',
         shrink: '1',
-        basis: '10rem',
+        basis: { kind: 'literal', value: '10rem' },
         axis: 'height',
         min: '10rem',
         max: '10rem',
-        splitProperties: false,
       },
     ],
     [
@@ -43,11 +42,10 @@ describe('planFlexItemSemantics', () => {
       {
         grow: '1',
         shrink: '1',
-        basis: '12px',
+        basis: { kind: 'literal', value: '12px' },
         axis: 'height',
         min: '12px',
         max: '12px',
-        splitProperties: false,
       },
     ],
   ] as const)('derives effective sizing for %o', (input, expected) => {
@@ -55,22 +53,22 @@ describe('planFlexItemSemantics', () => {
   });
 
   test.each([
-    ['initial', { grow: '0', shrink: '1', basis: 'auto' }],
-    ['nogrow', { grow: '0', shrink: '1', basis: 'auto' }],
-    ['grow', { grow: '1', shrink: '1', basis: '100%', max: '100%' }],
-    ['noshrink', { grow: '1', shrink: '0', basis: 'auto' }],
-    ['none', { grow: '0', shrink: '0', basis: 'auto' }],
+    ['initial', { grow: '0', shrink: '1', basis: { kind: 'keyword', value: 'auto' } }],
+    ['nogrow', { grow: '0', shrink: '1', basis: { kind: 'keyword', value: 'auto' } }],
+    ['grow', { grow: '1', shrink: '1', basis: { kind: 'literal', value: '100%' }, max: '100%' }],
+    ['noshrink', { grow: '1', shrink: '0', basis: { kind: 'keyword', value: 'auto' } }],
+    ['none', { grow: '0', shrink: '0', basis: { kind: 'keyword', value: 'auto' } }],
   ] as const)('expands the %j sizing keyword', (basis, expected) => {
     expect(planFlexItemSemantics({ basis, layout: 'row' })).toEqual({
       status: 'planned',
-      value: { ...expected, axis: 'width', splitProperties: false },
+      value: { ...expected, axis: 'width' },
     });
   });
 
   test('lets explicit factors control percentage constraints', () => {
     expect(planFlexItemSemantics({ basis: '25', grow: '2', shrink: '0', layout: 'row' })).toEqual({
       status: 'planned',
-      value: { grow: '2', shrink: '0', basis: '25%', axis: 'width', splitProperties: false },
+      value: { grow: '2', shrink: '0', basis: { kind: 'literal', value: '25%' }, axis: 'width' },
     });
   });
 
@@ -80,25 +78,23 @@ describe('planFlexItemSemantics', () => {
       value: {
         grow: '0',
         shrink: '0',
-        basis: '10rem',
+        basis: { kind: 'literal', value: '10rem' },
         axis: 'width',
         min: '10rem',
         max: '10rem',
-        splitProperties: false,
       },
     });
   });
 
-  test('marks calc sizing for split-property rendering and omits its unsafe maximum', () => {
+  test('represents a calculated basis without a target-rendering hint and omits its unsafe maximum', () => {
     expect(planFlexItemSemantics({ basis: '3 2 calc(100% - 2rem)', layout: 'row' })).toEqual({
       status: 'planned',
       value: {
         grow: '3',
         shrink: '2',
-        basis: 'calc(100% - 2rem)',
+        basis: { kind: 'computed', value: 'calc(100% - 2rem)' },
         axis: 'width',
         min: 'calc(100% - 2rem)',
-        splitProperties: true,
       },
     });
   });
@@ -109,11 +105,10 @@ describe('planFlexItemSemantics', () => {
       value: {
         grow: '0',
         shrink: '0',
-        basis: 'calc(50% - 1rem)',
+        basis: { kind: 'computed', value: 'calc(50% - 1rem)' },
         axis: 'height',
         min: 'calc(50% - 1rem)',
         max: 'calc(50% - 1rem)',
-        splitProperties: true,
       },
     });
   });

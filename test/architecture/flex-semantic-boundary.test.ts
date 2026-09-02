@@ -6,6 +6,19 @@ const flexRoot = join(process.cwd(), 'src', 'flex');
 const tailwindRoot = join(process.cwd(), 'src', 'adapter', 'tailwind');
 const strategyFixturePath = join(tailwindRoot, 'directives', 'strategy.ts');
 const targetTokens = ['flex-row', 'box-border', '[@media_'];
+const targetRenderingHintIdentifiers = new Set([
+  'classNames',
+  'flexClasses',
+  'renderAsLonghands',
+  'renderAsShorthand',
+  'splitProperties',
+  'tailwindClasses',
+]);
+const scopedTargetSyntax = [
+  /^(?:box-border|m-0|(?:min-|max-)?[wh]-full|size-full)$/u,
+  /^(?:basis-|content-|flex-(?:col|nowrap|row|wrap)|gap-|grow-|items-|justify-|m[st]-|order-|self-|shrink-)/u,
+  /^\[(?:flex(?:-(?:basis|grow|shrink))?|m(?:ax|in)-(?:height|width)|order):/u,
+];
 const tailwindModuleReference = 'adapter/tailwind';
 const adapterModuleReference = 'adapter/';
 
@@ -73,6 +86,33 @@ function sourceFiles(directory: string): readonly string[] {
   });
 }
 
+function targetRenderingLeak(source: string, sourcePath = strategyFixturePath): string | undefined {
+  const sourceFile = ts.createSourceFile(sourcePath, source, ts.ScriptTarget.Latest, false, ts.ScriptKind.TS);
+  let leak: string | undefined;
+
+  function visit(node: ts.Node): void {
+    if (leak !== undefined) return;
+    if (ts.isIdentifier(node) && targetRenderingHintIdentifiers.has(node.text)) {
+      leak = node.text;
+      return;
+    }
+    if (
+      (ts.isStringLiteralLike(node) ||
+        ts.isTemplateHead(node) ||
+        ts.isTemplateMiddle(node) ||
+        ts.isTemplateTail(node)) &&
+      scopedTargetSyntax.some(pattern => pattern.test(node.text))
+    ) {
+      leak = node.text;
+      return;
+    }
+    ts.forEachChild(node, visit);
+  }
+
+  visit(sourceFile);
+  return leak;
+}
+
 describe('flex semantic boundary', () => {
   test.each([
     "import { renderLayout } from '../../adapter/tailwind/directives/layout.strategy';",
@@ -95,7 +135,23 @@ describe('flex semantic boundary', () => {
         expect(source, sourcePath).not.toContain(token);
       }
       expect(source, sourcePath).not.toMatch(/\[[a-z-]+:/u);
+      expect(targetRenderingLeak(source, path), sourcePath).toBeUndefined();
     }
+  });
+
+  test.each([
+    ['const splitProperties = false;', 'splitProperties'],
+    ["const classes = ['flex-row'];", 'flex-row'],
+    ["const classes = ['justify-between'];", 'justify-between'],
+    ['const className = `items-${alignment}`;', 'items-'],
+    ['const className = `gap-${length}`;', 'gap-'],
+    ["const className = '[flex:1_1_0%]';", '[flex:1_1_0%]'],
+    ["const classes = ['self-center'];", 'self-center'],
+    ["const classes = ['w-full'];", 'w-full'],
+    ['const className = `ms-${offset}`;', 'ms-'],
+    ["const className = '[order:2]';", '[order:2]'],
+  ])('recognizes scoped target-rendering leak %s', (source, expected) => {
+    expect(targetRenderingLeak(source)).toBe(expected);
   });
 
   test.each(scopedStrategies)('%s imports its target-neutral planner', (fileName, planner, semanticModule) => {
