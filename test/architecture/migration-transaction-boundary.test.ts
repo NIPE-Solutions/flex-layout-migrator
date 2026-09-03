@@ -1265,6 +1265,9 @@ describe('migration transaction architecture boundary', { timeout: wholeProjectI
     {
       label: 'MigrationTransaction.apply',
       name: 'apply' as const,
+      reflectedCall: `
+        void Reflect.apply(transaction.apply.call, transaction.apply, [transaction, plan]);
+      `,
       setup: `
         import type { MigrationTransaction } from '../transaction/migration-transaction.js';
         import type { MigrationPlan } from '../migrator/migration-plan.js';
@@ -1278,6 +1281,9 @@ describe('migration transaction architecture boundary', { timeout: wholeProjectI
     {
       label: 'Migrator.migrate',
       name: 'migrate' as const,
+      reflectedCall: `
+        void Reflect.apply(migrator.migrate.call, migrator.migrate, [migrator, { mode: 'write' }]);
+      `,
       setup: `
         import { Migrator } from '../migrator/migrator.js';
         declare const migrator: Migrator;
@@ -1289,6 +1295,13 @@ describe('migration transaction architecture boundary', { timeout: wholeProjectI
     {
       label: 'MigrationRunner.run',
       name: 'run' as const,
+      reflectedCall: `
+        void Reflect.apply(runner.run.call, runner.run, [runner, {
+          inputPath: 'input.html',
+          outputPath: 'output.html',
+          options: { mode: 'write' },
+        }]);
+      `,
       setup: `
         import type { MigrationRunner } from '../pipeline/current-migration.pipeline.js';
         declare const runner: MigrationRunner;
@@ -1315,6 +1328,18 @@ describe('migration transaction architecture boundary', { timeout: wholeProjectI
 
       expect(projectWriteAuthorityCalls(new Map([[presenter, source]]), [presenter])).toEqual([
         { sourcePath: presenter, name },
+        { sourcePath: presenter, name },
+      ]);
+    },
+  );
+
+  test.each(reflectiveAuthorityFixtures)(
+    'detects $label when Reflect.apply invokes the authority nested Function.call target',
+    ({ setup, reflectedCall, name }) => {
+      const presenter = join(projectFixtureRoot, `reflected-call-target-${name}.presenter.ts`);
+      const source = `${setup}${reflectedCall}`;
+
+      expect(projectWriteAuthorityCalls(new Map([[presenter, source]]), [presenter])).toEqual([
         { sourcePath: presenter, name },
       ]);
     },
@@ -1363,6 +1388,18 @@ describe('migration transaction architecture boundary', { timeout: wholeProjectI
         import { Migrator as Coordinator } from '../migrator/migrator.js';
         declare const migrator: Coordinator;
         void Reflect.apply.call(undefined, migrator.migrate, migrator, [{ mode: 'plan' }]);
+      `,
+    ],
+    [
+      'nested-call-target Migrator plan',
+      `
+        import { Migrator as Coordinator } from '../migrator/migrator.js';
+        declare const migrator: Coordinator;
+        void Reflect.apply(
+          migrator.migrate.call,
+          migrator.migrate,
+          [migrator, { mode: 'plan' }],
+        );
       `,
     ],
     [
@@ -1418,6 +1455,14 @@ describe('migration transaction architecture boundary', { timeout: wholeProjectI
         declare const formatter: Formatter;
         const invoke = Reflect.apply.bind(undefined, formatter.format, formatter);
         void invoke(['text']);
+      `,
+    ],
+    [
+      'unrelated nested Function.call target',
+      `
+        interface Formatter { format(value: string): string }
+        declare const formatter: Formatter;
+        void Reflect.apply(formatter.format.call, formatter.format, [formatter, 'text']);
       `,
     ],
   ])('does not confuse a Reflect.apply-shaped %s with write authority', (_label, source) => {

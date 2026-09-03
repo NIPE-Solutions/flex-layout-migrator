@@ -1212,23 +1212,36 @@ function resolvedCallableInvocation<Provenance>(
   checker: ts.TypeChecker,
   resolveCallable: (target: ts.Expression) => Provenance | undefined,
 ): ResolvedCallableInvocation<Provenance> | undefined {
-  const direct = resolveCallable(expression.expression);
-  if (direct !== undefined) return { provenance: direct, arguments: expression.arguments };
+  return resolvedCallableApplication(expression.expression, expression.arguments, checker, resolveCallable);
+}
 
-  const target = unwrapExpression(expression.expression);
+function resolvedCallableApplication<Provenance>(
+  expression: ts.Expression,
+  suppliedArguments: readonly ts.Expression[] | undefined,
+  checker: ts.TypeChecker,
+  resolveCallable: (target: ts.Expression) => Provenance | undefined,
+): ResolvedCallableInvocation<Provenance> | undefined {
+  const direct = resolveCallable(expression);
+  if (direct !== undefined) {
+    return suppliedArguments === undefined
+      ? { provenance: direct }
+      : { provenance: direct, arguments: suppliedArguments };
+  }
+
+  const target = unwrapExpression(expression);
   if (!ts.isPropertyAccessExpression(target) && !ts.isElementAccessExpression(target)) return undefined;
   const name = resolvedMemberName(target, checker);
   if (name === 'apply') {
     const provenance = resolveCallable(target.expression);
     if (provenance === undefined) return undefined;
-    const callArguments = arrayLiteralArguments(expression.arguments[1]);
+    const callArguments = arrayLiteralArguments(suppliedArguments?.[1]);
     return callArguments === undefined ? { provenance } : { provenance, arguments: callArguments };
   }
   if (name !== 'call') return undefined;
 
   const provenance = resolveCallable(target.expression);
   if (provenance !== undefined) {
-    return { provenance, arguments: expression.arguments.slice(1) };
+    return suppliedArguments === undefined ? { provenance } : { provenance, arguments: suppliedArguments.slice(1) };
   }
 
   const nestedTarget = unwrapExpression(target.expression);
@@ -1239,12 +1252,13 @@ function resolvedCallableInvocation<Provenance>(
   ) {
     return undefined;
   }
-  const reboundTarget = expression.arguments[0];
+  if (suppliedArguments === undefined) return undefined;
+  const reboundTarget = suppliedArguments[0];
   if (reboundTarget === undefined) return undefined;
   const reboundProvenance = resolveCallable(reboundTarget);
   return reboundProvenance === undefined
     ? undefined
-    : { provenance: reboundProvenance, arguments: expression.arguments.slice(2) };
+    : { provenance: reboundProvenance, arguments: suppliedArguments.slice(2) };
 }
 
 function reflectedApplyInvocation(
@@ -1631,8 +1645,11 @@ function transactionApplicationInvocation(
   seenSymbols: ReadonlySet<ts.Symbol> = new Set(),
 ): boolean {
   const reflected = reflectedApplyInvocation(expression, checker, program, seenSymbols);
-  if (reflected !== undefined && transactionApplyCallableProvenance(reflected.target, checker, program, seenSymbols)) {
-    return true;
+  if (reflected !== undefined) {
+    const invocation = resolvedCallableApplication(reflected.target, reflected.arguments, checker, target =>
+      transactionApplyCallableProvenance(target, checker, program, seenSymbols) ? true : undefined,
+    );
+    if (invocation !== undefined) return true;
   }
   return (
     resolvedCallableInvocation(expression, checker, target =>
@@ -2116,11 +2133,13 @@ function currentPipelineWriteInvocation(
 ): boolean {
   const reflected = reflectedApplyInvocation(expression, checker, program, seenSymbols);
   if (reflected !== undefined) {
-    const provenance = currentMigrationPipelineRunCallableProvenance(reflected.target, checker, program, seenSymbols);
-    if (provenance !== undefined) {
-      return reflected.arguments === undefined
+    const invocation = resolvedCallableApplication(reflected.target, reflected.arguments, checker, target =>
+      currentMigrationPipelineRunCallableProvenance(target, checker, program, seenSymbols),
+    );
+    if (invocation !== undefined) {
+      return invocation.arguments === undefined
         ? true
-        : boundCurrentPipelineInvocationCanWrite(provenance, reflected.arguments, checker);
+        : boundCurrentPipelineInvocationCanWrite(invocation.provenance, invocation.arguments, checker);
     }
     return currentPipelineWriteCallableProvenance(reflected.target, checker, program, seenSymbols);
   }
@@ -2205,11 +2224,13 @@ function migrationWriteInvocation(
 ): boolean {
   const reflected = reflectedApplyInvocation(expression, checker, program, seenSymbols);
   if (reflected !== undefined) {
-    const provenance = migratorMigrateCallableProvenance(reflected.target, checker, program, seenSymbols);
-    if (provenance !== undefined) {
-      return reflected.arguments === undefined
+    const invocation = resolvedCallableApplication(reflected.target, reflected.arguments, checker, target =>
+      migratorMigrateCallableProvenance(target, checker, program, seenSymbols),
+    );
+    if (invocation !== undefined) {
+      return invocation.arguments === undefined
         ? true
-        : boundMigrationInvocationCanWrite(provenance, reflected.arguments, checker);
+        : boundMigrationInvocationCanWrite(invocation.provenance, invocation.arguments, checker);
     }
     return migrationWriteCallableProvenance(reflected.target, checker, program, seenSymbols);
   }
