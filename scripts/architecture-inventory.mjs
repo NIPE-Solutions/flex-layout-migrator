@@ -54,29 +54,32 @@ function runtimeExportReference(node) {
 
 function inspectSource(path, source) {
   const sourceFile = ts.createSourceFile(path, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
-  const references = [];
+  const moduleReferences = [];
+  const runtimeReferences = [];
   const symbols = new Set();
 
   function visit(node) {
-    let reference;
+    let moduleReference;
+    let runtimeReference;
     if (ts.isImportDeclaration(node)) {
-      reference = runtimeImportReference(node);
+      moduleReference = moduleText(node.moduleSpecifier);
+      runtimeReference = runtimeImportReference(node);
     } else if (ts.isExportDeclaration(node)) {
-      reference = runtimeExportReference(node);
-    } else if (
-      ts.isImportEqualsDeclaration(node) &&
-      !node.isTypeOnly &&
-      ts.isExternalModuleReference(node.moduleReference)
-    ) {
-      reference = moduleText(node.moduleReference.expression);
+      moduleReference = moduleText(node.moduleSpecifier);
+      runtimeReference = runtimeExportReference(node);
+    } else if (ts.isImportEqualsDeclaration(node) && ts.isExternalModuleReference(node.moduleReference)) {
+      moduleReference = moduleText(node.moduleReference.expression);
+      if (!node.isTypeOnly) runtimeReference = moduleReference;
     } else if (
       ts.isCallExpression(node) &&
       (node.expression.kind === ts.SyntaxKind.ImportKeyword ||
         (ts.isIdentifier(node.expression) && node.expression.text === 'require'))
     ) {
-      reference = moduleText(node.arguments[0]);
+      moduleReference = moduleText(node.arguments[0]);
+      runtimeReference = moduleReference;
     }
-    if (reference !== undefined) references.push(reference);
+    if (moduleReference !== undefined) moduleReferences.push(moduleReference);
+    if (runtimeReference !== undefined) runtimeReferences.push(runtimeReference);
 
     if (
       (ts.isClassDeclaration(node) ||
@@ -94,7 +97,7 @@ function inspectSource(path, source) {
   }
 
   visit(sourceFile);
-  return { references, symbols };
+  return { moduleReferences, runtimeReferences, symbols };
 }
 
 function packageName(reference) {
@@ -128,11 +131,13 @@ export function inventoryProject(input) {
   const moduleEdges = [];
 
   for (const file of inspections) {
-    for (const reference of new Set(file.references)) {
+    for (const reference of new Set(file.moduleReferences)) {
       if (reference.startsWith('.')) {
         moduleEdges.push({ from: file.path, kind: 'relative', to: relativeTarget(file.path, reference, knownPaths) });
-        continue;
       }
+    }
+    for (const reference of new Set(file.runtimeReferences)) {
+      if (reference.startsWith('.')) continue;
       if (builtinModuleNames.has(reference)) {
         moduleEdges.push({ from: file.path, kind: 'builtin', to: reference });
         continue;

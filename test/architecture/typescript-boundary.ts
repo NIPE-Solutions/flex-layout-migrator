@@ -14,6 +14,7 @@ const filesystemMutationNames = new Set([
   'cpSync',
   'createFile',
   'createFileSync',
+  'createWriteStream',
   'emptyDir',
   'emptyDirSync',
   'ensureDir',
@@ -56,6 +57,9 @@ const filesystemMutationNames = new Set([
   'writeFile',
   'writeFileSync',
   'writeSync',
+  'writev',
+  'writevSync',
+  'WriteStream',
 ]);
 const adapterPathNames = new Set(['stylesheetPath', 'reportPath']);
 const mediaWidthFeature = /^\(\s*(?:min|max)-width\s*:\s*([0-9]+(?:\.[0-9]+)?)px\s*\)$/iu;
@@ -1669,11 +1673,13 @@ export function inspectTypeScriptProject(
     const sourcePath = resolve(sourceFile.fileName);
     if (!rootPaths.has(sourcePath)) continue;
     function visit(node: ts.Node): void {
-      if (ts.isCallExpression(node)) {
+      if (ts.isCallExpression(node) || ts.isNewExpression(node)) {
         const provenance = filesystemProvenance(node.expression, checker);
         if (provenance !== undefined && provenance !== '*' && filesystemMutationNames.has(provenance)) {
           filesystemMutationCalls.push({ sourcePath, name: provenance });
         }
+      }
+      if (ts.isCallExpression(node)) {
         if (transactionApplicationInvocation(node, checker, program)) {
           transactionApplyCalls.push({ sourcePath, name: 'apply' });
           projectWriteAuthorityCalls.push({ sourcePath, name: 'apply' });

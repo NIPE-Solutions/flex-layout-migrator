@@ -13,7 +13,8 @@ import { AngularTemplateParser } from '../../src/template/angular-template.parse
 import type { MigrationTransaction } from '../../src/transaction/migration-transaction';
 
 interface MigrationWorkloadCounts {
-  discoveries: number;
+  discoveryPasses: number;
+  templatesDiscovered: number;
   templateReads: number;
   initialParses: number;
   validationParses: number;
@@ -43,7 +44,8 @@ describe('migration workload counters', () => {
     await executeSingleFile(tailwindSession(), planInput, planOutput, 'plan', planCounts);
 
     expect(planCounts).toEqual({
-      discoveries: 1,
+      discoveryPasses: 1,
+      templatesDiscovered: 1,
       templateReads: 1,
       initialParses: 1,
       validationParses: 1,
@@ -61,7 +63,8 @@ describe('migration workload counters', () => {
     await executeSingleFile(tailwindSession(), writeInput, writeOutput, 'write', writeCounts);
 
     expect(writeCounts).toEqual({
-      discoveries: 1,
+      discoveryPasses: 1,
+      templatesDiscovered: 1,
       templateReads: 1,
       initialParses: 1,
       validationParses: 1,
@@ -81,7 +84,8 @@ describe('migration workload counters', () => {
     await executeFolderCss(planInput, planOutput, planStylesheet, 'plan', planCounts);
 
     expect(planCounts).toEqual({
-      discoveries: 2,
+      discoveryPasses: 1,
+      templatesDiscovered: 2,
       templateReads: 2,
       initialParses: 2,
       validationParses: 4,
@@ -99,7 +103,8 @@ describe('migration workload counters', () => {
     await executeFolderCss(writeInput, writeOutput, writeStylesheet, 'write', writeCounts);
 
     expect(writeCounts).toEqual({
-      discoveries: 2,
+      discoveryPasses: 1,
+      templatesDiscovered: 2,
       templateReads: 2,
       initialParses: 2,
       validationParses: 4,
@@ -120,8 +125,9 @@ describe('migration workload counters', () => {
     await executeSingleFile(tailwindSession(), tailwindInput, tailwindOutput, 'write', tailwindCounts);
 
     expect(tailwindCounts).toEqual({
-      discoveries: 1,
-      templateReads: 1,
+      discoveryPasses: 1,
+      templatesDiscovered: 1,
+      templateReads: 2,
       initialParses: 1,
       validationParses: 1,
       renderedTemplates: 1,
@@ -139,8 +145,9 @@ describe('migration workload counters', () => {
     await executeFolderCss(cssInput, cssOutput, cssStylesheet, 'write', cssCounts);
 
     expect(cssCounts).toEqual({
-      discoveries: 2,
-      templateReads: 4,
+      discoveryPasses: 1,
+      templatesDiscovered: 2,
+      templateReads: 6,
       initialParses: 2,
       validationParses: 4,
       renderedTemplates: 2,
@@ -200,13 +207,17 @@ async function executeMigration(
 function countingMigratorDependencies(counts: MigrationWorkloadCounts): MigratorDependencies {
   const referenceParser = new AngularTemplateParser();
   return {
+    onDiscoveryPass: () => {
+      counts.discoveryPasses++;
+    },
     fileMigratorDependencies: () => {
-      counts.discoveries++;
+      counts.templatesDiscovered++;
       return countingFileDependencies(counts);
     },
     readTemplate: async target => {
+      const contents = await readFile(target, 'utf8');
       counts.templateReads++;
-      return readFile(target, 'utf8');
+      return contents;
     },
     parser: {
       parse: (source, fileName) => {
@@ -225,8 +236,9 @@ function countingFileDependencies(counts: MigrationWorkloadCounts): FileMigrator
 
   return {
     readTemplate: async target => {
+      const contents = await readFile(target, 'utf8');
       counts.templateReads++;
-      return readFile(target, 'utf8');
+      return contents;
     },
     parser: {
       parse: (source, fileName) => {
@@ -265,7 +277,8 @@ function transactionDouble(counts: MigrationWorkloadCounts) {
 
 function emptyCounts(): MigrationWorkloadCounts {
   return {
-    discoveries: 0,
+    discoveryPasses: 0,
+    templatesDiscovered: 0,
     templateReads: 0,
     initialParses: 0,
     validationParses: 0,

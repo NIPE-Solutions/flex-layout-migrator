@@ -7,6 +7,7 @@ import { spawnSync } from 'node:child_process';
 import { describe, expect, it, vi } from 'vitest';
 
 import {
+  architectureTestBenchmark,
   benchmarkScenarios,
   median,
   medianAbsoluteDeviation,
@@ -70,17 +71,23 @@ describe('architecture benchmark memory probe', () => {
 });
 
 describe('runBenchmark', () => {
-  it('runs every declared scenario after one warm-up and records only five samples in declared order', async () => {
+  it('keeps four product scenarios and records architecture tests separately after one warm-up', async () => {
     const runProcess = vi.fn((command: string, arguments_: readonly string[], options: { env: NodeJS.ProcessEnv }) => {
       expect(command).toBe(process.execPath);
-      expect(arguments_[0]).toBe('--import');
-      expect(arguments_[1]).toMatch(/scripts[/\\]benchmark[/\\]memory-probe\.mjs$/u);
-      expect(arguments_[2]).toMatch(/dist[/\\]cli\.js$/u);
-      expect(arguments_.slice(3).some(argument => existsSync(argument))).toBe(true);
-      expect(options.env.FLEX_LAYOUT_BENCHMARK_METRICS_PATH).toBeTruthy();
+      if (arguments_[0] === '--import') {
+        expect(arguments_[1]).toMatch(/scripts[/\\]benchmark[/\\]memory-probe\.mjs$/u);
+        expect(arguments_[2]).toMatch(/dist[/\\]cli\.js$/u);
+        expect(arguments_.slice(3).some(argument => existsSync(argument))).toBe(true);
+        expect(options.env.FLEX_LAYOUT_BENCHMARK_METRICS_PATH).toBeTruthy();
+      } else {
+        expect(arguments_[0]).toMatch(/node_modules[/\\]vitest[/\\]vitest\.mjs$/u);
+        expect(arguments_[1]).toBe('run');
+        expect(arguments_[2]).toMatch(/test[/\\]architecture[/\\]enterprise-pipeline-boundary\.test\.ts$/u);
+        expect(options.env.FLEX_LAYOUT_BENCHMARK_METRICS_PATH).toBeUndefined();
+      }
       return { status: 0, stdout: '', stderr: '' };
     });
-    const durations = Array.from({ length: 4 }, () => [1_000, 1, 2, 3, 4, 5]).flat();
+    const durations = [...Array.from({ length: 4 }, () => [1_000, 1, 2, 3, 4, 5]).flat(), 9_000, 10, 20, 30, 40, 50];
     let clockCall = 0;
     const now = vi.fn(() => {
       const duration = durations[Math.floor(clockCall / 2)];
@@ -101,7 +108,7 @@ describe('runBenchmark', () => {
       scenarioDefinitions: [...benchmarkScenarios].reverse(),
     });
 
-    expect(runProcess).toHaveBeenCalledTimes(24);
+    expect(runProcess).toHaveBeenCalledTimes(30);
     const invocations = runProcess.mock.calls.map(([, arguments_, options]) => ({
       commandLine: arguments_.join(' '),
       metricsPath: options.env.FLEX_LAYOUT_BENCHMARK_METRICS_PATH,
@@ -109,7 +116,10 @@ describe('runBenchmark', () => {
     for (const name of ['single-tailwind-plan', 'multi-tailwind-plan', 'multi-native-css-plan', 'unchanged-write']) {
       expect(invocations.filter(invocation => invocation.commandLine.includes(name))).toHaveLength(6);
     }
-    expect(new Set(invocations.map(invocation => invocation.metricsPath)).size).toBe(24);
+    const productInvocations = invocations.filter(invocation => invocation.metricsPath !== undefined);
+    const architectureInvocations = invocations.filter(invocation => invocation.metricsPath === undefined);
+    expect(new Set(productInvocations.map(invocation => invocation.metricsPath)).size).toBe(24);
+    expect(architectureInvocations).toHaveLength(6);
     expect(report).toMatchObject({ warmups: 1, samples: 5, commit: 'abc123' });
     expect(report.scenarios.map(scenario => scenario.name)).toEqual([
       'single-tailwind-plan',
@@ -127,6 +137,14 @@ describe('runBenchmark', () => {
         peakRssBytes: [10, 20, 30, 40, 50],
       });
     }
+    expect(report.architectureTest).toEqual({
+      command: architectureTestBenchmark.command,
+      milliseconds: [10, 20, 30, 40, 50],
+      medianMilliseconds: 30,
+      minMilliseconds: 10,
+      maxMilliseconds: 50,
+      medianAbsoluteDeviationMilliseconds: 10,
+    });
   });
 
   it('rejects a nonzero packaged CLI exit', async () => {
@@ -140,5 +158,19 @@ describe('runBenchmark', () => {
         commit: 'abc123',
       }),
     ).rejects.toThrow(/single-tailwind-plan.*status 2.*migration failed/isu);
+  });
+
+  it('rejects a nonzero architecture-test exit without applying a timing threshold', async () => {
+    await expect(
+      runBenchmark({
+        warmups: 0,
+        samples: 1,
+        scenarioDefinitions: [],
+        runProcess: () => ({ status: 1, stdout: '', stderr: 'architecture assertion failed' }),
+        now: () => 60_000,
+        readPeakRss: async () => 1,
+        commit: 'abc123',
+      }),
+    ).rejects.toThrow(/architecture test.*status 1.*architecture assertion failed/isu);
   });
 });

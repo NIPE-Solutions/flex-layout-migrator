@@ -22,6 +22,7 @@ export class FolderMigrator {
     private readonly outputFolder: string,
     excludedInputPaths: readonly string[] = [],
     private readonly fileMigratorDependencies?: () => FileMigratorDependencies,
+    private readonly onDiscoveryPass?: () => void,
   ) {
     this.excludedInputPaths = new Set(excludedInputPaths.map(candidate => path.normalize(path.resolve(candidate))));
   }
@@ -29,6 +30,7 @@ export class FolderMigrator {
   public async plan(
     options: FileMigrationOptions = { responsiveImages: false },
   ): Promise<readonly FileMigrationPlan[]> {
+    this.onDiscoveryPass?.();
     const files = await this.collectFiles(this.inputFolder, '');
     files.sort((left, right) => compareCodeUnits(path.normalize(left.input), path.normalize(right.input)));
 

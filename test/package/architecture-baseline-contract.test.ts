@@ -105,6 +105,19 @@ function tableRows(markdown: string, heading: string): string[][] {
     );
 }
 
+function wallClockThresholdSegments(markdown: string): readonly string[] {
+  const proseAndTableSegments = markdown.match(/[^.!?\n]+[.!?]?/gu) ?? [];
+  return proseAndTableSegments.filter(
+    segment =>
+      /\b(?:\d{1,3}(?:,\d{3})*|\d+)(?:\.\d+)?\s*(?:milliseconds?|ms|seconds?|secs?|s|microseconds?|[µμ]s|us|minutes?|mins?|min)\b/iu.test(
+        segment,
+      ) &&
+      /\b(?:CI|thresholds?|gates?|fail(?:ed|ing|s|ures?)?|limits?|budgets?|above|below|ceilings?|caps?)\b/iu.test(
+        segment,
+      ),
+  );
+}
+
 describe('enterprise architecture baseline documentation contract', () => {
   test('records every required baseline evidence section', async () => {
     const markdown = await readFile(baselineUrl, 'utf8');
@@ -152,13 +165,25 @@ describe('enterprise architecture baseline documentation contract', () => {
 
   test('never makes a machine-specific wall-clock observation a CI threshold', async () => {
     const markdown = await readFile(baselineUrl, 'utf8');
-    const sentences = markdown.match(/[^.!?\n]+[.!?]?/gu) ?? [];
-    const wallClockThresholdSentences = sentences.filter(
-      sentence =>
-        /\b\d+(?:\.\d+)?\s*(?:ms|milliseconds?|seconds?)\b/iu.test(sentence) &&
-        /\b(?:CI|threshold|gate|fail(?:ed|s|ure)?)\b/iu.test(sentence),
-    );
 
-    expect(wallClockThresholdSentences).toEqual([]);
+    expect(wallClockThresholdSegments(markdown)).toEqual([]);
+  });
+
+  test.each([
+    'CI fails above 2s.',
+    'Runtime limit: 250 ms.',
+    'The timing budget is 400 µs.',
+    '| architecture test | below | 12 us |',
+    'The merge gate allows 3 minutes.',
+    '| command | threshold | 4 min |',
+  ])('rejects a wall-clock threshold written as %s', text => {
+    expect(wallClockThresholdSegments(text)).toEqual([text]);
+  });
+
+  test.each([
+    'Observed runtime was 2s, 250 ms, 400 µs, 12 us, and 3 minutes.',
+    '| scenario | samples | median | minimum | maximum | MAD |\n| enterprise | 10 ms; 12 ms | 11 ms | 10 ms | 12 ms | 1 ms |',
+  ])('allows observational benchmark text written as %s', text => {
+    expect(wallClockThresholdSegments(text)).toEqual([]);
   });
 });

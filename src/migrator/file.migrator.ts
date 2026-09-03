@@ -99,7 +99,7 @@ export class FileMigrator {
     }
 
     try {
-      return { status: 'present', contents: await readFile(this.output, 'utf8') };
+      return { status: 'present', contents: await this.dependencies.readTemplate(this.output) };
     } catch (error: unknown) {
       if (isEnoent(error)) return { status: 'absent' };
       throw error;

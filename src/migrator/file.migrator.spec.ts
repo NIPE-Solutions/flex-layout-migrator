@@ -112,8 +112,9 @@ describe('FileMigrator', () => {
     const plan = await new FileMigrator(new TailwindAdapter(), input, output, undefined, dependencies).plan();
 
     expect(plan.file.changed).toBe(true);
-    expect(dependencies.readTemplate).toHaveBeenCalledOnce();
-    expect(dependencies.readTemplate).toHaveBeenCalledWith(input);
+    expect(dependencies.readTemplate).toHaveBeenCalledTimes(2);
+    expect(dependencies.readTemplate).toHaveBeenNthCalledWith(1, input);
+    expect(dependencies.readTemplate).toHaveBeenNthCalledWith(2, output);
     expect(parse).toHaveBeenCalledTimes(2);
     expect(parse).toHaveBeenNthCalledWith(1, source, input);
     expect(parse).toHaveBeenNthCalledWith(2, '<div class="flex flex-row box-border"></div>', output);

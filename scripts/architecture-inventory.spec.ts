@@ -14,6 +14,7 @@ const syntheticProject = {
         'export class SharedResponsiveFamilyPlanner {}',
         'export class ConversionPlanner {}',
         'export class CssArtifactRegistry {}',
+        "export type { DiagnosticCode } from './Z-helper.js';",
       ].join('\n'),
     },
     {
@@ -21,6 +22,8 @@ const syntheticProject = {
       source: [
         "import { command } from 'commander/extra';",
         "import { helper } from './Z-helper.js';",
+        "import type { SharedResponsiveFamilyPlanner } from './ä-policy.js';",
+        "import type { CompilerOptions } from 'typescript';",
         'const example = "import value from \'not-a-package\'";',
         "// import ignored from 'also-not-a-package';",
         'export const result = command + helper + example;',
@@ -81,17 +84,17 @@ describe('architecture inventory', () => {
 
     expect(inventory.productionFiles).toEqual([
       { path: 'src/Z-helper.ts', lines: 6 },
-      { path: 'src/a-consumer.ts', lines: 5 },
-      { path: 'src/ä-policy.ts', lines: 3 },
+      { path: 'src/a-consumer.ts', lines: 7 },
+      { path: 'src/ä-policy.ts', lines: 4 },
     ]);
     expect(inventory.largestFiles).toEqual([
+      { path: 'src/a-consumer.ts', lines: 7 },
       { path: 'src/Z-helper.ts', lines: 6 },
-      { path: 'src/a-consumer.ts', lines: 5 },
-      { path: 'src/ä-policy.ts', lines: 3 },
+      { path: 'src/ä-policy.ts', lines: 4 },
     ]);
   });
 
-  it('classifies AST runtime imports without treating comments or strings as edges', () => {
+  it('records type-only import and export edges between internal modules without treating type packages as runtime', () => {
     const inventory = inventoryProject(syntheticProject);
 
     expect(inventory.moduleEdges).toEqual([
@@ -99,7 +102,10 @@ describe('architecture inventory', () => {
       { from: 'src/Z-helper.ts', kind: 'builtin', to: 'node:fs/promises' },
       { from: 'src/a-consumer.ts', kind: 'external', to: 'commander' },
       { from: 'src/a-consumer.ts', kind: 'relative', to: 'src/Z-helper.ts' },
+      { from: 'src/a-consumer.ts', kind: 'relative', to: 'src/ä-policy.ts' },
+      { from: 'src/ä-policy.ts', kind: 'relative', to: 'src/Z-helper.ts' },
     ]);
+    expect(inventory.runtimeDependencies.map(dependency => dependency.name)).not.toContain('typescript');
   });
 
   it('records direct runtime dependency use and lockfile resolution', () => {

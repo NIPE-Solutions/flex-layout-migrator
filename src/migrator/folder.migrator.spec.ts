@@ -52,8 +52,9 @@ describe('FolderMigrator', () => {
   test('creates one injected dependency lifecycle per discovered template', async () => {
     await writeFile(join(inputFolder, 'changed.html'), '<div fxLayout="row"></div>', 'utf8');
     await writeFile(join(inputFolder, 'nested', 'unchanged.html'), '<div class="card"></div>', 'utf8');
+    const readTemplate = vi.fn(async (filePath: string) => readFile(filePath, 'utf8'));
     const dependencies: FileMigratorDependencies = {
-      readTemplate: vi.fn(async filePath => readFile(filePath, 'utf8')),
+      readTemplate,
       parser: new AngularTemplateParser(),
       analyzer: new TemplateAnalyzer(),
       planner: new ConversionPlanner(),
@@ -62,6 +63,7 @@ describe('FolderMigrator', () => {
     const analyze = vi.spyOn(dependencies.analyzer, 'analyze');
     const renderPlan = vi.spyOn(dependencies.planner, 'plan');
     const dependencyFactory = vi.fn(() => dependencies);
+    const onDiscoveryPass = vi.fn();
 
     const plans = await new FolderMigrator(
       new TailwindAdapter(),
@@ -69,11 +71,18 @@ describe('FolderMigrator', () => {
       outputFolder,
       [],
       dependencyFactory,
+      onDiscoveryPass,
     ).plan();
 
     expect(plans.map(plan => plan.file.changed)).toEqual([true, false]);
+    expect(onDiscoveryPass).toHaveBeenCalledOnce();
     expect(dependencyFactory).toHaveBeenCalledTimes(2);
-    expect(dependencies.readTemplate).toHaveBeenCalledTimes(2);
+    expect(readTemplate).toHaveBeenCalledTimes(3);
+    expect(readTemplate.mock.calls.map(([filePath]) => filePath)).toEqual([
+      join(inputFolder, 'changed.html'),
+      join(outputFolder, 'changed.html'),
+      join(inputFolder, 'nested', 'unchanged.html'),
+    ]);
     expect(parse).toHaveBeenCalledTimes(3);
     expect(analyze).toHaveBeenCalledTimes(2);
     expect(renderPlan).toHaveBeenCalledOnce();

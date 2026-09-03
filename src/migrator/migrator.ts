@@ -25,6 +25,7 @@ export interface MigrationOptions {
 
 export interface MigratorDependencies {
   readonly fileMigratorDependencies?: () => FileMigratorDependencies;
+  readonly onDiscoveryPass?: () => void;
   readonly readTemplate: (path: string) => Promise<string>;
   readonly parser: AngularTemplateParser;
 }
@@ -56,6 +57,7 @@ export class Migrator {
       if (path.extname(this.outputPath).toLowerCase() !== '.html') {
         throw new Error('Single-file output path must have a .html extension.');
       }
+      this.dependencies.onDiscoveryPass?.();
       filePlans = [
         await new FileMigrator(
           this.session.adapter,
@@ -74,6 +76,7 @@ export class Migrator {
         this.outputPath,
         options.stylesheetPath === undefined ? [] : [options.stylesheetPath],
         this.dependencies.fileMigratorDependencies,
+        this.dependencies.onDiscoveryPass,
       ).plan({
         responsiveImages: options.responsiveImages ?? false,
       });

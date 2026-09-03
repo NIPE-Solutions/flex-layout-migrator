@@ -10,6 +10,8 @@ const repository = resolve(import.meta.dirname, '../..');
 const executable = join(repository, 'dist', 'cli.js');
 const memoryProbe = join(repository, 'scripts', 'benchmark', 'memory-probe.mjs');
 const fixtureRoot = join(repository, 'benchmark', 'fixtures');
+const vitestExecutable = join(repository, 'node_modules', 'vitest', 'vitest.mjs');
+const enterpriseBoundaryTest = join(repository, 'test', 'architecture', 'enterprise-pipeline-boundary.test.ts');
 
 const declaredScenarioOrder = Object.freeze([
   'single-tailwind-plan',
@@ -48,6 +50,10 @@ const scenarios = Object.freeze([
 ]);
 
 export const benchmarkScenarios = scenarios;
+export const architectureTestBenchmark = Object.freeze({
+  command: 'node node_modules/vitest/vitest.mjs run test/architecture/enterprise-pipeline-boundary.test.ts',
+  arguments: Object.freeze([vitestExecutable, 'run', enterpriseBoundaryTest]),
+});
 
 function requireValues(values, label) {
   if (values.length === 0) throw new Error(`${label} requires at least one value`);
@@ -66,16 +72,23 @@ export function medianAbsoluteDeviation(values) {
   return median(values.map(value => Math.abs(value - sampleMedian)));
 }
 
-export function summarize(samples) {
-  if (samples.length === 0) throw new Error('summarize requires at least one sample');
-  const milliseconds = samples.map(sample => sample.milliseconds);
-  const peakRssBytes = samples.map(sample => sample.peakRssBytes);
+function summarizeMilliseconds(milliseconds) {
+  requireValues(milliseconds, 'timing summary');
   return {
     milliseconds,
     medianMilliseconds: median(milliseconds),
     minMilliseconds: Math.min(...milliseconds),
     maxMilliseconds: Math.max(...milliseconds),
     medianAbsoluteDeviationMilliseconds: medianAbsoluteDeviation(milliseconds),
+  };
+}
+
+export function summarize(samples) {
+  if (samples.length === 0) throw new Error('summarize requires at least one sample');
+  const milliseconds = samples.map(sample => sample.milliseconds);
+  const peakRssBytes = samples.map(sample => sample.peakRssBytes);
+  return {
+    ...summarizeMilliseconds(milliseconds),
     peakRssBytes,
   };
 }
@@ -130,6 +143,19 @@ async function runScenarioSample({ scenario, runProcess, now, readPeakRss }) {
   }
 }
 
+function runArchitectureTestSample({ definition, runProcess, now }) {
+  const environment = { ...process.env };
+  delete environment.FLEX_LAYOUT_BENCHMARK_METRICS_PATH;
+  const startedAt = now();
+  const result = runProcess(process.execPath, definition.arguments, { cwd: repository, env: environment });
+  const milliseconds = now() - startedAt;
+  if (result.status !== 0) {
+    const details = result.stderr?.trim() || result.stdout?.trim() || 'no process output';
+    throw new Error(`Architecture test benchmark exited with status ${result.status}: ${details}`);
+  }
+  return milliseconds;
+}
+
 export async function runBenchmark({
   warmups = 1,
   samples = 5,
@@ -138,6 +164,7 @@ export async function runBenchmark({
   readPeakRss = defaultReadPeakRss,
   commit = currentCommit(),
   scenarioDefinitions = benchmarkScenarios,
+  architectureTestDefinition = architectureTestBenchmark,
 } = {}) {
   validateRunCount(warmups, 'warmups', true);
   validateRunCount(samples, 'samples', false);
@@ -153,6 +180,15 @@ export async function runBenchmark({
     }
     scenarioReports.push({ name: scenario.name, ...summarize(recorded) });
   }
+  const architectureTestSamples = [];
+  for (let index = 0; index < warmups + samples; index += 1) {
+    const milliseconds = runArchitectureTestSample({
+      definition: architectureTestDefinition,
+      runProcess,
+      now,
+    });
+    if (index >= warmups) architectureTestSamples.push(milliseconds);
+  }
   return {
     generatedAt: new Date().toISOString(),
     node: process.version,
@@ -161,6 +197,10 @@ export async function runBenchmark({
     warmups,
     samples,
     scenarios: scenarioReports,
+    architectureTest: {
+      command: architectureTestDefinition.command,
+      ...summarizeMilliseconds(architectureTestSamples),
+    },
   };
 }
 
