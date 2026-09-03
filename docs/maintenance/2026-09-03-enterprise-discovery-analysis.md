@@ -93,7 +93,7 @@ Discover exclusively invokes the `DiscoveryFileSystem.kind`, `DiscoveryFileSyste
 
 Concrete filesystem acquisition and operation findings are enforced independently of these ports. `destination-template-source.ts` is the only concrete reader for existing destination/reference template bytes; `Migrator` and `AnalyzedFileMigrator` receive its narrow `DestinationTemplateSource` port and no longer acquire filesystem APIs. Analyze remains the only concrete original-template reader, Discover remains the only topology and ignore-loading owner, and `StylesheetPlanner` retains its distinct stylesheet-read role. Exact findings retain duplicate acquisitions, so an extra call cannot disappear through pair deduplication.
 
-The inspector follows canonical types and symbols through aliases, dynamic imports, CommonJS acquisition, `.call`, `.apply`, `Reflect.apply`, and computed members. Unknown computed members on canonical receivers fail closed. Same-named unrelated classes, ports, and methods remain negative controls. Equivalent whole-project semantic inspection is cached within the ownership scenario.
+The inspector follows canonical types and symbols through aliases, dynamic imports, CommonJS acquisition, `.call`, `.apply`, `Reflect.apply`, and computed members. Filesystem and ignore-helper acquisition provenance follows both ordinary `export … from` edges and imported local bindings that are exported under aliases, including multi-hop and cyclic barrels. Type-only and unrelated same-named exports remain negative controls, and traversal terminates on cycles. Unknown computed members on canonical receivers fail closed. Equivalent whole-project semantic inspection is cached within the ownership scenario.
 
 ## Retained compatibility
 

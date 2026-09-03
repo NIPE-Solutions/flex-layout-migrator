@@ -3029,18 +3029,42 @@ function ignoreLibraryAcquisition(node: ts.Node): boolean {
   return runtimeAcquisitionReference(node) === 'ignore';
 }
 
-function filesystemAcquisition(node: ts.Node): boolean {
-  const reference = runtimeAcquisitionReference(node);
-  return reference !== undefined && isFilesystemModuleReference(reference);
+function runtimeImportedBindingReferences(sourceFile: ts.SourceFile): ReadonlyMap<string, string> {
+  const references = new Map<string, string>();
+  for (const statement of sourceFile.statements) {
+    if (ts.isImportDeclaration(statement)) {
+      for (const binding of runtimeImportBindings(statement)) {
+        references.set(binding.localName, binding.moduleReference);
+      }
+      continue;
+    }
+  }
+  return references;
 }
 
-function runtimeReExportReferences(source: string, sourcePath: string): readonly string[] {
-  const sourceFile = ts.createSourceFile(sourcePath, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+function runtimeReExportReferences(sourceFile: ts.SourceFile): readonly string[] {
+  const importedBindings = runtimeImportedBindingReferences(sourceFile);
   const references: string[] = [];
   function visit(node: ts.Node): void {
     if (ts.isExportDeclaration(node)) {
       const reference = runtimeExportReference(node);
-      if (reference !== undefined) references.push(reference);
+      if (reference !== undefined) {
+        references.push(reference);
+        return;
+      }
+      if (
+        !node.isTypeOnly &&
+        node.moduleSpecifier === undefined &&
+        node.exportClause !== undefined &&
+        ts.isNamedExports(node.exportClause)
+      ) {
+        for (const element of node.exportClause.elements) {
+          if (element.isTypeOnly) continue;
+          const localName = element.propertyName?.text ?? element.name.text;
+          const importedReference = importedBindings.get(localName);
+          if (importedReference !== undefined) references.push(importedReference);
+        }
+      }
       return;
     }
     ts.forEachChild(node, visit);
@@ -3049,26 +3073,29 @@ function runtimeReExportReferences(source: string, sourcePath: string): readonly
   return references;
 }
 
-function runtimeAcquisitionReachesLocalPath(
+function runtimeAcquisitionReaches(
   reference: string,
   containingSourcePath: string,
-  targetPathSuffix: string,
+  matchesReference: (reference: string) => boolean,
+  matchesLocalPath: (path: string) => boolean,
   program: ts.Program,
   seenPaths: ReadonlySet<string> = new Set(),
 ): boolean {
+  if (matchesReference(reference)) return true;
   for (const candidate of localModuleCandidates(reference, containingSourcePath)) {
     const normalizedCandidate = resolve(candidate);
-    if (normalizedCandidate.replaceAll('\\', '/').endsWith(targetPathSuffix)) return true;
+    if (matchesLocalPath(normalizedCandidate.replaceAll('\\', '/'))) return true;
     if (seenPaths.has(normalizedCandidate)) continue;
     const sourceFile = program.getSourceFile(normalizedCandidate);
     if (sourceFile === undefined) continue;
     const nextSeen = new Set(seenPaths).add(normalizedCandidate);
     if (
-      runtimeReExportReferences(sourceFile.text, normalizedCandidate).some(dependencyReference =>
-        runtimeAcquisitionReachesLocalPath(
+      runtimeReExportReferences(sourceFile).some(dependencyReference =>
+        runtimeAcquisitionReaches(
           dependencyReference,
           normalizedCandidate,
-          targetPathSuffix,
+          matchesReference,
+          matchesLocalPath,
           program,
           nextSeen,
         ),
@@ -3080,11 +3107,31 @@ function runtimeAcquisitionReachesLocalPath(
   return false;
 }
 
+function filesystemAcquisition(node: ts.Node, program: ts.Program): boolean {
+  const reference = runtimeAcquisitionReference(node);
+  return (
+    reference !== undefined &&
+    runtimeAcquisitionReaches(
+      reference,
+      node.getSourceFile().fileName,
+      isFilesystemModuleReference,
+      () => false,
+      program,
+    )
+  );
+}
+
 function gitIgnoreHelperAcquisition(node: ts.Node, program: ts.Program): boolean {
   const reference = runtimeAcquisitionReference(node);
   return (
     reference !== undefined &&
-    runtimeAcquisitionReachesLocalPath(reference, node.getSourceFile().fileName, '/lib/gitignore.helper.ts', program)
+    runtimeAcquisitionReaches(
+      reference,
+      node.getSourceFile().fileName,
+      () => false,
+      path => path.endsWith('/lib/gitignore.helper.ts'),
+      program,
+    )
   );
 }
 
@@ -3260,7 +3307,7 @@ export function inspectSemanticAuthorityCalls(
       if (ignoreLibraryAcquisition(node)) {
         calls.push({ sourcePath, name: 'IgnoreLibrary.acquire' });
       }
-      if (filesystemAcquisition(node)) {
+      if (filesystemAcquisition(node, program)) {
         calls.push({ sourcePath, name: 'FileSystem.acquire' });
       }
       if (ts.isCallExpression(node)) {

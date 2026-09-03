@@ -21,12 +21,14 @@ const discoverStagePath = join(pipelineRoot, 'discover', 'discover-project.stage
 const analyzeStagePath = join(pipelineRoot, 'analyze', 'analyze-project.stage.ts');
 const atomicWriterPath = join(productionRoot, 'lib', 'atomic-file.writer.ts');
 const migratorPath = join(productionRoot, 'migrator', 'migrator.ts');
+const destinationTemplateSourcePath = join(productionRoot, 'migrator', 'destination-template-source.ts');
 const roguePath = join(productionRoot, '__architecture-fixture__', 'rogue.ts');
 const wholeProjectInspectionTimeout = 60_000;
 const productionPaths = productionTypeScriptFiles(productionRoot);
 let cachedProductionSemanticAuthorities: ReturnType<typeof inspectSemanticAuthorityCalls> | undefined;
 let cachedRogueProductionSemanticAuthorities: ReturnType<typeof inspectSemanticAuthorityCalls> | undefined;
 let cachedGitIgnoreBarrelAuthorities: ReturnType<typeof inspectSemanticAuthorityCalls> | undefined;
+let cachedLocalBindingBarrelAuthorities: ReturnType<typeof inspectSemanticAuthorityCalls> | undefined;
 const productionGraphAuthorities = new Set([
   'AnalyzeProjectStage.run',
   'CurrentMigrationPipeline.run',
@@ -136,6 +138,101 @@ const gitIgnoreBarrelCases = [
 const gitIgnoreBarrelOverrides = new Map([
   [gitIgnoreBarrelPath, "export { createGitIgnoreMatcher as matcherAlias } from '../lib/gitignore.helper.js';"],
   ...gitIgnoreBarrelCases.map(fixture => [fixture.sourcePath, fixture.source] as const),
+]);
+const localBindingFixtureRoot = join(productionRoot, '__architecture-fixture__');
+const helperAliasChainPath = join(localBindingFixtureRoot, 'helper-alias-chain.ts');
+const helperCycleAPath = join(localBindingFixtureRoot, 'helper-cycle-a.ts');
+const helperCycleBPath = join(localBindingFixtureRoot, 'helper-cycle-b.ts');
+const unrelatedBarrelPath = join(localBindingFixtureRoot, 'unrelated.barrel.ts');
+const typeOnlyBarrelPath = join(localBindingFixtureRoot, 'type-only.barrel.ts');
+const localBindingBarrelCases = [
+  {
+    label: 'unused ESM filesystem alias acquired by Migrator from its named owner',
+    sourcePath: migratorPath,
+    source: "import { existingDestinationRead as unused } from './destination-template-source.js'; void unused;",
+    expected: 'FileSystem.acquire',
+  },
+  {
+    label: 'unused dynamic filesystem alias from its named owner',
+    sourcePath: join(localBindingFixtureRoot, 'local-fs-dynamic-consumer.ts'),
+    source:
+      "async function load() { const unused = await import('../migrator/destination-template-source.js'); return unused; } void load();",
+    expected: 'FileSystem.acquire',
+  },
+  {
+    label: 'unused CommonJS filesystem alias from its named owner',
+    sourcePath: join(localBindingFixtureRoot, 'local-fs-commonjs-consumer.ts'),
+    source:
+      "const { existingDestinationRead: unused } = require('../migrator/destination-template-source.js'); void unused;",
+    expected: 'FileSystem.acquire',
+  },
+  {
+    label: 'unused ESM helper alias from Discover',
+    sourcePath: join(localBindingFixtureRoot, 'local-helper-esm-consumer.ts'),
+    source: "import { discoveryMatcher as unused } from '../pipeline/discover/discover-project.stage.js'; void unused;",
+    expected: 'GitIgnoreHelper.acquire',
+  },
+  {
+    label: 'unused dynamic helper alias from Discover',
+    sourcePath: join(localBindingFixtureRoot, 'local-helper-dynamic-consumer.ts'),
+    source:
+      "async function load() { const unused = await import('../pipeline/discover/discover-project.stage.js'); return unused; } void load();",
+    expected: 'GitIgnoreHelper.acquire',
+  },
+  {
+    label: 'unused CommonJS helper alias from Discover',
+    sourcePath: join(localBindingFixtureRoot, 'local-helper-commonjs-consumer.ts'),
+    source:
+      "const { discoveryMatcher: unused } = require('../pipeline/discover/discover-project.stage.js'); void unused;",
+    expected: 'GitIgnoreHelper.acquire',
+  },
+  {
+    label: 'multi-hop helper alias chain',
+    sourcePath: join(localBindingFixtureRoot, 'local-helper-chain-consumer.ts'),
+    source: "import { chainedMatcher as unused } from './helper-alias-chain.js'; void unused;",
+    expected: 'GitIgnoreHelper.acquire',
+  },
+  {
+    label: 'helper alias behind a cyclic barrel graph',
+    sourcePath: join(localBindingFixtureRoot, 'local-helper-cycle-consumer.ts'),
+    source: "const { cycledMatcher: unused } = require('./helper-cycle-a.js'); void unused;",
+    expected: 'GitIgnoreHelper.acquire',
+  },
+] as const;
+const unrelatedBarrelConsumerPath = join(localBindingFixtureRoot, 'unrelated-barrel-consumer.ts');
+const typeOnlyBarrelConsumerPath = join(localBindingFixtureRoot, 'type-only-barrel-consumer.ts');
+const pureCycleConsumerPath = join(localBindingFixtureRoot, 'pure-cycle-consumer.ts');
+const pureCycleAPath = join(localBindingFixtureRoot, 'pure-cycle-a.ts');
+const pureCycleBPath = join(localBindingFixtureRoot, 'pure-cycle-b.ts');
+const localBindingBarrelOverrides = new Map([
+  [
+    destinationTemplateSourcePath,
+    "import { readFile as destinationRead } from 'node:fs/promises'; export { destinationRead as existingDestinationRead };",
+  ],
+  [
+    discoverStagePath,
+    "import { createGitIgnoreMatcher as matcher } from '../../lib/gitignore.helper.js'; export { matcher as discoveryMatcher };",
+  ],
+  [
+    helperAliasChainPath,
+    "import { discoveryMatcher as localMatcher } from '../pipeline/discover/discover-project.stage.js'; export { localMatcher as chainedMatcher };",
+  ],
+  [
+    helperCycleAPath,
+    "import { loopB } from './helper-cycle-b.js'; import { chainedMatcher as localMatcher } from './helper-alias-chain.js'; export { loopB as loopA }; export { localMatcher as cycledMatcher };",
+  ],
+  [helperCycleBPath, "import { loopA } from './helper-cycle-a.js'; export { loopA as loopB };"],
+  [unrelatedBarrelPath, 'const readFile = (path: string): string => path; export { readFile as localRead };'],
+  [
+    typeOnlyBarrelPath,
+    "import type { FileHandle as LocalHandle } from 'node:fs/promises'; export type { LocalHandle as Handle };",
+  ],
+  [pureCycleAPath, "import { loopB } from './pure-cycle-b.js'; export { loopB as loopA };"],
+  [pureCycleBPath, "import { loopA } from './pure-cycle-a.js'; export { loopA as loopB };"],
+  [unrelatedBarrelConsumerPath, "import { localRead as unused } from './unrelated.barrel.js'; void unused;"],
+  [typeOnlyBarrelConsumerPath, "import type { Handle } from './type-only.barrel.js'; type Local = Handle;"],
+  [pureCycleConsumerPath, "import { loopA as unused } from './pure-cycle-a.js'; void unused;"],
+  ...localBindingBarrelCases.map(fixture => [fixture.sourcePath, fixture.source] as const),
 ]);
 const expectedRendererRelativePaths = [
   'adapter/css/css.adapter.ts',
@@ -257,6 +354,19 @@ function gitIgnoreBarrelAuthorities(): ReturnType<typeof inspectSemanticAuthorit
   return cachedGitIgnoreBarrelAuthorities;
 }
 
+function localBindingBarrelAuthorities(): ReturnType<typeof inspectSemanticAuthorityCalls> {
+  cachedLocalBindingBarrelAuthorities ??= inspectSemanticAuthorityCalls(
+    [
+      ...localBindingBarrelCases.map(fixture => fixture.sourcePath),
+      unrelatedBarrelConsumerPath,
+      typeOnlyBarrelConsumerPath,
+      pureCycleConsumerPath,
+    ],
+    localBindingBarrelOverrides,
+  );
+  return cachedLocalBindingBarrelAuthorities;
+}
+
 describe('enterprise pipeline dependency boundary', { timeout: wholeProjectInspectionTimeout }, () => {
   test('keeps the exhaustive whole-production authority graph exact', () => {
     expect(normalizedAuthoritySources(productionSemanticAuthorities(), productionGraphAuthorities)).toEqual(
@@ -356,6 +466,29 @@ describe('enterprise pipeline dependency boundary', { timeout: wholeProjectInspe
         .filter(name => name.startsWith('GitIgnoreHelper.')),
     ).toEqual(fixture.expected);
   });
+
+  test.each(localBindingBarrelCases)(
+    'detects $expected through $label and a local import-then-export binding',
+    fixture => {
+      expect(
+        localBindingBarrelAuthorities()
+          .filter(call => call.sourcePath === fixture.sourcePath)
+          .map(call => call.name),
+      ).toContain(fixture.expected);
+    },
+  );
+
+  test.each([unrelatedBarrelConsumerPath, typeOnlyBarrelConsumerPath, pureCycleConsumerPath])(
+    'terminates without a resource finding for unrelated, type-only, or cyclic local exports: %s',
+    sourcePath => {
+      expect(
+        localBindingBarrelAuthorities()
+          .filter(call => call.sourcePath === sourcePath)
+          .map(call => call.name)
+          .filter(name => resourceAuthorityNames.has(name)),
+      ).toEqual([]);
+    },
+  );
 
   test.each([
     "import { readFile as unused } from 'node:fs/promises'; void unused;",
