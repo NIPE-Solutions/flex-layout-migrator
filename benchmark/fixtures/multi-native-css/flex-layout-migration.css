@@ -1,0 +1,12 @@
+/* benchmark handwritten CSS */
+.dashboard {
+  color: rebeccapurple;
+}
+/* flex-layout-codemod:start schema=1 */
+/* flex-layout-codemod:rule id=5db098b5a4e638fdd1aff69e13d53ea10eb01e6c58577e5ecdf136b90eaee103 */
+.flm-5db098b5a4e638fdd1aff69e13d53ea10eb01e6c58577e5ecdf136b90eaee103 {
+  display: flex;
+  box-sizing: border-box;
+  flex-direction: row;
+}
+/* flex-layout-codemod:end */
