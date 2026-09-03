@@ -5,6 +5,7 @@ import { TailwindAdapter } from '../adapter/tailwind/tailwind.adapter';
 import { TemplateAnalyzer } from '../analyzer/template.analyzer';
 import { ConversionPlanner } from '../planner/conversion-planner';
 import { AngularTemplateParser } from '../template/angular-template.parser';
+import { AnalyzedFileMigrator } from './analyzed-file.migrator';
 import { FileMigrator, type FileMigratorDependencies } from './file.migrator';
 import { fileMigrationPlan, migrationPlan, plannedOutputArtifact } from './migration-plan';
 
@@ -93,7 +94,7 @@ describe('FileMigrator', () => {
     expect(plan.file.results.map(item => item.status)).toEqual(['converted', 'converted']);
   });
 
-  test('uses one injected dependency lifecycle for a changed template', async () => {
+  test('analyzes once and delegates rendering once through the compatibility wrapper', async () => {
     const source = '<div fxLayout="row"></div>';
     await writeFile(input, source, 'utf8');
     const parser = new AngularTemplateParser();
@@ -108,6 +109,7 @@ describe('FileMigrator', () => {
     const parse = vi.spyOn(parser, 'parse');
     const analyze = vi.spyOn(analyzer, 'analyze');
     const renderPlan = vi.spyOn(planner, 'plan');
+    const renderAnalyzed = vi.spyOn(AnalyzedFileMigrator.prototype, 'plan');
 
     const plan = await new FileMigrator(new TailwindAdapter(), input, output, undefined, dependencies).plan();
 
@@ -120,6 +122,7 @@ describe('FileMigrator', () => {
     expect(parse).toHaveBeenNthCalledWith(2, '<div class="flex flex-row box-border"></div>', output);
     expect(analyze).toHaveBeenCalledOnce();
     expect(renderPlan).toHaveBeenCalledOnce();
+    expect(renderAnalyzed).toHaveBeenCalledOnce();
   });
 
   test('skips rendering and validation when injected dependencies find no migration inputs', async () => {
