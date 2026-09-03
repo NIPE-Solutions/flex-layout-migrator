@@ -38,9 +38,7 @@ const productionGraphAuthorities = new Set([
   'MigrationTransaction.apply',
   'Migrator.migrate',
 ]);
-const resourceAuthorityNames = new Set([
-  'DestinationTemplateSource.read',
-  'FileSystem.acquire',
+const filesystemOperationAuthorityNames = [
   'FileSystem.access',
   'FileSystem.accessSync',
   'FileSystem.createReadStream',
@@ -87,6 +85,17 @@ const resourceAuthorityNames = new Set([
   'FileSystem.Utf8Stream',
   'FileSystem.watch',
   'FileSystem.watchFile',
+] as const;
+const filesystemAcquisitionAuthorityNames = [
+  'FileSystem.acquire.*',
+  ...filesystemOperationAuthorityNames.map(authority => authority.replace('FileSystem.', 'FileSystem.acquire.')),
+] as const;
+const resourceAuthorityNames = new Set([
+  'DestinationTemplateSource.read',
+  // Keep the retired generic name in the filter so the exact graph catches any future collapse.
+  'FileSystem.acquire',
+  ...filesystemAcquisitionAuthorityNames,
+  ...filesystemOperationAuthorityNames,
   'GitIgnoreHelper.acquire',
   'GitIgnoreHelper.createGitIgnoreMatcher',
   'IgnoreLibrary.acquire',
@@ -195,21 +204,21 @@ const localBindingBarrelCases = [
     label: 'unused ESM filesystem alias acquired by Migrator from its named owner',
     sourcePath: migratorPath,
     source: "import { existingDestinationRead as unused } from './destination-template-source.js'; void unused;",
-    expected: 'FileSystem.acquire',
+    expected: 'FileSystem.acquire.readFile',
   },
   {
     label: 'unused dynamic filesystem alias from its named owner',
     sourcePath: join(localBindingFixtureRoot, 'local-fs-dynamic-consumer.ts'),
     source:
       "async function load() { const unused = await import('../migrator/destination-template-source.js'); return unused; } void load();",
-    expected: 'FileSystem.acquire',
+    expected: 'FileSystem.acquire.readFile',
   },
   {
     label: 'unused CommonJS filesystem alias from its named owner',
     sourcePath: join(localBindingFixtureRoot, 'local-fs-commonjs-consumer.ts'),
     source:
       "const { existingDestinationRead: unused } = require('../migrator/destination-template-source.js'); void unused;",
-    expected: 'FileSystem.acquire',
+    expected: 'FileSystem.acquire.readFile',
   },
   {
     label: 'unused ESM helper alias from Discover',
@@ -284,6 +293,7 @@ const filesystemLocalBarrelPath = join(localBindingFixtureRoot, 'filesystem-loca
 const filesystemAliasBarrelPath = join(localBindingFixtureRoot, 'filesystem-alias.barrel.ts');
 const filesystemNamespaceBarrelPath = join(localBindingFixtureRoot, 'filesystem-namespace.barrel.ts');
 const filesystemCallableExportEqualsPath = join(localBindingFixtureRoot, 'filesystem-callable-export-equals.ts');
+const filesystemMixedBarrelPath = join(localBindingFixtureRoot, 'filesystem-mixed.barrel.ts');
 const filesystemCycleAPath = join(localBindingFixtureRoot, 'filesystem-cycle-a.ts');
 const filesystemCycleBPath = join(localBindingFixtureRoot, 'filesystem-cycle-b.ts');
 const filesystemBarrelCases = [
@@ -291,47 +301,61 @@ const filesystemBarrelCases = [
     label: 'unused TypeScript import-equals filesystem barrel',
     sourcePath: join(localBindingFixtureRoot, 'filesystem-import-equals-unused.ts'),
     source: "import fs = require('./filesystem-import-equals.barrel.js'); void fs;",
-    expected: ['FileSystem.acquire'],
+    expected: ['FileSystem.acquire.*'],
   },
   {
     label: 'invoked TypeScript import-equals filesystem barrel',
     sourcePath: join(localBindingFixtureRoot, 'filesystem-import-equals-invoked.ts'),
     source:
       "import fs = require('./filesystem-import-equals.barrel.js'); void fs.readFileSync('/project/card.html', 'utf8');",
-    expected: ['FileSystem.acquire', 'FileSystem.readFileSync'],
+    expected: ['FileSystem.acquire.*', 'FileSystem.readFileSync'],
   },
   {
     label: 'ESM local import-then-export alias',
     sourcePath: join(localBindingFixtureRoot, 'filesystem-local-esm.ts'),
     source: "import { bytes } from './filesystem-local.barrel.js'; void bytes('/project/card.html', 'utf8');",
-    expected: ['FileSystem.acquire', 'FileSystem.readFileSync'],
+    expected: ['FileSystem.acquire.readFileSync', 'FileSystem.readFileSync'],
   },
   {
     label: 'dynamic multi-hop local import-then-export alias',
     sourcePath: join(localBindingFixtureRoot, 'filesystem-local-dynamic.ts'),
     source:
       "async function run() { const fs = await import('./filesystem-alias.barrel.js'); return fs.deepBytes('/project/card.html', 'utf8'); } void run();",
-    expected: ['FileSystem.acquire', 'FileSystem.readFileSync'],
+    expected: ['FileSystem.acquire.readFileSync', 'FileSystem.readFileSync'],
   },
   {
     label: 'ESM local namespace import-then-export alias',
     sourcePath: join(localBindingFixtureRoot, 'filesystem-local-namespace.ts'),
     source:
       "import { fileSystem } from './filesystem-namespace.barrel.js'; void fileSystem.readFileSync('/project/card.html', 'utf8');",
-    expected: ['FileSystem.acquire', 'FileSystem.readFileSync'],
+    expected: ['FileSystem.acquire.*', 'FileSystem.readFileSync'],
   },
   {
     label: 'TypeScript import-equals local callable export assignment',
     sourcePath: join(localBindingFixtureRoot, 'filesystem-local-callable.ts'),
     source: "import load = require('./filesystem-callable-export-equals.js'); void load('/project/card.html', 'utf8');",
-    expected: ['FileSystem.acquire', 'FileSystem.readFileSync'],
+    expected: ['FileSystem.acquire.readFileSync', 'FileSystem.readFileSync'],
   },
   {
     label: 'CommonJS cyclic local import-then-export alias',
     sourcePath: join(localBindingFixtureRoot, 'filesystem-local-commonjs.ts'),
     source:
       "const { cycledBytes: bytes } = require('./filesystem-cycle-a.js'); void bytes('/project/card.html', 'utf8');",
-    expected: ['FileSystem.acquire', 'FileSystem.readFileSync'],
+    expected: ['FileSystem.acquire.readFileSync', 'FileSystem.readFileSync'],
+  },
+  {
+    label: 'mixed allowed and forbidden named bindings through a local barrel',
+    sourcePath: join(localBindingFixtureRoot, 'filesystem-local-mixed.ts'),
+    source:
+      "import { topology, forbiddenBytes } from './filesystem-mixed.barrel.js'; void topology; void forbiddenBytes;",
+    expected: ['FileSystem.acquire.stat', 'FileSystem.acquire.readFileSync'],
+  },
+  {
+    label: 'computed nested CommonJS destructuring through a local namespace barrel',
+    sourcePath: join(localBindingFixtureRoot, 'filesystem-local-nested.ts'),
+    source:
+      "const { fileSystem: { ['readFileSync']: bytes } } = require('./filesystem-namespace.barrel.js'); const load = bytes; void load('/project/card.html', 'utf8');",
+    expected: ['FileSystem.acquire.readFileSync', 'FileSystem.readFileSync'],
   },
 ] as const;
 const filesystemBarrelOverrides = new Map([
@@ -343,6 +367,7 @@ const filesystemBarrelOverrides = new Map([
   ],
   [filesystemNamespaceBarrelPath, "import * as fs from 'node:fs'; export { fs as fileSystem };"],
   [filesystemCallableExportEqualsPath, "import { readFileSync as load } from 'node:fs'; export = load;"],
+  [filesystemMixedBarrelPath, "export { stat as topology, readFileSync as forbiddenBytes } from 'node:fs';"],
   [
     filesystemCycleAPath,
     "import { loopB } from './filesystem-cycle-b.js'; import { deepBytes as localBytes } from './filesystem-alias.barrel.js'; export { loopB as loopA }; export { localBytes as cycledBytes };",
@@ -645,6 +670,77 @@ describe('enterprise pipeline dependency boundary', { timeout: wholeProjectInspe
     expect(fixtureSemanticAuthorities(source)).toEqual(expect.arrayContaining(expected));
   });
 
+  test.each([
+    [
+      'mixed node:fs/promises named bindings',
+      "import { readFile, readdir, stat } from 'node:fs/promises'; void readFile; void readdir; void stat;",
+      ['FileSystem.acquire.readFile', 'FileSystem.acquire.readdir', 'FileSystem.acquire.stat'],
+    ],
+    [
+      'unused synchronous binding beside allowed node:fs bindings',
+      "import { readFileSync, readdirSync, statSync } from 'node:fs'; void readdirSync; void statSync;",
+      ['FileSystem.acquire.readFileSync', 'FileSystem.acquire.readdirSync', 'FileSystem.acquire.statSync'],
+    ],
+    [
+      'fs-extra named bindings',
+      "import { pathExists, readJsonSync } from 'fs-extra'; void pathExists; void readJsonSync;",
+      ['FileSystem.acquire.pathExists', 'FileSystem.acquire.readJsonSync'],
+    ],
+    ['node:fs namespace binding', "import * as fs from 'node:fs'; void fs;", ['FileSystem.acquire.*']],
+    ['fs-extra default binding', "import fs from 'fs-extra'; void fs;", ['FileSystem.acquire.*']],
+    ['node:fs import-equals binding', "import fs = require('node:fs'); void fs;", ['FileSystem.acquire.*']],
+    [
+      'dynamic nested destructuring and local invocation alias',
+      "async function run() { const { promises: { ['readFile']: bytes } } = await import('node:fs'); const load = bytes; return load('/project/card.html', 'utf8'); } void run();",
+      ['FileSystem.acquire.readFile', 'FileSystem.readFile'],
+    ],
+    [
+      'CommonJS nested destructuring and local invocation alias',
+      "const { promises: { readFile: bytes } } = require('node:fs'); const load = bytes; void Reflect.apply(load, undefined, ['/project/card.html', 'utf8']);",
+      ['FileSystem.acquire.readFile', 'FileSystem.readFile'],
+    ],
+    [
+      'computed CommonJS namespace member',
+      "const fs = require('node:fs/promises'); void fs['readFile']('/project/card.html', 'utf8');",
+      ['FileSystem.acquire.*', 'FileSystem.readFile'],
+    ],
+  ])('preserves concrete filesystem acquisition identity for %s', (_label, source, expected) => {
+    expect(fixtureSemanticAuthorities(source)).toEqual(expect.arrayContaining(expected));
+  });
+
+  test('changes Discover owner evidence for a forbidden binding in its allowed import declaration', () => {
+    const source = readFileSync(discoverStagePath, 'utf8').replace(
+      "import { readdir, stat } from 'node:fs/promises';",
+      "import { readFile, readdir, stat } from 'node:fs/promises';",
+    );
+    const acquisitions = inspectSemanticAuthorityCalls([discoverStagePath], new Map([[discoverStagePath, source]]))
+      .map(call => call.name)
+      .filter(name => name.startsWith('FileSystem.acquire.'));
+
+    expect(acquisitions).toEqual([
+      'FileSystem.acquire.readFile',
+      'FileSystem.acquire.readdir',
+      'FileSystem.acquire.stat',
+    ]);
+  });
+
+  test('changes Discover owner evidence for an unused synchronous byte-read binding', () => {
+    const source = `
+      import { readFileSync, readdirSync, statSync } from 'node:fs';
+      void readdirSync;
+      void statSync;
+    `;
+    const acquisitions = inspectSemanticAuthorityCalls([discoverStagePath], new Map([[discoverStagePath, source]]))
+      .map(call => call.name)
+      .filter(name => name.startsWith('FileSystem.acquire.'));
+
+    expect(acquisitions).toEqual([
+      'FileSystem.acquire.readFileSync',
+      'FileSystem.acquire.readdirSync',
+      'FileSystem.acquire.statSync',
+    ]);
+  });
+
   test.each(filesystemBarrelCases)('detects $label acquisition and invocation provenance', fixture => {
     expect(
       filesystemBarrelAuthorities()
@@ -752,12 +848,23 @@ describe('enterprise pipeline dependency boundary', { timeout: wholeProjectInspe
   );
 
   test.each([
-    "import { readFile as unused } from 'node:fs/promises'; void unused;",
-    "import * as unused from 'node:fs'; void unused;",
-    "async function load() { const unused = await import('node:fs/promises'); return unused; } void load();",
-    "const unused = require('fs-extra'); void unused;",
-  ])('detects an unused filesystem acquisition outside a named owner: %s', source => {
-    expect(fixtureSemanticAuthorities(source)).toContain('FileSystem.acquire');
+    ["import { readFile as unused } from 'node:fs/promises'; void unused;", 'FileSystem.acquire.readFile'],
+    ["import * as unused from 'node:fs'; void unused;", 'FileSystem.acquire.*'],
+    [
+      "async function load() { const unused = await import('node:fs/promises'); return unused; } void load();",
+      'FileSystem.acquire.*',
+    ],
+    ["const unused = require('fs-extra'); void unused;", 'FileSystem.acquire.*'],
+  ])('detects an unused filesystem acquisition outside a named owner: %s', (source, expected) => {
+    expect(fixtureSemanticAuthorities(source)).toContain(expected);
+  });
+
+  test('keeps a type-only filesystem binding out of mixed runtime acquisition evidence', () => {
+    const source = "import { stat, type readFile } from 'node:fs/promises'; void stat; type Read = typeof readFile;";
+
+    expect(fixtureSemanticAuthorities(source).filter(name => name.startsWith('FileSystem.acquire.'))).toEqual([
+      'FileSystem.acquire.stat',
+    ]);
   });
 
   test('rejects even one extra direct filesystem read and acquisition in Migrator', () => {
@@ -768,11 +875,12 @@ describe('enterprise pipeline dependency boundary', { timeout: wholeProjectInspe
     `;
     const calls = inspectSemanticAuthorityCalls(productionPaths, new Map([[migratorPath, source]])).filter(
       call =>
-        call.sourcePath === migratorPath && (call.name === 'FileSystem.readFile' || call.name === 'FileSystem.acquire'),
+        call.sourcePath === migratorPath &&
+        (call.name === 'FileSystem.readFile' || call.name === 'FileSystem.acquire.readFile'),
     );
 
     expect(calls).toEqual([
-      { sourcePath: migratorPath, name: 'FileSystem.acquire' },
+      { sourcePath: migratorPath, name: 'FileSystem.acquire.readFile' },
       { sourcePath: migratorPath, name: 'FileSystem.readFile' },
     ]);
   });
@@ -794,34 +902,40 @@ describe('enterprise pipeline dependency boundary', { timeout: wholeProjectInspe
 
   test('keeps direct filesystem and ignore authorities at their named production owners', () => {
     expect(normalizedAuthoritySources(productionSemanticAuthorities(), resourceAuthorityNames)).toEqual([
-      { source: 'cli/stylesheet-path.validator.ts', authority: 'FileSystem.acquire' },
+      { source: 'cli/stylesheet-path.validator.ts', authority: 'FileSystem.acquire.lstat' },
       { source: 'cli/stylesheet-path.validator.ts', authority: 'FileSystem.lstat' },
-      { source: 'lib/atomic-file.writer.ts', authority: 'FileSystem.acquire' },
-      { source: 'lib/gitignore.helper.ts', authority: 'FileSystem.acquire' },
+      { source: 'lib/atomic-file.writer.ts', authority: 'FileSystem.acquire.lstat' },
+      { source: 'lib/atomic-file.writer.ts', authority: 'FileSystem.acquire.open' },
+      { source: 'lib/gitignore.helper.ts', authority: 'FileSystem.acquire.*' },
       { source: 'lib/gitignore.helper.ts', authority: 'FileSystem.pathExists' },
       { source: 'lib/gitignore.helper.ts', authority: 'FileSystem.readFile' },
       { source: 'lib/gitignore.helper.ts', authority: 'IgnoreLibrary.acquire' },
       { source: 'lib/gitignore.helper.ts', authority: 'IgnoreLibrary.createMatcher' },
       { source: 'migrator/analyzed-file.migrator.ts', authority: 'DestinationTemplateSource.read' },
-      { source: 'migrator/destination-template-source.ts', authority: 'FileSystem.acquire' },
+      { source: 'migrator/destination-template-source.ts', authority: 'FileSystem.acquire.readFile' },
       { source: 'migrator/destination-template-source.ts', authority: 'FileSystem.readFile' },
-      { source: 'migrator/migration-path.validator.ts', authority: 'FileSystem.acquire' },
+      { source: 'migrator/migration-path.validator.ts', authority: 'FileSystem.acquire.lstat' },
+      { source: 'migrator/migration-path.validator.ts', authority: 'FileSystem.acquire.stat' },
       { source: 'migrator/migration-path.validator.ts', authority: 'FileSystem.lstat' },
       { source: 'migrator/migration-path.validator.ts', authority: 'FileSystem.stat' },
       { source: 'migrator/migrator.ts', authority: 'DestinationTemplateSource.read' },
-      { source: 'migrator/stylesheet.planner.ts', authority: 'FileSystem.acquire' },
+      { source: 'migrator/stylesheet.planner.ts', authority: 'FileSystem.acquire.lstat' },
+      { source: 'migrator/stylesheet.planner.ts', authority: 'FileSystem.acquire.readFile' },
       { source: 'migrator/stylesheet.planner.ts', authority: 'FileSystem.readFile' },
-      { source: 'pipeline/analyze/analyze-project.stage.ts', authority: 'FileSystem.acquire' },
+      { source: 'pipeline/analyze/analyze-project.stage.ts', authority: 'FileSystem.acquire.readFile' },
       { source: 'pipeline/analyze/analyze-project.stage.ts', authority: 'FileSystem.readFile' },
-      { source: 'pipeline/discover/discover-project.stage.ts', authority: 'FileSystem.acquire' },
+      { source: 'pipeline/discover/discover-project.stage.ts', authority: 'FileSystem.acquire.readdir' },
+      { source: 'pipeline/discover/discover-project.stage.ts', authority: 'FileSystem.acquire.stat' },
       { source: 'pipeline/discover/discover-project.stage.ts', authority: 'FileSystem.readdir' },
       { source: 'pipeline/discover/discover-project.stage.ts', authority: 'FileSystem.stat' },
       {
         source: 'pipeline/discover/discover-project.stage.ts',
         authority: 'GitIgnoreHelper.acquire',
       },
-      { source: 'transaction/migration-transaction.ts', authority: 'FileSystem.acquire' },
-      { source: 'transaction/migration-transaction.ts', authority: 'FileSystem.acquire' },
+      { source: 'transaction/migration-transaction.ts', authority: 'FileSystem.acquire.access' },
+      { source: 'transaction/migration-transaction.ts', authority: 'FileSystem.acquire.lstat' },
+      { source: 'transaction/migration-transaction.ts', authority: 'FileSystem.acquire.open' },
+      { source: 'transaction/migration-transaction.ts', authority: 'FileSystem.acquire.stat' },
       { source: 'transaction/migration-transaction.ts', authority: 'FileSystem.open' },
     ]);
   });
