@@ -30,6 +30,7 @@ describe('Flex-Layout catalog', () => {
       'gdColumns',
       'gdGap',
       'gdGridAlign',
+      'gdInline',
       'gdRow',
       'gdRows',
       'class',

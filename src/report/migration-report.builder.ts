@@ -3,25 +3,32 @@ import type { ConversionResult } from '../analyzer/conversion-result';
 import type { LocatedFlexLayoutInput } from '../analyzer/flex-layout-attribute.analyzer';
 import type { FileMigrationResult } from '../migrator/file-migration-result';
 import { compareCodeUnits } from '../util/compare-code-units';
-import type { FileReport, MigrationReport, MigrationSummary, ReportResult } from './migration-report';
+import type { FileReport, MigrationReport, MigrationSummary, ReportResult, StylesheetReport } from './migration-report';
 
 type PathApi = typeof path.posix;
+
+export interface StylesheetMigrationResult {
+  readonly path: string;
+  readonly change: StylesheetReport['change'];
+}
 
 export class MigrationReportBuilder {
   public build(
     inputRoot: string,
     outputRoot: string,
-    target: 'tailwind',
+    target: 'css' | 'tailwind',
     dryRun: boolean,
     durationMs: number,
     files: readonly FileMigrationResult[],
+    stylesheet?: StylesheetMigrationResult,
   ): MigrationReport {
-    const pathApi = this.pathApi(inputRoot, ...files.map(file => file.inputPath));
+    const pathApi = this.pathApi(inputRoot, stylesheet?.path ?? '', ...files.map(file => file.inputPath));
     const singleFile = files.length === 1 && this.samePath(pathApi, inputRoot, files[0]?.inputPath ?? '');
     const fileReports = files
       .map(file => this.fileReport(pathApi, inputRoot, singleFile, file))
       .sort((left, right) => compareCodeUnits(left.path, right.path));
     const reportPaths = this.reportPaths(pathApi, inputRoot, outputRoot, singleFile);
+    const summary = this.summary(fileReports);
 
     return {
       schemaVersion: 1,
@@ -30,9 +37,28 @@ export class MigrationReportBuilder {
       input: reportPaths.input,
       output: reportPaths.output,
       durationMs: Math.trunc(durationMs),
-      summary: this.summary(fileReports),
+      summary,
       files: fileReports,
+      ...(summary.parseErrors > 0
+        ? { application: { status: 'skipped' as const, reason: 'parse-errors' as const } }
+        : {}),
+      ...(target === 'css' && stylesheet
+        ? { stylesheet: this.stylesheetReport(pathApi, inputRoot, singleFile, stylesheet) }
+        : {}),
     };
+  }
+
+  private stylesheetReport(
+    pathApi: PathApi,
+    inputRoot: string,
+    singleFile: boolean,
+    stylesheet: StylesheetMigrationResult,
+  ): StylesheetReport {
+    const base = pathApi.resolve(singleFile ? pathApi.dirname(inputRoot) : inputRoot);
+    const relativePath = pathApi.relative(base, stylesheet.path);
+    const displayPath = pathApi.isAbsolute(relativePath) ? pathApi.basename(stylesheet.path) : relativePath;
+
+    return { path: this.forwardSlashes(pathApi, displayPath), change: stylesheet.change };
   }
 
   private pathApi(...values: readonly string[]): PathApi {

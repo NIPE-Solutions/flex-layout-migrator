@@ -1,4 +1,4 @@
-import { planLayoutAlign } from './layout-align.strategy';
+import { planLayoutAlign, renderLayoutAlignment } from './layout-align.strategy';
 
 describe('planLayoutAlign', () => {
   test.each([
@@ -21,5 +21,35 @@ describe('planLayoutAlign', () => {
     ['center', 'diagonal'],
   ])('rejects invalid alignment %j or layout context %j', (value, layout) => {
     expect(planLayoutAlign(value, layout)).toEqual({ ok: false });
+  });
+});
+
+describe('renderLayoutAlignment', () => {
+  test('renders semantic alignment without reinterpreting its source values', () => {
+    expect(
+      renderLayoutAlignment({
+        main: 'space-between',
+        items: 'stretch',
+        content: 'space-around',
+        stretchMaximum: 'width',
+        layout: {
+          direction: 'column',
+          wrap: 'nowrap',
+          explicitWrap: false,
+          display: 'flex',
+          boxSizing: 'border-box',
+        },
+      }),
+    ).toEqual({
+      classNames: [
+        'justify-between',
+        'items-stretch',
+        'content-around',
+        'flex',
+        'flex-col',
+        'box-border',
+        'max-w-full',
+      ],
+    });
   });
 });

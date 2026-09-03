@@ -4,17 +4,66 @@ import { SourceEditor } from '../edit/source-editor';
 import { AngularTemplateParser } from '../template/angular-template.parser';
 import { ConversionPlanner } from './conversion-planner';
 
-function migrate(source: string) {
+function migrate(source: string, options: { responsiveImages: boolean } = { responsiveImages: false }) {
   const parsed = new AngularTemplateParser().parse(source, 'fixture.html');
   if (parsed.status !== 'parsed') throw new Error('Expected fixture to parse');
   const inputs = new TemplateAnalyzer().analyze('fixture.html', parsed.elements);
-  const plan = new ConversionPlanner().plan(source, parsed.elements, inputs, new TailwindAdapter());
+  const plan = new ConversionPlanner().plan(source, parsed.elements, inputs, new TailwindAdapter(), options);
   const edited = new SourceEditor().apply(source, plan.edits);
   if (edited.status !== 'applied') throw new Error('Expected edits to be valid');
   return { ...plan, output: edited.output };
 }
 
 describe('ConversionPlanner', () => {
+  test('composes same-image class edits into one responsive image replacement', () => {
+    const result = migrate('<img class="hero" fxHide src.sm="small.png" src="base.png">', {
+      responsiveImages: true,
+    });
+
+    expect(result.output).toBe(
+      '<picture><source media="screen and (min-width: 600px) and (max-width: 959.98px)" srcset="small.png"><img class="hero hidden" src="base.png"></picture>',
+    );
+    expect(result.edits).toHaveLength(1);
+    expect(result.results.every(item => item.status === 'converted')).toBe(true);
+  });
+
+  test('keeps responsive image and sibling edits disjoint', () => {
+    const result = migrate('<img src.md="medium.png"><div fxLayout="row"></div>', { responsiveImages: true });
+
+    expect(result.output).toBe(
+      '<picture><source media="screen and (min-width: 960px) and (max-width: 1279.98px)" srcset="medium.png"><img></picture><div class="flex flex-row box-border"></div>',
+    );
+    expect(result.edits).toHaveLength(3);
+  });
+
+  test('preserves the image family when a same-image class conversion is unresolved', () => {
+    const source = '<img [class]="classes" fxHide src.sm="small.png">';
+    const result = migrate(source, { responsiveImages: true });
+
+    expect(result.output).toBe(source);
+    expect(result.edits).toEqual([]);
+    expect(result.results).toEqual([
+      expect.objectContaining({ input: expect.objectContaining({ sourceName: 'fxHide' }), status: 'review' }),
+      expect.objectContaining({ input: expect.objectContaining({ sourceName: 'src.sm' }), status: 'review' }),
+    ]);
+  });
+
+  test.each([
+    ['disabled migration', '<img fxHide src.sm="small.png">', false],
+    ['dynamic source', '<img fxHide [src.sm]="smallImage">', true],
+    ['unsafe source', '<img fxHide src.sm="small.png 2x">', true],
+  ] as const)('keeps unrelated same-image conversions when image migration is %s', (_label, source, enabled) => {
+    const result = migrate(source, { responsiveImages: enabled });
+
+    expect(result.output).toContain('class="hidden"');
+    expect(result.output).toContain(
+      enabled ? source.match(/(?:\[src\.sm\]|src\.sm)="[^"]+"/u)?.[0] : 'src.sm="small.png"',
+    );
+    expect(result.results).toContainEqual(
+      expect.objectContaining({ status: 'converted', input: expect.objectContaining({ directive: 'fxHide' }) }),
+    );
+  });
+
   test('removes a converted input and merges classes into a literal class attribute', () => {
     const result = migrate('<div class="card" fxLayout="row"></div>');
 
@@ -1085,6 +1134,36 @@ describe('ConversionPlanner', () => {
     if (parsed.status !== 'parsed') throw new Error('Expected edited class attribute to parse.');
     expect(parsed.elements[0]?.attributes.filter(attribute => attribute.name === 'class')).toHaveLength(1);
     expect(migrate(first.output)).toMatchObject({ output: expected, edits: [], results: [] });
+  });
+
+  test.each([
+    [
+      'new class attribute',
+      '<div gdAreas="header header | nav main"></div>',
+      `<div class="grid [grid-template-areas:'header_header'_'nav_main']"></div>`,
+    ],
+    [
+      'single-quoted existing class attribute',
+      `<div class='card' gdAreas="header | main"></div>`,
+      `<div class="card grid [grid-template-areas:'header'_'main']"></div>`,
+    ],
+  ])('writes quoted Grid area candidates through a safe %s', (_case, source, expected) => {
+    const first = migrate(source);
+
+    expect(first.output).toBe(expected);
+    expect(first.results.every(result => result.status === 'converted')).toBe(true);
+    expect(migrate(first.output)).toMatchObject({ output: expected, edits: [], results: [] });
+  });
+
+  test('preserves a Grid child when its parent Grid container is unresolved', () => {
+    const source = '<section [gdColumns]="columns"><div gdColumn="1"></div></section>';
+    const result = migrate(source);
+
+    expect(result.output).toBe(source);
+    expect(result.results).toEqual([
+      expect.objectContaining({ status: 'review', code: 'dynamic-binding' }),
+      expect.objectContaining({ status: 'review', code: 'context-unverified' }),
+    ]);
   });
 
   test('removes a responsive class family whose literal unsuffixed fallback has the exact same value', () => {

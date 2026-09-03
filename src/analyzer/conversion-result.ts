@@ -34,7 +34,7 @@ export interface UnresolvedResult {
 export interface ParseErrorResult {
   readonly status: 'parse-error';
   readonly fileName: string;
-  readonly code: 'template-parse-error';
+  readonly code: 'template-parse-error' | 'generated-template-parse-error';
   readonly reason: string;
   readonly source: SourceRange;
 }

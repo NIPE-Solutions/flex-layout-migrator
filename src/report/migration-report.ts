@@ -1,12 +1,24 @@
 export interface MigrationReport {
   readonly schemaVersion: 1;
-  readonly target: 'tailwind';
+  readonly target: 'css' | 'tailwind';
   readonly dryRun: boolean;
   readonly input: string;
   readonly output: string;
   readonly durationMs: number;
   readonly summary: MigrationSummary;
   readonly files: readonly FileReport[];
+  readonly stylesheet?: StylesheetReport;
+  readonly application?: SkippedApplicationReport;
+}
+
+export interface SkippedApplicationReport {
+  readonly status: 'skipped';
+  readonly reason: 'parse-errors';
+}
+
+export interface StylesheetReport {
+  readonly path: string;
+  readonly change: 'created' | 'updated' | 'removed' | 'unchanged';
 }
 
 export interface MigrationSummary {
@@ -44,6 +56,6 @@ export type ReportResult =
   | {
       readonly status: 'parse-error';
       readonly offset: number;
-      readonly code: 'template-parse-error';
+      readonly code: 'template-parse-error' | 'generated-template-parse-error';
       readonly reason: string;
     };

@@ -11,3 +11,8 @@ test/fixtures/compatibility/visibility.input.html
 test/fixtures/compatibility/visibility.expected.html
 test/fixtures/compatibility/extended-responsive.input.html
 test/fixtures/compatibility/extended-responsive.expected.html
+test/fixtures/compatibility/responsive-image.input.html
+test/fixtures/compatibility/responsive-image.expected.html
+# Byte-exact generated-output goldens; formatting would change the asserted bytes.
+test/fixtures/compatibility/native-css.expected.html
+test/fixtures/compatibility/native-css.expected.css

@@ -18,7 +18,10 @@ export interface TemplateAttribute {
 export interface TemplateElement {
   readonly id: string;
   readonly name: string;
+  readonly source: SourceRange;
   readonly startTag: SourceRange;
+  readonly endTag?: SourceRange;
+  readonly structural: boolean;
   readonly attributes: readonly TemplateAttribute[];
   readonly parentId?: string;
 }

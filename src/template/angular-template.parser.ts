@@ -4,6 +4,7 @@ import {
   TmplAstBoundAttribute,
   TmplAstElement,
   TmplAstRecursiveVisitor,
+  TmplAstTemplate,
   TmplAstTextAttribute,
   tmplAstVisitAll,
 } from '@angular/compiler';
@@ -67,6 +68,7 @@ function boundTarget(type: BindingType): NonNullable<TemplateAttribute['bindingT
 class ElementCollector extends TmplAstRecursiveVisitor {
   readonly elements: TemplateElement[] = [];
   private readonly parents: string[] = [];
+  private readonly structuralElements = new Set<number>();
 
   constructor(private readonly source: string) {
     super();
@@ -82,7 +84,12 @@ class ElementCollector extends TmplAstRecursiveVisitor {
     this.elements.push({
       id,
       name: element.name,
+      source: range(element.sourceSpan.start.offset, element.sourceSpan.end.offset),
       startTag: range(element.startSourceSpan.start.offset, element.startSourceSpan.end.offset),
+      ...(element.endSourceSpan && element.endSourceSpan.start.offset !== element.startSourceSpan.start.offset
+        ? { endTag: range(element.endSourceSpan.start.offset, element.endSourceSpan.end.offset) }
+        : {}),
+      structural: this.structuralElements.has(element.sourceSpan.start.offset),
       attributes,
       ...(this.parents.at(-1) ? { parentId: this.parents.at(-1) } : {}),
     });
@@ -90,6 +97,27 @@ class ElementCollector extends TmplAstRecursiveVisitor {
     this.parents.push(id);
     super.visitElement(element);
     this.parents.pop();
+  }
+
+  override visitTemplate(template: TmplAstTemplate): void {
+    const structuralElement =
+      template.tagName === null
+        ? undefined
+        : template.children.find(
+            child =>
+              child instanceof TmplAstElement &&
+              child.name === template.tagName &&
+              child.sourceSpan.start.offset === template.sourceSpan.start.offset &&
+              child.sourceSpan.end.offset === template.sourceSpan.end.offset,
+          );
+
+    if (structuralElement) {
+      this.structuralElements.add(structuralElement.sourceSpan.start.offset);
+    }
+    super.visitTemplate(template);
+    if (structuralElement) {
+      this.structuralElements.delete(structuralElement.sourceSpan.start.offset);
+    }
   }
 }
 

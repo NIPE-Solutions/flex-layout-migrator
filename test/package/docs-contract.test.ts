@@ -31,6 +31,24 @@ function expectInOrder(source: string, markers: string[]): void {
   }
 }
 
+function expectCurrentBetaBoundaries(readme: string): void {
+  expect(readme).toContain('writes changed templates in place when neither `--dry-run` nor `--output` is supplied');
+  expect(readme).toContain('Tailwind CSS v4 remains the default target');
+  expect(readme).toContain('native CSS target is available with `--target css --stylesheet <path>`');
+  expect(readme).toContain('exactly eight Flex semantic families');
+  expect(readme).toContain(
+    'Grid, visibility, responsive class/style, orientation, print, and custom aliases remain preserved for CSS',
+  );
+  expect(readme).toContain('Responsive `imgSrc` remains an independent opt-in native `<picture>` migration');
+  expect(readme).toContain('--responsive-images');
+  expect(readme).toContain('former parent');
+  expect(readme).toContain('Orientation and print conversion require explicit source-configuration evidence');
+  expect(readme).toContain('--orientation-breakpoints');
+  expect(readme).toContain('--print-with-breakpoints');
+  expect(readme).toContain('adaptive plan-by-default workflow is a later CLI improvement');
+  expect(readme).toContain('unconfirmed recovery');
+}
+
 describe('maintainer documentation', () => {
   it('provides contribution, security, support, and governance files', async () => {
     const required = [
@@ -72,7 +90,7 @@ describe('maintainer documentation', () => {
     const contributingRelease = sectionAfter(contributing, '## Releasing a beta');
     const architectureRelease = sectionAfter(releaseProcess, '## Repository automation');
 
-    expect(readme).toContain('npm install --save-dev @nipe-solutions/flex-layout-codemod@beta');
+    expect(readme).toContain('npm install --save-dev --save-exact @nipe-solutions/flex-layout-codemod@beta');
     expect(readme).toContain('docs/architecture/release-process.md');
 
     const exactTrustInputs = [
@@ -148,6 +166,49 @@ describe('maintainer documentation', () => {
     expect(releaseProcess).toContain('computes SHA-512 SRI from the generated tarball bytes');
     expect(releaseProcess).toContain('smoke-installs and executes that exact tarball');
     expect(releaseProcess).toContain('rehashes the retained tarball immediately before staging');
+  });
+
+  it('documents a safe and reproducible beta onboarding path', async () => {
+    const readme = await readRepositoryFile('README.md');
+
+    expectInOrder(readme, [
+      'npx @nipe-solutions/flex-layout-codemod@beta ./src --dry-run',
+      'npm install --save-dev --save-exact @nipe-solutions/flex-layout-codemod@beta',
+      'npx flex-layout-codemod ./src --dry-run',
+      'npx flex-layout-codemod ./src --target tailwind',
+      'npx flex-layout-codemod ./src --target css --stylesheet ./src/flex-layout-migration.css',
+    ]);
+    expect(readme).toContain('docs/compatibility.md');
+    expect(readme).toContain('--report ./reports/flex-layout.json');
+    expect(readme).toContain('--allow-unresolved');
+    expect(readme).not.toContain('npm install -g');
+    expect(readme).not.toContain('production-ready conversion coverage');
+  });
+
+  it('documents the current beta safety boundaries', async () => {
+    const readme = await readRepositoryFile('README.md');
+
+    expectCurrentBetaBoundaries(readme);
+  });
+
+  it('rejects a paraphrased false-current-capability claim that the former blacklist misses', async () => {
+    const readme = await readRepositoryFile('README.md');
+    const falseCurrentCapability = readme.replace(
+      'Tailwind CSS v4 remains the default target. A native CSS target is available with `--target css --stylesheet <path>` for exactly eight Flex semantic families at base and the 13 standard viewport aliases. Grid, visibility, responsive class/style, orientation, print, and custom aliases remain preserved for CSS. Responsive `imgSrc` remains an independent opt-in native `<picture>` migration.',
+      'This beta has native CSS and Tailwind CSS targets. Grid directives, responsive `imgSrc`, orientation, print, and custom breakpoint aliases convert directly.',
+    );
+
+    for (const unavailableClaim of [
+      /CSS target is available with no limitations/u,
+      /Grid conversion is available/u,
+      /orientation conversion is available/u,
+      /print conversion is available/u,
+      /imgSrc conversion is available/u,
+    ]) {
+      expect(falseCurrentCapability).not.toMatch(unavailableClaim);
+    }
+
+    expect(() => expectCurrentBetaBoundaries(falseCurrentCapability)).toThrow();
   });
 
   it('requires byte-for-byte staged artifact verification before approval and finalization', async () => {

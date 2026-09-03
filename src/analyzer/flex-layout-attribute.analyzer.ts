@@ -31,6 +31,17 @@ export function analyzeFlexLayoutAttribute(sourceName: string, value: string): F
 
   const binding: BindingKind = startsWithBracket ? 'property' : 'literal';
   const normalizedName = startsWithBracket ? sourceName.slice(1, -1) : sourceName;
+
+  if (normalizedName.startsWith('src.')) {
+    return {
+      sourceName,
+      value,
+      directive: 'imgSrc',
+      breakpoint: normalizedName.slice('src.'.length),
+      binding,
+    };
+  }
+
   const directive = directivesByLength.find(
     candidate => normalizedName === candidate || normalizedName.startsWith(`${candidate}.`),
   );

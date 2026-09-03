@@ -1,90 +1,159 @@
 # Angular Flex-Layout Codemod
 
-A safety-first codemod for migrating projects away from the archived Angular Flex-Layout library.
+Version 2 remains a prerelease. This beta migrates supported Angular Flex-Layout template attributes to Tailwind CSS v4 utilities. It uses the Angular compiler and source-range edits, preserving unrelated template text, comments, interpolation, control flow, and line endings.
 
-Version 2 remains a prerelease under active development. It does not claim production-ready conversion coverage. See the [compatibility reference](docs/compatibility.md) for the current directive-by-directive status and safety limitations.
+## Why this exists
 
-Install a published v2 beta as a development dependency with `npm install --save-dev @nipe-solutions/flex-layout-codemod@beta`. Maintainers should follow the reviewed [release process](docs/architecture/release-process.md); merging a version pull request does not publish the package.
+Angular Flex-Layout is archived. Replacing it safely requires more than substituting class names: responsive aliases, display restoration, existing classes, inline styles, and runtime bindings can change the result. This codemod converts only cases it can represent exactly and leaves the rest in place with diagnostics for review.
 
-## Current scope
+## Compatibility at a glance
 
-The v2 engine parses templates with the Angular compiler and applies validated source-range edits. It preserves comments, control-flow syntax, interpolation, line endings, and all unrelated source text instead of serializing the template as generic HTML.
+Tailwind CSS v4 remains the default target. A native CSS target is available with `--target css --stylesheet <path>` for exactly eight Flex semantic families at base and the 13 standard viewport aliases. Grid, visibility, responsive class/style, orientation, print, and custom aliases remain preserved for CSS. Conversion is deliberately limited: dynamic bindings, ambiguous responsive precedence, unsafe class or style ownership, and unsupported directives are preserved for review.
 
-The current prerelease converts documented static inputs and literal responsive inputs using the standard Angular Flex-Layout viewport aliases (`xs` through `xl`, `lt-*`, and `gt-*`) to exact Tailwind CSS v4 arbitrary media variants. For example, `fxLayout.sm="row"` becomes `[@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:flex-row` alongside the other layout utilities. Dynamic bindings, orientation, print, and custom breakpoints, unsupported directives, and responsive families with conflicting overlapping values remain unchanged with structured review results. Ambiguous behavior is never approximated silently.
+The complete directive-by-directive status, including grid, image, breakpoint, and class/style boundaries, is in [docs/compatibility.md](docs/compatibility.md). Treat that reference as the beta’s compatibility contract.
 
-Literal responsive `ngClass.<alias>` and `ngStyle.<alias>` values use the same 13-alias boundary. Class values are split with Angular `NgClass`'s ECMAScript-whitespace rule and convert only when every token is in the compiler-proven built-in Tailwind CSS v4 surface, retains the host element as its CSS target, and can be emitted byte-for-byte for Tailwind's raw template scanner. Style declarations convert to arbitrary-property utilities only when Flex-Layout's quote removal, semicolon splitting, exact-key application order, Angular unit handling, CSS priority, fallback ownership, and responsive precedence can be represented exactly. Distinct exact ordinary keys that apply to the same CSS property, including `font-size` and `font-size.px`, are preserved because their result can depend on `NgStyle` activation history. Unsuffixed `ngClass` and `ngStyle` siblings are treated as replaceable fallback authorities rather than silently left as always-active values.
+## Quick start
+
+Evaluate the published beta without installing it. This safely previews the migration and does not write templates:
+
+```bash
+npx @nipe-solutions/flex-layout-codemod@beta ./src --dry-run
+```
+
+Read the terminal summary and diagnostics before applying any migration. A clean Git worktree makes the resulting template diff easy to inspect.
+
+## Install for a team or CI
+
+Install the beta as an exact development dependency. `--save-exact` records the prerelease resolved from the `beta` tag, so the package manifest and lockfile keep the team on that reviewed version:
+
+```bash
+npm install --save-dev --save-exact @nipe-solutions/flex-layout-codemod@beta
+```
+
+Use `npm ci` in CI to install the committed lockfile. The package exposes the `flex-layout-codemod` executable through the local npm binary path; no global installation is required.
+
+## Preview, review, and apply
+
+Preview the local dependency and write a JSON report for review:
+
+```bash
+npx flex-layout-codemod ./src --dry-run --report ./reports/flex-layout.json
+```
+
+`--dry-run` validates the planned edits in memory and does not write template output or a companion stylesheet. `--report` is intentional reporting output and is written even during a dry run.
+
+If any template has a parse error, project application is skipped for the whole invocation. Terminal output labels the remaining edits as planned, and a requested JSON report includes `application: { "status": "skipped", "reason": "parse-errors" }`; neither output presents the planned template or stylesheet actions as applied writes.
+
+After reviewing the report and committing or branching your work, apply the migration in place:
+
+```bash
+npx flex-layout-codemod ./src --target tailwind
+```
+
+The current beta writes changed templates in place when neither `--dry-run` nor `--output` is supplied. To write migrated templates to a different location, add `--output ./migrated-src`. Review the Git diff before accepting the changes. If an in-place run is unwanted, inspect `git diff` before taking further action, then restore only the intended files deliberately through your normal Git workflow from a clean worktree or committed branch.
+
+The current commands still write after review unless `--dry-run` is supplied; an adaptive plan-by-default workflow is a later CLI improvement.
+
+### Native CSS companion stylesheet
+
+Use the native CSS target when the documented Flex-only surface is appropriate:
+
+```bash
+npx flex-layout-codemod ./src --target css --stylesheet ./src/flex-layout-migration.css
+```
+
+The migration updates templates and the one named companion stylesheet as a transaction. It owns only the marked `flex-layout-codemod` block, preserves handwritten CSS surrounding that block, retains unmatched owned rules because the stylesheet may serve templates outside the selected invocation, and keeps shared rules deduplicated across files. The current CLI has no complete-project pruning mode. On ordinary failures or handled interruption it rolls the changed templates and stylesheet back together.
+
+The stylesheet path may use any filename accepted as a regular file. If it ends in `.html` and is inside a folder input, that exact selected path is excluded from template discovery so reruns remain byte-idempotent. Stylesheet, template, and JSON-report destinations must remain physically distinct; existing file identity and conservative case/Unicode-normalized aliases for missing paths are checked before application and again before report replacement.
+
+No filesystem workflow can promise durable rollback after abrupt process termination, power loss, or a storage failure. If the command reports unconfirmed recovery, stop and inspect the listed paths, reconcile them with Git or a verified backup, then rerun only after the project is consistent.
+
+## Examples
+
+This converted example is the same static layout and gap case exercised by the migration fixtures:
 
 ```html
 <!-- input -->
-<div ngClass.sm="flex items-center"></div>
-<div ngStyle.lt-md="font-size.px: 14; color: #334155"></div>
+<div fxLayout="column" fxLayoutGap="4"></div>
 
 <!-- output -->
-<div
-  class="[@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:flex [@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:items-center"
-></div>
-<div
-  class="[@media_screen_and_(max-width:_959.98px)]:[font-size:14px] [@media_screen_and_(max-width:_959.98px)]:[color:#334155]"
-></div>
+<div class="flex flex-col box-border gap-[4px]"></div>
 ```
 
-Application classes, project plugin utilities, custom-theme-dependent candidates such as `bg-brand-500`, unsafe style values, bindings, interpolation, and deprecated `class.<alias>` or `style.<alias>` selectors remain in place with review diagnostics. The current mode does not inspect project styles or Tailwind configuration and does not generate a companion stylesheet.
-
-Existing literal classes use a broader conservative ownership check than generated-candidate admission. Compiler-modeled Tailwind utilities contribute every stable declaration they emit, including inferred arbitrary text sizes, directional border style/width pairs, and shadow color custom properties. A recognized pinned Tailwind utility whose complete property set is not modeled is treated as an unknown CSS authority and blocks an intersecting conversion instead of being silently ignored; ordinary application classes such as `card` remain additive.
-
-Literal `fxShow` and `fxHide` inputs are converted when the element's complete display behavior is provable. The conversion follows Angular Flex-Layout coercion: `fxShow="false"` hides, `fxHide="false"` shows, and other literal strings, including `"0"`, are truthy before `fxHide` inversion. Literal values use Angular-decoded text, so an entity-spelled value such as `fals&#101;` has the same semantics as `false`. Hiding uses `hidden`; a responsive shown state after base hiding restores only a display value proven by a converted `fxLayout` or one unambiguous base Tailwind display utility.
+Literal Grid containers and children use compiler-verified arbitrary properties when no exact built-in utility exists:
 
 ```html
 <!-- input -->
-<div fxLayout="column" fxShow="false" fxShow.sm></div>
+<section gdColumns="12rem 1fr" gdGap="1rem"><div gdColumn="2"></div></section>
 
 <!-- output -->
-<div
-  class="flex flex-col box-border hidden [@media_screen_and_(min-width:_600px)_and_(max-width:_959.98px)]:flex"
-></div>
+<section class="grid [grid-template-columns:12rem_1fr] [grid-gap:1rem]"><div class="[grid-column:2]"></div></section>
 ```
 
-The complete visibility family is preserved when it contains a binding or interpolation, an orientation, print, or custom alias, conflicting overlapping states, an unverified restoration display, a partially overlapping responsive layout display without safe ownership, or an unsafe class/style interaction. A literal or bound style that can control `display` always blocks conversion. An unresolved responsive class or style authority also preserves related visibility output when it may control `display`. A bound class blocks a family that needs generated classes, but does not block an all-shown no-op whose attributes can simply be removed. See the [compatibility reference](docs/compatibility.md) and [visibility architecture](docs/architecture/visibility-semantics.md) for the exact boundary.
-
-## CLI workflow
-
-Run the codemod for one Angular template or a directory:
+Orientation and print conversion require explicit source-configuration evidence. These flags assert settings you have already verified in the Angular application's Flex-Layout configuration; the codemod does not discover them:
 
 ```bash
-flex-layout-codemod ./src --target tailwind --output ./migrated-src
+# Source uses addOrientationBps: true and printWithBreakpoints: ['md', 'handset']
+npx flex-layout-codemod ./src --orientation-breakpoints --print-with-breakpoints md,handset
+
+# Source explicitly uses printWithBreakpoints: []
+npx flex-layout-codemod ./src --print-with-breakpoints none
 ```
 
-Preview the same migration plan without writing templates, while also creating a JSON report:
+With orientation enabled, all nine archived aliases are available: `handset`, `handset.portrait`, `handset.landscape`, `tablet`, `tablet.portrait`, `tablet.landscape`, `web`, `web.portrait`, and `web.landscape`. Print conversion reproduces configured responsive fallback values, while an explicit `.print` value takes precedence.
+
+Responsive image migration is a separate opt-in because introducing `<picture>` changes the image's parent and may affect CSS or test selectors. After reviewing that risk, enable literal standard-breakpoint sources with `--responsive-images`:
 
 ```bash
-flex-layout-codemod ./src --target tailwind --output ./migrated-src --dry-run --report ./reports/flex-layout.json
+npx flex-layout-codemod ./src --responsive-images --report ./reports/flex-layout.json
 ```
 
-Only changed `.html` files are written during a real migration. For a single-file input, the planned output path must end in `.html` (case-insensitive); omitting `--output` keeps the default in-place behavior. For a folder input, `--output` remains a directory and each derived template output retains its `.html` path. `--dry-run` applies and validates edits in memory but does not write template output or create its missing parent directories. A requested `--report <path>` is an explicit reporting side effect and is still written atomically during a dry-run. The report path must be nonblank and end in `.json` (case-insensitive). Migratable inputs and planned template outputs exclusively use `.html`, so this structural rule prevents report collisions while allowing reports anywhere, including inside input or output trees. Invalid output and report paths are rejected before migration without creating output or report directories.
+```html
+<!-- input -->
+<img src="hero.png" src.lt-sm="hero-mobile.png" alt="Hero" />
 
-Unresolved `review`, `unsupported`, or `invalid` results are strict by default. To preserve the same diagnostics and migration output while accepting unresolved work in automation, use:
+<!-- output -->
+<picture
+  ><source media="screen and (max-width: 599.98px)" srcset="hero-mobile.png" />
+  <img src="hero.png" alt="Hero"
+/></picture>
+```
+
+Only literal values using the 13 standard viewport aliases convert. Dynamic values, orientation, print, custom aliases, ambiguous URLs, structural directives on the image, and images already inside `<picture>` remain unchanged. Use the JSON report's file paths and source offsets to review every converted `imgSrc` occurrence and check selectors that assume the `<img>` has its former parent. Interactive file navigation is deferred to the CLI upgrade.
+
+This fixture is intentionally preserved because the value is a runtime Angular expression. The report records a `dynamic-binding` review diagnostic and the source remains unchanged:
+
+```html
+<div [fxFlex]="basis"></div>
+```
+
+## Reports and exit codes
+
+Reports use JSON schema version `1` and include per-file results, diagnostics, and a summary. Use them to review preserved cases and to track the migration over multiple branches.
+
+The default exit policy is strict:
+
+| Code | Meaning                                                                                 |
+| ---: | --------------------------------------------------------------------------------------- |
+|  `0` | Migration completed cleanly, or unresolved work was accepted with `--allow-unresolved`. |
+|  `1` | Configuration, parsing, template I/O, report writing, or an internal invariant failed.  |
+|  `2` | Migration completed safely, but `review`, `unsupported`, or `invalid` results remain.   |
+
+For an informational CI report that accepts unresolved work while retaining every diagnostic, use:
 
 ```bash
-flex-layout-codemod ./src --dry-run --allow-unresolved
+npx flex-layout-codemod ./src --dry-run --report ./reports/flex-layout.json --allow-unresolved
 ```
 
-The CLI uses these exit codes:
+`--allow-unresolved` changes only the final exit code; it does not hide diagnostics or alter the migration output.
 
-| Code | Meaning                                                                                |
-| ---: | -------------------------------------------------------------------------------------- |
-|  `0` | Migration completed with no unresolved results, or `--allow-unresolved` accepted them. |
-|  `1` | Configuration, parsing, template I/O, report writing, or an internal invariant failed. |
-|  `2` | Migration completed safely, but unresolved results remain in strict mode.              |
+## Known boundaries
 
-JSON reports use schema version `1`. Report paths use forward slashes and are relative to the input root; a single-file input is represented by its basename, never an absolute checkout path. Files are path-sorted, results retain source order, and the summary is derived from those file results.
+Tailwind CSS v4 remains the default target. A native CSS target is available with `--target css --stylesheet <path>` for exactly eight Flex semantic families at base and the 13 standard viewport aliases. Grid, visibility, responsive class/style, orientation, print, and custom aliases remain preserved for CSS. Responsive `imgSrc` remains an independent opt-in native `<picture>` migration. See [docs/compatibility.md](docs/compatibility.md) for exact supported forms and diagnostic codes before planning a large migration.
 
-Each non-parse report result represents one source directive occurrence. Measure responsive class and style adoption by counting `ngClass`, `ngStyle`, `class`, and `style` results by status in a representative migration report. This occurrence ratio is an inventory of the scanned templates, not a claim that the same percentage of an application or its runtime behavior was converted.
+The CSS target does not inspect project styles, Tailwind configuration, Sass, or Less; it updates only its one owned companion block. Dynamic Angular bindings are not evaluated.
 
-Use version control and review the generated diff before replacing application templates. Native CSS output remains outside the current scope.
-
-The TypeScript extension API changed in v2: mutable Cheerio converters were replaced by immutable `ConversionAdapter` plans and structured `ConversionResult` values. These prerelease APIs may continue to evolve before v2 is stable.
-
-## Development
+## Contributing and support
 
 The repository requires Node.js 24 and npm 11.
 
@@ -93,7 +162,7 @@ npm ci
 npm run verify
 ```
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request. Security reports belong in [GitHub private vulnerability reporting](https://github.com/NIPE-Solutions/flex-layout-migrator/security/advisories/new); other support routes are documented in [docs/SUPPORT.md](docs/SUPPORT.md).
+Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request. Security reports belong in [GitHub private vulnerability reporting](https://github.com/NIPE-Solutions/flex-layout-migrator/security/advisories/new); other support routes are listed in [docs/SUPPORT.md](docs/SUPPORT.md). Maintainers should follow the reviewed [release process](docs/architecture/release-process.md).
 
 ## License
 

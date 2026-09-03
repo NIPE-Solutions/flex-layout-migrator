@@ -1,4 +1,4 @@
-import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { TextOutput } from '../report/terminal.presenter';
@@ -112,6 +112,387 @@ describe('runCli', () => {
     expect(result.exitCode).toBe(0);
     expect(JSON.parse(await readFile(reportPath, 'utf8'))).toMatchObject({ schemaVersion: 1, dryRun: true });
     await expect(access(output)).rejects.toThrow();
+  });
+
+  test('plans a CSS template and stylesheet during dry-run without creating either output', async () => {
+    const input = join(temporaryDirectory, 'input.html');
+    const output = join(temporaryDirectory, 'generated', 'output.html');
+    const stylesheet = join(temporaryDirectory, 'flex-layout-migration.css');
+    const reportPath = join(temporaryDirectory, 'reports', 'report.json');
+    await writeFile(input, '<div fxLayout="row"></div>', 'utf8');
+
+    const result = await run([
+      input,
+      '--output',
+      output,
+      '--target',
+      'css',
+      '--stylesheet',
+      stylesheet,
+      '--dry-run',
+      '--report',
+      reportPath,
+    ]);
+
+    expect(result).toMatchObject({ exitCode: 0, stderr: '' });
+    expect(result.stdout).toContain('Dry run: 1 files scanned, 1 would change');
+    expect(result.stdout).toContain('Stylesheet: would create flex-layout-migration.css');
+    expect(JSON.parse(await readFile(reportPath, 'utf8'))).toMatchObject({
+      schemaVersion: 1,
+      target: 'css',
+      dryRun: true,
+      summary: { filesScanned: 1, filesChanged: 1, converted: 1 },
+      stylesheet: { path: 'flex-layout-migration.css', change: 'created' },
+    });
+    await expect(access(output)).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(access(stylesheet)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  test('writes a CSS template and stylesheet in one completed migration', async () => {
+    const input = join(temporaryDirectory, 'input.html');
+    const output = join(temporaryDirectory, 'generated', 'output.html');
+    const stylesheet = join(temporaryDirectory, 'flex-layout-migration.css');
+    await writeFile(input, '<div fxLayout="row"></div>', 'utf8');
+
+    const result = await run([input, '--output', output, '--target', 'css', '--stylesheet', stylesheet]);
+
+    expect(result).toMatchObject({ exitCode: 0, stderr: '' });
+    expect(result.stdout).toContain('Stylesheet: created flex-layout-migration.css');
+    const migrated = await readFile(output, 'utf8');
+    const generatedClass = migrated.match(/class="(flm-[a-f0-9]+)"/)?.[1];
+    expect(generatedClass).toBeDefined();
+    expect(await readFile(stylesheet, 'utf8')).toContain(`.${generatedClass} {`);
+  });
+
+  test('rejects a case-only report alias before it can replace a CSS stylesheet', async () => {
+    const input = join(temporaryDirectory, 'input.html');
+    const output = join(temporaryDirectory, 'output.html');
+    const stylesheet = join(temporaryDirectory, 'result.JSON');
+    const reportPath = join(temporaryDirectory, 'RESULT.json');
+    await writeFile(input, '<div fxLayout="row"></div>', 'utf8');
+
+    const result = await run([
+      input,
+      '--output',
+      output,
+      '--target',
+      'css',
+      '--stylesheet',
+      stylesheet,
+      '--report',
+      reportPath,
+    ]);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).toContain('collides');
+    await expect(access(output)).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(access(stylesheet)).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(access(reportPath)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  test('reports an unchanged absent stylesheet for a completed CSS migration with no generated rules', async () => {
+    const input = join(temporaryDirectory, 'input.html');
+    const output = join(temporaryDirectory, 'output.html');
+    const stylesheet = join(temporaryDirectory, 'flex-layout-migration.css');
+    await writeFile(input, '<div class="card"></div>', 'utf8');
+
+    const result = await run([input, '--output', output, '--target', 'css', '--stylesheet', stylesheet]);
+
+    expect(result).toMatchObject({ exitCode: 0, stderr: '' });
+    expect(result.stdout).toContain('Stylesheet: unchanged flex-layout-migration.css');
+    await expect(access(output)).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(access(stylesheet)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  test('excludes a selected HTML-named stylesheet from folder discovery on a byte-idempotent rerun', async () => {
+    const input = join(temporaryDirectory, 'input');
+    const template = join(input, 'card.html');
+    const stylesheet = join(input, 'owned-styles.html');
+    await mkdir(input);
+    await writeFile(template, '<div fxLayout="row"></div>', 'utf8');
+
+    const first = await run([input, '--target', 'css', '--stylesheet', stylesheet]);
+    expect(first).toMatchObject({ exitCode: 0, stderr: '' });
+    const firstTemplate = await readFile(template, 'utf8');
+    const firstStylesheet = await readFile(stylesheet, 'utf8');
+
+    const rerun = await run([input, '--target', 'css', '--stylesheet', stylesheet]);
+
+    expect(rerun).toMatchObject({ exitCode: 0, stderr: '' });
+    expect(rerun.stdout).toContain('1 files scanned, 0 changed');
+    expect(rerun.stdout).toContain('Stylesheet: unchanged owned-styles.html');
+    expect(await readFile(template, 'utf8')).toBe(firstTemplate);
+    expect(await readFile(stylesheet, 'utf8')).toBe(firstStylesheet);
+  });
+
+  test('returns a complete CSS parse-error report without writing project artifacts', async () => {
+    const input = join(temporaryDirectory, 'input');
+    const output = join(temporaryDirectory, 'output');
+    const stylesheet = join(temporaryDirectory, 'flex-layout-migration.css');
+    const reportPath = join(temporaryDirectory, 'report.json');
+    await mkdir(input);
+    await writeFile(join(input, 'a-valid.html'), '<div fxLayout="row"></div>', 'utf8');
+    await writeFile(join(input, 'z-invalid.html'), '<span fxLayout="row" />', 'utf8');
+
+    const result = await run([
+      input,
+      '--output',
+      output,
+      '--target',
+      'css',
+      '--stylesheet',
+      stylesheet,
+      '--report',
+      reportPath,
+    ]);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).toContain('Application skipped: 2 files scanned, 1 planned change');
+    expect(result.stderr).toContain('Stylesheet: would create ../flex-layout-migration.css');
+    expect(result.stderr).not.toContain('Stylesheet: created');
+    expect(JSON.parse(await readFile(reportPath, 'utf8'))).toMatchObject({
+      target: 'css',
+      application: { status: 'skipped', reason: 'parse-errors' },
+      summary: { filesScanned: 2, filesChanged: 1, parseErrors: 1 },
+      stylesheet: { path: '../flex-layout-migration.css', change: 'created' },
+    });
+    await expect(access(output)).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(access(stylesheet)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  test.each([
+    ['CSS without --stylesheet', ['--target', 'css'], '--target css requires --stylesheet <path>'],
+    [
+      'Tailwind with --stylesheet',
+      ['--target', 'tailwind', '--stylesheet', 'flex.css'],
+      '--stylesheet can only be used with --target css',
+    ],
+    ['CSS with an empty stylesheet', ['--target', 'css', '--stylesheet', ''], 'Stylesheet path must not be empty'],
+  ] as const)('rejects %s before discovering a missing input', async (_name, arguments_, expectedError) => {
+    const missingInput = join(temporaryDirectory, 'missing.html');
+
+    const result = await run([missingInput, ...arguments_]);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).toContain(expectedError);
+    expect(result.stderr).not.toContain('ENOENT');
+    await expect(access(missingInput)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  test('rejects repeated stylesheet options before discovery and preserves every candidate output', async () => {
+    const missingInput = join(temporaryDirectory, 'missing.html');
+    const output = join(temporaryDirectory, 'output.html');
+    const firstStylesheet = join(temporaryDirectory, 'first.css');
+    const secondStylesheet = join(temporaryDirectory, 'second.css');
+    const reportPath = join(temporaryDirectory, 'report.json');
+    await writeFile(firstStylesheet, 'preserve stylesheet', 'utf8');
+    await writeFile(reportPath, 'preserve report', 'utf8');
+
+    const result = await run([
+      missingInput,
+      '--output',
+      output,
+      '--target',
+      'css',
+      '--stylesheet',
+      firstStylesheet,
+      '--stylesheet',
+      secondStylesheet,
+      '--report',
+      reportPath,
+    ]);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).toContain('--stylesheet may only be specified once');
+    expect(result.stderr).not.toContain('ENOENT');
+    expect(await readFile(firstStylesheet, 'utf8')).toBe('preserve stylesheet');
+    expect(await readFile(reportPath, 'utf8')).toBe('preserve report');
+    await expect(access(missingInput)).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(access(output)).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(access(secondStylesheet)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  test.each([
+    ['input', (root: string) => join(root, 'missing.html'), undefined],
+    ['output', (root: string) => join(root, 'stylesheet.css'), undefined],
+    ['report', (root: string) => join(root, 'stylesheet.json'), (root: string) => join(root, 'stylesheet.json')],
+  ] as const)(
+    'rejects a stylesheet collision with the %s path before discovering a missing input',
+    async (_name, stylesheetFor, reportFor) => {
+      const missingInput = join(temporaryDirectory, 'missing.html');
+      const output = join(temporaryDirectory, 'stylesheet.css');
+      const stylesheet = stylesheetFor(temporaryDirectory);
+      const report = reportFor?.(temporaryDirectory);
+      const arguments_ = [missingInput, '--output', output, '--target', 'css', '--stylesheet', stylesheet];
+      if (report !== undefined) arguments_.push('--report', report);
+
+      const result = await run(arguments_);
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stdout).toBe('');
+      expect(result.stderr).toContain('Stylesheet path collides with another migration path');
+      expect(result.stderr).not.toContain('ENOENT');
+      await expect(access(output)).rejects.toMatchObject({ code: 'ENOENT' });
+      if (report !== undefined) await expect(access(report)).rejects.toMatchObject({ code: 'ENOENT' });
+    },
+  );
+
+  test.each([
+    [
+      'stylesheet ancestor of report',
+      (root: string) => [join(root, 'flex.css'), join(root, 'flex.css', 'report.json')] as const,
+    ],
+    [
+      'report ancestor of stylesheet',
+      (root: string) => [join(root, 'report.json', 'flex.css'), join(root, 'report.json')] as const,
+    ],
+  ])('rejects a %s path collision before discovering a missing input', async (_name, pathsFor) => {
+    const missingInput = join(temporaryDirectory, 'missing.html');
+    const output = join(temporaryDirectory, 'output.html');
+    const [stylesheet, reportPath] = pathsFor(temporaryDirectory);
+
+    const result = await run([
+      missingInput,
+      '--output',
+      output,
+      '--target',
+      'css',
+      '--stylesheet',
+      stylesheet,
+      '--report',
+      reportPath,
+    ]);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).toContain('Stylesheet path collides with another migration path');
+    expect(result.stderr).not.toContain('ENOENT');
+    for (const candidate of [missingInput, output, stylesheet, reportPath]) {
+      await expect(access(candidate)).rejects.toMatchObject({ code: 'ENOENT' });
+    }
+  });
+
+  test('rejects a stylesheet ancestor of a no-rule template output without mutating any file', async () => {
+    const input = join(temporaryDirectory, 'input');
+    const nestedInput = join(input, 'generated', 'card.html');
+    const output = temporaryDirectory;
+    const stylesheet = join(temporaryDirectory, 'generated');
+    const plannedTemplate = join(stylesheet, 'card.html');
+    const reportPath = join(temporaryDirectory, 'report.json');
+    await mkdir(join(input, 'generated'), { recursive: true });
+    await writeFile(nestedInput, '<div class="card"></div>', 'utf8');
+    await writeFile(stylesheet, 'preserve stylesheet', 'utf8');
+    await writeFile(reportPath, 'preserve report', 'utf8');
+
+    const result = await run([
+      input,
+      '--output',
+      output,
+      '--target',
+      'css',
+      '--stylesheet',
+      stylesheet,
+      '--report',
+      reportPath,
+      '--dry-run',
+    ]);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).toContain('Migration paths collide');
+    expect(await readFile(nestedInput, 'utf8')).toBe('<div class="card"></div>');
+    expect(await readFile(stylesheet, 'utf8')).toBe('preserve stylesheet');
+    expect(await readFile(reportPath, 'utf8')).toBe('preserve report');
+    await expect(access(plannedTemplate)).rejects.toMatchObject({ code: 'ENOTDIR' });
+  });
+
+  test('rejects a no-rule template output ancestor of a stylesheet without creating its directory', async () => {
+    const input = join(temporaryDirectory, 'input');
+    const output = join(temporaryDirectory, 'generated');
+    const plannedTemplate = join(output, 'card.html');
+    const stylesheet = join(plannedTemplate, 'flex.css');
+    const reportPath = join(temporaryDirectory, 'report.json');
+    await mkdir(input);
+    await writeFile(join(input, 'card.html'), '<div class="card"></div>', 'utf8');
+    await writeFile(reportPath, 'preserve report', 'utf8');
+
+    const result = await run([
+      input,
+      '--output',
+      output,
+      '--target',
+      'css',
+      '--stylesheet',
+      stylesheet,
+      '--report',
+      reportPath,
+      '--dry-run',
+    ]);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).toContain('Migration paths collide');
+    expect(await readFile(join(input, 'card.html'), 'utf8')).toBe('<div class="card"></div>');
+    expect(await readFile(reportPath, 'utf8')).toBe('preserve report');
+    await expect(access(output)).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(access(stylesheet)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  test.each(['directory', 'symlink'] as const)(
+    'rejects a stylesheet %s before discovering templates and preserves every existing file',
+    async kind => {
+      const missingInput = join(temporaryDirectory, 'missing.html');
+      const output = join(temporaryDirectory, 'output.html');
+      const stylesheet = join(temporaryDirectory, 'flex.css');
+      const preserved = join(temporaryDirectory, 'preserved.css');
+      await writeFile(preserved, 'preserve me', 'utf8');
+      if (kind === 'directory') await mkdir(stylesheet);
+      else await symlink(preserved, stylesheet);
+
+      const result = await run([missingInput, '--output', output, '--target', 'css', '--stylesheet', stylesheet]);
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stdout).toBe('');
+      expect(result.stderr).toContain(
+        kind === 'directory' ? 'Stylesheet path must be a regular file' : 'Stylesheet path must not be a symbolic link',
+      );
+      expect(result.stderr).not.toContain('ENOENT');
+      expect(await readFile(preserved, 'utf8')).toBe('preserve me');
+      await expect(access(output)).rejects.toMatchObject({ code: 'ENOENT' });
+    },
+  );
+
+  test('preserves an explicitly requested report when stylesheet planning throws', async () => {
+    const input = join(temporaryDirectory, 'input.html');
+    const output = join(temporaryDirectory, 'output.html');
+    const stylesheet = join(temporaryDirectory, 'flex.css');
+    const reportPath = join(temporaryDirectory, 'report.json');
+    await writeFile(input, '<div fxLayout="row"></div>', 'utf8');
+    await writeFile(stylesheet, '/* flex-layout-codemod:start schema=1 */', 'utf8');
+    await writeFile(reportPath, 'preserve report', 'utf8');
+
+    const result = await run([
+      input,
+      '--output',
+      output,
+      '--target',
+      'css',
+      '--stylesheet',
+      stylesheet,
+      '--report',
+      reportPath,
+    ]);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).toContain('Cannot safely update stylesheet ownership');
+    expect(await readFile(reportPath, 'utf8')).toBe('preserve report');
+    expect(await readFile(stylesheet, 'utf8')).toBe('/* flex-layout-codemod:start schema=1 */');
+    await expect(access(output)).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
   test('rejects a JSON single-file output before it can collide with the report', async () => {
@@ -263,9 +644,100 @@ describe('runCli', () => {
 
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain('--report <path>');
-    expect(result.stdout).toContain('path must end in .json');
-    expect(result.stdout.replace(/\s+/g, ' ')).toContain('single-file output must end in .html');
+    const normalizedOutput = result.stdout.replace(/\s+/g, ' ');
+    expect(normalizedOutput).toContain('path must end in .json');
+    expect(normalizedOutput).toContain('single-file output must end in .html');
     expect(result.stderr).toBe('');
+  });
+
+  test('documents the CSS target and its required stylesheet option in help output', async () => {
+    const result = await run(['--help']);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('--target <target>');
+    expect(result.stdout).toContain('--stylesheet <path>');
+    expect(result.stdout.replace(/\s+/g, ' ')).toContain('css requires --stylesheet');
+    expect(result.stderr).toBe('');
+  });
+
+  test('documents project-aware breakpoint options in help output', async () => {
+    const result = await run(['--help']);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('--orientation-breakpoints');
+    expect(result.stdout).toContain('--print-with-breakpoints <aliases>');
+    expect(result.stdout).toContain('--responsive-images');
+    expect(result.stdout).toContain('picture');
+  });
+
+  test('preserves responsive images by default and identifies the opt-in', async () => {
+    const input = join(temporaryDirectory, 'input.html');
+    const source = '<img src="base.png" src.sm="small.png">';
+    await writeFile(input, source, 'utf8');
+
+    const result = await run([input]);
+
+    expect(result.exitCode).toBe(2);
+    expect(result.stdout).toContain('[target-unsupported]');
+    expect(await readFile(input, 'utf8')).toBe(source);
+  });
+
+  test('converts responsive images only with explicit acknowledgement and reports their location', async () => {
+    const input = join(temporaryDirectory, 'input.html');
+    const output = join(temporaryDirectory, 'output.html');
+    const report = join(temporaryDirectory, 'report.json');
+    await writeFile(input, '<img src="base.png" src.sm="small.png">', 'utf8');
+
+    const result = await run([input, '--output', output, '--responsive-images', '--report', report]);
+
+    expect(result.exitCode).toBe(0);
+    expect(await readFile(output, 'utf8')).toContain('<picture>');
+    expect(JSON.parse(await readFile(report, 'utf8'))).toMatchObject({
+      schemaVersion: 1,
+      files: [{ results: [{ status: 'converted', directive: 'imgSrc', sourceName: 'src.sm', offset: 20 }] }],
+    });
+  });
+
+  test('plans responsive image output without writing during dry-run', async () => {
+    const input = join(temporaryDirectory, 'input.html');
+    const output = join(temporaryDirectory, 'output.html');
+    await writeFile(input, '<img src.sm="small.png">', 'utf8');
+
+    const result = await run([input, '--output', output, '--responsive-images', '--dry-run']);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('1 would change');
+    await expect(access(output)).rejects.toThrow();
+  });
+
+  test('rejects invalid print breakpoint configuration before reading input', async () => {
+    const input = join(temporaryDirectory, 'missing.html');
+
+    const result = await run([input, '--print-with-breakpoints', 'handset']);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain('requires --orientation-breakpoints');
+    await expect(access(input)).rejects.toThrow();
+  });
+
+  test('converts configured orientation and print fallback behavior end to end', async () => {
+    const input = join(temporaryDirectory, 'input.html');
+    const output = join(temporaryDirectory, 'output.html');
+    await writeFile(input, '<div fxLayout.handset="column" fxLayout.md="row"></div>', 'utf8');
+
+    const result = await run([
+      input,
+      '--output',
+      output,
+      '--orientation-breakpoints',
+      '--print-with-breakpoints',
+      'md',
+    ]);
+
+    expect(result.exitCode).toBe(0);
+    const migrated = await readFile(output, 'utf8');
+    expect(migrated).toContain('[@media_(orientation:_portrait)_and_(max-width:_599.98px)]:flex-col');
+    expect(migrated).toContain('[@media_print]:flex-row');
   });
 
   test('creates a missing output directory when a changed template is written', async () => {
@@ -281,7 +753,7 @@ describe('runCli', () => {
 
   test.each([
     ['a missing input', () => join(temporaryDirectory, 'missing.html'), ['--dry-run'], 'ENOENT'],
-    ['an invalid target', () => join(temporaryDirectory, 'input.html'), ['--target', 'css'], 'Allowed choices'],
+    ['an invalid target', () => join(temporaryDirectory, 'input.html'), ['--target', 'sass'], 'Allowed choices'],
   ])('returns one on %s without terminating the process', async (_name, inputPath, arguments_, expectedError) => {
     const input = inputPath();
     if (expectedError === 'Allowed choices') {

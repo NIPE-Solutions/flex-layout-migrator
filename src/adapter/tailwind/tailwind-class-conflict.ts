@@ -9,7 +9,9 @@ import {
   tailwindArbitraryTextKind,
 } from './extended/tailwind-arbitrary-value-ownership';
 
-export type TailwindActivation = { readonly kind: 'base' } | { readonly kind: 'media'; readonly range: MediaRange };
+export type TailwindActivation =
+  | { readonly kind: 'base' }
+  | { readonly kind: 'media'; readonly range: MediaRange; readonly mediaType?: 'screen' | 'print' };
 
 export interface TailwindDisplayUtility {
   readonly token: string;
@@ -53,8 +55,10 @@ const displayUtilities = new Set([
   'hidden',
 ]);
 
-const generatedMediaVariant =
+const generatedScreenMediaVariant =
   /^\[@media_screen_and_(?:(?:\(min-width:_(\d+(?:\.\d+)?)px\))(?:_and_\(max-width:_(\d+(?:\.\d+)?)px\))?|\(max-width:_(\d+(?:\.\d+)?)px\))\]$/u;
+const generatedOrientationMediaVariant =
+  /^\[@media_\(orientation:_(portrait|landscape)\)(?:_and_\(min-width:_(\d+(?:\.\d+)?)px\))?(?:_and_\(max-width:_(\d+(?:\.\d+)?)px\))?\]$/u;
 
 function splitVariants(
   className: string,
@@ -94,7 +98,21 @@ function splitVariants(
 
 function activation(variants: readonly string[]): TailwindActivation {
   for (const variant of variants) {
-    const match = variant.match(generatedMediaVariant);
+    if (variant === '[@media_print]') return { kind: 'media', range: {}, mediaType: 'print' };
+
+    const orientationMatch = variant.match(generatedOrientationMediaVariant);
+    if (orientationMatch) {
+      return {
+        kind: 'media',
+        range: {
+          orientation: orientationMatch[1] as 'portrait' | 'landscape',
+          min: orientationMatch[2] === undefined ? undefined : Number(orientationMatch[2]),
+          max: orientationMatch[3] === undefined ? undefined : Number(orientationMatch[3]),
+        },
+      };
+    }
+
+    const match = variant.match(generatedScreenMediaVariant);
     if (!match) continue;
     const min = match[1] === undefined ? undefined : Number(match[1]);
     const maxValue = match[2] ?? match[3];
@@ -107,7 +125,7 @@ function activation(variants: readonly string[]): TailwindActivation {
 }
 
 function hasGeneratedMediaVariant(variants: readonly string[]): boolean {
-  return variants.some(variant => variant.startsWith('[@media_screen_and_'));
+  return variants.some(variant => variant.startsWith('[@media_'));
 }
 
 function hasInternalDeclarationImportance(utility: string): boolean {
@@ -585,7 +603,9 @@ export function describeTailwindDisplay(token: string): TailwindDisplayUtility |
 }
 
 function activationsIntersect(left: TailwindActivation, right: TailwindActivation): boolean {
-  return left.kind === 'base' || right.kind === 'base' || mediaRangesIntersect(left.range, right.range);
+  if (left.kind === 'base' || right.kind === 'base') return true;
+  if ((left.mediaType ?? 'screen') !== (right.mediaType ?? 'screen')) return false;
+  return mediaRangesIntersect(left.range, right.range);
 }
 
 export function findTailwindClassConflicts(

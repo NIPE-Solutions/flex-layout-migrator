@@ -21,6 +21,7 @@ export const FLEX_LAYOUT_DIRECTIVES = [
   'gdColumns',
   'gdGap',
   'gdGridAlign',
+  'gdInline',
   'gdRow',
   'gdRows',
   'class',

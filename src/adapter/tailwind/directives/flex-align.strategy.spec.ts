@@ -1,4 +1,4 @@
-import { planFlexAlign } from './flex-align.strategy';
+import { planFlexAlign, renderFlexAlign } from './flex-align.strategy';
 
 describe('planFlexAlign', () => {
   test.each([
@@ -15,5 +15,12 @@ describe('planFlexAlign', () => {
 
   test.each(['left', 'space-between', 'start end'])('rejects %j', value => {
     expect(planFlexAlign(value)).toEqual({ status: 'invalid', code: 'invalid-value' });
+  });
+});
+
+test('renders a planned self alignment without interpreting directive text', () => {
+  expect(renderFlexAlign({ alignment: 'baseline' })).toEqual({
+    status: 'converted',
+    classNames: ['self-baseline'],
   });
 });

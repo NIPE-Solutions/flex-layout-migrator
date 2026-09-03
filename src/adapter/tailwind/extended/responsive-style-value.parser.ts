@@ -1,5 +1,4 @@
 import type { LocatedFlexLayoutInput } from '../../../analyzer/flex-layout-attribute.analyzer';
-import { BreakpointCatalog } from '../../../breakpoint/breakpoint-catalog';
 import type { LiteralStyleDeclaration, ResponsiveStyleValueResult } from './responsive-style.model';
 import { TailwindArbitraryPropertyEncoder } from './tailwind-arbitrary-property.encoder';
 import { cssPropertiesOverlap } from './css-property-ownership';
@@ -194,9 +193,7 @@ export function parseResponsiveStyleValue(input: LocatedFlexLayoutInput): Respon
   if (input.directive !== 'ngStyle') {
     return { status: 'unverified', reason: 'Deprecated responsive style aliases are not converted.' };
   }
-  if (input.breakpoint === undefined || new BreakpointCatalog().classify(input.breakpoint).kind !== 'verified') {
-    return { status: 'unverified', reason: 'The responsive style breakpoint is not a verified viewport alias.' };
-  }
+  if (!input.breakpoint) return { status: 'unverified', reason: 'A responsive style alias is required.' };
   if (interpolation.test(input.value)) {
     return { status: 'unverified', reason: 'Responsive style interpolation may depend on runtime state.' };
   }

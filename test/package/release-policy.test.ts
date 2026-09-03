@@ -9,6 +9,16 @@ import { parse } from 'yaml';
 const execFileAsync = promisify(execFile);
 const repository = resolve(import.meta.dirname, '../..');
 
+function nextBetaVersion(version: string): string {
+  const match = /^(?<base>\d+\.\d+\.\d+)-beta\.(?<sequence>\d+)$/u.exec(version);
+  const base = match?.groups?.base;
+  const sequence = match?.groups?.sequence;
+  if (base === undefined || sequence === undefined) {
+    throw new Error(`Expected current package version to be a beta prerelease, got ${version}`);
+  }
+  return `${base}-beta.${Number(sequence) + 1}`;
+}
+
 describe('release policy', () => {
   it('keeps the release pull request workflow inside the preparation trust boundary', async () => {
     const source = await readFile(new URL('../../.github/workflows/release-pr.yml', import.meta.url), 'utf8');
@@ -179,10 +189,18 @@ describe('release policy', () => {
     expect(lockfile.packages[''].packageManager).toBeUndefined();
   });
 
-  it('versions the pending changesets as the first public beta', async () => {
+  it('versions the pending changesets as the next public beta', async () => {
     const temporaryDirectory = await mkdtemp(join(tmpdir(), 'flex-layout-changeset-version-'));
 
     try {
+      const [manifest, lockfile] = await Promise.all(
+        ['package.json', 'package-lock.json'].map(async path =>
+          JSON.parse(await readFile(join(repository, path), 'utf8')),
+        ),
+      );
+      const expectedVersion = nextBetaVersion(manifest.version);
+      expect(lockfile.packages[''].version).toBe(manifest.version);
+
       await Promise.all(
         ['package.json', 'package-lock.json', 'CHANGELOG.md', '.changeset'].map(path =>
           cp(join(repository, path), join(temporaryDirectory, path), { recursive: true }),
@@ -202,8 +220,9 @@ describe('release policy', () => {
           JSON.parse(await readFile(join(temporaryDirectory, path), 'utf8')),
         ),
       );
-      expect(versionedManifest.version).toBe('2.0.0-beta.1');
-      expect(versionedLockfile.packages[''].version).toBe('2.0.0-beta.1');
+      expect(versionedManifest.version).toBe(expectedVersion);
+      expect(versionedLockfile.packages[''].version).toBe(expectedVersion);
+      expect(versionedLockfile.packages[''].version).toBe(versionedManifest.version);
     } finally {
       await rm(temporaryDirectory, { recursive: true, force: true });
     }

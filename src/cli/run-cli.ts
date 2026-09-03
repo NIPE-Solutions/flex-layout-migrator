@@ -1,4 +1,5 @@
-import { Command, CommanderError, Option } from 'commander';
+import { Command, CommanderError, InvalidArgumentError, Option } from 'commander';
+import * as path from 'node:path';
 import packageJson from '../../package.json' with { type: 'json' };
 import { AdapterFactory } from '../adapter/adapter.factory';
 import { logger } from '../logger';
@@ -8,14 +9,20 @@ import { TerminalPresenter, type TextOutput } from '../report/terminal.presenter
 import { getErrorMessage } from '../util/error.util';
 import { resolveExitCode } from './exit-policy';
 import { validateReportPath } from './report-path.validator';
+import { parsePrintWithBreakpoints } from '../config/breakpoint-migration-config';
+import { validateStylesheetPath } from './stylesheet-path.validator';
 
 interface ProgramOptions {
   readonly output?: string;
   readonly target: string;
   readonly dryRun: boolean;
   readonly report?: string;
+  readonly stylesheet?: string;
   readonly allowUnresolved: boolean;
   readonly debug: boolean;
+  readonly orientationBreakpoints: boolean;
+  readonly responsiveImages: boolean;
+  readonly printWithBreakpoints?: string;
 }
 
 export interface CliOutput {
@@ -28,6 +35,11 @@ const processOutput: CliOutput = {
   stderr: process.stderr,
 };
 
+function parseSingleStylesheet(value: string, previous: string | undefined): string {
+  if (previous !== undefined) throw new InvalidArgumentError('--stylesheet may only be specified once.');
+  return value;
+}
+
 export async function runCli(argv: readonly string[], output: CliOutput = processOutput): Promise<0 | 1 | 2> {
   let exitCode: 0 | 1 | 2 = 0;
   let debug = false;
@@ -36,7 +48,7 @@ export async function runCli(argv: readonly string[], output: CliOutput = proces
   program
     .name('flex-layout-codemod')
     .version(packageJson.version)
-    .description('Migrate Angular Flex-Layout attributes to Tailwind CSS utilities')
+    .description('Migrate Angular Flex-Layout attributes to Tailwind CSS utilities or native CSS')
     .exitOverride()
     .configureOutput({
       writeOut: text => output.stdout.write(text),
@@ -48,29 +60,67 @@ export async function runCli(argv: readonly string[], output: CliOutput = proces
       'output HTML file or folder; single-file output must end in .html; defaults to input',
     )
     .addOption(
-      new Option('-t, --target <target>', 'conversion target; currently tailwind')
-        .choices(['tailwind'])
+      new Option('-t, --target <target>', 'conversion target; css requires --stylesheet')
+        .choices(['tailwind', 'css'])
         .default('tailwind'),
     )
-    .option('--dry-run', 'analyze and plan without writing templates', false)
+    .addOption(
+      new Option('--stylesheet <path>', 'companion stylesheet; required when --target css').argParser(
+        parseSingleStylesheet,
+      ),
+    )
+    .option('--dry-run', 'analyze and plan without writing templates or stylesheet', false)
     .option('--report <path>', 'atomically write a JSON report; path must end in .json')
     .option('--allow-unresolved', 'return success when unresolved inputs remain', false)
+    .option('--orientation-breakpoints', 'confirm the source enables the archived orientation breakpoints', false)
+    .option(
+      '--responsive-images',
+      'wrap eligible responsive images in picture elements; acknowledges selector and layout risk',
+      false,
+    )
+    .option(
+      '--print-with-breakpoints <aliases>',
+      'confirm the source printWithBreakpoints list; comma-separated aliases or none',
+    )
     .option('-d, --debug', 'enable debug logging', false)
     .action(async (input: string, options: ProgramOptions) => {
       debug = options.debug;
       logger.level = debug ? 'debug' : 'warn';
 
       const destination = options.output ?? input;
-      const adapter = AdapterFactory.create(options.target);
+      let reportPath: string | undefined;
       if (options.report !== undefined) {
         validateReportPath(options.report);
+        reportPath = path.resolve(options.report);
       }
-      const report = await new Migrator(adapter, input, destination).migrate({ dryRun: options.dryRun });
+      const stylesheetPath = await validateStylesheetPath({
+        target: options.target,
+        stylesheetPath: options.stylesheet,
+        inputPath: input,
+        outputPath: destination,
+        reportPath,
+      });
+      const printWithBreakpoints =
+        options.printWithBreakpoints === undefined
+          ? undefined
+          : parsePrintWithBreakpoints(options.printWithBreakpoints, options.orientationBreakpoints);
+      const session = AdapterFactory.createSession(options.target, {
+        orientationBreakpoints: options.orientationBreakpoints,
+        printWithBreakpoints,
+      });
+      const report = await new Migrator(session, input, destination).migrate({
+        dryRun: options.dryRun,
+        responsiveImages: options.responsiveImages,
+        stylesheetPath,
+        reportPath,
+      });
       const reportOutput = report.summary.parseErrors > 0 ? output.stderr : output.stdout;
 
       new TerminalPresenter().present(report, reportOutput);
-      if (options.report !== undefined) {
-        await new JsonReportWriter().write(options.report, report);
+      if (reportPath !== undefined) {
+        await new JsonReportWriter().write(reportPath, report, {
+          protectedPaths: stylesheetPath === undefined ? [] : [stylesheetPath],
+        });
       }
 
       exitCode = resolveExitCode(report, options.allowUnresolved);

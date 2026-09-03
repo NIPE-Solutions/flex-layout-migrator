@@ -34,8 +34,18 @@ function mediaState(intent: VisibilityIntent, alias: 'xs' | 'sm'): VisibilitySta
     kind: 'media',
     definition:
       alias === 'xs'
-        ? { alias: 'xs', range: { min: 0, max: 599.98 }, priority: 1000 }
-        : { alias: 'sm', range: { min: 600, max: 959.98 }, priority: 900 },
+        ? {
+            alias: 'xs',
+            range: { min: 0, max: 599.98 },
+            media: { type: 'screen', clauses: [{ min: 0, max: 599.98 }] },
+            priority: 1000,
+          }
+        : {
+            alias: 'sm',
+            range: { min: 600, max: 959.98 },
+            media: { type: 'screen', clauses: [{ min: 600, max: 959.98 }] },
+            priority: 900,
+          },
   });
 }
 

@@ -32,13 +32,24 @@ async function createPackageFixture({ missingFile, extraFile }: { missingFile?: 
     [
       'dist/cli.js',
       `#!/usr/bin/env node
+import { mkdir, writeFile } from 'node:fs/promises';
+import { dirname } from 'node:path';
 const arguments_ = process.argv.slice(2);
 if (arguments_.includes('--help')) {
-  console.log('--dry-run --report <path> --allow-unresolved path must end in .json single-file output must end in .html');
+  console.log('--dry-run --report <path> --allow-unresolved --stylesheet <path> --orientation-breakpoints --print-with-breakpoints <aliases> path must end in .json single-file output must end in .html');
 } else if (arguments_.includes('--version')) {
   console.log('${fixtureVersion}');
 } else if (arguments_.includes('--dry-run')) {
   console.log('Dry run: 1 files scanned, 1 would change');
+} else if (arguments_.includes('--target') && arguments_.includes('css')) {
+  const output = arguments_[arguments_.indexOf('--output') + 1];
+  const stylesheet = arguments_[arguments_.indexOf('--stylesheet') + 1];
+  const className = 'flm-5db098b5a4e638fdd1aff69e13d53ea10eb01e6c58577e5ecdf136b90eaee103';
+  await mkdir(dirname(output), { recursive: true });
+  await mkdir(dirname(stylesheet), { recursive: true });
+  await writeFile(output, '<div class="' + className + '"></div>');
+  await writeFile(stylesheet, '/* flex-layout-codemod:start schema=1 */\\n/* flex-layout-codemod:rule id=' + className.slice(4) + ' */\\n.' + className + ' {\\n  display: flex;\\n  box-sizing: border-box;\\n  flex-direction: row;\\n}\\n/* flex-layout-codemod:end */');
+  console.log('1 files scanned, 1 changed');
 }
 `,
     ],
@@ -71,6 +82,16 @@ if (arguments_.includes('--help')) {
 }
 
 describe('package contract', () => {
+  it('requires the isolated tarball smoke test to exercise CSS dry-run and write behavior', async () => {
+    const verifyPackage = await readFile(join(repository, 'scripts', 'verify-package.mjs'), 'utf8');
+
+    expect(verifyPackage).toContain("'--stylesheet <path>'");
+    expect(verifyPackage).toContain('const cssArguments = [');
+    expect(verifyPackage).toContain('Packaged CLI CSS dry-run wrote template output');
+    expect(verifyPackage).toContain('Packaged CLI CSS write did not produce the expected template bytes');
+    expect(verifyPackage).toContain('Packaged CLI CSS write did not produce the expected stylesheet bytes');
+  });
+
   it('declares the v2 package, executable, runtime, and public files', async () => {
     const pkg = JSON.parse(await readFile(new URL('../../package.json', import.meta.url), 'utf8'));
 

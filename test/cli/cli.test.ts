@@ -1,11 +1,9 @@
-import { execFile, spawn } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { access, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { promisify } from 'node:util';
 import packageJson from '../../package.json' with { type: 'json' };
 
-const execFileAsync = promisify(execFile);
 const repository = resolve(import.meta.dirname, '../..');
 const executable = join(repository, 'dist', 'cli.js');
 
@@ -38,10 +36,6 @@ function execute(arguments_: readonly string[]): Promise<ExecutionResult> {
 describe('packaged CLI execution', () => {
   let temporaryDirectory: string;
 
-  beforeAll(async () => {
-    await execFileAsync('npm', ['run', 'build'], { cwd: repository });
-  });
-
   beforeEach(async () => {
     temporaryDirectory = await mkdtemp(join(tmpdir(), 'packaged-cli-'));
   });
@@ -69,6 +63,22 @@ describe('packaged CLI execution', () => {
     expect(await readFile(output, 'utf8')).toBe('<div class="flex flex-row box-border"></div>');
   });
 
+  test('executes the packaged CSS target with its companion stylesheet', async () => {
+    const input = join(temporaryDirectory, 'input.html');
+    const output = join(temporaryDirectory, 'output.html');
+    const stylesheet = join(temporaryDirectory, 'flex-layout-migration.css');
+    await writeFile(input, '<div fxLayout="row"></div>', 'utf8');
+
+    const result = await execute([input, '--output', output, '--target', 'css', '--stylesheet', stylesheet]);
+
+    expect(result).toMatchObject({ status: 0, stderr: '' });
+    expect(result.stdout).toContain('Stylesheet: created flex-layout-migration.css');
+    const migrated = await readFile(output, 'utf8');
+    const generatedClass = migrated.match(/class="(flm-[a-f0-9]+)"/)?.[1];
+    expect(generatedClass).toBeDefined();
+    expect(await readFile(stylesheet, 'utf8')).toContain(`.${generatedClass} {`);
+  });
+
   test('exits one and preserves output after a parse failure', async () => {
     const input = join(temporaryDirectory, 'input.html');
     const output = join(temporaryDirectory, 'output.html');
@@ -92,5 +102,19 @@ describe('packaged CLI execution', () => {
     expect(result.stdout).toContain('Review 1');
     expect(result.stdout).toContain('[dynamic-binding]');
     expect(await readFile(input, 'utf8')).toBe('<div [fxFlex]="basis"></div>');
+  });
+
+  test('documents and executes the packaged responsive image opt-in', async () => {
+    const help = await execute(['--help']);
+    expect(help.stdout).toContain('--responsive-images');
+
+    const input = join(temporaryDirectory, 'input.html');
+    const output = join(temporaryDirectory, 'output.html');
+    await writeFile(input, '<img src="base.png" src.sm="small.png">', 'utf8');
+
+    const result = await execute([input, '--output', output, '--responsive-images']);
+
+    expect(result).toMatchObject({ status: 0, stderr: '' });
+    expect(await readFile(output, 'utf8')).toContain('<picture>');
   });
 });

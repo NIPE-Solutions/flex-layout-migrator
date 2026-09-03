@@ -1,4 +1,5 @@
-import { planLayoutGap } from './layout-gap.strategy';
+import type { CssLength } from '../../../flex/css-length';
+import { planLayoutGap, renderLayoutGap } from './layout-gap.strategy';
 
 describe('planLayoutGap', () => {
   test.each([
@@ -46,5 +47,14 @@ describe('planLayoutGap', () => {
 
   test('preserves a valid gap when layout context is dynamic', () => {
     expect(planLayoutGap('4', undefined)).toMatchObject({ status: 'review', code: 'context-unverified' });
+  });
+});
+
+describe('renderLayoutGap', () => {
+  test('encodes a planned CSS length as a Tailwind arbitrary gap utility', () => {
+    expect(renderLayoutGap({ length: 'calc(1rem + 2px)' as CssLength })).toEqual({
+      status: 'converted',
+      classNames: ['gap-[calc(1rem_+_2px)]'],
+    });
   });
 });

@@ -42,4 +42,5 @@ export interface ConversionAdapter {
     context: ConversionContext,
     plansByInputId: ReadonlyMap<string, PlannedConversion>,
   ): readonly PlannedConversion[];
+  acceptPlans?(plans: readonly PlannedConversion[]): void;
 }

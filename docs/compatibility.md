@@ -4,31 +4,79 @@ Version 2 is prerelease software. Its current conversion coverage is deliberatel
 
 The source contract and classification rules are documented in [Conversion safety model](architecture/conversion-safety.md).
 
-## Status definitions
+## Current compatibility status
 
-- **Limited**: unbound literal values are converted for the cases described below and covered by the compatibility corpus. Standard responsive viewport aliases are supported when their complete semantic family is safe.
-- **Planned**: the analyzer recognizes the input, but no target adapter converts it yet.
-- **Preserved**: the input is intentionally left unchanged and reported for review.
+- **Limited**: available now for the literal, safety-proven cases described below. Standard responsive viewport aliases convert only when their complete semantic family is safe.
+- **Preserved**: recognized input intentionally left unchanged and reported for review.
+- **Planned**: recognized input for which that target has no conversion available now.
+- **Not applicable**: the directive does not have a conversion in that target category.
 
-No native CSS conversions are available yet. The CLI currently accepts only the `tailwind` target, and generated classes target Tailwind CSS v4.
+The Tailwind CSS 4 column identifies the default target behavior. Native CSS is available for the limited Flex-only surface in this table: eight semantic families, at base and the 13 standard viewport aliases. The CLI defaults to `tailwind`; use `--target css --stylesheet <path>` to opt in to one owned companion stylesheet. Responsive images remain independent of either layout target.
 
-## Flex directives
+<!-- compatibility-inventory:start -->
 
-| Directive       | Tailwind | Notes                                                                                                                       |
-| --------------- | -------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `fxLayout`      | Limited  | Static directions plus wrap and inline modifiers; coupled unresolved gaps preserve the layout.                              |
-| `fxLayoutAlign` | Limited  | Static main/cross axes with layout, content alignment, sizing, and border-box semantics.                                    |
-| `fxLayoutGap`   | Limited  | Static nonnegative non-wrapping gaps; unitless values remain pixels. Grid, computed, negative, and wrapped gaps are review. |
-| `fxFlex`        | Limited  | Static basis, keyword, and three-part forms with parent-axis min/max sizing.                                                |
-| `fxGrow`        | Limited  | Converted atomically with a static `fxFlex`; standalone use is invalid.                                                     |
-| `fxShrink`      | Limited  | Converted atomically with a static `fxFlex`; standalone use is invalid.                                                     |
-| `fxFlexAlign`   | Limited  | Static `align-self` keywords.                                                                                               |
-| `fxFlexFill`    | Limited  | Static full-size rule including its zero-margin behavior.                                                                   |
-| `fxFill`        | Limited  | Non-responsive alias of `fxFlexFill`.                                                                                       |
-| `fxFlexOffset`  | Limited  | Static values with a statically known parent axis; unitless values remain percentages.                                      |
-| `fxFlexOrder`   | Limited  | Static integer values emitted independently of the Tailwind theme.                                                          |
-| `fxShow`        | Limited  | Literal base and standard viewport states convert when display restoration and the complete visibility family are safe.     |
-| `fxHide`        | Limited  | Literal base and standard viewport states convert with `fxShow`; hiding emits exact base or responsive `hidden` utilities.  |
+| Directive        | Family      | Tailwind CSS 4 | Native CSS     | Responsive image |
+| ---------------- | ----------- | -------------- | -------------- | ---------------- |
+| `fxLayout`       | Flex        | Limited        | Limited        | Not applicable   |
+| `fxLayoutAlign`  | Flex        | Limited        | Limited        | Not applicable   |
+| `fxLayoutGap`    | Flex        | Limited        | Limited        | Not applicable   |
+| `fxFlex`         | Flex        | Limited        | Limited        | Not applicable   |
+| `fxGrow`         | Flex        | Limited        | Limited        | Not applicable   |
+| `fxShrink`       | Flex        | Limited        | Limited        | Not applicable   |
+| `fxFlexAlign`    | Flex        | Limited        | Limited        | Not applicable   |
+| `fxFlexFill`     | Flex        | Limited        | Limited        | Not applicable   |
+| `fxFill`         | Flex        | Limited        | Limited        | Not applicable   |
+| `fxFlexOffset`   | Flex        | Limited        | Limited        | Not applicable   |
+| `fxFlexOrder`    | Flex        | Limited        | Limited        | Not applicable   |
+| `fxShow`         | Visibility  | Limited        | Preserved      | Not applicable   |
+| `fxHide`         | Visibility  | Limited        | Preserved      | Not applicable   |
+| `gdAlignColumns` | Grid        | Limited        | Preserved      | Not applicable   |
+| `gdAlignRows`    | Grid        | Limited        | Preserved      | Not applicable   |
+| `gdArea`         | Grid        | Limited        | Preserved      | Not applicable   |
+| `gdAreas`        | Grid        | Limited        | Preserved      | Not applicable   |
+| `gdAuto`         | Grid        | Limited        | Preserved      | Not applicable   |
+| `gdColumn`       | Grid        | Limited        | Preserved      | Not applicable   |
+| `gdColumns`      | Grid        | Limited        | Preserved      | Not applicable   |
+| `gdGap`          | Grid        | Limited        | Preserved      | Not applicable   |
+| `gdGridAlign`    | Grid        | Limited        | Preserved      | Not applicable   |
+| `gdInline`       | Grid        | Limited        | Preserved      | Not applicable   |
+| `gdRow`          | Grid        | Limited        | Preserved      | Not applicable   |
+| `gdRows`         | Grid        | Limited        | Preserved      | Not applicable   |
+| `class`          | Class/style | Preserved      | Preserved      | Not applicable   |
+| `ngClass`        | Class/style | Limited        | Preserved      | Not applicable   |
+| `style`          | Class/style | Preserved      | Preserved      | Not applicable   |
+| `ngStyle`        | Class/style | Limited        | Preserved      | Not applicable   |
+| `imgSrc`         | Image       | Not applicable | Not applicable | Limited          |
+
+<!-- compatibility-inventory:end -->
+
+## Current native CSS safety boundaries
+
+The native CSS target is intentionally Limited. It converts exactly these eight Flex semantic families: layout (`fxLayout`), layout alignment (`fxLayoutAlign`), layout gap (`fxLayoutGap`), flex item sizing (`fxFlex` with its atomic `fxGrow` and `fxShrink` members), flex alignment (`fxFlexAlign`), flex fill (`fxFlexFill` and `fxFill`), flex offset (`fxFlexOffset`), and flex order (`fxFlexOrder`). Literal base inputs and the 13 standard viewport aliases are supported.
+
+Grid, visibility, responsive `class`/`style` inputs, orientation, print, and custom aliases remain preserved for CSS with diagnostics. Responsive images remain an independent `--responsive-images` migration and do not become CSS-target behavior.
+
+Use `--target css --stylesheet <path>` to migrate templates and one companion stylesheet. The stylesheet keeps handwritten bytes outside the owned `flex-layout-codemod` block, deduplicates shared rules across every proposed template, and retains unmatched owned rules because a scoped invocation cannot prove that it includes every template served by the stylesheet. The current CLI exposes no complete-project pruning mode. The template and stylesheet writes use one recoverable transaction: ordinary failure or handled interruption rolls both outputs back together.
+
+Current commands write after planning unless `--dry-run` is supplied. An adaptive plan-by-default workflow is a later CLI improvement. A power loss, forced process termination, or storage failure can leave recovery unconfirmed; when the command reports that condition, inspect the listed paths and reconcile them against Git or a verified backup before retrying. This is recovery guidance, not a claim of crash durability.
+
+## Current Tailwind CSS 4 safety boundaries
+
+### Available now: directive-specific boundaries
+
+- `fxLayout`: Static directions plus wrap and inline modifiers; coupled unresolved gaps preserve the layout.
+- `fxLayoutAlign`: Static main/cross axes with layout, content alignment, sizing, and border-box semantics.
+- `fxLayoutGap`: Static nonnegative non-wrapping gaps; unitless values remain pixels. Grid, computed, negative, and wrapped gaps are review.
+- `fxFlex`: Static basis, keyword, and three-part forms with parent-axis min/max sizing.
+- `fxGrow` and `fxShrink`: Converted atomically with a static `fxFlex`; standalone use is invalid.
+- `fxFlexAlign`: Static `align-self` keywords.
+- `fxFlexFill`: Static full-size rule including its zero-margin behavior.
+- `fxFill`: Non-responsive alias of `fxFlexFill`.
+- `fxFlexOffset`: Static values with a statically known parent axis; unitless values remain percentages.
+- `fxFlexOrder`: Static integer values emitted independently of the Tailwind theme.
+- `fxShow`: Literal base and configured viewport, orientation, or print states convert when display restoration and the complete visibility family are safe.
+- `fxHide`: Literal base and configured responsive states convert with `fxShow`; hiding emits exact base or responsive `hidden` utilities.
+- `gdAlignColumns`, `gdAlignRows`, `gdArea`, `gdAreas`, `gdAuto`, `gdColumn`, `gdColumns`, `gdGap`, `gdGridAlign`, `gdInline`, `gdRow`, and `gdRows`: Literal values convert when compiler output, display composition, context, and ownership are exact.
 
 All generated lengths that originate in the template use Tailwind arbitrary values. This prevents a project spacing scale from changing `fxLayoutGap="4"` from Angular Flex-Layout's `4px`, or `fxFlexOffset="4"` from its `4%` meaning.
 
@@ -38,7 +86,7 @@ If an existing recognized Tailwind utility conflicts with a generated class in a
 
 ## Visibility semantics
 
-`fxShow` and `fxHide` are planned together as one atomic visibility family per element. Literal values use Angular Flex-Layout's coercion and inversion rules:
+`fxShow` and `fxHide` are currently converted together as one atomic visibility family per element. Literal values use Angular Flex-Layout's coercion and inversion rules. Additional visibility behavior that cannot meet these current safety conditions remains preserved for review:
 
 | Input            | Resulting state |
 | ---------------- | --------------- |
@@ -63,33 +111,24 @@ When layout and visibility both control `display`, the planner composes them bef
 
 ## Grid directives
 
-All grid directives are recognized and preserved. Target conversion has not been implemented.
+Grid container and child directives convert for literal base values, the 13 standard viewport aliases, and explicitly configured orientation and print aliases when their complete declaration, display, parent context, and existing ownership are safe. Container directives share one `grid` or `inline-grid` display state; `gdInline` is composed with that state. Bound values, unconfigured or custom breakpoints, unsafe parent context, and compiler-unverified values remain unchanged with diagnostics.
 
-| Directive        | Tailwind |
-| ---------------- | -------- |
-| `gdAlignColumns` | Planned  |
-| `gdAlignRows`    | Planned  |
-| `gdArea`         | Planned  |
-| `gdAreas`        | Planned  |
-| `gdAuto`         | Planned  |
-| `gdColumn`       | Planned  |
-| `gdColumns`      | Planned  |
-| `gdGap`          | Planned  |
-| `gdGridAlign`    | Planned  |
-| `gdRow`          | Planned  |
-| `gdRows`         | Planned  |
+## Responsive class and style inputs
 
-## Extended responsive inputs
+- literal `ngClass.<alias>`: Converts complete families whose class tokens are proven Tailwind CSS v4 candidates.
+- literal `ngStyle.<alias>`: Converts complete, sanitizer-safe declaration lists with exact CSS ownership.
+- deprecated `class.<alias>` and `style.<alias>`: Version-dependent replacement and merge behavior is not inferred.
+- responsive `imgSrc`: Opt-in literal standard aliases convert to picture markup when URL, fallback, and structural context are safe.
 
-| Input                      | Tailwind  | Notes                                                                                |
-| -------------------------- | --------- | ------------------------------------------------------------------------------------ |
-| literal `ngClass.<alias>`  | Limited   | Converts complete families whose class tokens are proven Tailwind CSS v4 candidates. |
-| literal `ngStyle.<alias>`  | Limited   | Converts complete, sanitizer-safe declaration lists with exact CSS ownership.        |
-| deprecated `class.<alias>` | Preserved | Version-dependent replacement and merge behavior is not inferred.                    |
-| deprecated `style.<alias>` | Preserved | Version-dependent replacement and merge behavior is not inferred.                    |
-| responsive `imgSrc`        | Planned   | Recognized and reported; no target conversion is implemented.                        |
+## Responsive images
 
-The supported aliases are `xs`, `sm`, `md`, `lg`, `xl`, `lt-sm`, `lt-md`, `lt-lg`, `lt-xl`, `gt-xs`, `gt-sm`, `gt-md`, and `gt-lg`. Each emitted class contains the exact Angular Flex-Layout media range rather than a project-defined Tailwind breakpoint.
+`--responsive-images` converts eligible literal `src.<alias>` inputs into ordered native `<picture>` sources. The flag acknowledges that wrapping an `<img>` can affect parent/child CSS and application test selectors. The original fallback `<img>` retains its literal `src`, bound `[src]`, accessibility, loading, sizing, event, reference, class, style, and other unrelated attributes.
+
+Conversion is limited to the 13 standard viewport aliases and one descriptor-free literal URL per responsive source. Dynamic or interpolated values, empty values, orientation, print, custom aliases, conflicting source ownership, structural directives on the image, and existing `<picture>` ancestry remain unchanged with diagnostics. The complete generated template must reparse before any file is written.
+
+JSON reports retain schema version `1` and identify converted and preserved `imgSrc` occurrences by file and source offset. Review every converted image for selectors that assumed the `<img>` had its former parent. Interactive file navigation and a post-run checklist belong to the later CLI upgrade.
+
+The always-supported aliases are `xs`, `sm`, `md`, `lg`, `xl`, `lt-sm`, `lt-md`, `lt-lg`, `lt-xl`, `gt-xs`, `gt-sm`, `gt-md`, and `gt-lg`. Each emitted class contains the exact Angular Flex-Layout media range rather than a project-defined Tailwind breakpoint. Explicit configuration additionally enables orientation and print as described below.
 
 ```html
 <!-- input -->
@@ -117,7 +156,7 @@ The following inputs are always preserved:
 
 - property, two-way, and `bind-` forms, even when an expression appears constant;
 - interpolated values;
-- orientation, print, custom, and empty breakpoint suffixes;
+- unconfigured orientation or print aliases, custom aliases, and empty breakpoint suffixes;
 - deprecated `class.<alias>` and `style.<alias>` selectors;
 - project-specific classes, plugin utilities, and candidates whose meaning depends on custom Tailwind theme values;
 - style values that cannot be encoded with equivalent sanitized CSS semantics;
@@ -125,7 +164,7 @@ The following inputs are always preserved:
 
 Ordinary unsuffixed HTML and Angular `class`, `ngClass`, `style`, and `ngStyle` inputs are not reported as responsive source occurrences, but they are authoritative when responsive siblings exist. Static `class` remains additive and static `style` remains an inline fallback. Unsuffixed `ngClass` and `ngStyle` are replaceable base values: bound forms preserve the complete responsive family, as do non-empty literal values that cannot safely remain active. An empty literal fallback is compatible. An exactly identical literal `ngClass` fallback can make isolated redundant responsive attributes removable, but its retained base tokens still participate in class/style/layout/visibility ownership and preserve every coupled family when they cannot be suppressed safely. Non-empty raw-string `ngStyle` fallbacks remain unchanged because standalone conversion of that Flex-Layout extension is outside this mode.
 
-The current conversion does not edit CSS, Sass, Less, or Tailwind configuration and does not generate companion CSS. A future project-aware mode may inspect those sources and emit companion styles for application classes; this release deliberately leaves that path separate from exact template-only conversion.
+The Tailwind target does not edit CSS, Sass, Less, or Tailwind configuration and does not generate a companion stylesheet. The native CSS target updates only its own marked block; a future project-aware mode may inspect application styles and emit companion styles for application classes.
 
 ## Bindings and breakpoints
 
@@ -133,10 +172,18 @@ Literal responsive values using the standard Angular Flex-Layout viewport aliase
 
 Base values and disjoint responsive values may convert together. Overlapping responsive values convert only when they emit the same utility. A conflicting overlap preserves the entire directive family with `responsive-precedence-unverified`; an existing utility that controls the same property in an intersecting range preserves the family with `class-conflict`. See [Exact responsive breakpoint conversion](architecture/responsive-breakpoints.md) for the exact ranges, conflict rules, and diagnostic contract.
 
+### Project-aware orientation and print
+
+Orientation and print conversion require explicit source-configuration evidence. `--orientation-breakpoints` confirms the source application uses the archived `addOrientationBps: true` definitions. It enables `handset`, `handset.portrait`, `handset.landscape`, `tablet`, `tablet.portrait`, `tablet.landscape`, `web`, `web.portrait`, and `web.landscape` with their exact width-and-orientation conditions. Composite aliases emit separate portrait and landscape media variants; conflicting overlaps remain atomic and preserved.
+
+`--print-with-breakpoints <aliases>` confirms the source application's `printWithBreakpoints` value. Supply a comma-separated list such as `md,handset`, or use `none` to assert an empty list. The list accepts standard aliases and orientation aliases enabled in the same invocation. During print, configured responsive values become print fallbacks even though their screen queries do not match; an explicit `.print` value wins. Duplicate, unknown, `print`, empty, or disabled-orientation entries are configuration errors before migration.
+
+Omitting either flag preserves the corresponding aliases with `breakpoint-unverified`. The flags are assertions, not discovery: verify the application's Flex-Layout provider configuration before using them. See [Tailwind orientation and print migration](architecture/tailwind-orientation-print-migration.md) for the exact definitions and planner contract.
+
 The current safety gate preserves these cases for review:
 
 - every Angular property binding, including bindings whose expression appears constant;
-- orientation and print aliases;
+- orientation and print aliases without their corresponding explicit configuration;
 - unknown aliases, because they may be registered as custom project breakpoints;
 - visibility whose shown state needs a display value that cannot be proven from template and layout semantics;
 - visibility on an element whose literal or bound style may control `display`;
@@ -149,12 +196,12 @@ This is intentional. Angular Flex-Layout's bounded and overlapping aliases are n
 
 ## Reporting API
 
-`Migrator#migrate()` returns one immutable migration report for file and directory inputs. The report uses schema version `1`, contains path-sorted file results and a derived summary, and uses the statuses `converted`, `review`, `unsupported`, `invalid`, and `parse-error`. Unresolved results include a stable diagnostic code, reason, and suggested action.
+`Migrator#migrate()` returns one immutable migration report for file and directory inputs. The report uses schema version `1`, contains path-sorted file results and a derived summary, and uses the statuses `converted`, `review`, `unsupported`, `invalid`, and `parse-error`. Unresolved results include a stable diagnostic code, reason, and suggested action. When parse errors make the invocation non-applicable, the otherwise compatible report adds `application: { "status": "skipped", "reason": "parse-errors" }`; file `changed` values and stylesheet actions then describe the validated plan, not applied writes.
 
 Every non-parse result represents one directive occurrence. To measure responsive class and style conversion, filter results whose `directive` is `ngClass`, `ngStyle`, `class`, or `style`, then count `converted` versus all preserved statuses. The extended compatibility fixture currently asserts 41 converted and 37 preserved report results, while also checking every standard alias, exact diagnostics, fallback replacement, raw-string transformation, ECMAScript-whitespace tokenization, raw-source Tailwind discovery, complete CSS ownership, byte-for-byte output, and a zero-edit second run. Every decoded class candidate in its expected output is compared with one raw Tailwind CSS v4 CLI scan of the exact emitted class bytes. A separate compatibility test checks source-order independence within multi-state class and style families. Empty breakpoint suffixes remain unchanged but are not responsive selectors and therefore do not create report results. These figures describe this test corpus only; repository measurements depend on the inputs scanned and do not establish project-level semantic coverage.
 
 Report paths use forward slashes and are relative to the input root. A single-file input uses its basename. Reports do not expose absolute checkout paths or internal analyzer fields.
 
-The CLI prints a concise deterministic summary and one line per unresolved result. `--report <path>` atomically writes the same result as JSON, including during `--dry-run`; dry-run validates the complete edit plan in memory without writing templates or creating missing template-output directories.
+The CLI prints a concise deterministic summary and one line per unresolved result. A parse-error run begins with `Application skipped`, calls proposed file edits planned changes, and uses conditional stylesheet wording such as `would create`. `--report <path>` atomically writes the same result as JSON, including during `--dry-run`; dry-run validates the complete edit plan in memory without writing templates or creating missing template-output directories.
 
 Unresolved results are strict by default. Exit code `0` means the migration completed cleanly or unresolved work was accepted with `--allow-unresolved`; code `1` means configuration, parsing, template I/O, report writing, or an internal invariant failed; code `2` means the migration completed safely with unresolved `review`, `unsupported`, or `invalid` results in strict mode. `--allow-unresolved` changes only the final exit code and does not hide diagnostics or change migration output.

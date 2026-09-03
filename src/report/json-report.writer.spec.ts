@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { ConversionResult } from '../analyzer/conversion-result';
@@ -176,6 +176,28 @@ describe('JsonReportWriter', () => {
 
     await expect(new JsonReportWriter(writer).write('report.json', report)).rejects.toThrow('report failed');
     expect(writer.write).toHaveBeenCalledOnce();
+  });
+
+  test('revalidates a protected stylesheet alias immediately before writing the report', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'json-report-writer-'));
+    const writer = { write: vi.fn().mockResolvedValue(undefined) };
+    const report = new MigrationReportBuilder().build('templates', 'generated', 'css', false, 0, [], {
+      path: join(directory, 'result.JSON'),
+      change: 'created',
+    });
+    await writeFile(join(directory, 'result.JSON'), 'preserve stylesheet', 'utf8');
+
+    try {
+      await expect(
+        new JsonReportWriter(writer).write(join(directory, 'RESULT.json'), report, {
+          protectedPaths: [join(directory, 'result.JSON')],
+        }),
+      ).rejects.toMatchObject({ code: 'path-collision' });
+      expect(writer.write).not.toHaveBeenCalled();
+      expect(await readFile(join(directory, 'result.JSON'), 'utf8')).toBe('preserve stylesheet');
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
   });
 
   test('preserves responsive safety diagnostic codes in the public report', async () => {

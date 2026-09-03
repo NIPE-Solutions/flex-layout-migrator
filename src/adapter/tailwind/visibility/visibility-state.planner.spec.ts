@@ -48,7 +48,12 @@ describe('VisibilityStatePlanner', () => {
           intent: 'shown',
           activation: {
             kind: 'media',
-            definition: { alias: 'sm', range: { min: 600, max: 959.98 }, priority: 900 },
+            definition: {
+              alias: 'sm',
+              range: { min: 600, max: 959.98 },
+              media: { type: 'screen', clauses: [{ min: 600, max: 959.98 }] },
+              priority: 900,
+            },
           },
         },
       ],
@@ -68,7 +73,12 @@ describe('VisibilityStatePlanner', () => {
           intent: 'hidden',
           activation: {
             kind: 'media',
-            definition: { alias: 'md', range: { min: 960, max: 1279.98 }, priority: 800 },
+            definition: {
+              alias: 'md',
+              range: { min: 960, max: 1279.98 },
+              media: { type: 'screen', clauses: [{ min: 960, max: 1279.98 }] },
+              priority: 800,
+            },
           },
         },
       ],

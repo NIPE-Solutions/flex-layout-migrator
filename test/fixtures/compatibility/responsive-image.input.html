@@ -1,0 +1,12 @@
+<img alt="all" src="base.png" src.gt-xs="gt-xs.png" src.gt-sm="gt-sm.png" src.gt-md="gt-md.png" src.gt-lg="gt-lg.png" src.lt-xl="lt-xl.png" src.lt-lg="lt-lg.png" src.lt-md="lt-md.png" src.lt-sm="lt-sm.png" src.xl="xl.png" src.lg="lg.png" src.md="md.png" src.sm="sm.png" src.xs="xs.png" loading="lazy">
+<img [src]="fallback" src.md="bound-fallback.png">
+<img src.lt-sm="absent-fallback.png">
+<img class="hero" fxHide src.sm="hidden-small.png" src="hidden-base.png">
+<img [src.md]="dynamicImage" src="base.png">
+<img src.handset="handset.png">
+<img src.print="print.png">
+<img src.cinema="cinema.png">
+<img src.md="medium.png 2x">
+<img *ngIf="shown" src.md="structural.png">
+<picture><img src.md="existing.png"></picture>
+<picture><span><img src.md="nested.png"></span></picture>

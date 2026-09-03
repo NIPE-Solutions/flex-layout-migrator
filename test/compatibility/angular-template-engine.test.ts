@@ -6,6 +6,7 @@ import type { ConversionResult } from '../../src/analyzer/conversion-result';
 import { SourceEditor } from '../../src/edit/source-editor';
 import { ConversionPlanner } from '../../src/planner/conversion-planner';
 import { AngularTemplateParser } from '../../src/template/angular-template.parser';
+import type { BreakpointMigrationConfig } from '../../src/config/breakpoint-migration-config';
 
 const fixtureDirectory = new URL('../fixtures/compatibility/', import.meta.url);
 const standardAliases = [
@@ -24,11 +25,18 @@ const standardAliases = [
   'gt-lg',
 ] as const;
 
-function migrate(source: string, fileName = 'fixture.html') {
+function migrate(
+  source: string,
+  fileName = 'fixture.html',
+  config: BreakpointMigrationConfig = { orientationBreakpoints: false },
+  responsiveImages = false,
+) {
   const parsed = new AngularTemplateParser().parse(source, fileName);
   if (parsed.status !== 'parsed') throw new Error(parsed.diagnostics.map(item => item.message).join('\n'));
   const inputs = new TemplateAnalyzer().analyze(fileName, parsed.elements);
-  const plan = new ConversionPlanner().plan(source, parsed.elements, inputs, new TailwindAdapter());
+  const plan = new ConversionPlanner().plan(source, parsed.elements, inputs, new TailwindAdapter(config), {
+    responsiveImages,
+  });
   const edited = new SourceEditor().apply(source, plan.edits);
   if (edited.status !== 'applied') throw new Error(edited.diagnostics.map(item => item.message).join('\n'));
   return { output: edited.output, results: plan.results, editCount: plan.edits.length };
@@ -65,6 +73,59 @@ function equivalentResults(results: readonly ConversionResult[]) {
           },
     )
     .sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)));
+}
+
+function normalizedPublicResults(results: readonly ConversionResult[]) {
+  return results
+    .map(result => {
+      if (result.status === 'parse-error') {
+        return { status: result.status, code: result.code, reason: result.reason };
+      }
+
+      const normalized = {
+        status: result.status,
+        sourceName: result.input.sourceName,
+        directive: result.input.directive,
+        value: result.input.value,
+        binding: result.input.binding,
+        breakpoint: result.input.breakpoint,
+      };
+      return result.status === 'converted'
+        ? normalized
+        : { ...normalized, code: result.code, reason: result.reason, suggestion: result.suggestion };
+    })
+    .sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)));
+}
+
+const scopedFlexDirectives = [
+  ['fxLayout', 'row', 'self'],
+  ['fxLayoutAlign', 'space-between center', 'local-layout'],
+  ['fxLayoutGap', '8', 'local-layout'],
+  ['fxFlex', '25', 'parent-layout'],
+  ['fxGrow', '2', 'flex-item'],
+  ['fxShrink', '3', 'flex-item'],
+  ['fxFlexAlign', 'center', 'parent-layout'],
+  ['fxFlexFill', '', 'self'],
+  ['fxFill', '', 'self'],
+  ['fxFlexOffset', '10', 'parent-layout'],
+  ['fxFlexOrder', '2', 'parent-layout'],
+] as const;
+
+function scopedFlexCase(
+  [directive, value, context]: (typeof scopedFlexDirectives)[number],
+  alias: (typeof standardAliases)[number],
+  reverse: boolean,
+): string {
+  const target = [`${directive}="${value}"`, `${directive}.${alias}="${value}"`];
+  const flexBasis = ['fxFlex="25"', `fxFlex.${alias}="25"`];
+  const attributes = context === 'flex-item' ? [...flexBasis, ...target] : target;
+  if (context === 'local-layout') attributes.unshift('fxLayout="row"');
+  if (reverse) attributes.reverse();
+
+  const element = `<div ${attributes.join(' ')}></div>`;
+  return context === 'parent-layout' || context === 'flex-item'
+    ? `<section fxLayout="row">${element}</section>\n`
+    : `${element}\n`;
 }
 
 function extendedOccurrenceCounts(results: readonly ConversionResult[]) {
@@ -139,6 +200,63 @@ describe('Angular template engine compatibility', () => {
     ],
   };
 
+  test('matches the responsive image fixture with stable totals and idempotence', async () => {
+    const input = await fixture('responsive-image', 'input');
+    const expected = await fixture('responsive-image', 'expected');
+
+    const disabled = migrate(input, 'responsive-image.html');
+    expect(disabled.output).toBe(input.replace('<img class="hero" fxHide', '<img class="hero hidden"'));
+    expect(disabled.results.filter(result => result.status === 'unsupported')).toHaveLength(24);
+
+    const first = migrate(input, 'responsive-image.html', { orientationBreakpoints: false }, true);
+    expect(first.output).toBe(expected);
+    expect(resultCounts(first.results)).toEqual({
+      converted: 17,
+      review: 4,
+      unsupported: 3,
+      invalid: 1,
+      parseError: 0,
+    });
+
+    const second = migrate(first.output, 'responsive-image.html', { orientationBreakpoints: false }, true);
+    expect(second.output).toBe(expected);
+    expect(second.editCount).toBe(0);
+    expect(resultCounts(second.results)).toEqual({
+      converted: 0,
+      review: 4,
+      unsupported: 3,
+      invalid: 1,
+      parseError: 0,
+    });
+  });
+
+  test('matches the Grid fixture byte-for-byte with stable public totals and idempotence', async () => {
+    const input = await fixture('grid', 'input');
+    const expected = await fixture('grid', 'expected');
+
+    const first = migrate(input, 'grid.html');
+    expect(first.output).toBe(expected);
+    expect(resultCounts(first.results)).toEqual({
+      converted: 13,
+      review: 2,
+      unsupported: 0,
+      invalid: 0,
+      parseError: 0,
+    });
+    expect(diagnosticCounts(first.results)).toEqual({ 'dynamic-binding': 1, 'breakpoint-unverified': 1 });
+
+    const second = migrate(first.output, 'grid.html');
+    expect(second.output).toBe(expected);
+    expect(second.editCount).toBe(0);
+    expect(resultCounts(second.results)).toEqual({
+      converted: 0,
+      review: 2,
+      unsupported: 0,
+      invalid: 0,
+      parseError: 0,
+    });
+  });
+
   test.each(['static', 'angular-syntax', 'responsive', 'unresolved', 'visibility'])(
     'matches the %s fixture and is idempotent',
     async name => {
@@ -163,12 +281,62 @@ describe('Angular template engine compatibility', () => {
     );
   });
 
+  test('converts configured orientation and print behavior byte-for-byte and idempotently', () => {
+    const input =
+      '<div fxLayout.handset="column"></div>\n' +
+      '<section fxLayout="row" fxLayout.md="column"></section>\n' +
+      '<main fxLayout.print="column"></main>\n';
+    const config = { orientationBreakpoints: true, printWithBreakpoints: ['md'] } as const;
+    const expected =
+      '<div class="[@media_(orientation:_portrait)_and_(max-width:_599.98px)]:flex [@media_(orientation:_landscape)_and_(max-width:_959.98px)]:flex [@media_(orientation:_portrait)_and_(max-width:_599.98px)]:flex-col [@media_(orientation:_landscape)_and_(max-width:_959.98px)]:flex-col [@media_(orientation:_portrait)_and_(max-width:_599.98px)]:box-border [@media_(orientation:_landscape)_and_(max-width:_959.98px)]:box-border"></div>\n' +
+      '<section class="flex flex-row box-border [@media_screen_and_(min-width:_960px)_and_(max-width:_1279.98px)]:flex [@media_screen_and_(min-width:_960px)_and_(max-width:_1279.98px)]:flex-col [@media_screen_and_(min-width:_960px)_and_(max-width:_1279.98px)]:box-border [@media_print]:flex [@media_print]:flex-col [@media_print]:box-border"></section>\n' +
+      '<main class="[@media_print]:flex [@media_print]:flex-col [@media_print]:box-border"></main>\n';
+
+    const first = migrate(input, 'orientation-print.html', config);
+    expect(first.output).toBe(expected);
+    expect(first.results.every(result => result.status === 'converted')).toBe(true);
+    const second = migrate(first.output, 'orientation-print.html', config);
+    expect(second.output).toBe(expected);
+    expect(second.editCount).toBe(0);
+  });
+
   test('emits the same canonical responsive family for equivalent attribute orders', () => {
     const baseFirst = migrate('<div fxLayout="row" fxLayout.sm="column" fxLayout.md="row"></div>');
     const responsiveFirst = migrate('<div fxLayout.md="row" fxLayout="row" fxLayout.sm="column"></div>');
 
     expect(baseFirst.output).toBe(responsiveFirst.output);
     expect(equivalentResults(baseFirst.results)).toEqual(equivalentResults(responsiveFirst.results));
+  });
+
+  test('preserves every scoped Flex directive across base and standard aliases independent of order', () => {
+    const coveredSourceNames = new Set<string>();
+
+    for (const directiveCase of scopedFlexDirectives) {
+      for (const alias of standardAliases) {
+        const canonical = migrate(scopedFlexCase(directiveCase, alias, false), 'scoped-flex.html');
+        const reversed = migrate(scopedFlexCase(directiveCase, alias, true), 'scoped-flex.html');
+
+        for (const result of canonical.results) {
+          if (result.status !== 'parse-error') coveredSourceNames.add(result.input.sourceName);
+        }
+        expect(canonical.results.every(result => result.status === 'converted')).toBe(true);
+        expect(reversed.results.every(result => result.status === 'converted')).toBe(true);
+        expect(reversed.output).toBe(canonical.output);
+        expect(normalizedPublicResults(reversed.results)).toEqual(normalizedPublicResults(canonical.results));
+
+        const second = migrate(canonical.output, 'scoped-flex.html');
+        expect(second.output).toBe(canonical.output);
+        expect(second.editCount).toBe(0);
+      }
+    }
+
+    const expectedSourceNames = new Set(
+      scopedFlexDirectives.flatMap(([directive]) => [
+        directive,
+        ...standardAliases.map(alias => `${directive}.${alias}`),
+      ]),
+    );
+    expect(coveredSourceNames).toEqual(expectedSourceNames);
   });
 
   test('emits the same composed visibility family for equivalent attribute orders', () => {
