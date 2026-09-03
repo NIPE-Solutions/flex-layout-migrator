@@ -1,0 +1,32 @@
+/* enterprise architecture handwritten CSS */
+.keep { color: rebeccapurple; }
+/* flex-layout-codemod:start schema=1 */
+/* flex-layout-codemod:rule id=572e12d817c0c8f5a06403f52a96be05b03a6c9594c74b72819144dfadae8d58 */
+.flm-572e12d817c0c8f5a06403f52a96be05b03a6c9594c74b72819144dfadae8d58 {
+  flex: 1 1 100%;
+  max-width: 25%;
+  box-sizing: border-box;
+}
+/* flex-layout-codemod:rule id=5db098b5a4e638fdd1aff69e13d53ea10eb01e6c58577e5ecdf136b90eaee103 */
+.flm-5db098b5a4e638fdd1aff69e13d53ea10eb01e6c58577e5ecdf136b90eaee103 {
+  display: flex;
+  box-sizing: border-box;
+  flex-direction: row;
+}
+/* flex-layout-codemod:rule id=a828e172b0300a6c401ffd2aae7fcdbf20b044dfb8b2711c323a8ce8a4ec9b11 */
+.flm-a828e172b0300a6c401ffd2aae7fcdbf20b044dfb8b2711c323a8ce8a4ec9b11 {
+  display: flex;
+  box-sizing: border-box;
+  flex-direction: column;
+}
+/* flex-layout-codemod:rule id=bd65c835514cfdeeadc4c8c382270edfdfbc8dd2ccd446f2c46013701ee46ac4 */
+.flm-bd65c835514cfdeeadc4c8c382270edfdfbc8dd2ccd446f2c46013701ee46ac4 {
+  gap: 8px;
+}
+@media screen and (min-width: 600px) and (max-width: 959.98px) {
+  /* flex-layout-codemod:rule id=a73f080d46290c1b70a5392bca8eb655d1b66008c76eba503ab6edfaf7821a9a */
+  .flm-a73f080d46290c1b70a5392bca8eb655d1b66008c76eba503ab6edfaf7821a9a {
+    gap: 4px;
+  }
+}
+/* flex-layout-codemod:end */
