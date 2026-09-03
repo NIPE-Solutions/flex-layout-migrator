@@ -1,116 +1,113 @@
 import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { TailwindAdapter } from '../adapter/tailwind/tailwind.adapter';
-import { TemplateAnalyzer } from '../analyzer/template.analyzer';
-import { ConversionPlanner } from '../planner/conversion-planner';
+import { AdapterFactory } from '../adapter/adapter.factory';
+import { AnalyzeProjectStage } from '../pipeline/analyze/analyze-project.stage';
+import { DiscoverProjectStage } from '../pipeline/discover/discover-project.stage';
+import { migrationInvocation } from '../pipeline/project-manifest';
 import { AngularTemplateParser } from '../template/angular-template.parser';
-import type { FileMigratorDependencies } from './file.migrator';
-import { FolderMigrator } from './folder.migrator';
+import type { MigrationTransaction } from '../transaction/migration-transaction';
+import { AnalyzedFileMigrator } from './analyzed-file.migrator';
+import { Migrator, type MigratorDependencies } from './migrator';
 
-describe('FolderMigrator', () => {
+describe('folder analyzed-project continuation', () => {
   let temporaryDirectory: string;
   let inputFolder: string;
   let outputFolder: string;
 
   beforeEach(async () => {
-    temporaryDirectory = await mkdtemp(join(tmpdir(), 'folder-migrator-'));
+    temporaryDirectory = await mkdtemp(join(tmpdir(), 'folder-analyzed-project-'));
     inputFolder = join(temporaryDirectory, 'input');
     outputFolder = join(temporaryDirectory, 'output');
-    await mkdir(join(inputFolder, 'nested'), { recursive: true });
+    await mkdir(join(inputFolder, 'Z'), { recursive: true });
   });
 
   afterEach(async () => {
     await rm(temporaryDirectory, { recursive: true, force: true });
   });
 
-  test('returns one ordered immutable file plan per HTML template without creating outputs', async () => {
-    await writeFile(join(inputFolder, 'z-changed.html'), '<div fxLayout="row"></div>', 'utf8');
-    await writeFile(join(inputFolder, 'nested', 'b-unchanged.html'), '<div class="card"></div>', 'utf8');
+  test('renders nested templates once in the authoritative manifest order without creating outputs', async () => {
+    await writeFile(join(inputFolder, 'a.html'), '<div fxLayout="row"></div>', 'utf8');
+    await writeFile(join(inputFolder, 'Z', 'nested.html'), '<div class="card"></div>', 'utf8');
     await writeFile(join(inputFolder, 'notes.txt'), '<div fxLayout="column"></div>', 'utf8');
-
-    const plans = await new FolderMigrator(new TailwindAdapter(), inputFolder, outputFolder).plan();
-
-    expect(Object.isFrozen(plans)).toBe(true);
-    expect(plans.map(plan => plan.file.inputPath)).toEqual([
-      join(inputFolder, 'nested', 'b-unchanged.html'),
-      join(inputFolder, 'z-changed.html'),
-    ]);
-    expect(
-      plans.map(plan => ({ changed: plan.file.changed, statuses: plan.file.results.map(item => item.status) })),
-    ).toEqual([
-      { changed: false, statuses: [] },
-      { changed: true, statuses: ['converted'] },
-    ]);
-    expect(plans[1]?.artifact?.proposed).toEqual({
-      status: 'present',
-      contents: '<div class="flex flex-row box-border"></div>',
+    const invocation = migrationInvocation({
+      inputPath: inputFolder,
+      outputPath: outputFolder,
+      options: { mode: 'plan' },
     });
-    await expect(access(outputFolder)).rejects.toThrow();
-  });
+    const manifest = await new DiscoverProjectStage().run(invocation);
+    const analyzed = await new AnalyzeProjectStage().run(manifest);
+    const renderedPaths: string[] = [];
+    const dependencies = continuationDependencies((adapter, template) => {
+      renderedPaths.push(template.file.inputPath);
+      return new AnalyzedFileMigrator(adapter, template);
+    });
 
-  test('creates one injected dependency lifecycle per discovered template', async () => {
-    await writeFile(join(inputFolder, 'changed.html'), '<div fxLayout="row"></div>', 'utf8');
-    await writeFile(join(inputFolder, 'nested', 'unchanged.html'), '<div class="card"></div>', 'utf8');
-    const readTemplate = vi.fn(async (filePath: string) => readFile(filePath, 'utf8'));
-    const dependencies: FileMigratorDependencies = {
-      readTemplate,
-      parser: new AngularTemplateParser(),
-      analyzer: new TemplateAnalyzer(),
-      planner: new ConversionPlanner(),
-    };
-    const parse = vi.spyOn(dependencies.parser, 'parse');
-    const analyze = vi.spyOn(dependencies.analyzer, 'analyze');
-    const renderPlan = vi.spyOn(dependencies.planner, 'plan');
-    const dependencyFactory = vi.fn(() => dependencies);
-    const onDiscoveryPass = vi.fn();
+    const report = await new Migrator(
+      AdapterFactory.createSession('tailwind'),
+      analyzed,
+      () => 0,
+      transactionDouble(),
+      undefined,
+      dependencies,
+    ).migrate({ mode: 'plan' });
 
-    const plans = await new FolderMigrator(
-      new TailwindAdapter(),
-      inputFolder,
-      outputFolder,
-      [],
-      dependencyFactory,
-      onDiscoveryPass,
-    ).plan();
-
-    expect(plans.map(plan => plan.file.changed)).toEqual([true, false]);
-    expect(onDiscoveryPass).toHaveBeenCalledOnce();
-    expect(dependencyFactory).toHaveBeenCalledTimes(2);
-    expect(readTemplate).toHaveBeenCalledTimes(3);
-    expect(readTemplate.mock.calls.map(([filePath]) => filePath)).toEqual([
-      join(inputFolder, 'changed.html'),
-      join(outputFolder, 'changed.html'),
-      join(inputFolder, 'nested', 'unchanged.html'),
-    ]);
-    expect(parse).toHaveBeenCalledTimes(3);
-    expect(analyze).toHaveBeenCalledTimes(2);
-    expect(renderPlan).toHaveBeenCalledOnce();
-  });
-
-  test('orders discovered templates by UTF-16 code units instead of the host locale', async () => {
-    await writeFile(join(inputFolder, 'ä.html'), '<div></div>', 'utf8');
-    await writeFile(join(inputFolder, 'a.html'), '<div></div>', 'utf8');
-    await writeFile(join(inputFolder, 'Z.html'), '<div></div>', 'utf8');
-
-    const plans = await new FolderMigrator(new TailwindAdapter(), inputFolder, outputFolder).plan();
-
-    expect(plans.map(plan => plan.file.inputPath)).toEqual([
-      join(inputFolder, 'Z.html'),
+    expect(manifest.templates.map(template => template.inputPath)).toEqual([
+      join(inputFolder, 'Z', 'nested.html'),
       join(inputFolder, 'a.html'),
-      join(inputFolder, 'ä.html'),
     ]);
+    expect(renderedPaths).toEqual(manifest.templates.map(template => template.inputPath));
+    expect(report.files.map(file => ({ path: file.path, changed: file.changed }))).toEqual([
+      { path: 'Z/nested.html', changed: false },
+      { path: 'a.html', changed: true },
+    ]);
+    await expect(access(outputFolder)).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
-  test('keeps every earlier output untouched when a later template has a parse error', async () => {
+  test('keeps every planned artifact unapplied when a later analyzed template has a parse error', async () => {
     await writeFile(join(inputFolder, 'a-convert.html'), '<div fxLayout="row"></div>', 'utf8');
     await writeFile(join(inputFolder, 'z-invalid.html'), '<span fxLayout="row" />', 'utf8');
+    const invocation = migrationInvocation({
+      inputPath: inputFolder,
+      outputPath: outputFolder,
+      options: { mode: 'write' },
+    });
+    const manifest = await new DiscoverProjectStage().run(invocation);
+    const analyzed = await new AnalyzeProjectStage().run(manifest);
+    const transaction = transactionDouble();
 
-    const plans = await new FolderMigrator(new TailwindAdapter(), inputFolder, outputFolder).plan();
+    const report = await new Migrator(
+      AdapterFactory.createSession('tailwind'),
+      analyzed,
+      () => 0,
+      transaction,
+      undefined,
+      continuationDependencies((adapter, template) => new AnalyzedFileMigrator(adapter, template)),
+    ).migrate({ mode: 'write' });
 
-    expect(plans.map(plan => plan.file.changed)).toEqual([true, false]);
-    expect(plans[0]?.artifact).toMatchObject({ kind: 'template' });
-    expect(plans[1]?.file.results).toContainEqual(expect.objectContaining({ status: 'parse-error' }));
-    await expect(access(outputFolder)).rejects.toThrow();
+    expect(report).toMatchObject({
+      application: { status: 'skipped', reason: 'parse-errors' },
+      summary: { filesScanned: 2, filesChanged: 1, converted: 1, parseErrors: 1 },
+    });
+    expect(transaction.preflight).not.toHaveBeenCalled();
+    expect(transaction.apply).not.toHaveBeenCalled();
+    await expect(access(outputFolder)).rejects.toMatchObject({ code: 'ENOENT' });
   });
 });
+
+function continuationDependencies(
+  createFileMigrator: MigratorDependencies['createFileMigrator'],
+): MigratorDependencies {
+  return {
+    readDestination: filePath => readFile(filePath, 'utf8'),
+    referenceParser: new AngularTemplateParser(),
+    createFileMigrator,
+  };
+}
+
+function transactionDouble() {
+  return {
+    preflight: vi.fn<MigrationTransaction['preflight']>().mockResolvedValue(undefined),
+    apply: vi.fn<MigrationTransaction['apply']>().mockResolvedValue(undefined),
+  };
+}

@@ -5,10 +5,15 @@ import { AdapterFactory } from '../../src/adapter/adapter.factory';
 import type { ConversionAdapterSession } from '../../src/adapter/conversion-adapter.session';
 import { TemplateAnalyzer } from '../../src/analyzer/template.analyzer';
 import { ConversionPlanner } from '../../src/planner/conversion-planner';
-import type { FileMigratorDependencies } from '../../src/migrator/file.migrator';
+import { AnalyzedFileMigrator, type AnalyzedFileMigratorDependencies } from '../../src/migrator/analyzed-file.migrator';
 import { Migrator, type MigratorDependencies } from '../../src/migrator/migrator';
 import type { MigrationMode } from '../../src/migrator/migration-mode';
 import { StylesheetPlanner } from '../../src/migrator/stylesheet.planner';
+import { AnalyzeProjectStage } from '../../src/pipeline/analyze/analyze-project.stage';
+import { DiscoverProjectStage } from '../../src/pipeline/discover/discover-project.stage';
+import { CurrentMigrationPipeline, type MigratorFactory } from '../../src/pipeline/current-migration.pipeline';
+import type { AnalyzeStage, DiscoverStage } from '../../src/pipeline/migration-pipeline';
+import { migrationInvocation } from '../../src/pipeline/project-manifest';
 import { AngularTemplateParser } from '../../src/template/angular-template.parser';
 import type { MigrationTransaction } from '../../src/transaction/migration-transaction';
 
@@ -193,62 +198,88 @@ async function executeMigration(
       return readFile(target, 'utf8');
     },
   });
-  await new Migrator(
-    session,
-    input,
-    output,
-    () => 0,
-    transaction,
-    stylesheetPlanner,
-    countingMigratorDependencies(counts),
-  ).migrate({ mode, ...(stylesheetPath ? { stylesheetPath } : {}) });
+  const discover = countingDiscoverStage(counts);
+  const analyze = countingAnalyzeStage(counts);
+  const dependencies = countingMigratorDependencies(counts);
+  const createMigrator: MigratorFactory = (receivedSession, analyzed) =>
+    new Migrator(receivedSession, analyzed, () => 0, transaction, stylesheetPlanner, dependencies);
+  await new CurrentMigrationPipeline(session, discover, analyze, createMigrator).run(
+    migrationInvocation({
+      inputPath: input,
+      outputPath: output,
+      options: { mode, ...(stylesheetPath ? { stylesheetPath } : {}) },
+    }),
+  );
+}
+
+function countingDiscoverStage(counts: MigrationWorkloadCounts): DiscoverStage {
+  const discover = new DiscoverProjectStage();
+  return {
+    async run(invocation) {
+      counts.discoveryPasses++;
+      const manifest = await discover.run(invocation);
+      counts.templatesDiscovered += manifest.templates.length;
+      return manifest;
+    },
+  };
+}
+
+function countingAnalyzeStage(counts: MigrationWorkloadCounts): AnalyzeStage {
+  const parser = new AngularTemplateParser();
+  const analyzer = new TemplateAnalyzer();
+  return new AnalyzeProjectStage(
+    {
+      async read(target) {
+        const contents = await readFile(target, 'utf8');
+        counts.templateReads++;
+        return contents;
+      },
+    },
+    {
+      parse(source, fileName) {
+        counts.initialParses++;
+        return parser.parse(source, fileName);
+      },
+    },
+    analyzer,
+  );
 }
 
 function countingMigratorDependencies(counts: MigrationWorkloadCounts): MigratorDependencies {
   const referenceParser = new AngularTemplateParser();
+  const readDestination = async (target: string): Promise<string> => {
+    const contents = await readFile(target, 'utf8');
+    counts.templateReads++;
+    return contents;
+  };
   return {
-    onDiscoveryPass: () => {
-      counts.discoveryPasses++;
-    },
-    fileMigratorDependencies: () => {
-      counts.templatesDiscovered++;
-      return countingFileDependencies(counts);
-    },
-    readTemplate: async target => {
-      const contents = await readFile(target, 'utf8');
-      counts.templateReads++;
-      return contents;
-    },
-    parser: {
+    readDestination,
+    referenceParser: {
       parse: (source, fileName) => {
         counts.validationParses++;
         return referenceParser.parse(source, fileName);
       },
     },
+    createFileMigrator: (adapter, template) =>
+      new AnalyzedFileMigrator(adapter, template, countingFileDependencies(counts, readDestination)),
   };
 }
 
-function countingFileDependencies(counts: MigrationWorkloadCounts): FileMigratorDependencies {
+function countingFileDependencies(
+  counts: MigrationWorkloadCounts,
+  readDestination: (target: string) => Promise<string>,
+): AnalyzedFileMigratorDependencies {
   const parser = new AngularTemplateParser();
-  const analyzer = new TemplateAnalyzer();
   const planner = new ConversionPlanner();
-  let parsedInitialTemplate = false;
 
   return {
-    readTemplate: async target => {
-      const contents = await readFile(target, 'utf8');
-      counts.templateReads++;
-      return contents;
-    },
-    parser: {
+    readDestination,
+    validationParser: {
       parse: (source, fileName) => {
-        if (parsedInitialTemplate) counts.validationParses++;
-        else counts.initialParses++;
-        parsedInitialTemplate = true;
+        counts.validationParses++;
         return parser.parse(source, fileName);
       },
     },
-    analyzer,
     planner: {
       plan: (...args) => {
         counts.renderedTemplates++;
