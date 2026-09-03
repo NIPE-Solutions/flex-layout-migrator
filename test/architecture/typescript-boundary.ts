@@ -110,6 +110,59 @@ export interface TypeScriptProjectInspection {
   }[];
 }
 
+const semanticFilesystemOperationNames = [
+  'access',
+  'accessSync',
+  'createReadStream',
+  'Dir',
+  'exists',
+  'existsSync',
+  'FileReadStream',
+  'fstat',
+  'fstatSync',
+  'glob',
+  'globSync',
+  'lstat',
+  'lstatSync',
+  'open',
+  'openAsBlob',
+  'openSync',
+  'opendir',
+  'opendirSync',
+  'pathExists',
+  'pathExistsSync',
+  'read',
+  'readFile',
+  'readFileSync',
+  'readJSON',
+  'readJson',
+  'readJSONSync',
+  'readJsonSync',
+  'readLines',
+  'readableWebStream',
+  'ReadStream',
+  'readSync',
+  'readv',
+  'readvSync',
+  'readdir',
+  'readdirSync',
+  'readlink',
+  'readlinkSync',
+  'realpath',
+  'realpathSync',
+  'stat',
+  'statfs',
+  'statfsSync',
+  'statSync',
+  'Utf8Stream',
+  'watch',
+  'watchFile',
+] as const;
+
+type SemanticFilesystemOperation = (typeof semanticFilesystemOperationNames)[number];
+const semanticFilesystemOperations = new Set<string>(semanticFilesystemOperationNames);
+const filesystemNamespaceMemberNames = new Set(['default', 'promises']);
+
 export type SemanticAuthorityName =
   | 'AnalyzeProjectStage.run'
   | 'AngularTemplateParser.parse'
@@ -121,9 +174,7 @@ export type SemanticAuthorityName =
   | 'DiscoveryFileSystem.kind'
   | 'DiscoverProjectStage.run'
   | 'FileSystem.acquire'
-  | 'FileSystem.readFile'
-  | 'FileSystem.readdir'
-  | 'FileSystem.stat'
+  | `FileSystem.${SemanticFilesystemOperation}`
   | 'GitIgnoreHelper.acquire'
   | 'GitIgnoreHelper.createGitIgnoreMatcher'
   | 'IgnoreLibrary.acquire'
@@ -618,17 +669,45 @@ function filesystemProvenance(
   checker: ts.TypeChecker,
   seenSymbols: ReadonlySet<ts.Symbol> = new Set(),
   operationNames: ReadonlySet<string> = filesystemMutationNames,
+  program?: ts.Program,
 ): FilesystemProvenance | undefined {
   const unwrapped = unwrapExpression(expression);
   if (ts.isCallExpression(unwrapped)) {
     const reference = calledModule(unwrapped);
-    if (reference !== undefined) return isFilesystemModuleReference(reference) ? '*' : undefined;
+    if (reference !== undefined) {
+      if (isFilesystemModuleReference(reference)) return '*';
+      if (
+        program !== undefined &&
+        runtimeAcquisitionReaches(
+          reference,
+          unwrapped.getSourceFile().fileName,
+          isFilesystemModuleReference,
+          () => false,
+          program,
+        )
+      ) {
+        return '*';
+      }
+      return undefined;
+    }
   }
 
   if (ts.isPropertyAccessExpression(unwrapped) || ts.isElementAccessExpression(unwrapped)) {
     const propertyName = resolvedMemberName(unwrapped, checker);
-    const receiver = filesystemProvenance(unwrapped.expression, checker, seenSymbols, operationNames);
+    const receiver = filesystemProvenance(unwrapped.expression, checker, seenSymbols, operationNames, program);
     if (receiver === '*' && propertyName !== undefined && operationNames.has(propertyName)) return propertyName;
+    if (receiver === '*' && propertyName !== undefined && filesystemNamespaceMemberNames.has(propertyName)) return '*';
+    const moduleReference = commonJsModuleReference(unwrapped.expression, checker, seenSymbols);
+    if (propertyName !== undefined && moduleReference !== undefined && program !== undefined) {
+      const provenance = filesystemModuleExportProvenance(
+        moduleReference.reference,
+        moduleReference.containingSourcePath,
+        propertyName,
+        operationNames,
+        program,
+      );
+      if (provenance !== undefined) return provenance;
+    }
   }
 
   const symbol = checker.getSymbolAtLocation(unwrapped);
@@ -638,11 +717,11 @@ function filesystemProvenance(
   if ((symbol.flags & ts.SymbolFlags.Alias) !== 0) {
     const aliased = checker.getAliasedSymbol(symbol);
     if (aliased !== symbol) {
-      const provenance = filesystemSymbolProvenance(aliased, checker, nextSeen, operationNames);
+      const provenance = filesystemSymbolProvenance(aliased, checker, nextSeen, operationNames, program);
       if (provenance !== undefined) return provenance;
     }
   }
-  return filesystemSymbolProvenance(symbol, checker, nextSeen, operationNames);
+  return filesystemSymbolProvenance(symbol, checker, nextSeen, operationNames, program);
 }
 
 function filesystemSymbolProvenance(
@@ -650,6 +729,7 @@ function filesystemSymbolProvenance(
   checker: ts.TypeChecker,
   seenSymbols: ReadonlySet<ts.Symbol>,
   operationNames: ReadonlySet<string> = filesystemMutationNames,
+  program?: ts.Program,
 ): FilesystemProvenance | undefined {
   const symbolName = symbol.getName();
   if (
@@ -661,22 +741,44 @@ function filesystemSymbolProvenance(
 
   for (const declaration of symbol.declarations ?? []) {
     const reference = enclosingModuleReference(declaration);
-    if (reference !== undefined && isFilesystemModuleReference(reference)) {
+    const filesystemReference =
+      reference !== undefined &&
+      (isFilesystemModuleReference(reference) ||
+        (program !== undefined &&
+          runtimeAcquisitionReaches(
+            reference,
+            declaration.getSourceFile().fileName,
+            isFilesystemModuleReference,
+            () => false,
+            program,
+          )));
+    if (filesystemReference) {
       if (ts.isNamespaceImport(declaration) || ts.isImportClause(declaration)) return '*';
+      if (ts.isImportEqualsDeclaration(declaration)) return '*';
       if (ts.isImportSpecifier(declaration)) {
         const importedName = declaration.propertyName?.text ?? declaration.name.text;
         if (operationNames.has(importedName)) return importedName;
+        if (reference !== undefined && program !== undefined) {
+          const provenance = filesystemModuleExportProvenance(
+            reference,
+            declaration.getSourceFile().fileName,
+            importedName,
+            operationNames,
+            program,
+          );
+          if (provenance !== undefined) return provenance;
+        }
       }
     }
     if (ts.isVariableDeclaration(declaration) && declaration.initializer !== undefined) {
-      const provenance = filesystemProvenance(declaration.initializer, checker, seenSymbols, operationNames);
+      const provenance = filesystemProvenance(declaration.initializer, checker, seenSymbols, operationNames, program);
       if (provenance !== undefined) return provenance;
     }
     if (
       (ts.isPropertyAssignment(declaration) || ts.isPropertyDeclaration(declaration)) &&
       declaration.initializer !== undefined
     ) {
-      const provenance = filesystemProvenance(declaration.initializer, checker, seenSymbols, operationNames);
+      const provenance = filesystemProvenance(declaration.initializer, checker, seenSymbols, operationNames, program);
       if (provenance !== undefined) return provenance;
     }
     if (ts.isShorthandPropertyAssignment(declaration)) {
@@ -687,6 +789,7 @@ function filesystemSymbolProvenance(
           checker,
           new Set(seenSymbols).add(valueSymbol),
           operationNames,
+          program,
         );
         if (provenance !== undefined) return provenance;
       }
@@ -696,10 +799,21 @@ function filesystemSymbolProvenance(
       const variable =
         ts.isObjectBindingPattern(pattern) || ts.isArrayBindingPattern(pattern) ? pattern.parent : undefined;
       if (variable !== undefined && ts.isVariableDeclaration(variable) && variable.initializer !== undefined) {
-        const receiver = filesystemProvenance(variable.initializer, checker, seenSymbols, operationNames);
+        const receiver = filesystemProvenance(variable.initializer, checker, seenSymbols, operationNames, program);
         const propertyName = bindingElementPropertyName(declaration);
         if (receiver === '*' && propertyName !== undefined && operationNames.has(propertyName)) {
           return propertyName;
+        }
+        const moduleReference = commonJsModuleReference(variable.initializer, checker, seenSymbols);
+        if (propertyName !== undefined && moduleReference !== undefined && program !== undefined) {
+          const provenance = filesystemModuleExportProvenance(
+            moduleReference.reference,
+            moduleReference.containingSourcePath,
+            propertyName,
+            operationNames,
+            program,
+          );
+          if (provenance !== undefined) return provenance;
         }
         if (propertyName !== undefined) {
           const property = checker.getPropertyOfType(checker.getTypeAtLocation(variable.initializer), propertyName);
@@ -709,6 +823,7 @@ function filesystemSymbolProvenance(
               checker,
               new Set(seenSymbols).add(property),
               operationNames,
+              program,
             );
             if (provenance !== undefined) return provenance;
           }
@@ -2903,16 +3018,16 @@ function contextualSemanticAuthorityName(
   return config.name;
 }
 
-const semanticFilesystemOperationNames = new Set(['readFile', 'readdir', 'stat']);
-
 function semanticFilesystemOperationInvocation(
   expression: ts.CallExpression,
   checker: ts.TypeChecker,
   program: ts.Program,
-): 'readFile' | 'readdir' | 'stat' | undefined {
-  const resolveOperation = (target: ts.Expression): 'readFile' | 'readdir' | 'stat' | undefined => {
-    const provenance = filesystemProvenance(target, checker, new Set(), semanticFilesystemOperationNames);
-    return provenance === 'readFile' || provenance === 'readdir' || provenance === 'stat' ? provenance : undefined;
+): SemanticFilesystemOperation | undefined {
+  const resolveOperation = (target: ts.Expression): SemanticFilesystemOperation | undefined => {
+    const provenance = filesystemProvenance(target, checker, new Set(), semanticFilesystemOperations, program);
+    return provenance !== undefined && provenance !== '*' && semanticFilesystemOperations.has(provenance)
+      ? (provenance as SemanticFilesystemOperation)
+      : undefined;
   };
   const reflected = reflectedApplyInvocation(expression, checker, program, new Set());
   const invocation =
@@ -2920,6 +3035,23 @@ function semanticFilesystemOperationInvocation(
       ? resolvedCallableInvocation(expression, checker, resolveOperation)
       : resolvedCallableApplication(reflected.target, reflected.arguments, checker, resolveOperation);
   return invocation?.provenance;
+}
+
+function semanticFilesystemOperationConstruction(
+  expression: ts.NewExpression,
+  checker: ts.TypeChecker,
+  program: ts.Program,
+): SemanticFilesystemOperation | undefined {
+  const provenance = filesystemProvenance(
+    expression.expression,
+    checker,
+    new Set(),
+    semanticFilesystemOperations,
+    program,
+  );
+  return provenance !== undefined && provenance !== '*' && semanticFilesystemOperations.has(provenance)
+    ? (provenance as SemanticFilesystemOperation)
+    : undefined;
 }
 
 function ignoreLibrarySymbolProvenance(
@@ -3038,14 +3170,119 @@ function runtimeImportedBindingReferences(sourceFile: ts.SourceFile): ReadonlyMa
       }
       continue;
     }
+    if (
+      ts.isImportEqualsDeclaration(statement) &&
+      !statement.isTypeOnly &&
+      ts.isExternalModuleReference(statement.moduleReference)
+    ) {
+      const reference = moduleText(statement.moduleReference.expression);
+      if (reference !== undefined) references.set(statement.name.text, reference);
+    }
   }
   return references;
+}
+
+interface RuntimeImportedBindingTarget {
+  readonly importedName: string;
+  readonly reference: string;
+}
+
+function runtimeImportedBindingTargets(sourceFile: ts.SourceFile): ReadonlyMap<string, RuntimeImportedBindingTarget> {
+  const targets = new Map<string, RuntimeImportedBindingTarget>();
+  for (const statement of sourceFile.statements) {
+    if (ts.isImportDeclaration(statement)) {
+      for (const binding of runtimeImportBindings(statement)) {
+        targets.set(binding.localName, {
+          importedName: binding.importedName,
+          reference: binding.moduleReference,
+        });
+      }
+      continue;
+    }
+    if (
+      ts.isImportEqualsDeclaration(statement) &&
+      !statement.isTypeOnly &&
+      ts.isExternalModuleReference(statement.moduleReference)
+    ) {
+      const reference = moduleText(statement.moduleReference.expression);
+      if (reference !== undefined) targets.set(statement.name.text, { importedName: '*', reference });
+    }
+  }
+  return targets;
+}
+
+function runtimeExportedBindingTargets(
+  sourceFile: ts.SourceFile,
+  exportedName: string,
+): readonly RuntimeImportedBindingTarget[] {
+  const imports = runtimeImportedBindingTargets(sourceFile);
+  const targets: RuntimeImportedBindingTarget[] = [];
+
+  for (const statement of sourceFile.statements) {
+    if (ts.isExportAssignment(statement)) {
+      const expression = unwrapExpression(statement.expression);
+      if (ts.isIdentifier(expression)) {
+        const imported = imports.get(expression.text);
+        if (imported !== undefined) {
+          targets.push({
+            importedName: imported.importedName === '*' ? exportedName : imported.importedName,
+            reference: imported.reference,
+          });
+        }
+      } else if (ts.isCallExpression(expression)) {
+        const reference = calledModule(expression);
+        if (reference !== undefined) targets.push({ importedName: exportedName, reference });
+      }
+      continue;
+    }
+    if (!ts.isExportDeclaration(statement) || statement.isTypeOnly) continue;
+    const reference = runtimeExportReference(statement);
+    if (reference !== undefined) {
+      if (statement.exportClause === undefined) {
+        targets.push({ importedName: exportedName, reference });
+      } else if (ts.isNamedExports(statement.exportClause)) {
+        for (const element of statement.exportClause.elements) {
+          if (element.isTypeOnly || element.name.text !== exportedName) continue;
+          targets.push({ importedName: element.propertyName?.text ?? element.name.text, reference });
+        }
+      } else if (statement.exportClause.name.text === exportedName) {
+        targets.push({ importedName: '*', reference });
+      }
+      continue;
+    }
+    if (
+      statement.moduleSpecifier !== undefined ||
+      statement.exportClause === undefined ||
+      !ts.isNamedExports(statement.exportClause)
+    ) {
+      continue;
+    }
+    for (const element of statement.exportClause.elements) {
+      if (element.isTypeOnly || element.name.text !== exportedName) continue;
+      const localName = element.propertyName?.text ?? element.name.text;
+      const imported = imports.get(localName);
+      if (imported !== undefined) targets.push(imported);
+    }
+  }
+
+  return targets;
 }
 
 function runtimeReExportReferences(sourceFile: ts.SourceFile): readonly string[] {
   const importedBindings = runtimeImportedBindingReferences(sourceFile);
   const references: string[] = [];
   function visit(node: ts.Node): void {
+    if (ts.isExportAssignment(node)) {
+      const expression = unwrapExpression(node.expression);
+      if (ts.isIdentifier(expression)) {
+        const importedReference = importedBindings.get(expression.text);
+        if (importedReference !== undefined) references.push(importedReference);
+      } else if (ts.isCallExpression(expression)) {
+        const reference = calledModule(expression);
+        if (reference !== undefined) references.push(reference);
+      }
+      return;
+    }
     if (ts.isExportDeclaration(node)) {
       const reference = runtimeExportReference(node);
       if (reference !== undefined) {
@@ -3105,6 +3342,43 @@ function runtimeAcquisitionReaches(
     }
   }
   return false;
+}
+
+function filesystemModuleExportProvenance(
+  reference: string,
+  containingSourcePath: string,
+  exportedName: string,
+  operationNames: ReadonlySet<string>,
+  program: ts.Program,
+  seenExports: ReadonlySet<string> = new Set(),
+): FilesystemProvenance | undefined {
+  if (isFilesystemModuleReference(reference)) {
+    if (operationNames.has(exportedName)) return exportedName;
+    return filesystemNamespaceMemberNames.has(exportedName) || exportedName === '*' ? '*' : undefined;
+  }
+
+  for (const candidate of localModuleCandidates(reference, containingSourcePath)) {
+    const sourcePath = resolve(candidate);
+    const key = `${sourcePath}\0${exportedName}`;
+    if (seenExports.has(key)) continue;
+    const sourceFile = program.getSourceFile(sourcePath);
+    if (sourceFile === undefined) continue;
+    const nextSeen = new Set(seenExports).add(key);
+    for (const target of runtimeExportedBindingTargets(sourceFile, exportedName)) {
+      const nextName = target.importedName === '*' ? exportedName : target.importedName;
+      const provenance = filesystemModuleExportProvenance(
+        target.reference,
+        sourcePath,
+        nextName,
+        operationNames,
+        program,
+        nextSeen,
+      );
+      if (provenance !== undefined) return provenance;
+    }
+  }
+
+  return undefined;
 }
 
 function filesystemAcquisition(node: ts.Node, program: ts.Program): boolean {
@@ -3329,6 +3603,12 @@ export function inspectSemanticAuthorityCalls(
               name: contextualSemanticAuthorityName(config, node, sourcePath, checker, program),
             });
           }
+        }
+      }
+      if (ts.isNewExpression(node)) {
+        const filesystemOperation = semanticFilesystemOperationConstruction(node, checker, program);
+        if (filesystemOperation !== undefined) {
+          calls.push({ sourcePath, name: `FileSystem.${filesystemOperation}` });
         }
       }
       ts.forEachChild(node, visit);

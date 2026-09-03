@@ -1,6 +1,8 @@
 import { readdir } from 'node:fs/promises';
 import * as path from 'node:path';
 import { AdapterFactory } from '../adapter/adapter.factory';
+import { MigrationApplicationError } from '../migrator/migration-application.error';
+import { Migrator } from '../migrator/migrator';
 import type { MigrationOptions } from '../migrator/migrator';
 import type { MigrationReport } from '../report/migration-report';
 import { AnalyzeProjectStage } from './analyze/analyze-project.stage';
@@ -66,7 +68,11 @@ describe('CurrentMigrationPipeline', () => {
     expect(createMigrator).toHaveBeenCalledOnce();
     expect(createMigrator).toHaveBeenCalledWith(session, analyzed);
     expect(migrate).toHaveBeenCalledOnce();
-    expect(migrate).toHaveBeenCalledWith(invocation.options);
+    expect(migrate).toHaveBeenCalledWith(invocation.options, {
+      mapDestinationReadError: expect.any(Function),
+      now: expect.any(Function),
+      startedAt: expect.any(Number),
+    });
     expect(invocation.options).not.toBe(callerOptions);
     expect(Object.isFrozen(invocation.options)).toBe(true);
     expect(invocation.canonicalInputPath).toBe(path.resolve('input.html'));
@@ -102,6 +108,59 @@ describe('CurrentMigrationPipeline', () => {
     expect(createMigrator).toHaveBeenCalledTimes(2);
     expect(first).toBe(reports[0]);
     expect(second).toBe(reports[1]);
+  });
+
+  test('measures one deterministic duration from before Discover through the continuation report', async () => {
+    const events: string[] = [];
+    const clockValues = [1000, 1375];
+    const now = vi.fn(() => {
+      const value = clockValues.shift();
+      if (value === undefined) throw new Error('The invocation clock must be read exactly twice.');
+      events.push(`clock:${value}`);
+      return value;
+    });
+    const session = AdapterFactory.createSession('tailwind');
+    const invocation = migrationInvocation({
+      inputPath: 'input.html',
+      outputPath: 'output.html',
+      options: { mode: 'plan' },
+    });
+    const manifest = projectManifest({ invocation, templates: [] });
+    const analyzed = analyzedProject({ manifest, templates: [] });
+    const discover: DiscoverStage = {
+      run: vi.fn(async () => {
+        events.push('discover');
+        return manifest;
+      }),
+    };
+    const analyze: AnalyzeStage = {
+      run: vi.fn(async () => {
+        events.push('analyze');
+        return analyzed;
+      }),
+    };
+    const createMigrator = vi.fn<MigratorFactory>((receivedSession, receivedAnalyzed) => {
+      events.push('create-migrator');
+      const migrator = new Migrator(receivedSession, receivedAnalyzed, () => {
+        throw new Error('Pipeline timing must replace the continuation-only clock.');
+      });
+      return {
+        async migrate(options, execution) {
+          events.push('migrate');
+          const result = await migrator.migrate(options, execution);
+          events.push('report');
+          return result;
+        },
+      };
+    });
+
+    const actualReport = await new CurrentMigrationPipeline(session, discover, analyze, createMigrator, now).run(
+      invocation,
+    );
+
+    expect(actualReport.durationMs).toBe(375);
+    expect(events).toEqual(['clock:1000', 'discover', 'analyze', 'create-migrator', 'migrate', 'clock:1375', 'report']);
+    expect(now).toHaveBeenCalledTimes(2);
   });
 
   test('preserves a discovery rejection and prevents analysis and migration', async () => {
@@ -172,7 +231,11 @@ describe('CurrentMigrationPipeline', () => {
     expect(analyze.run).toHaveBeenCalledOnce();
     expect(createMigrator).toHaveBeenCalledOnce();
     expect(migrate).toHaveBeenCalledOnce();
-    expect(migrate).toHaveBeenCalledWith(invocation.options);
+    expect(migrate).toHaveBeenCalledWith(invocation.options, {
+      mapDestinationReadError: expect.any(Function),
+      now: expect.any(Function),
+      startedAt: expect.any(Number),
+    });
   });
 
   test('preserves a raw relative directory path when enumeration fails after input kind and ignore loading succeed', async () => {
@@ -206,7 +269,7 @@ describe('CurrentMigrationPipeline', () => {
     expect(error.path).toBe(rawInputPath);
     expect(error.code).toBe('ENOENT');
     expect(fileSystem.kind).toHaveBeenCalledWith(invocation.canonicalInputPath);
-    expect(ignoreMatchers.load).toHaveBeenCalledWith(invocation.canonicalInputPath);
+    expect(ignoreMatchers.load).toHaveBeenCalledWith(invocation.canonicalInputPath, invocation.inputPath);
     expect(fileSystem.entries).toHaveBeenCalledWith(invocation.canonicalInputPath);
     expect(analyze.run).not.toHaveBeenCalled();
     expect(createMigrator).not.toHaveBeenCalled();
@@ -244,6 +307,126 @@ describe('CurrentMigrationPipeline', () => {
     expect(error.code).toBe('ENOENT');
     expect(discover.run).toHaveBeenCalledWith(invocation);
     expect(createMigrator).not.toHaveBeenCalled();
+  });
+
+  test.each(['stylesheet read', 'transaction rename'])(
+    'does not rewrite a relative-root-contained absolute %s failure from the migration continuation',
+    async phase => {
+      const invocation = migrationInvocation({
+        inputPath: 'relative-fixtures/input',
+        outputPath: 'relative-fixtures/output',
+        options: { mode: 'write' },
+      });
+      const manifest = projectManifest({ invocation, templates: [] });
+      const analyzed = analyzedProject({ manifest, templates: [] });
+      const discover: DiscoverStage = { run: vi.fn(async () => manifest) };
+      const analyze: AnalyzeStage = { run: vi.fn(async () => analyzed) };
+      const cause = new Error(`${phase} cause`);
+      const source =
+        phase === 'stylesheet read'
+          ? path.join(invocation.canonicalInputPath, 'styles', 'flex.css')
+          : path.join(invocation.canonicalOutputPath, 'nested', 'card.html.tmp');
+      const destination =
+        phase === 'transaction rename' ? path.join(invocation.canonicalOutputPath, 'nested', 'card.html') : undefined;
+      const message =
+        destination === undefined
+          ? `EACCES: permission denied, open '${source}'`
+          : `EACCES: permission denied, rename '${source}' -> '${destination}'`;
+      const error = Object.assign(new TypeError(message, { cause }), {
+        code: 'EACCES',
+        errno: -13,
+        syscall: destination === undefined ? 'open' : 'rename',
+        path: source,
+        ...(destination === undefined ? {} : { dest: destination }),
+      });
+      const createMigrator = vi.fn<MigratorFactory>(() => ({
+        migrate: vi.fn(async () => Promise.reject(error)),
+      }));
+
+      const rejected = await rejectedNodeIoError(
+        new CurrentMigrationPipeline(AdapterFactory.createSession('tailwind'), discover, analyze, createMigrator).run(
+          invocation,
+        ),
+      );
+
+      expect(rejected).toBe(error);
+      expect(rejected).toBeInstanceOf(TypeError);
+      expect(rejected.message).toBe(message);
+      expect(rejected.path).toBe(source);
+      expect(rejected.code).toBe('EACCES');
+      expect(rejected.cause).toBe(cause);
+      if (destination !== undefined)
+        expect((rejected as NodeJS.ErrnoException & { dest?: string }).dest).toBe(destination);
+    },
+  );
+
+  test('does not rewrite absolute validation diagnostics produced by the migration continuation', async () => {
+    const invocation = migrationInvocation({
+      inputPath: 'relative-fixtures/input',
+      outputPath: 'relative-fixtures/output',
+      options: { mode: 'plan' },
+    });
+    const manifest = projectManifest({ invocation, templates: [] });
+    const analyzed = analyzedProject({ manifest, templates: [] });
+    const discover: DiscoverStage = { run: vi.fn(async () => manifest) };
+    const analyze: AnalyzeStage = { run: vi.fn(async () => analyzed) };
+    const collision = path.join(invocation.canonicalOutputPath, 'nested', 'card.html');
+    const cause = new Error('validation cause');
+    const error = new MigrationApplicationError(
+      'path-collision',
+      `Migration paths collide: ${collision}`,
+      [collision],
+      { cause },
+    );
+    const createMigrator = vi.fn<MigratorFactory>(() => ({
+      migrate: vi.fn(async () => Promise.reject(error)),
+    }));
+
+    await expect(
+      new CurrentMigrationPipeline(AdapterFactory.createSession('tailwind'), discover, analyze, createMigrator).run(
+        invocation,
+      ),
+    ).rejects.toBe(error);
+
+    expect(error.message).toBe(`Migration paths collide: ${collision}`);
+    expect(error.paths).toEqual([collision]);
+    expect(error.code).toBe('path-collision');
+    expect(error.cause).toBe(cause);
+  });
+
+  test.each([
+    {
+      label: 'an absolute invocation path',
+      inputPath: path.resolve('absolute-fixtures/input'),
+      errorPath: path.resolve('absolute-fixtures/input/nested/card.html'),
+    },
+    {
+      label: 'a path outside both relative invocation roots',
+      inputPath: 'relative-fixtures/input',
+      errorPath: path.resolve('outside-fixtures/card.html'),
+    },
+  ])('leaves $label unchanged when Discover rejects', async fixture => {
+    const invocation = migrationInvocation({
+      inputPath: fixture.inputPath,
+      outputPath: 'relative-fixtures/output',
+      options: { mode: 'plan' },
+    });
+    const message = `EACCES: permission denied, stat '${fixture.errorPath}'`;
+    const error = Object.assign(new Error(message), { code: 'EACCES', path: fixture.errorPath });
+    const discover: DiscoverStage = { run: vi.fn(async () => Promise.reject(error)) };
+
+    const rejected = await rejectedNodeIoError(
+      new CurrentMigrationPipeline(
+        AdapterFactory.createSession('tailwind'),
+        discover,
+        { run: vi.fn() },
+        vi.fn<MigratorFactory>(),
+      ).run(invocation),
+    );
+
+    expect(rejected).toBe(error);
+    expect(rejected.message).toBe(message);
+    expect(rejected.path).toBe(fixture.errorPath);
   });
 });
 

@@ -7,6 +7,7 @@ import type { OwnedCssReferences } from '../adapter/css/stylesheet/owned-stylesh
 import { AnalyzeProjectStage } from '../pipeline/analyze/analyze-project.stage';
 import { analyzedProject } from '../pipeline/analyzed-project';
 import { DiscoverProjectStage } from '../pipeline/discover/discover-project.stage';
+import { remapInvocationErrorPaths } from '../pipeline/invocation-error-path.mapper';
 import { migrationInvocation, projectManifest } from '../pipeline/project-manifest';
 import { AngularTemplateParser } from '../template/angular-template.parser';
 import type { MigrationTransaction } from '../transaction/migration-transaction';
@@ -128,6 +129,80 @@ describe('Migrator', () => {
     const references = stylesheetPlanner.plan.mock.calls[0]?.[2] as OwnedCssReferences;
     expect([...references.classNames]).toEqual([generatedClass]);
     expect(references.complete).toBe(true);
+  });
+
+  test('maps an error only at a canonicalized distinct-destination source read boundary', async () => {
+    const invocation = migrationInvocation({
+      inputPath: 'relative-fixtures/input',
+      outputPath: 'relative-fixtures/output',
+      options: { mode: 'plan', stylesheetPath: 'relative-fixtures/flex.css' },
+    });
+    const inputPath = join(invocation.canonicalInputPath, 'nested', 'card.html');
+    const outputPath = join(invocation.canonicalOutputPath, 'nested', 'card.html');
+    const manifest = projectManifest({ invocation, templates: [{ inputPath, outputPath }] });
+    const analyzed = analyzedProject({
+      manifest,
+      templates: [
+        {
+          status: 'parsed',
+          file: manifest.templates[0]!,
+          source: '<div></div>',
+          parseResult: { status: 'parsed', elements: [] },
+          inputs: [],
+        },
+      ],
+    });
+    const cause = new Error('destination cause');
+    const message = `EACCES: permission denied, open '${outputPath}'`;
+    const error = Object.assign(new TypeError(message, { cause }), {
+      code: 'EACCES',
+      errno: -13,
+      syscall: 'open',
+      path: outputPath,
+    });
+    const destinationTemplates = { read: vi.fn(async () => Promise.reject(error)) };
+    const dependencies: MigratorDependencies = {
+      destinationTemplates,
+      referenceParser: new AngularTemplateParser(),
+      createFileMigrator: (_adapter, template) => ({
+        plan: vi.fn(async () =>
+          fileMigrationPlan({
+            file: fileMigrationResult({
+              inputPath: template.file.inputPath,
+              outputPath: template.file.outputPath,
+              changed: false,
+              results: [],
+            }),
+          }),
+        ),
+      }),
+    };
+    const stylesheetPlanner = { plan: vi.fn<StylesheetPlanner['plan']>() };
+    const migrator = new Migrator(
+      AdapterFactory.createSession('css'),
+      analyzed,
+      () => 0,
+      transactionDouble(),
+      stylesheetPlanner,
+      dependencies,
+    );
+
+    const rejected = await rejectedNodeIoError(
+      migrator.migrate(invocation.options, {
+        mapDestinationReadError: candidate => remapInvocationErrorPaths(candidate, invocation),
+      }),
+    );
+
+    expect(rejected).toBe(error);
+    expect(rejected).toBeInstanceOf(TypeError);
+    expect(rejected.message).toBe(
+      `EACCES: permission denied, open '${join(invocation.outputPath, 'nested', 'card.html')}'`,
+    );
+    expect(rejected.path).toBe(join(invocation.outputPath, 'nested', 'card.html'));
+    expect(rejected.code).toBe('EACCES');
+    expect(rejected.cause).toBe(cause);
+    expect(destinationTemplates.read).toHaveBeenCalledWith(outputPath);
+    expect(stylesheetPlanner.plan).not.toHaveBeenCalled();
   });
 
   test('defaults to a timed plan-only report without writing a changed file', async () => {
@@ -857,6 +932,16 @@ function transactionDouble() {
     preflight: vi.fn<MigrationTransaction['preflight']>().mockResolvedValue(undefined),
     apply: vi.fn<MigrationTransaction['apply']>().mockResolvedValue(undefined),
   };
+}
+
+async function rejectedNodeIoError(action: Promise<unknown>): Promise<Error & NodeJS.ErrnoException> {
+  try {
+    await action;
+  } catch (error: unknown) {
+    if (error instanceof Error) return error;
+    throw new Error('Expected an Error rejection.', { cause: error });
+  }
+  throw new Error('Expected the action to reject.');
 }
 
 function proposedReport(report: Awaited<ReturnType<Migrator['migrate']>>) {

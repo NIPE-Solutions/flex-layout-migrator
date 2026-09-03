@@ -22,6 +22,7 @@ const analyzeStagePath = join(pipelineRoot, 'analyze', 'analyze-project.stage.ts
 const atomicWriterPath = join(productionRoot, 'lib', 'atomic-file.writer.ts');
 const migratorPath = join(productionRoot, 'migrator', 'migrator.ts');
 const destinationTemplateSourcePath = join(productionRoot, 'migrator', 'destination-template-source.ts');
+const stylesheetPlannerPath = join(productionRoot, 'migrator', 'stylesheet.planner.ts');
 const roguePath = join(productionRoot, '__architecture-fixture__', 'rogue.ts');
 const wholeProjectInspectionTimeout = 60_000;
 const productionPaths = productionTypeScriptFiles(productionRoot);
@@ -29,6 +30,7 @@ let cachedProductionSemanticAuthorities: ReturnType<typeof inspectSemanticAuthor
 let cachedRogueProductionSemanticAuthorities: ReturnType<typeof inspectSemanticAuthorityCalls> | undefined;
 let cachedGitIgnoreBarrelAuthorities: ReturnType<typeof inspectSemanticAuthorityCalls> | undefined;
 let cachedLocalBindingBarrelAuthorities: ReturnType<typeof inspectSemanticAuthorityCalls> | undefined;
+let cachedFilesystemBarrelAuthorities: ReturnType<typeof inspectSemanticAuthorityCalls> | undefined;
 const productionGraphAuthorities = new Set([
   'AnalyzeProjectStage.run',
   'CurrentMigrationPipeline.run',
@@ -39,9 +41,52 @@ const productionGraphAuthorities = new Set([
 const resourceAuthorityNames = new Set([
   'DestinationTemplateSource.read',
   'FileSystem.acquire',
+  'FileSystem.access',
+  'FileSystem.accessSync',
+  'FileSystem.createReadStream',
+  'FileSystem.Dir',
+  'FileSystem.exists',
+  'FileSystem.existsSync',
+  'FileSystem.FileReadStream',
+  'FileSystem.fstat',
+  'FileSystem.fstatSync',
+  'FileSystem.glob',
+  'FileSystem.globSync',
+  'FileSystem.lstat',
+  'FileSystem.lstatSync',
+  'FileSystem.open',
+  'FileSystem.openAsBlob',
+  'FileSystem.openSync',
+  'FileSystem.opendir',
+  'FileSystem.opendirSync',
+  'FileSystem.pathExists',
+  'FileSystem.pathExistsSync',
+  'FileSystem.read',
   'FileSystem.readFile',
+  'FileSystem.readFileSync',
+  'FileSystem.readJSON',
+  'FileSystem.readJson',
+  'FileSystem.readJSONSync',
+  'FileSystem.readJsonSync',
+  'FileSystem.readLines',
+  'FileSystem.readableWebStream',
+  'FileSystem.ReadStream',
+  'FileSystem.readSync',
+  'FileSystem.readv',
+  'FileSystem.readvSync',
   'FileSystem.readdir',
+  'FileSystem.readdirSync',
+  'FileSystem.readlink',
+  'FileSystem.readlinkSync',
+  'FileSystem.realpath',
+  'FileSystem.realpathSync',
   'FileSystem.stat',
+  'FileSystem.statfs',
+  'FileSystem.statfsSync',
+  'FileSystem.statSync',
+  'FileSystem.Utf8Stream',
+  'FileSystem.watch',
+  'FileSystem.watchFile',
   'GitIgnoreHelper.acquire',
   'GitIgnoreHelper.createGitIgnoreMatcher',
   'IgnoreLibrary.acquire',
@@ -234,6 +279,77 @@ const localBindingBarrelOverrides = new Map([
   [pureCycleConsumerPath, "import { loopA as unused } from './pure-cycle-a.js'; void unused;"],
   ...localBindingBarrelCases.map(fixture => [fixture.sourcePath, fixture.source] as const),
 ]);
+const filesystemImportEqualsBarrelPath = join(localBindingFixtureRoot, 'filesystem-import-equals.barrel.ts');
+const filesystemLocalBarrelPath = join(localBindingFixtureRoot, 'filesystem-local.barrel.ts');
+const filesystemAliasBarrelPath = join(localBindingFixtureRoot, 'filesystem-alias.barrel.ts');
+const filesystemNamespaceBarrelPath = join(localBindingFixtureRoot, 'filesystem-namespace.barrel.ts');
+const filesystemCallableExportEqualsPath = join(localBindingFixtureRoot, 'filesystem-callable-export-equals.ts');
+const filesystemCycleAPath = join(localBindingFixtureRoot, 'filesystem-cycle-a.ts');
+const filesystemCycleBPath = join(localBindingFixtureRoot, 'filesystem-cycle-b.ts');
+const filesystemBarrelCases = [
+  {
+    label: 'unused TypeScript import-equals filesystem barrel',
+    sourcePath: join(localBindingFixtureRoot, 'filesystem-import-equals-unused.ts'),
+    source: "import fs = require('./filesystem-import-equals.barrel.js'); void fs;",
+    expected: ['FileSystem.acquire'],
+  },
+  {
+    label: 'invoked TypeScript import-equals filesystem barrel',
+    sourcePath: join(localBindingFixtureRoot, 'filesystem-import-equals-invoked.ts'),
+    source:
+      "import fs = require('./filesystem-import-equals.barrel.js'); void fs.readFileSync('/project/card.html', 'utf8');",
+    expected: ['FileSystem.acquire', 'FileSystem.readFileSync'],
+  },
+  {
+    label: 'ESM local import-then-export alias',
+    sourcePath: join(localBindingFixtureRoot, 'filesystem-local-esm.ts'),
+    source: "import { bytes } from './filesystem-local.barrel.js'; void bytes('/project/card.html', 'utf8');",
+    expected: ['FileSystem.acquire', 'FileSystem.readFileSync'],
+  },
+  {
+    label: 'dynamic multi-hop local import-then-export alias',
+    sourcePath: join(localBindingFixtureRoot, 'filesystem-local-dynamic.ts'),
+    source:
+      "async function run() { const fs = await import('./filesystem-alias.barrel.js'); return fs.deepBytes('/project/card.html', 'utf8'); } void run();",
+    expected: ['FileSystem.acquire', 'FileSystem.readFileSync'],
+  },
+  {
+    label: 'ESM local namespace import-then-export alias',
+    sourcePath: join(localBindingFixtureRoot, 'filesystem-local-namespace.ts'),
+    source:
+      "import { fileSystem } from './filesystem-namespace.barrel.js'; void fileSystem.readFileSync('/project/card.html', 'utf8');",
+    expected: ['FileSystem.acquire', 'FileSystem.readFileSync'],
+  },
+  {
+    label: 'TypeScript import-equals local callable export assignment',
+    sourcePath: join(localBindingFixtureRoot, 'filesystem-local-callable.ts'),
+    source: "import load = require('./filesystem-callable-export-equals.js'); void load('/project/card.html', 'utf8');",
+    expected: ['FileSystem.acquire', 'FileSystem.readFileSync'],
+  },
+  {
+    label: 'CommonJS cyclic local import-then-export alias',
+    sourcePath: join(localBindingFixtureRoot, 'filesystem-local-commonjs.ts'),
+    source:
+      "const { cycledBytes: bytes } = require('./filesystem-cycle-a.js'); void bytes('/project/card.html', 'utf8');",
+    expected: ['FileSystem.acquire', 'FileSystem.readFileSync'],
+  },
+] as const;
+const filesystemBarrelOverrides = new Map([
+  [filesystemImportEqualsBarrelPath, "import fs = require('node:fs'); export = fs;"],
+  [filesystemLocalBarrelPath, "import { readFileSync as load } from 'node:fs'; export { load as bytes };"],
+  [
+    filesystemAliasBarrelPath,
+    "import { bytes as localBytes } from './filesystem-local.barrel.js'; export { localBytes as deepBytes };",
+  ],
+  [filesystemNamespaceBarrelPath, "import * as fs from 'node:fs'; export { fs as fileSystem };"],
+  [filesystemCallableExportEqualsPath, "import { readFileSync as load } from 'node:fs'; export = load;"],
+  [
+    filesystemCycleAPath,
+    "import { loopB } from './filesystem-cycle-b.js'; import { deepBytes as localBytes } from './filesystem-alias.barrel.js'; export { loopB as loopA }; export { localBytes as cycledBytes };",
+  ],
+  [filesystemCycleBPath, "import { loopA } from './filesystem-cycle-a.js'; export { loopA as loopB };"],
+  ...filesystemBarrelCases.map(fixture => [fixture.sourcePath, fixture.source] as const),
+]);
 const expectedRendererRelativePaths = [
   'adapter/css/css.adapter.ts',
   'adapter/css/flex/flex-align.css-renderer.ts',
@@ -367,6 +483,14 @@ function localBindingBarrelAuthorities(): ReturnType<typeof inspectSemanticAutho
   return cachedLocalBindingBarrelAuthorities;
 }
 
+function filesystemBarrelAuthorities(): ReturnType<typeof inspectSemanticAuthorityCalls> {
+  cachedFilesystemBarrelAuthorities ??= inspectSemanticAuthorityCalls(
+    filesystemBarrelCases.map(fixture => fixture.sourcePath),
+    filesystemBarrelOverrides,
+  );
+  return cachedFilesystemBarrelAuthorities;
+}
+
 describe('enterprise pipeline dependency boundary', { timeout: wholeProjectInspectionTimeout }, () => {
   test('keeps the exhaustive whole-production authority graph exact', () => {
     expect(normalizedAuthoritySources(productionSemanticAuthorities(), productionGraphAuthorities)).toEqual(
@@ -424,6 +548,143 @@ describe('enterprise pipeline dependency boundary', { timeout: wholeProjectInspe
     ],
   ])('detects a direct readFile bypass via %s', (_label, source, expected) => {
     expect(fixtureSemanticAuthorities(source)).toContain(expected);
+  });
+
+  test.each([
+    [
+      'synchronous whole-file alias',
+      "import { readFileSync as load } from 'node:fs'; void load('/project/card.html', 'utf8');",
+      ['FileSystem.readFileSync'],
+    ],
+    [
+      'node:fs promises namespace',
+      "import * as fs from 'node:fs'; void fs.promises.readFile('/project/card.html', 'utf8');",
+      ['FileSystem.readFile'],
+    ],
+    [
+      'fs-extra JSON reader',
+      "import fs from 'fs-extra'; void fs.readJson('/project/card.html');",
+      ['FileSystem.readJson'],
+    ],
+    [
+      'fs-extra synchronous JSON alias',
+      "const fs = require('fs-extra'); void fs['readJSONSync']('/project/card.html');",
+      ['FileSystem.readJSONSync'],
+    ],
+    [
+      'descriptor read after open',
+      "import { open } from 'node:fs/promises'; async function run() { const file = await open('/project/card.html', 'r'); await file.read(); } void run();",
+      ['FileSystem.open', 'FileSystem.read'],
+    ],
+    [
+      'FileHandle whole-file read',
+      "import type { FileHandle } from 'node:fs/promises'; declare const file: FileHandle; void file.readFile('utf8');",
+      ['FileSystem.readFile'],
+    ],
+    [
+      'FileHandle vectored read',
+      "import type { FileHandle } from 'node:fs/promises'; declare const file: FileHandle; void file.readv([]);",
+      ['FileSystem.readv'],
+    ],
+    [
+      'FileHandle line iterator',
+      "import type { FileHandle } from 'node:fs/promises'; declare const file: FileHandle; void file.readLines();",
+      ['FileSystem.readLines'],
+    ],
+    [
+      'FileHandle web stream',
+      "import type { FileHandle } from 'node:fs/promises'; declare const file: FileHandle; void file.readableWebStream();",
+      ['FileSystem.readableWebStream'],
+    ],
+    [
+      'read stream factory',
+      "import { createReadStream } from 'node:fs'; void createReadStream('/project/card.html');",
+      ['FileSystem.createReadStream'],
+    ],
+    [
+      'read stream constructor',
+      "import { ReadStream as Reader } from 'node:fs'; void new Reader('/project/card.html');",
+      ['FileSystem.ReadStream'],
+    ],
+    [
+      'file-backed Blob',
+      "import { openAsBlob } from 'node:fs'; void openAsBlob('/project/card.html');",
+      ['FileSystem.openAsBlob'],
+    ],
+    [
+      'synchronous directory enumeration',
+      "import * as fs from 'node:fs'; void fs.readdirSync('/project');",
+      ['FileSystem.readdirSync'],
+    ],
+    [
+      'directory handle acquisition',
+      "import { opendir } from 'node:fs/promises'; void opendir('/project');",
+      ['FileSystem.opendir'],
+    ],
+    [
+      'directory handle construction',
+      "import { Dir } from 'node:fs'; void new Dir(1, '/project', {});",
+      ['FileSystem.Dir'],
+    ],
+    [
+      'filesystem glob discovery',
+      "import fs from 'fs-extra'; void fs.globSync('/project/**/*.html');",
+      ['FileSystem.globSync'],
+    ],
+    [
+      'symlink-preserving metadata',
+      "import { lstat as inspect } from 'node:fs/promises'; void Reflect.apply(inspect, undefined, ['/project/card.html']);",
+      ['FileSystem.lstat'],
+    ],
+    [
+      'canonical path topology',
+      "const fs = require('node:fs'); void fs.realpathSync('/project/card.html');",
+      ['FileSystem.realpathSync'],
+    ],
+  ])('detects concrete topology or byte-read authority through %s', (_label, source, expected) => {
+    expect(fixtureSemanticAuthorities(source)).toEqual(expect.arrayContaining(expected));
+  });
+
+  test.each(filesystemBarrelCases)('detects $label acquisition and invocation provenance', fixture => {
+    expect(
+      filesystemBarrelAuthorities()
+        .filter(call => call.sourcePath === fixture.sourcePath)
+        .map(call => call.name),
+    ).toEqual(expect.arrayContaining([...fixture.expected]));
+  });
+
+  test.each([
+    {
+      label: 'Analyze',
+      sourcePath: analyzeStagePath,
+      source: "import { readFileSync } from 'node:fs'; void readFileSync('/project/card.html', 'utf8');",
+      expected: 'FileSystem.readFileSync',
+    },
+    {
+      label: 'destination reader',
+      sourcePath: destinationTemplateSourcePath,
+      source:
+        "import { open } from 'node:fs/promises'; async function read() { const file = await open('/project/card.html', 'r'); return file.read(); } void read();",
+      expected: 'FileSystem.read',
+    },
+    {
+      label: 'stylesheet planner',
+      sourcePath: stylesheetPlannerPath,
+      source: "import fs from 'fs-extra'; void fs.readJsonSync('/project/styles.css');",
+      expected: 'FileSystem.readJsonSync',
+    },
+    {
+      label: 'Discover',
+      sourcePath: discoverStagePath,
+      source: "import * as fs from 'node:fs'; void fs.opendirSync('/project');",
+      expected: 'FileSystem.opendirSync',
+    },
+  ])('does not let an additional concrete read disappear inside the named $label owner', fixture => {
+    expect(
+      inspectSemanticAuthorityCalls([fixture.sourcePath], new Map([[fixture.sourcePath, fixture.source]])).map(
+        call => call.name,
+      ),
+    ).toContain(fixture.expected);
   });
 
   test.each([
@@ -524,6 +785,9 @@ describe('enterprise pipeline dependency boundary', { timeout: wholeProjectInspe
     'async function run() { const module = await import("../logger.js"); module.logger.debug("readFile stat ignore"); }',
     "import type { FileHandle } from 'node:fs/promises'; declare const file: FileHandle; void file;",
     "import type { createGitIgnoreMatcher } from '../lib/gitignore.helper.js'; type MatcherFactory = typeof createGitIgnoreMatcher;",
+    'interface Reader { readFileSync(path: string): string } declare const reader: Reader; void reader.readFileSync("entry");',
+    'class ReadStream { constructor(path: string) { void path; } } void new ReadStream("entry");',
+    'const fs = { readJson(path: string): string { return path; } }; void fs.readJson("entry");',
   ])('does not confuse an unrelated or non-filesystem read-only callable with resource authority: %s', source => {
     expect(fixtureSemanticAuthorities(source).filter(name => resourceAuthorityNames.has(name))).toEqual([]);
   });
@@ -531,8 +795,10 @@ describe('enterprise pipeline dependency boundary', { timeout: wholeProjectInspe
   test('keeps direct filesystem and ignore authorities at their named production owners', () => {
     expect(normalizedAuthoritySources(productionSemanticAuthorities(), resourceAuthorityNames)).toEqual([
       { source: 'cli/stylesheet-path.validator.ts', authority: 'FileSystem.acquire' },
+      { source: 'cli/stylesheet-path.validator.ts', authority: 'FileSystem.lstat' },
       { source: 'lib/atomic-file.writer.ts', authority: 'FileSystem.acquire' },
       { source: 'lib/gitignore.helper.ts', authority: 'FileSystem.acquire' },
+      { source: 'lib/gitignore.helper.ts', authority: 'FileSystem.pathExists' },
       { source: 'lib/gitignore.helper.ts', authority: 'FileSystem.readFile' },
       { source: 'lib/gitignore.helper.ts', authority: 'IgnoreLibrary.acquire' },
       { source: 'lib/gitignore.helper.ts', authority: 'IgnoreLibrary.createMatcher' },
@@ -540,6 +806,7 @@ describe('enterprise pipeline dependency boundary', { timeout: wholeProjectInspe
       { source: 'migrator/destination-template-source.ts', authority: 'FileSystem.acquire' },
       { source: 'migrator/destination-template-source.ts', authority: 'FileSystem.readFile' },
       { source: 'migrator/migration-path.validator.ts', authority: 'FileSystem.acquire' },
+      { source: 'migrator/migration-path.validator.ts', authority: 'FileSystem.lstat' },
       { source: 'migrator/migration-path.validator.ts', authority: 'FileSystem.stat' },
       { source: 'migrator/migrator.ts', authority: 'DestinationTemplateSource.read' },
       { source: 'migrator/stylesheet.planner.ts', authority: 'FileSystem.acquire' },
@@ -555,6 +822,7 @@ describe('enterprise pipeline dependency boundary', { timeout: wholeProjectInspe
       },
       { source: 'transaction/migration-transaction.ts', authority: 'FileSystem.acquire' },
       { source: 'transaction/migration-transaction.ts', authority: 'FileSystem.acquire' },
+      { source: 'transaction/migration-transaction.ts', authority: 'FileSystem.open' },
     ]);
   });
 
@@ -587,6 +855,7 @@ describe('enterprise pipeline dependency boundary', { timeout: wholeProjectInspe
 
     expect(normalizedAuthoritySources(semanticAuthorityCalls, discoveryAuthorities)).toEqual([
       { source: 'pipeline/discover/discover-project.stage.ts', authority: 'DiscoveryFileSystem.entries' },
+      { source: 'pipeline/discover/discover-project.stage.ts', authority: 'DiscoveryFileSystem.kind' },
       { source: 'pipeline/discover/discover-project.stage.ts', authority: 'DiscoveryFileSystem.kind' },
       { source: 'pipeline/discover/discover-project.stage.ts', authority: 'IgnoreMatcherFactory.load' },
     ]);

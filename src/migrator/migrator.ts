@@ -24,6 +24,12 @@ export interface MigrationOptions {
   readonly reportPath?: string;
 }
 
+export interface MigrationExecutionContext {
+  readonly mapDestinationReadError?: (error: unknown) => unknown;
+  readonly now?: () => number;
+  readonly startedAt?: number;
+}
+
 export type AnalyzedFileMigratorFactory = (
   adapter: ConversionAdapter,
   template: AnalyzedTemplate,
@@ -46,16 +52,28 @@ export class Migrator {
     private readonly dependencies: MigratorDependencies = defaultMigratorDependencies(),
   ) {}
 
-  public async migrate(options: MigrationOptions = { mode: 'plan' }): Promise<MigrationReport> {
+  public async migrate(
+    options: MigrationOptions = { mode: 'plan' },
+    execution: MigrationExecutionContext = {},
+  ): Promise<MigrationReport> {
     this.validateOptions(options);
 
-    const startedAt = this.now();
+    const now = execution.now ?? this.now;
+    const startedAt = execution.startedAt ?? now();
+    const readDestinationTemplate = mapDestinationReadErrors(
+      this.dependencies.destinationTemplates,
+      execution.mapDestinationReadError,
+    );
+    const destinationTemplates =
+      execution.mapDestinationReadError === undefined
+        ? this.dependencies.destinationTemplates
+        : Object.freeze({ read: readDestinationTemplate });
     const filePlans: FileMigrationPlan[] = [];
     for (const template of this.analyzed.templates) {
       const analyzedFileMigrator = this.dependencies.createFileMigrator(
         this.session.adapter,
         template,
-        this.dependencies.destinationTemplates,
+        destinationTemplates,
       );
       filePlans.push(
         await analyzedFileMigrator.plan({
@@ -84,7 +102,7 @@ export class Migrator {
       stylesheetArtifact = await this.stylesheetPlanner.plan(
         stylesheetPath,
         sessionResult.rules,
-        await this.referencedCssClasses(filePlans),
+        await this.referencedCssClasses(filePlans, readDestinationTemplate),
       );
       stylesheetResult = {
         path: stylesheetPath,
@@ -124,7 +142,7 @@ export class Migrator {
       sessionResult.target,
       options.mode,
       application,
-      this.now() - startedAt,
+      now() - startedAt,
       plan.files,
       stylesheetResult,
     );
@@ -141,7 +159,10 @@ export class Migrator {
     }
   }
 
-  private async referencedCssClasses(filePlans: readonly FileMigrationPlan[]): Promise<OwnedCssReferences> {
+  private async referencedCssClasses(
+    filePlans: readonly FileMigrationPlan[],
+    readDestinationTemplate: DestinationTemplateSource['read'],
+  ): Promise<OwnedCssReferences> {
     const templates = await Promise.all(
       filePlans.map(async (filePlan, index) => {
         const analyzedTemplate = this.analyzed.templates[index];
@@ -159,7 +180,7 @@ export class Migrator {
         }
         try {
           return {
-            contents: await this.dependencies.destinationTemplates.read(filePlan.file.outputPath),
+            contents: await readDestinationTemplate(filePlan.file.outputPath),
             complete: true,
           };
         } catch (error: unknown) {
@@ -208,6 +229,19 @@ export class Migrator {
     }
     return { classNames: references, complete };
   }
+}
+
+function mapDestinationReadErrors(
+  source: DestinationTemplateSource,
+  mapper: MigrationExecutionContext['mapDestinationReadError'],
+): DestinationTemplateSource['read'] {
+  return async (path: string): Promise<string> => {
+    try {
+      return await source.read(path);
+    } catch (error: unknown) {
+      throw mapper === undefined ? error : mapper(error);
+    }
+  };
 }
 
 function defaultMigratorDependencies(): MigratorDependencies {

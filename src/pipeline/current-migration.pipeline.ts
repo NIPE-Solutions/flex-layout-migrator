@@ -25,16 +25,28 @@ export class CurrentMigrationPipeline implements MigrationRunner {
     private readonly discover: DiscoverStage = new DiscoverProjectStage(),
     private readonly analyze: AnalyzeStage = new AnalyzeProjectStage(),
     private readonly createMigrator: MigratorFactory = defaultMigratorFactory,
+    private readonly now: () => number = Date.now,
   ) {}
 
   public async run(invocation: MigrationInvocation): Promise<MigrationReport> {
-    try {
-      const manifest = await this.discover.run(invocation);
-      const analyzed = await this.analyze.run(manifest);
-      const report = await this.createMigrator(this.session, analyzed).migrate(invocation.options);
-      return report;
-    } catch (error: unknown) {
-      throw remapInvocationErrorPaths(error, invocation);
-    }
+    const startedAt = this.now();
+    const manifest = await withInvocationPathCompatibility(() => this.discover.run(invocation), invocation);
+    const analyzed = await withInvocationPathCompatibility(() => this.analyze.run(manifest), invocation);
+    return this.createMigrator(this.session, analyzed).migrate(invocation.options, {
+      mapDestinationReadError: error => remapInvocationErrorPaths(error, invocation),
+      now: this.now,
+      startedAt,
+    });
+  }
+}
+
+async function withInvocationPathCompatibility<T>(
+  action: () => Promise<T>,
+  invocation: MigrationInvocation,
+): Promise<T> {
+  try {
+    return await action();
+  } catch (error: unknown) {
+    throw remapInvocationErrorPaths(error, invocation);
   }
 }

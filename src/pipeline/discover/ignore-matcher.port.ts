@@ -4,5 +4,5 @@ export interface IgnoreMatcher {
 }
 
 export interface IgnoreMatcherFactory {
-  load(root: string): Promise<IgnoreMatcher>;
+  load(root: string, displayRoot?: string): Promise<IgnoreMatcher>;
 }

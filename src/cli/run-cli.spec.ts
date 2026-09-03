@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve, sep } from 'node:path';
 import type { ConversionAdapterSession } from '../adapter/conversion-adapter.session';
 import { AnalyzeProjectStage } from '../pipeline/analyze/analyze-project.stage';
+import { analyzedProject } from '../pipeline/analyzed-project';
 import {
   CurrentMigrationPipeline,
   type MigrationRunner,
@@ -175,6 +176,47 @@ describe('runCli', () => {
     expect(error.code).toBe('ENOENT');
     expect(error.cause).toBe(cause);
     expect(createMigrator).not.toHaveBeenCalled();
+    await expect(access(reportPath)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  test('prints a continuation transaction error with its original absolute paths and writes no JSON report', async () => {
+    const rawInputPath = 'relative-fixtures/input';
+    const rawOutputPath = 'relative-fixtures/output';
+    const reportPath = join(temporaryDirectory, 'migration.json');
+    const canonicalSource = join(resolve(rawOutputPath), 'nested', 'card.html.tmp');
+    const canonicalDestination = join(resolve(rawOutputPath), 'nested', 'card.html');
+    const message = `EACCES: permission denied, rename '${canonicalSource}' -> '${canonicalDestination}'`;
+    const cause = new Error('transaction cause');
+    const error = Object.assign(new TypeError(message, { cause }), {
+      code: 'EACCES',
+      errno: -13,
+      syscall: 'rename',
+      path: canonicalSource,
+      dest: canonicalDestination,
+    });
+    const discover: DiscoverStage = {
+      async run(invocation) {
+        return projectManifest({ invocation, templates: [] });
+      },
+    };
+    const analyze = {
+      async run(manifest: ReturnType<typeof projectManifest>) {
+        return analyzedProject({ manifest, templates: [] });
+      },
+    };
+    const createMigrator = vi.fn<MigratorFactory>(() => ({
+      migrate: vi.fn(async () => Promise.reject(error)),
+    }));
+
+    const result = await run([rawInputPath, '--output', rawOutputPath, '--write', '--report', reportPath], {
+      createMigrationRunner: session => new CurrentMigrationPipeline(session, discover, analyze, createMigrator),
+    });
+
+    expect(result).toEqual({ exitCode: 1, stdout: '', stderr: `Error: ${message}\n` });
+    expect(error.path).toBe(canonicalSource);
+    expect(error.dest).toBe(canonicalDestination);
+    expect(error.code).toBe('EACCES');
+    expect(error.cause).toBe(cause);
     await expect(access(reportPath)).rejects.toMatchObject({ code: 'ENOENT' });
   });
 

@@ -1,6 +1,7 @@
 import { readdir, stat } from 'node:fs/promises';
 import * as path from 'node:path';
 import { createGitIgnoreMatcher } from '../../lib/gitignore.helper';
+import { logger } from '../../logger';
 import { compareCodeUnits } from '../../util/compare-code-units';
 import type { DiscoverStage } from '../migration-pipeline';
 import {
@@ -66,9 +67,9 @@ export class DiscoverProjectStage implements DiscoverStage {
 
   private async folderTemplates(invocation: MigrationInvocation): Promise<readonly ManifestTemplate[]> {
     const root = invocation.canonicalInputPath;
-    const matcher = await this.ignoreMatchers.load(root);
+    const matcher = await this.ignoreMatchers.load(root, invocation.inputPath);
     const exclusions = this.excludedPaths(invocation);
-    const inputs = await this.collectInputs(root, matcher, exclusions);
+    const inputs = await this.collectInputs(root, invocation.inputPath, matcher, exclusions);
     inputs.sort(compareCodeUnits);
     return inputs.map(inputPath => ({
       inputPath,
@@ -78,6 +79,7 @@ export class DiscoverProjectStage implements DiscoverStage {
 
   private async collectInputs(
     directory: string,
+    displayDirectory: string,
     matcher: IgnoreMatcher,
     exclusions: ReadonlySet<string>,
   ): Promise<string[]> {
@@ -88,12 +90,16 @@ export class DiscoverProjectStage implements DiscoverStage {
 
     for (const entry of entries) {
       const candidate = path.join(directory, entry.name);
+      const displayCandidate = path.join(displayDirectory, entry.name);
+      logger.debug(`Processing ${displayCandidate}`);
       const ignored = entry.kind === 'directory' ? matcher.ignoresDirectory(candidate) : matcher.ignores(candidate);
       if (ignored || exclusions.has(path.normalize(candidate))) continue;
+      const kind = entry.kind === 'other' ? await this.fileSystem.kind(candidate) : entry.kind;
+      if (entry.kind === 'other' && kind === 'directory' && matcher.ignoresDirectory(candidate)) continue;
 
-      if (entry.kind === 'directory') {
-        inputs.push(...(await this.collectInputs(candidate, matcher, exclusions)));
-      } else if (entry.kind === 'file' && path.extname(entry.name).toLowerCase() === '.html') {
+      if (kind === 'directory') {
+        inputs.push(...(await this.collectInputs(candidate, displayCandidate, matcher, exclusions)));
+      } else if (kind === 'file' && path.extname(entry.name).toLowerCase() === '.html') {
         inputs.push(path.normalize(path.resolve(candidate)));
       }
     }
