@@ -111,7 +111,7 @@ git commit -m "test: freeze enterprise rewrite parity"
 **Interfaces:**
 
 - Consumes: `AngularTemplateParser.parse(source: string, fileName: string): TemplateParseResult`, `FileMigrator.plan(options): Promise<FileMigrationPlan>`, and existing injected parser support.
-- Produces: `MigrationWorkloadCounts` in test code only, with exact `discoveries`, `templateReads`, `initialParses`, `validationParses`, `renderedTemplates`, `stylesheetReads`, and `projectWrites` numbers for plan, write, and unchanged rerun scenarios.
+- Produces: `MigrationWorkloadCounts` in test code only, with exact `discoveryPasses`, `templatesDiscovered`, `templateReads`, `initialParses`, `validationParses`, `renderedTemplates`, `stylesheetReads`, and `projectWrites` numbers for plan, write, and unchanged rerun scenarios. Template reads count successful reads, while discovery passes are measured at actual traversal entry.
 
 - [ ] **Step 1: Write failing lifecycle tests for injected file dependencies**
 
@@ -221,12 +221,20 @@ interface BenchmarkReport {
     readonly medianAbsoluteDeviationMilliseconds: number;
     readonly peakRssBytes: readonly number[];
   }[];
+  readonly architectureTest: {
+    readonly command: 'node node_modules/vitest/vitest.mjs run test/architecture/enterprise-pipeline-boundary.test.ts';
+    readonly milliseconds: readonly number[];
+    readonly medianMilliseconds: number;
+    readonly minMilliseconds: number;
+    readonly maxMilliseconds: number;
+    readonly medianAbsoluteDeviationMilliseconds: number;
+  };
 }
 ```
 
 - [ ] **Step 1: Write failing runner unit tests**
 
-Test exported pure functions `median(values)`, `medianAbsoluteDeviation(values)`, and `summarize(samples)`. Test that `runBenchmark({ warmups: 1, samples: 5, ... })` invokes every scenario six times, excludes the warm-up from statistics, rejects nonzero CLI exits, and sorts scenarios by the declared order. Inject `runProcess`, `now`, `readPeakRss`, and `commit` so the test never measures real time.
+Test exported pure functions `median(values)`, `medianAbsoluteDeviation(values)`, and `summarize(samples)`. Test that `runBenchmark({ warmups: 1, samples: 5, ... })` invokes every product scenario six times, preserves their declared order, and records the enterprise pipeline boundary test separately through six isolated processes. Exclude warm-ups from both statistics and reject any nonzero CLI or architecture-test exit. Inject `runProcess`, `now`, `readPeakRss`, and `commit` so the test never measures real time.
 
 - [ ] **Step 2: Run runner tests to verify RED**
 
@@ -246,7 +254,9 @@ Use Node built-ins only. Copy each fixture to an invocation-owned `mkdtemp` dire
 node --import scripts/benchmark/memory-probe.mjs dist/cli.js <scenario arguments>
 ```
 
-Pass an invocation-owned metrics path through `FLEX_LAYOUT_BENCHMARK_METRICS_PATH`. `memory-probe.mjs` registers an `exit` handler and writes `{ "peakRssBytes": process.resourceUsage().maxRSS * platformMultiplier }`; use multiplier `1024` on non-Darwin platforms and `1` on Darwin. The hook is benchmark-only and must not be imported by production code.
+Pass an invocation-owned metrics path through `FLEX_LAYOUT_BENCHMARK_METRICS_PATH`. `memory-probe.mjs` registers an `exit` handler and writes `{ "peakRssBytes": process.resourceUsage().maxRSS * 1024 }`; Node reports max RSS in KiB on every supported platform, so the stored value is bytes. The hook is benchmark-only and must not be imported by production code.
+
+Run `node node_modules/vitest/vitest.mjs run test/architecture/enterprise-pipeline-boundary.test.ts` separately after the four product scenarios, using the same warm-up and sample counts plus elapsed-time statistics. Do not add it to the product scenario array or attach product RSS metrics to it.
 
 Add scripts:
 
@@ -274,7 +284,7 @@ npx vitest run scripts/benchmark/architecture-benchmark.spec.ts test/package/tes
 git diff --check
 ```
 
-Expected: four scenarios, five recorded timing and RSS values per scenario, all tests pass, and no tracked benchmark output changes.
+Expected: four product scenarios with five recorded timing and RSS values each, one separate architecture-test result with five recorded timings, all commands and tests pass, and no tracked benchmark output changes.
 
 - [ ] **Step 6: Commit**
 
@@ -302,7 +312,7 @@ git commit -m "test: add architecture benchmark harness"
 
 - [ ] **Step 1: Write failing inventory tests**
 
-Test a synthetic source tree and package manifest. Require code-unit path ordering, production-file line counts, external import classification, relative module edges, direct runtime dependency usage, and deterministic JSON serialization. Comments and string literals containing `import` must not create edges; use the TypeScript compiler AST already available as a development dependency.
+Test a synthetic source tree and package manifest. Require code-unit path ordering, production-file line counts, runtime external-import classification, all static relative module edges including `import type` and `export type`, direct runtime dependency usage, and deterministic JSON serialization. Comments and string literals containing `import` must not create edges; use the TypeScript compiler AST already available as a development dependency.
 
 - [ ] **Step 2: Run inventory tests to verify RED**
 
@@ -316,7 +326,7 @@ Expected: FAIL because the inventory generator and enterprise boundary do not ex
 
 - [ ] **Step 3: Implement the inventory generator**
 
-Export pure `inventoryProject(input)` and CLI `main(argv)` functions from `architecture-inventory.mjs`. Read only tracked `src/**/*.ts` files excluding `*.spec.ts`. Record runtime dependencies with `declared`, `importedBy`, and `status: 'used' | 'unused'`. Record known policy owners for breakpoint classification, responsive precedence, semantic planning, artifact identity, diagnostics, and transaction recovery as exact module paths discovered from imports and symbols, not prose guesses.
+Export pure `inventoryProject(input)` and CLI `main(argv)` functions from `architecture-inventory.mjs`. Read only tracked `src/**/*.ts` files excluding `*.spec.ts`. Record every static internal dependency edge, but use the separate runtime-reference set for built-in/external edges and runtime dependencies with `declared`, `importedBy`, and `status: 'used' | 'unused'`. Record known policy owners for breakpoint classification, responsive precedence, semantic planning, artifact identity, diagnostics, and transaction recovery as exact module paths discovered from imports and symbols, not prose guesses.
 
 Add:
 
@@ -329,9 +339,9 @@ Add:
 In `enterprise-pipeline-boundary.test.ts`, reuse `typescript-boundary.ts` to assert:
 
 - `src/flex` imports neither target adapter;
-- renderers import no filesystem, CLI, report, or transaction modules;
+- the explicit renderer set (both primary adapters and all leaf renderers) imports no filesystem, CLI, report, or transaction modules and invokes no filesystem or transaction mutation authority;
 - presenters import no adapter, planner, migrator, or transaction implementation;
-- only existing transaction and atomic-writer modules call project mutation APIs; and
+- only existing transaction and atomic-writer modules call project mutation APIs, including directly write-capable stream factories and constructors; and
 - production code imports no undeclared package.
 
 These tests describe current valid boundaries. The later pipeline-shell slice will tighten them when the new stage directories exist.
@@ -389,7 +399,7 @@ Known hotspots
 Rewrite acceptance gates
 ```
 
-Assert exact documented counts for production files, runtime dependencies, largest production modules, scenario names, warm-up/sample counts, and deterministic workload counters. Assert that no sentence describes a wall-clock number as a CI threshold.
+Assert exact documented counts for production files, runtime dependencies, largest production modules, scenario names, warm-up/sample counts, and deterministic workload counters. Assert that no prose or table segment describes a wall-clock number as a CI threshold, limit, budget, gate, failure boundary, or above/below comparison across second, millisecond, microsecond, and minute units; observational rows remain allowed.
 
 - [ ] **Step 2: Run the contract to verify RED**
 

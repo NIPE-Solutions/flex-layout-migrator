@@ -4,9 +4,9 @@ This document records the Slice 1 baseline for the enterprise architecture rewri
 
 ## Commit
 
-Commit captured: `2ddac75b4171fd60a2fd39ca26ad8ad67a7813ee`
+Commit captured: `41c0714bca3ec09470e25efde0f30b6bc96cc0ac`
 
-The corrected benchmark evidence was collected from a clean build of the commit above. The structural and workload facts remain unchanged from their original capture and are rechecked by the full verification gate.
+The final-review benchmark evidence was collected from a clean build of the commit above. Structural and workload facts were regenerated from that revision and are rechecked by the full verification gate.
 
 ## Environment
 
@@ -28,29 +28,29 @@ The fresh oracle run passed all three cases. Together with the three determinist
 
 ## Workload counters
 
-The rows below enter through `Migrator.migrate()` and record the current production-pipeline work. Counter order is discoveries, template reads, initial Angular parses, validation and reference-collection parses, rendered templates, stylesheet reads, and project writes.
+The rows below enter through `Migrator.migrate()` and record the current production-pipeline work. Counter order is discovery passes, templates discovered, successful template reads, initial Angular parses, validation and reference-collection parses, rendered templates, stylesheet reads, and project writes. A missing destination probe is not a successful read. The discovery-pass counter is invoked at the real single-file or folder-traversal boundary, while templates discovered records the number of templates handed to `FileMigrator`.
 
-| Scenario                   | Discoveries | Template reads | Initial parses | Validation parses | Rendered templates | Stylesheet reads | Project writes |
-| -------------------------- | ----------: | -------------: | -------------: | ----------------: | -----------------: | ---------------: | -------------: |
-| Single-file Tailwind plan  |           1 |              1 |              1 |                 1 |                  1 |                0 |              0 |
-| Single-file Tailwind write |           1 |              1 |              1 |                 1 |                  1 |                0 |              1 |
-| Two-file CSS folder plan   |           2 |              2 |              2 |                 4 |                  2 |                0 |              0 |
-| Two-file CSS folder write  |           2 |              2 |              2 |                 4 |                  2 |                0 |              3 |
-| Unchanged Tailwind rerun   |           1 |              1 |              1 |                 1 |                  1 |                0 |              0 |
-| Unchanged CSS folder rerun |           2 |              4 |              2 |                 4 |                  2 |                1 |              0 |
+| Scenario                   | Discovery passes | Templates discovered | Template reads | Initial parses | Validation parses | Rendered templates | Stylesheet reads | Project writes |
+| -------------------------- | ---------------: | -------------------: | -------------: | -------------: | ----------------: | -----------------: | ---------------: | -------------: |
+| Single-file Tailwind plan  |                1 |                    1 |              1 |              1 |                 1 |                  1 |                0 |              0 |
+| Single-file Tailwind write |                1 |                    1 |              1 |              1 |                 1 |                  1 |                0 |              1 |
+| Two-file CSS folder plan   |                1 |                    2 |              2 |              2 |                 4 |                  2 |                0 |              0 |
+| Two-file CSS folder write  |                1 |                    2 |              2 |              2 |                 4 |                  2 |                0 |              3 |
+| Unchanged Tailwind rerun   |                1 |                    1 |              2 |              1 |                 1 |                  1 |                0 |              0 |
+| Unchanged CSS folder rerun |                1 |                    2 |              6 |              2 |                 4 |                  2 |                1 |              0 |
 
 Repeated reads, parses, and renders are current baseline work, not target values. Later slices may update a row only when a reviewed implementation changes the real pipeline and the public behavior oracle remains green.
 
 ## Production structure
 
-The inventory reads Git-tracked `src/**/*.ts` production files, excluding specifications, and parses imports with the TypeScript compiler AST.
+The inventory reads Git-tracked `src/**/*.ts` production files, excluding specifications, and parses imports with the TypeScript compiler AST. Static internal edges include runtime and type-only imports and re-exports. Built-in and external edges, along with runtime dependency usage, remain runtime-only observations.
 
-| Measure                                       | Count |
-| --------------------------------------------- | ----: |
-| Production TypeScript files                   |   122 |
-| Runtime dependency entries                    |     5 |
-| Relative, built-in, and external module edges |   245 |
-| Known policy owners                           |     6 |
+| Measure                                                       | Count |
+| ------------------------------------------------------------- | ----: |
+| Production TypeScript files                                   |   122 |
+| Runtime dependency entries                                    |     5 |
+| Static internal and runtime external or built-in module edges |   416 |
+| Known policy owners                                           |     6 |
 
 ## Policy owners
 
@@ -85,8 +85,8 @@ Physical line counts come directly from the fresh inventory. This is the complet
 | `src/adapter/tailwind/extended/generated-property-composition.planner.ts` |            276 |
 | `src/planner/conversion-planner.ts`                                       |            266 |
 | `src/migrator/migration-path.validator.ts`                                |            261 |
+| `src/migrator/migrator.ts`                                                |            247 |
 | `src/adapter/css/stylesheet/owned-stylesheet.merger.ts`                   |            245 |
-| `src/migrator/migrator.ts`                                                |            244 |
 | `src/adapter/tailwind/visibility/display-composition.planner.ts`          |            237 |
 | `src/adapter/tailwind/extended/extended-family.planner.ts`                |            219 |
 | `src/adapter/tailwind/extended/responsive-style-value.parser.ts`          |            202 |
@@ -108,13 +108,15 @@ Every observed runtime import appears here. Declared ranges come from `package.j
 
 ## Benchmark method
 
-The benchmark invokes the built package entry point with `node --import scripts/benchmark/memory-probe.mjs dist/cli.js`. Every invocation copies a checked-in fixture to a new temporary project, writes metrics to an invocation-owned path, and must exit successfully. Node reports `process.resourceUsage().maxRSS` in KiB on every supported platform, so the probe multiplies it by 1,024 and records bytes.
+The product benchmark invokes the built package entry point with `node --import scripts/benchmark/memory-probe.mjs dist/cli.js`. Every invocation copies a checked-in fixture to a new temporary project, writes metrics to an invocation-owned path, and must exit successfully. Node reports `process.resourceUsage().maxRSS` in KiB on every supported platform, so the probe multiplies it by 1,024 and records bytes.
+
+Architecture-test timing is recorded separately by starting `node node_modules/vitest/vitest.mjs run test/architecture/enterprise-pipeline-boundary.test.ts` in a fresh process for every run. It uses the same warm-up and recorded-sample method, without adding that command to the four product scenario names or collecting product RSS metrics from it.
 
 Warm-up runs per scenario: **1**
 
 Recorded samples per scenario: **5**
 
-Warm-up observations are discarded. The five recorded elapsed-time and peak-RSS observations produce median, minimum, maximum, and median absolute deviation summaries. Scenario order is stable:
+Warm-up observations are discarded. The five recorded elapsed-time observations produce median, minimum, maximum, and median absolute deviation summaries; the product runs also retain peak RSS. Product scenario order is stable:
 
 1. `single-tailwind-plan`
 2. `multi-tailwind-plan`
@@ -123,14 +125,22 @@ Warm-up observations are discarded. The five recorded elapsed-time and peak-RSS 
 
 ## Benchmark results
 
-Generated at `2026-09-03T09:05:52.629Z` on the environment and commit above. Millisecond and peak-RSS values are machine-specific observations. CI does not use wall-clock thresholds.
+Generated at `2026-09-03T09:31:58.378Z` on the environment and commit above. Millisecond and peak-RSS values are machine-specific observations. CI retains the complete JSON report but does not compare timing values; a failed benchmark command still fails the job.
 
-| Scenario                | Recorded milliseconds                                                                              |             Median |            Minimum |            Maximum |                 MAD | Recorded peak RSS bytes                               |
-| ----------------------- | -------------------------------------------------------------------------------------------------- | -----------------: | -----------------: | -----------------: | ------------------: | ----------------------------------------------------- |
-| `single-tailwind-plan`  | 95.91866599999999; 95.10062500000001; 96.17808400000001; 96.43895800000007; 96.16120799999999      |  96.16120799999999 |  95.10062500000001 |  96.43895800000007 | 0.24254200000000026 | 99155968; 99696640; 99401728; 100188160; 100859904    |
-| `multi-tailwind-plan`   | 111.87008300000002; 112.62116700000001; 111.19566699999996; 110.87675000000013; 111.61333300000001 | 111.61333300000001 | 110.87675000000013 | 112.62116700000001 |  0.4176660000000538 | 104628224; 104103936; 104660992; 104857600; 105086976 |
-| `multi-native-css-plan` | 100.9709170000001; 99.84483299999988; 98.03295900000012; 109.09720900000002; 102.55604200000016    |  100.9709170000001 |  98.03295900000012 | 109.09720900000002 |  1.5851250000000618 | 100745216; 100810752; 99663872; 101695488; 90046464   |
-| `unchanged-write`       | 90.75312500000018; 88.75366699999995; 86.74779199999966; 86.1884170000003; 86.58579099999997       |  86.74779199999966 |   86.1884170000003 |  90.75312500000018 |  0.5593749999993634 | 96993280; 97517568; 98041856; 97206272; 99778560      |
+| Scenario                | Recorded milliseconds                                                                              |             Median |            Minimum |            Maximum |                MAD | Recorded peak RSS bytes                               |
+| ----------------------- | -------------------------------------------------------------------------------------------------- | -----------------: | -----------------: | -----------------: | -----------------: | ----------------------------------------------------- |
+| `single-tailwind-plan`  | 106.02175; 98.99062500000002; 100.882792; 98.00824999999998; 97.29541699999993                     |  98.99062500000002 |  97.29541699999993 |          106.02175 | 1.6952080000000933 | 101318656; 98844672; 103710720; 100089856; 100483072  |
+| `multi-tailwind-plan`   | 116.01020900000003; 112.99579200000005; 111.88487500000008; 115.16966699999989; 115.19262499999991 | 115.16966699999989 | 111.88487500000008 | 116.01020900000003 | 0.8405420000001413 | 105218048; 103579648; 104529920; 105873408; 105529344 |
+| `multi-native-css-plan` | 104.23183300000005; 106.70066699999984; 108.08454199999983; 113.50716700000021; 104.03737499999988 | 106.70066699999984 | 104.03737499999988 | 113.50716700000021 |  2.468833999999788 | 102137856; 90357760; 101662720; 103710720; 100614144  |
+| `unchanged-write`       | 94.41216600000007; 90.77275000000009; 91.33283399999982; 92.08108399999992; 93.24458300000015      |  92.08108399999992 |  90.77275000000009 |  94.41216600000007 |  1.163499000000229 | 97615872; 97370112; 98910208; 98697216; 98877440      |
+
+## Architecture-test timing
+
+The architecture-test values below came from the same generated report and are observations from isolated processes.
+
+| Command                                                                                          | Recorded milliseconds                                                             |      Median |           Minimum |     Maximum |                MAD |
+| ------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------- | ----------: | ----------------: | ----------: | -----------------: |
+| `node node_modules/vitest/vitest.mjs run test/architecture/enterprise-pipeline-boundary.test.ts` | 7885.041084; 8270.962292; 7733.717292000001; 7860.095666000001; 8042.124209000001 | 7885.041084 | 7733.717292000001 | 8270.962292 | 151.32379199999923 |
 
 ## Known hotspots
 
@@ -150,6 +160,7 @@ These size and import observations are evidence for later slices. They do not by
 - Deterministic workload counters do not regress; intentional improvements update this document and its contract in the same reviewed slice.
 - Architecture inventory changes are explained against a moved owner, dependency decision, or deleted obsolete path.
 - Benchmark comparisons use the same corpus and at least five recorded runs on the same machine. Wall-clock values remain observations rather than CI failure criteria.
+- CI builds before running the benchmark and retains `architecture-benchmark.json`; only command or test failure can fail that job.
 - A clean `npm run verify`, packaged CLI execution, documentation contracts, `git diff --check`, and scoped worktree review pass before merge.
 - The undeclared `ignore` import is resolved only in delivery slice 8; no second undeclared production package may enter the baseline.
 - No pipeline-shell work begins until the Slice 1 baseline pull request is merged.

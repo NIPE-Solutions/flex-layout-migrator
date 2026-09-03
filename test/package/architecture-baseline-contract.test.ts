@@ -12,6 +12,7 @@ const requiredSections = [
   'Runtime dependencies',
   'Benchmark method',
   'Benchmark results',
+  'Architecture-test timing',
   'Known hotspots',
   'Rewrite acceptance gates',
 ] as const;
@@ -31,8 +32,8 @@ const largestProductionModules = [
   ['src/adapter/tailwind/extended/generated-property-composition.planner.ts', '276'],
   ['src/planner/conversion-planner.ts', '266'],
   ['src/migrator/migration-path.validator.ts', '261'],
+  ['src/migrator/migrator.ts', '247'],
   ['src/adapter/css/stylesheet/owned-stylesheet.merger.ts', '245'],
-  ['src/migrator/migrator.ts', '244'],
   ['src/adapter/tailwind/visibility/display-composition.planner.ts', '237'],
   ['src/adapter/tailwind/extended/extended-family.planner.ts', '219'],
   ['src/adapter/tailwind/extended/responsive-style-value.parser.ts', '202'],
@@ -40,12 +41,12 @@ const largestProductionModules = [
 ] as const;
 
 const workloadRows = [
-  ['Single-file Tailwind plan', '1', '1', '1', '1', '1', '0', '0'],
-  ['Single-file Tailwind write', '1', '1', '1', '1', '1', '0', '1'],
-  ['Two-file CSS folder plan', '2', '2', '2', '4', '2', '0', '0'],
-  ['Two-file CSS folder write', '2', '2', '2', '4', '2', '0', '3'],
-  ['Unchanged Tailwind rerun', '1', '1', '1', '1', '1', '0', '0'],
-  ['Unchanged CSS folder rerun', '2', '4', '2', '4', '2', '1', '0'],
+  ['Single-file Tailwind plan', '1', '1', '1', '1', '1', '1', '0', '0'],
+  ['Single-file Tailwind write', '1', '1', '1', '1', '1', '1', '0', '1'],
+  ['Two-file CSS folder plan', '1', '2', '2', '2', '4', '2', '0', '0'],
+  ['Two-file CSS folder write', '1', '2', '2', '2', '4', '2', '0', '3'],
+  ['Unchanged Tailwind rerun', '1', '1', '2', '1', '1', '1', '0', '0'],
+  ['Unchanged CSS folder rerun', '1', '2', '6', '2', '4', '2', '1', '0'],
 ] as const;
 
 const policyOwnerRows = [
@@ -134,7 +135,7 @@ describe('enterprise architecture baseline documentation contract', () => {
     expect(tableRows(markdown, 'Production structure')).toEqual([
       ['Production TypeScript files', '122'],
       ['Runtime dependency entries', '5'],
-      ['Relative, built-in, and external module edges', '245'],
+      ['Static internal and runtime external or built-in module edges', '416'],
       ['Known policy owners', '6'],
     ]);
     expect(tableRows(markdown, 'Largest production modules')).toEqual(largestProductionModules);
@@ -158,6 +159,12 @@ describe('enterprise architecture baseline documentation contract', () => {
       'multi-native-css-plan',
       'unchanged-write',
     ]);
+    const architectureTestRows = tableRows(markdown, 'Architecture-test timing');
+    expect(architectureTestRows).toHaveLength(1);
+    expect(architectureTestRows[0]?.[0]).toBe(
+      'node node_modules/vitest/vitest.mjs run test/architecture/enterprise-pipeline-boundary.test.ts',
+    );
+    expect(architectureTestRows[0]?.[1]?.split('; ')).toHaveLength(5);
     expect(markdown).toContain('Warm-up runs per scenario: **1**');
     expect(markdown).toContain('Recorded samples per scenario: **5**');
     expect(tableRows(markdown, 'Workload counters')).toEqual(workloadRows);
