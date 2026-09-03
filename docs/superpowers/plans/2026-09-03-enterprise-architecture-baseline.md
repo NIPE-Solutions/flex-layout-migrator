@@ -38,7 +38,7 @@
 
 **Interfaces:**
 
-- Consumes: packaged CLI contract `node dist/cli.js <input> --target <tailwind|css> [--stylesheet <path>] [--responsive-images] [--write] [--json <path>]`.
+- Consumes: packaged CLI contract `node dist/cli.js <input> --target <tailwind|css> [--stylesheet <path>] [--responsive-images] [--write] [--report <path>]`.
 - Produces: a parameterized parity matrix whose plan and write cases assert exit status, stdout, stderr, JSON report, template bytes, stylesheet bytes, and second-run idempotence.
 
 - [ ] **Step 1: Add representative source fixtures**
