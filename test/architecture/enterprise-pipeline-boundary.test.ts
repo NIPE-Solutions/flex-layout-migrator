@@ -32,6 +32,7 @@ let cachedGitIgnoreBarrelAuthorities: ReturnType<typeof inspectSemanticAuthority
 let cachedLocalBindingBarrelAuthorities: ReturnType<typeof inspectSemanticAuthorityCalls> | undefined;
 let cachedFilesystemBarrelAuthorities: ReturnType<typeof inspectSemanticAuthorityCalls> | undefined;
 let cachedFilesystemNamespaceUnionAuthorities: ReturnType<typeof inspectSemanticAuthorityCalls> | undefined;
+let cachedFilesystemPluralProvenanceAuthorities: ReturnType<typeof inspectSemanticAuthorityCalls> | undefined;
 const productionGraphAuthorities = new Set([
   'AnalyzeProjectStage.run',
   'CurrentMigrationPipeline.run',
@@ -471,6 +472,109 @@ const filesystemNamespaceUnionOverrides = new Map([
   [filesystemUnrelatedStarBarrelPath, "export * from './filesystem-unrelated-star-inner.js';"],
   ...filesystemNamespaceUnionCases.map(fixture => [fixture.sourcePath, fixture.source] as const),
 ]);
+const filesystemPluralForbiddenPath = join(localBindingFixtureRoot, 'filesystem-plural-forbidden.ts');
+const filesystemPluralMixedPath = join(localBindingFixtureRoot, 'filesystem-plural-mixed.ts');
+const filesystemPluralNamespacePath = join(localBindingFixtureRoot, 'filesystem-plural-namespace.ts');
+const filesystemPluralUnrelatedInnerPath = join(localBindingFixtureRoot, 'filesystem-plural-unrelated-inner.ts');
+const filesystemPluralUnrelatedNamespacePath = join(
+  localBindingFixtureRoot,
+  'filesystem-plural-unrelated-namespace.ts',
+);
+const pluralNamespaceAcquisitions = [
+  'FileSystem.acquire.readFile',
+  'FileSystem.acquire.readdir',
+  'FileSystem.acquire.stat',
+] as const;
+const filesystemPluralProvenanceCases = [
+  {
+    label: 'CommonJS named-namespace forbidden member',
+    sourcePath: join(localBindingFixtureRoot, 'filesystem-plural-commonjs-member.ts'),
+    source: "void require('./filesystem-plural-namespace.js').filesystem.forbiddenBytes('/project/card.html', 'utf8');",
+    expected: ['FileSystem.acquire.readFile', 'FileSystem.readFile'],
+  },
+  {
+    label: 'CommonJS named-namespace property value',
+    sourcePath: join(localBindingFixtureRoot, 'filesystem-plural-commonjs-value.ts'),
+    source: "const filesystem = require('./filesystem-plural-namespace.js').filesystem; void filesystem;",
+    expected: pluralNamespaceAcquisitions,
+  },
+  {
+    label: 'CommonJS named-namespace destructuring',
+    sourcePath: join(localBindingFixtureRoot, 'filesystem-plural-commonjs-destructured.ts'),
+    source: "const { filesystem } = require('./filesystem-plural-namespace.js'); void filesystem;",
+    expected: pluralNamespaceAcquisitions,
+  },
+  {
+    label: 'CommonJS nested forbidden-member destructuring',
+    sourcePath: join(localBindingFixtureRoot, 'filesystem-plural-commonjs-nested.ts'),
+    source:
+      "const { filesystem: { forbiddenBytes } } = require('./filesystem-plural-namespace.js'); void forbiddenBytes('/project/card.html', 'utf8');",
+    expected: ['FileSystem.acquire.readFile', 'FileSystem.readFile'],
+  },
+  {
+    label: 'dynamic-import named-namespace forbidden member',
+    sourcePath: join(localBindingFixtureRoot, 'filesystem-plural-dynamic-member.ts'),
+    source:
+      "async function load() { return (await import('./filesystem-plural-namespace.js')).filesystem.forbiddenBytes('/project/card.html', 'utf8'); } void load();",
+    expected: ['FileSystem.acquire.readFile', 'FileSystem.readFile'],
+  },
+  {
+    label: 'dynamic-import named-namespace property value',
+    sourcePath: join(localBindingFixtureRoot, 'filesystem-plural-dynamic-value.ts'),
+    source:
+      "async function load() { const filesystem = (await import('./filesystem-plural-namespace.js')).filesystem; return filesystem; } void load();",
+    expected: pluralNamespaceAcquisitions,
+  },
+  {
+    label: 'dynamic-import named-namespace destructuring',
+    sourcePath: join(localBindingFixtureRoot, 'filesystem-plural-dynamic-destructured.ts'),
+    source:
+      "async function load() { const { filesystem } = await import('./filesystem-plural-namespace.js'); return filesystem; } void load();",
+    expected: pluralNamespaceAcquisitions,
+  },
+  {
+    label: 'dynamic-import nested forbidden-member destructuring',
+    sourcePath: join(localBindingFixtureRoot, 'filesystem-plural-dynamic-nested.ts'),
+    source:
+      "async function load() { const { filesystem: { forbiddenBytes } } = await import('./filesystem-plural-namespace.js'); return forbiddenBytes('/project/card.html', 'utf8'); } void load();",
+    expected: ['FileSystem.acquire.readFile', 'FileSystem.readFile'],
+  },
+  {
+    label: 'unused named-namespace value inside the approved Discover owner',
+    sourcePath: discoverStagePath,
+    source:
+      "const filesystem = require('../../__architecture-fixture__/filesystem-plural-namespace.js').filesystem; void filesystem;",
+    expected: pluralNamespaceAcquisitions,
+  },
+  {
+    label: 'type-only named-namespace import',
+    sourcePath: join(localBindingFixtureRoot, 'filesystem-plural-type-only.ts'),
+    source:
+      "import type { filesystem } from './filesystem-plural-namespace.js'; type Shape = typeof filesystem; declare const value: Shape | undefined; void value;",
+    expected: [],
+  },
+  {
+    label: 'unrelated same-named CommonJS namespace value',
+    sourcePath: join(localBindingFixtureRoot, 'filesystem-plural-unrelated.ts'),
+    source:
+      "const filesystem = require('./filesystem-plural-unrelated-namespace.js').filesystem; void filesystem.readFile('/project/card.html');",
+    expected: [],
+  },
+] as const;
+const filesystemPluralProvenanceOverrides = new Map([
+  [filesystemPluralForbiddenPath, "export { readFile as forbiddenBytes } from 'node:fs/promises';"],
+  [
+    filesystemPluralMixedPath,
+    "export { readdir, stat } from 'node:fs/promises'; export * from './filesystem-plural-forbidden.js';",
+  ],
+  [filesystemPluralNamespacePath, "export * as filesystem from './filesystem-plural-mixed.js';"],
+  [
+    filesystemPluralUnrelatedInnerPath,
+    'export const readFile = (path: string): string => path; export const readdir = readFile; export const stat = readFile;',
+  ],
+  [filesystemPluralUnrelatedNamespacePath, "export * as filesystem from './filesystem-plural-unrelated-inner.js';"],
+  ...filesystemPluralProvenanceCases.map(fixture => [fixture.sourcePath, fixture.source] as const),
+]);
 const expectedRendererRelativePaths = [
   'adapter/css/css.adapter.ts',
   'adapter/css/flex/flex-align.css-renderer.ts',
@@ -618,6 +722,14 @@ function filesystemNamespaceUnionAuthorities(): ReturnType<typeof inspectSemanti
     filesystemNamespaceUnionOverrides,
   );
   return cachedFilesystemNamespaceUnionAuthorities;
+}
+
+function filesystemPluralProvenanceAuthorities(): ReturnType<typeof inspectSemanticAuthorityCalls> {
+  cachedFilesystemPluralProvenanceAuthorities ??= inspectSemanticAuthorityCalls(
+    filesystemPluralProvenanceCases.map(fixture => fixture.sourcePath),
+    filesystemPluralProvenanceOverrides,
+  );
+  return cachedFilesystemPluralProvenanceAuthorities;
 }
 
 describe('enterprise pipeline dependency boundary', { timeout: wholeProjectInspectionTimeout }, () => {
@@ -860,6 +972,15 @@ describe('enterprise pipeline dependency boundary', { timeout: wholeProjectInspe
       .sort();
 
     expect(acquisitions).toEqual([...fixture.expected].sort());
+  });
+
+  test.each(filesystemPluralProvenanceCases)('retains exact plural filesystem provenance for $label', fixture => {
+    const filesystemAuthorities = filesystemPluralProvenanceAuthorities()
+      .filter(call => call.sourcePath === fixture.sourcePath && call.name.startsWith('FileSystem.'))
+      .map(call => call.name)
+      .sort();
+
+    expect(filesystemAuthorities).toEqual([...fixture.expected].sort());
   });
 
   test.each([
