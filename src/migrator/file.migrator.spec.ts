@@ -2,8 +2,10 @@ import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promise
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { TailwindAdapter } from '../adapter/tailwind/tailwind.adapter';
+import { TemplateAnalyzer } from '../analyzer/template.analyzer';
+import { ConversionPlanner } from '../planner/conversion-planner';
 import { AngularTemplateParser } from '../template/angular-template.parser';
-import { FileMigrator } from './file.migrator';
+import { FileMigrator, type FileMigratorDependencies } from './file.migrator';
 import { fileMigrationPlan, migrationPlan, plannedOutputArtifact } from './migration-plan';
 
 describe('FileMigrator', () => {
@@ -89,6 +91,61 @@ describe('FileMigrator', () => {
     await expect(access(output)).rejects.toThrow();
     expect(plan.file).toMatchObject({ inputPath: input, outputPath: output, changed: true });
     expect(plan.file.results.map(item => item.status)).toEqual(['converted', 'converted']);
+  });
+
+  test('uses one injected dependency lifecycle for a changed template', async () => {
+    const source = '<div fxLayout="row"></div>';
+    await writeFile(input, source, 'utf8');
+    const parser = new AngularTemplateParser();
+    const analyzer = new TemplateAnalyzer();
+    const planner = new ConversionPlanner();
+    const dependencies = {
+      readTemplate: vi.fn(async (filePath: string) => readFile(filePath, 'utf8')),
+      parser,
+      analyzer,
+      planner,
+    } satisfies FileMigratorDependencies;
+    const parse = vi.spyOn(parser, 'parse');
+    const analyze = vi.spyOn(analyzer, 'analyze');
+    const renderPlan = vi.spyOn(planner, 'plan');
+
+    const plan = await new FileMigrator(new TailwindAdapter(), input, output, undefined, dependencies).plan();
+
+    expect(plan.file.changed).toBe(true);
+    expect(dependencies.readTemplate).toHaveBeenCalledTimes(2);
+    expect(dependencies.readTemplate).toHaveBeenNthCalledWith(1, input);
+    expect(dependencies.readTemplate).toHaveBeenNthCalledWith(2, output);
+    expect(parse).toHaveBeenCalledTimes(2);
+    expect(parse).toHaveBeenNthCalledWith(1, source, input);
+    expect(parse).toHaveBeenNthCalledWith(2, '<div class="flex flex-row box-border"></div>', output);
+    expect(analyze).toHaveBeenCalledOnce();
+    expect(renderPlan).toHaveBeenCalledOnce();
+  });
+
+  test('skips rendering and validation when injected dependencies find no migration inputs', async () => {
+    const source = '<div class="card"></div>';
+    await writeFile(input, source, 'utf8');
+    const parser = new AngularTemplateParser();
+    const analyzer = new TemplateAnalyzer();
+    const planner = new ConversionPlanner();
+    const dependencies = {
+      readTemplate: vi.fn(async (filePath: string) => readFile(filePath, 'utf8')),
+      parser,
+      analyzer,
+      planner,
+    } satisfies FileMigratorDependencies;
+    const parse = vi.spyOn(parser, 'parse');
+    const analyze = vi.spyOn(analyzer, 'analyze');
+    const renderPlan = vi.spyOn(planner, 'plan');
+
+    const plan = await new FileMigrator(new TailwindAdapter(), input, output, undefined, dependencies).plan();
+
+    expect(plan.file.changed).toBe(false);
+    expect(dependencies.readTemplate).toHaveBeenCalledOnce();
+    expect(parse).toHaveBeenCalledOnce();
+    expect(parse).toHaveBeenCalledWith(source, input);
+    expect(analyze).toHaveBeenCalledOnce();
+    expect(renderPlan).not.toHaveBeenCalled();
   });
 
   test('plans an enabled responsive image without changing an in-place input', async () => {

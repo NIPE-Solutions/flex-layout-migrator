@@ -6,7 +6,7 @@ import { MigrationReportBuilder, type StylesheetMigrationResult } from '../repor
 import type { MigrationApplication, MigrationReport } from '../report/migration-report';
 import { AngularTemplateParser } from '../template/angular-template.parser';
 import { MigrationTransaction } from '../transaction/migration-transaction';
-import { FileMigrator } from './file.migrator';
+import { FileMigrator, type FileMigratorDependencies } from './file.migrator';
 import { FolderMigrator } from './folder.migrator';
 import { MigrationApplicationError } from './migration-application.error';
 import { validateMigrationPaths } from './migration-path.validator';
@@ -23,6 +23,13 @@ export interface MigrationOptions {
   readonly reportPath?: string;
 }
 
+export interface MigratorDependencies {
+  readonly fileMigratorDependencies?: () => FileMigratorDependencies;
+  readonly onDiscoveryPass?: () => void;
+  readonly readTemplate: (path: string) => Promise<string>;
+  readonly parser: AngularTemplateParser;
+}
+
 export class Migrator {
   constructor(
     private readonly session: ConversionAdapterSession,
@@ -31,6 +38,7 @@ export class Migrator {
     private readonly now: () => number = Date.now,
     private readonly transaction: Pick<MigrationTransaction, 'preflight' | 'apply'> = new MigrationTransaction(),
     private readonly stylesheetPlanner: Pick<StylesheetPlanner, 'plan'> = new StylesheetPlanner(),
+    private readonly dependencies: MigratorDependencies = defaultMigratorDependencies(),
   ) {}
 
   public async migrate(options: MigrationOptions = { mode: 'plan' }): Promise<MigrationReport> {
@@ -49,8 +57,15 @@ export class Migrator {
       if (path.extname(this.outputPath).toLowerCase() !== '.html') {
         throw new Error('Single-file output path must have a .html extension.');
       }
+      this.dependencies.onDiscoveryPass?.();
       filePlans = [
-        await new FileMigrator(this.session.adapter, this.inputPath, this.outputPath).plan({
+        await new FileMigrator(
+          this.session.adapter,
+          this.inputPath,
+          this.outputPath,
+          undefined,
+          this.dependencies.fileMigratorDependencies?.(),
+        ).plan({
           responsiveImages: options.responsiveImages ?? false,
         }),
       ];
@@ -60,6 +75,8 @@ export class Migrator {
         this.inputPath,
         this.outputPath,
         options.stylesheetPath === undefined ? [] : [options.stylesheetPath],
+        this.dependencies.fileMigratorDependencies,
+        this.dependencies.onDiscoveryPass,
       ).plan({
         responsiveImages: options.responsiveImages ?? false,
       });
@@ -151,10 +168,10 @@ export class Migrator {
           return { contents: filePlan.artifact.proposed.contents, complete: true };
         }
         if (path.resolve(filePlan.file.inputPath) === path.resolve(filePlan.file.outputPath)) {
-          return { contents: await readFile(filePlan.file.inputPath, 'utf8'), complete: true };
+          return { contents: await this.dependencies.readTemplate(filePlan.file.inputPath), complete: true };
         }
         try {
-          return { contents: await readFile(filePlan.file.outputPath, 'utf8'), complete: true };
+          return { contents: await this.dependencies.readTemplate(filePlan.file.outputPath), complete: true };
         } catch (error: unknown) {
           if (isEnoent(error)) return { contents: '', complete: false };
           throw error;
@@ -163,10 +180,9 @@ export class Migrator {
     );
     const references = new Set<string>();
     let complete = true;
-    const parser = new AngularTemplateParser();
     for (const template of templates) {
       complete &&= template.complete;
-      const parsed = parser.parse(template.contents, 'proposed-template.html');
+      const parsed = this.dependencies.parser.parse(template.contents, 'proposed-template.html');
       if (parsed.status === 'parse-error') {
         complete = false;
         continue;
@@ -202,6 +218,13 @@ export class Migrator {
     }
     return { classNames: references, complete };
   }
+}
+
+function defaultMigratorDependencies(): MigratorDependencies {
+  return {
+    readTemplate: path => readFile(path, 'utf8'),
+    parser: new AngularTemplateParser(),
+  };
 }
 
 function isGeneratedCssClassName(className: string): boolean {

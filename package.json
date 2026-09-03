@@ -17,6 +17,9 @@
     "access": "public"
   },
   "scripts": {
+    "architecture:inventory": "node scripts/architecture-inventory.mjs",
+    "benchmark:architecture": "node scripts/benchmark/architecture-benchmark.mjs",
+    "benchmark:architecture:prepare": "npm run build",
     "clean": "rimraf dist coverage",
     "build": "tsup",
     "typecheck": "tsc --noEmit",

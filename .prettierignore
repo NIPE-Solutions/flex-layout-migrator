@@ -13,6 +13,8 @@ test/fixtures/compatibility/extended-responsive.input.html
 test/fixtures/compatibility/extended-responsive.expected.html
 test/fixtures/compatibility/responsive-image.input.html
 test/fixtures/compatibility/responsive-image.expected.html
+# Byte-exact enterprise parity fixtures; formatting would change the asserted bytes.
+test/fixtures/enterprise-architecture/
 # Byte-exact generated-output goldens; formatting would change the asserted bytes.
 test/fixtures/compatibility/native-css.expected.html
 test/fixtures/compatibility/native-css.expected.css
