@@ -94,6 +94,11 @@ describe('Migrator', () => {
     ).migrate({ mode: 'plan' });
 
     expect(report.summary).toMatchObject({ filesScanned: 1, filesChanged: 1, converted: 1 });
+    expect({ input: report.input, output: report.output, filePath: report.files[0]?.path }).toEqual({
+      input: 'card.html',
+      output: '../output/card.html',
+      filePath: 'card.html',
+    });
     await expect(access(outputPath)).rejects.toThrow();
   });
 
