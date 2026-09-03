@@ -33,7 +33,7 @@ export function analyzedProject(project: AnalyzedProject): AnalyzedProject {
         status: template.status,
         file,
         source: template.source,
-        parseResult: template.parseResult,
+        parseResult: freezeParseErrorResult(template.parseResult),
       });
     }
 
@@ -41,12 +41,37 @@ export function analyzedProject(project: AnalyzedProject): AnalyzedProject {
       status: template.status,
       file,
       source: template.source,
-      parseResult: template.parseResult,
+      parseResult: freezeParsedResult(template.parseResult),
       inputs: Object.freeze(template.inputs.map(input => freezeLocatedInput(input))),
     });
   });
 
   return Object.freeze({ manifest, templates: Object.freeze(templates) });
+}
+
+function freezeParsedResult(
+  result: Extract<TemplateParseResult, { readonly status: 'parsed' }>,
+): Extract<TemplateParseResult, { readonly status: 'parsed' }> {
+  return Object.freeze({
+    status: result.status,
+    elements: Object.freeze([...result.elements]),
+  });
+}
+
+function freezeParseErrorResult(
+  result: Extract<TemplateParseResult, { readonly status: 'parse-error' }>,
+): Extract<TemplateParseResult, { readonly status: 'parse-error' }> {
+  return Object.freeze({
+    status: result.status,
+    diagnostics: Object.freeze(
+      result.diagnostics.map(diagnostic =>
+        Object.freeze({
+          ...diagnostic,
+          source: Object.freeze({ ...diagnostic.source }),
+        }),
+      ),
+    ),
+  });
 }
 
 function manifestTemplate(manifest: ProjectManifest, candidate: ManifestTemplate): ManifestTemplate {

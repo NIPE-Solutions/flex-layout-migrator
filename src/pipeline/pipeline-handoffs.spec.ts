@@ -176,12 +176,13 @@ describe('pipeline handoff factories', () => {
     expect(manifest.templates.map(template => path.basename(template.inputPath))).toEqual(['zeta.html', 'alpha.html']);
   });
 
-  test('links analyzed templates to manifest identities while preserving source and opaque parse nodes', () => {
+  test('owns parsed result wrappers and arrays while preserving opaque element identity and mutability', () => {
     const manifest = manifestFor();
     const opaqueNode = new OpaqueTemplateElement();
+    const elements = [opaqueNode];
     const parseResult: Extract<TemplateParseResult, { readonly status: 'parsed' }> = {
       status: 'parsed',
-      elements: [opaqueNode],
+      elements,
     };
     const source = '<div fxLayout="row">\r\né🚀</div>';
     const inputs = [locatedInput(manifest.templates[0]!.inputPath)];
@@ -202,8 +203,13 @@ describe('pipeline handoff factories', () => {
 
     expect(analyzed.templates[0]!.file).toBe(analyzed.manifest.templates[0]);
     expect(analyzed.templates[0]!.source).toBe(source);
-    expect(analyzed.templates[0]!.parseResult).toBe(parseResult);
     expect(analyzed.templates[0]!.status).toBe('parsed');
+    if (analyzed.templates[0]!.status !== 'parsed') throw new Error('Expected a parsed template.');
+    expect(analyzed.templates[0]!.parseResult).not.toBe(parseResult);
+    expect(analyzed.templates[0]!.parseResult.elements).not.toBe(elements);
+    expect(analyzed.templates[0]!.parseResult.elements[0]).toBe(opaqueNode);
+    expect(Object.isFrozen(analyzed.templates[0]!.parseResult)).toBe(true);
+    expect(Object.isFrozen(analyzed.templates[0]!.parseResult.elements)).toBe(true);
     expect(Object.isFrozen(analyzed)).toBe(true);
     expect(Object.isFrozen(analyzed.templates)).toBe(true);
     expect(Object.isFrozen(analyzed.templates[0])).toBe(true);
@@ -217,10 +223,57 @@ describe('pipeline handoff factories', () => {
 
     inputs.pop();
     templates.pop();
+    elements.pop();
+    (parseResult as { elements: readonly TemplateElement[] }).elements = [];
     opaqueNode.touch();
     expect((analyzed.templates[0] as { readonly inputs: readonly LocatedFlexLayoutInput[] }).inputs).toHaveLength(1);
     expect(analyzed.templates).toHaveLength(1);
+    expect(analyzed.templates[0]!.parseResult.elements).toEqual([opaqueNode]);
     expect(opaqueNode.touched).toBe(true);
+  });
+
+  test('recursively owns parse-error diagnostics and source ranges', () => {
+    const manifest = manifestFor();
+    const sourceRange = { start: 0, end: 5 };
+    const diagnostic = { message: 'invalid template', source: sourceRange };
+    const diagnostics = [diagnostic];
+    const parseResult: Extract<TemplateParseResult, { readonly status: 'parse-error' }> = {
+      status: 'parse-error',
+      diagnostics,
+    };
+
+    const analyzed = analyzedProject({
+      manifest,
+      templates: [
+        {
+          status: 'parse-error',
+          file: { ...manifest.templates[0]! },
+          source: '<span />',
+          parseResult,
+        },
+      ],
+    });
+
+    const template = analyzed.templates[0]!;
+    expect(template.status).toBe('parse-error');
+    if (template.status !== 'parse-error') throw new Error('Expected a parse-error template.');
+    expect(template.parseResult).not.toBe(parseResult);
+    expect(template.parseResult.diagnostics).not.toBe(diagnostics);
+    expect(template.parseResult.diagnostics[0]).not.toBe(diagnostic);
+    expect(template.parseResult.diagnostics[0]!.source).not.toBe(sourceRange);
+    expect(Object.isFrozen(template.parseResult)).toBe(true);
+    expect(Object.isFrozen(template.parseResult.diagnostics)).toBe(true);
+    expect(Object.isFrozen(template.parseResult.diagnostics[0])).toBe(true);
+    expect(Object.isFrozen(template.parseResult.diagnostics[0]!.source)).toBe(true);
+
+    diagnostics.pop();
+    diagnostic.message = 'mutated message';
+    sourceRange.start = 4;
+    (parseResult as { diagnostics: readonly (typeof diagnostic)[] }).diagnostics = [];
+    expect(template.parseResult).toEqual({
+      status: 'parse-error',
+      diagnostics: [{ message: 'invalid template', source: { start: 0, end: 5 } }],
+    });
   });
 
   test('rejects an analyzed template whose normalized path pair is absent from its manifest', () => {
