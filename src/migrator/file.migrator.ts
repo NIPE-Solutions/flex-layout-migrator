@@ -9,17 +9,29 @@ import { AngularTemplateParser } from '../template/angular-template.parser';
 import { fileMigrationResult, type FileMigrationOptions, type FileMigrationResult } from './file-migration-result';
 import { fileMigrationPlan, plannedOutputArtifact, type ArtifactState, type FileMigrationPlan } from './migration-plan';
 
+export interface FileMigratorDependencies {
+  readonly readTemplate: (path: string) => Promise<string>;
+  readonly parser: AngularTemplateParser;
+  readonly analyzer: TemplateAnalyzer;
+  readonly planner: ConversionPlanner;
+}
+
 export class FileMigrator {
+  private readonly dependencies: FileMigratorDependencies;
+
   constructor(
     private readonly adapter: ConversionAdapter,
     private readonly input: string,
     private readonly output: string,
-    private readonly parser: AngularTemplateParser = new AngularTemplateParser(),
-  ) {}
+    parser?: AngularTemplateParser,
+    dependencies: FileMigratorDependencies = defaultFileMigratorDependencies(),
+  ) {
+    this.dependencies = parser === undefined ? dependencies : { ...dependencies, parser };
+  }
 
   public async plan(options: FileMigrationOptions = { responsiveImages: false }): Promise<FileMigrationPlan> {
-    const source = await readFile(this.input, 'utf8');
-    const parsed = this.parser.parse(source, this.input);
+    const source = await this.dependencies.readTemplate(this.input);
+    const parsed = this.dependencies.parser.parse(source, this.input);
     if (parsed.status === 'parse-error') {
       const results: readonly ConversionResult[] = parsed.diagnostics.map(diagnostic => ({
         status: 'parse-error',
@@ -31,12 +43,12 @@ export class FileMigrator {
       return this.planResult(false, results);
     }
 
-    const inputs = new TemplateAnalyzer().analyze(this.input, parsed.elements);
+    const inputs = this.dependencies.analyzer.analyze(this.input, parsed.elements);
     if (!inputs.length) {
       return this.planResult(false, []);
     }
 
-    const conversionPlan = new ConversionPlanner().plan(source, parsed.elements, inputs, this.adapter, {
+    const conversionPlan = this.dependencies.planner.plan(source, parsed.elements, inputs, this.adapter, {
       responsiveImages: options.responsiveImages ?? false,
     });
     const edited = new SourceEditor().apply(source, conversionPlan.edits);
@@ -50,7 +62,7 @@ export class FileMigrator {
       return this.planResult(false, conversionPlan.results);
     }
 
-    const reparsed = this.parser.parse(edited.output, this.output);
+    const reparsed = this.dependencies.parser.parse(edited.output, this.output);
     if (reparsed.status === 'parse-error') {
       return this.planResult(
         false,
@@ -106,6 +118,15 @@ export class FileMigrator {
       results,
     });
   }
+}
+
+function defaultFileMigratorDependencies(): FileMigratorDependencies {
+  return {
+    readTemplate: path => readFile(path, 'utf8'),
+    parser: new AngularTemplateParser(),
+    analyzer: new TemplateAnalyzer(),
+    planner: new ConversionPlanner(),
+  };
 }
 
 function isEnoent(error: unknown): error is NodeJS.ErrnoException {

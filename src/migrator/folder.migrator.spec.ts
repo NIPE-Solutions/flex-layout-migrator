@@ -1,7 +1,11 @@
-import { access, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { TailwindAdapter } from '../adapter/tailwind/tailwind.adapter';
+import { TemplateAnalyzer } from '../analyzer/template.analyzer';
+import { ConversionPlanner } from '../planner/conversion-planner';
+import { AngularTemplateParser } from '../template/angular-template.parser';
+import type { FileMigratorDependencies } from './file.migrator';
 import { FolderMigrator } from './folder.migrator';
 
 describe('FolderMigrator', () => {
@@ -43,6 +47,36 @@ describe('FolderMigrator', () => {
       contents: '<div class="flex flex-row box-border"></div>',
     });
     await expect(access(outputFolder)).rejects.toThrow();
+  });
+
+  test('creates one injected dependency lifecycle per discovered template', async () => {
+    await writeFile(join(inputFolder, 'changed.html'), '<div fxLayout="row"></div>', 'utf8');
+    await writeFile(join(inputFolder, 'nested', 'unchanged.html'), '<div class="card"></div>', 'utf8');
+    const dependencies: FileMigratorDependencies = {
+      readTemplate: vi.fn(async filePath => readFile(filePath, 'utf8')),
+      parser: new AngularTemplateParser(),
+      analyzer: new TemplateAnalyzer(),
+      planner: new ConversionPlanner(),
+    };
+    const parse = vi.spyOn(dependencies.parser, 'parse');
+    const analyze = vi.spyOn(dependencies.analyzer, 'analyze');
+    const renderPlan = vi.spyOn(dependencies.planner, 'plan');
+    const dependencyFactory = vi.fn(() => dependencies);
+
+    const plans = await new FolderMigrator(
+      new TailwindAdapter(),
+      inputFolder,
+      outputFolder,
+      [],
+      dependencyFactory,
+    ).plan();
+
+    expect(plans.map(plan => plan.file.changed)).toEqual([true, false]);
+    expect(dependencyFactory).toHaveBeenCalledTimes(2);
+    expect(dependencies.readTemplate).toHaveBeenCalledTimes(2);
+    expect(parse).toHaveBeenCalledTimes(3);
+    expect(analyze).toHaveBeenCalledTimes(2);
+    expect(renderPlan).toHaveBeenCalledOnce();
   });
 
   test('orders discovered templates by UTF-16 code units instead of the host locale', async () => {

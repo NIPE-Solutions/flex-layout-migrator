@@ -5,7 +5,7 @@ import { shouldIgnore } from '../lib/gitignore.helper';
 import { logger } from '../logger';
 import { compareCodeUnits } from '../util/compare-code-units';
 import type { FileMigrationOptions } from './file-migration-result';
-import { FileMigrator } from './file.migrator';
+import { FileMigrator, type FileMigratorDependencies } from './file.migrator';
 import type { FileMigrationPlan } from './migration-plan';
 
 interface FileEntry {
@@ -21,6 +21,7 @@ export class FolderMigrator {
     private readonly inputFolder: string,
     private readonly outputFolder: string,
     excludedInputPaths: readonly string[] = [],
+    private readonly fileMigratorDependencies?: () => FileMigratorDependencies,
   ) {
     this.excludedInputPaths = new Set(excludedInputPaths.map(candidate => path.normalize(path.resolve(candidate))));
   }
@@ -34,7 +35,13 @@ export class FolderMigrator {
     const plans: FileMigrationPlan[] = [];
     for (const file of files) {
       const output = path.join(this.outputFolder, file.relativePath);
-      const fileMigrator = new FileMigrator(this.adapter, file.input, output);
+      const fileMigrator = new FileMigrator(
+        this.adapter,
+        file.input,
+        output,
+        undefined,
+        this.fileMigratorDependencies?.(),
+      );
       plans.push(await fileMigrator.plan(options));
     }
 
