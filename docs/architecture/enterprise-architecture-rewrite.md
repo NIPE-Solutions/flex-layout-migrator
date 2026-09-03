@@ -105,6 +105,8 @@ Expected source limitations are values in stage results, not thrown exceptions. 
 
 ## Performance contract
 
+The baseline source of truth is `docs/maintenance/2026-09-03-enterprise-architecture-baseline.md`.
+
 The first pull request establishes a checked-in representative benchmark corpus and runner before optimization. It measures at least:
 
 - single-file Tailwind plan;
