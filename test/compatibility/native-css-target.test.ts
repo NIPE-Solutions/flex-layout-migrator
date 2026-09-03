@@ -120,6 +120,34 @@ describe('native CSS public compatibility', () => {
     expect(await transactionResidue(directory)).toEqual([]);
   });
 
+  test('keeps native CSS proposed files, diagnostics, summary, and stylesheet action identical across modes', async () => {
+    directory = await mkdtemp(join(tmpdir(), 'native-css-public-parity-'));
+    const input = join(directory, 'input.html');
+    const output = join(directory, 'output.html');
+    const stylesheet = join(directory, 'migration.css');
+    const planReportPath = join(directory, 'plan-report.json');
+    const writeReportPath = join(directory, 'write-report.json');
+    await cp(inputFixture, input, { recursive: false });
+
+    const sharedArguments = [input, '--output', output, '--target', 'css', '--stylesheet', stylesheet];
+    const planned = await execute([...sharedArguments, '--report', planReportPath], directory);
+    const applied = await execute([...sharedArguments, '--report', writeReportPath, '--write'], directory);
+    const planReport = JSON.parse(await readFile(planReportPath, 'utf8')) as Record<string, unknown>;
+    const writeReport = JSON.parse(await readFile(writeReportPath, 'utf8')) as Record<string, unknown>;
+
+    expect(planned.status).toBe(2);
+    expect(applied.status).toBe(2);
+    expect(planReport).toMatchObject({
+      target: 'css',
+      mode: 'plan',
+      application: { status: 'skipped', reason: 'plan-only' },
+      summary: { filesScanned: 1, filesChanged: 1, unsupported: 6 },
+      stylesheet: { path: 'migration.css', change: 'created' },
+    });
+    expect(writeReport).toMatchObject({ mode: 'write', application: { status: 'applied' } });
+    expect(proposedReport(planReport)).toEqual(proposedReport(writeReport));
+  });
+
   test('preserves project bytes on parse error and succeeds byte-identically after repair', async () => {
     directory = await mkdtemp(join(tmpdir(), 'native-css-public-retry-'));
     const input = join(directory, 'input');
@@ -174,4 +202,15 @@ describe('native CSS public compatibility', () => {
 
 async function transactionResidue(root: string): Promise<readonly string[]> {
   return (await readdir(root, { recursive: true })).filter(path => path.endsWith('.txn')).sort();
+}
+
+function proposedReport(report: Record<string, unknown>): Record<string, unknown> {
+  return {
+    target: report.target,
+    input: report.input,
+    output: report.output,
+    summary: report.summary,
+    files: report.files,
+    stylesheet: report.stylesheet,
+  };
 }

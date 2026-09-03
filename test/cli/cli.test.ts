@@ -136,8 +136,11 @@ describe('packaged CLI execution', () => {
 
   test('documents and executes the packaged responsive image opt-in', async () => {
     const help = await execute(['--help']);
+    const normalizedHelp = help.stdout.replace(/\s+/g, ' ');
     expect(help.stdout).toContain('--responsive-images');
     expect(help.stdout).toContain('--write');
+    expect(normalizedHelp).toContain('Plan Angular Flex-Layout migrations by default; use --write to apply');
+    expect(normalizedHelp).toContain('planned output HTML file or folder');
     expect(help.stdout).not.toContain('--dry-run');
 
     const input = join(temporaryDirectory, 'input.html');

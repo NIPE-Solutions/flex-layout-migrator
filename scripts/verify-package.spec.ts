@@ -59,9 +59,12 @@ function createExecFileImpl(help: string) {
 }
 
 describe('smokePackageTarball', () => {
+  const completeHelp =
+    'Plan migrations by default; use --write to apply. planned output HTML file or folder --write --report <path> --allow-unresolved --stylesheet <path> --orientation-breakpoints --print-with-breakpoints <aliases> path must end in .json single-file output must end in .html';
+
   it('uses npm.cmd without a shell for a Windows exact-tarball smoke install', async () => {
     const execFileImpl = createExecFileImpl(
-      '--write --report <path> --allow-unresolved --stylesheet <path> --orientation-breakpoints --print-with-breakpoints <aliases> path must\n end in .json single-file\n output must end\n in .html',
+      'Plan migrations by default; use --write to apply. planned output HTML file or folder --write --report <path> --allow-unresolved --stylesheet <path> --orientation-breakpoints --print-with-breakpoints <aliases> path must\n end in .json single-file\n output must end\n in .html',
     );
 
     await smokePackageTarball({
@@ -82,7 +85,7 @@ describe('smokePackageTarball', () => {
 
   it('executes the npm-installed bin shim on POSIX package checks', async () => {
     const execFileImpl = createExecFileImpl(
-      '--write --report <path> --allow-unresolved --stylesheet <path> --orientation-breakpoints --print-with-breakpoints <aliases> path must end in .json single-file output must end in .html',
+      'Plan migrations by default; use --write to apply. planned output HTML file or folder --write --report <path> --allow-unresolved --stylesheet <path> --orientation-breakpoints --print-with-breakpoints <aliases> path must end in .json single-file output must end in .html',
     );
 
     await smokePackageTarball({
@@ -95,6 +98,29 @@ describe('smokePackageTarball', () => {
 
     expect(execFileImpl.mock.calls[1]?.[0]).toMatch(/node_modules[/\\]\.bin[/\\]flex-layout-codemod$/u);
     expect(execFileImpl.mock.calls[1]?.[1]).toEqual(['--help']);
+  });
+
+  it.each([
+    [
+      'the plan-only default',
+      completeHelp.replace('Plan migrations by default; use --write to apply. ', ''),
+      'Packaged CLI help does not disclose the plan-only default',
+    ],
+    [
+      'the planned output meaning',
+      completeHelp.replace('planned output HTML file or folder ', ''),
+      'Packaged CLI help does not describe --output as planned output',
+    ],
+  ])('rejects packaged help that omits %s', async (_label, help, message) => {
+    await expect(
+      smokePackageTarball({
+        tarballPath: '/release/package.tgz',
+        packageName: '@nipe-solutions/flex-layout-codemod',
+        expectedVersion: '2.0.0-beta.1',
+        platform: 'linux',
+        execFileImpl: createExecFileImpl(help),
+      }),
+    ).rejects.toThrow(message);
   });
 });
 

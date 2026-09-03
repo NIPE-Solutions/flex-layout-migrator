@@ -49,7 +49,7 @@ export async function runCli(argv: readonly string[], output: CliOutput = proces
   program
     .name('flex-layout-codemod')
     .version(packageJson.version)
-    .description('Migrate Angular Flex-Layout attributes to Tailwind CSS utilities or native CSS')
+    .description('Plan Angular Flex-Layout migrations by default; use --write to apply')
     .exitOverride()
     .configureOutput({
       writeOut: text => output.stdout.write(text),
@@ -58,7 +58,7 @@ export async function runCli(argv: readonly string[], output: CliOutput = proces
     .argument('<input>', 'input HTML file or folder')
     .option(
       '-o, --output <path>',
-      'output HTML file or folder; single-file output must end in .html; defaults to input',
+      'planned output HTML file or folder; single-file output must end in .html; defaults to input',
     )
     .addOption(
       new Option('-t, --target <target>', 'conversion target; css requires --stylesheet')

@@ -36,7 +36,7 @@ import { access, mkdir, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 const arguments_ = process.argv.slice(2);
 if (arguments_.includes('--help')) {
-  console.log('--write --report <path> --allow-unresolved --stylesheet <path> --orientation-breakpoints --print-with-breakpoints <aliases> path must end in .json single-file output must end in .html');
+  console.log('Plan migrations by default; use --write to apply. planned output HTML file or folder --write --report <path> --allow-unresolved --stylesheet <path> --orientation-breakpoints --print-with-breakpoints <aliases> path must end in .json single-file output must end in .html');
 } else if (arguments_.includes('--version')) {
   console.log('${fixtureVersion}');
 } else {

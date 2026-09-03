@@ -4,6 +4,7 @@ import { COMPATIBILITY_INVENTORY } from '../../src/analyzer/compatibility-invent
 
 const compatibilityUrl = new URL('../../docs/compatibility.md', import.meta.url);
 const conversionSafetyUrl = new URL('../../docs/architecture/conversion-safety.md', import.meta.url);
+const adaptiveCliPlanDefaultUrl = new URL('../../docs/architecture/adaptive-cli-plan-default.md', import.meta.url);
 const startMarker = '<!-- compatibility-inventory:start -->';
 const endMarker = '<!-- compatibility-inventory:end -->';
 
@@ -339,6 +340,28 @@ describe('compatibility reference contract', () => {
     expect(markdown).not.toContain('real mode; dry-run');
     expect(markdown).not.toContain('Both real and dry-run execution');
     expect(markdown).not.toContain('schema-version `1` JSON report');
+  });
+
+  it('qualifies transaction preflight after successful parsing in current command contracts', async () => {
+    const documents = await Promise.all([
+      readFile(adaptiveCliPlanDefaultUrl, 'utf8'),
+      readFile(compatibilityUrl, 'utf8'),
+    ]);
+
+    for (const markdown of documents) {
+      expect(markdown).toContain('after successful parsing');
+      expect(markdown).toContain(
+        'Parse-error runs still validate CLI configuration and path collisions and produce complete reports, but apply nothing',
+      );
+      expect(markdown).toContain(
+        'late filesystem type/access failures unrelated to parse errors may surface only after parsing is repaired',
+      );
+      expect(markdown).not.toMatch(/Every command plans and preflights the complete migration/u);
+      expect(markdown).not.toMatch(/Preflight the complete plan in both modes\./u);
+      expect(markdown).not.toContain(
+        'planning, preflight, validation, diagnostic, and exit-policy path across both modes',
+      );
+    }
   });
 
   it('rejects duplicate visible safety entries', async () => {

@@ -690,10 +690,13 @@ describe('runCli', () => {
 
   test('documents explicit write authorization without advertising the obsolete dry-run option', async () => {
     const result = await run(['--help']);
+    const normalizedOutput = result.stdout.replace(/\s+/g, ' ');
 
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain('--write');
     expect(result.stdout).toContain('apply the validated migration plan');
+    expect(normalizedOutput).toContain('Plan Angular Flex-Layout migrations by default; use --write to apply');
+    expect(normalizedOutput).toContain('planned output HTML file or folder');
     expect(result.stdout).not.toContain('--dry-run');
     expect(result.stderr).toBe('');
   });

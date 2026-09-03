@@ -12,7 +12,7 @@ This is the first adaptive-CLI slice. It changes execution semantics and reporti
 - Require `--write` before changing templates or a companion stylesheet.
 - Keep report writing an explicit side effect in plan and write modes.
 - Represent requested execution mode and actual application outcome without inference.
-- Preserve one planning, preflight, validation, diagnostic, and exit-policy path across both modes.
+- Preserve one planning, validation, diagnostic, and exit-policy path across both modes, with one transaction-preflight path after successful parsing.
 - Give users of the prerelease a direct migration error instead of silently accepting obsolete `--dry-run` syntax.
 - Keep Tailwind, native CSS, responsive-image, rollback, and path-safety behavior unchanged once write mode is authorized.
 
@@ -43,9 +43,9 @@ Options:
   -d, --debug               include stack information for unexpected failures
 ```
 
-With no `--write`, the command runs in `plan` mode. It discovers and parses every selected template, computes proposed target output, validates source edits and destinations, reparses changed templates, plans the companion stylesheet when selected, and preflights the complete migration plan. It creates or modifies no project template, output directory, or stylesheet.
+With no `--write`, the command runs in `plan` mode. It discovers and parses every selected template, computes proposed target output, validates source edits and destinations, reparses changed templates, and plans the companion stylesheet when selected. It preflights the complete migration plan after successful parsing. It creates or modifies no project template, output directory, or stylesheet.
 
-`--write` selects `write` mode. After the same planning and preflight path succeeds, the migration transaction applies changed templates and the companion stylesheet. Existing rollback and interruption guarantees remain unchanged.
+`--write` selects `write` mode. When parsing succeeds, the command follows the same planning path, preflights the complete transaction, and then applies changed templates and the companion stylesheet. Existing rollback and interruption guarantees remain unchanged.
 
 `--report <path>` remains an explicit reporting side effect. A report is atomically written after the migration result is known in either mode. Report-path validation and collision protection remain active. Plan mode may therefore create the report and its parent directory while leaving project outputs untouched.
 
@@ -69,11 +69,13 @@ The coordinator follows one sequence:
 2. Discover and parse the complete input set.
 3. Produce all template and optional stylesheet artifacts.
 4. Build the immutable invocation-wide migration plan.
-5. Preflight the complete plan in both modes.
+5. When no parse errors exist, preflight the complete plan in both modes.
 6. In `plan` mode, return a skipped application outcome without calling transaction apply.
 7. In `write` mode with no parse errors, apply the plan through the existing transaction.
 8. In `write` mode with any parse error, skip application for the whole invocation.
 9. Build and present the report, then atomically write a requested report file.
+
+Parse-error runs still validate CLI configuration and path collisions and produce complete reports, but apply nothing; transaction preflight is skipped. The accepted cost is that late filesystem type/access failures unrelated to parse errors may surface only after parsing is repaired.
 
 Planning and write mode must produce identical proposed file results, diagnostics, stylesheet actions, and exit-policy inputs for the same source bytes. Only the application outcome and resulting project filesystem may differ.
 
@@ -174,7 +176,7 @@ Architecture tests must enforce these dependencies and prevent a future presente
 
 - Obsolete `--dry-run` fails before input discovery with migration guidance.
 - Invalid flag combinations and paths fail before planning and produce no report.
-- Plan preflight failures return code `1` without project writes.
+- Transaction preflight failures after successful parsing return code `1` without project writes.
 - Parse errors yield a complete schema-2 report; project application is skipped even when `--write` was requested.
 - Transaction failure retains the existing rollback and recovery reporting behavior and produces no successful report write.
 - Report-write failure returns code `1`; any already-applied project transaction remains applied, matching the existing independent-report contract.

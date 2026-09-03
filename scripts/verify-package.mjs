@@ -100,6 +100,12 @@ export async function smokePackageTarball({
     if (help.stdout.includes('--dry-run')) {
       throw new Error('Packaged CLI help still exposes the removed --dry-run option');
     }
+    if (!/\bplan\b[^.]*\bmigrations?\s+by\s+default\b/iu.test(help.stdout)) {
+      throw new Error('Packaged CLI help does not disclose the plan-only default');
+    }
+    if (!/planned\s+output\s+HTML\s+file\s+or\s+folder/iu.test(help.stdout)) {
+      throw new Error('Packaged CLI help does not describe --output as planned output');
+    }
     if (!/path must\s+end in \.json/u.test(help.stdout)) {
       throw new Error('Packaged CLI help is missing the JSON report extension requirement');
     }
