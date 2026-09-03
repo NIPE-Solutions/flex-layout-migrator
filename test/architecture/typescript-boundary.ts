@@ -116,30 +116,25 @@ export type SemanticAuthorityName =
   | 'ChangedTemplateValidation.parse'
   | 'CssReferenceParser.parse'
   | 'CurrentMigrationPipeline.run'
-  | 'DestinationTemplateSource.readFile'
-  | 'DiscoveryTopology.readdir'
-  | 'DiscoveryTopology.stat'
+  | 'DestinationTemplateSource.read'
   | 'DiscoveryFileSystem.entries'
   | 'DiscoveryFileSystem.kind'
   | 'DiscoverProjectStage.run'
+  | 'FileSystem.acquire'
+  | 'FileSystem.readFile'
+  | 'FileSystem.readdir'
+  | 'FileSystem.stat'
   | 'GitIgnoreHelper.acquire'
   | 'GitIgnoreHelper.createGitIgnoreMatcher'
   | 'IgnoreLibrary.acquire'
   | 'IgnoreLibrary.createMatcher'
   | 'IgnoreMatcherFactory.load'
-  | 'IgnoreRulesSource.readFile'
   | 'MigrationTransaction.apply'
   | 'Migrator.migrate'
-  | 'OriginalTemplateSource.readFile'
   | 'OriginalTemplateParser.parse'
-  | 'PathIdentity.stat'
   | 'StagedTemplateValidation.parse'
-  | 'StylesheetSource.readFile'
   | 'TemplateInputAnalyzer.analyze'
-  | 'TemplateSourceReader.read'
-  | 'UnownedFileSystem.readFile'
-  | 'UnownedFileSystem.readdir'
-  | 'UnownedFileSystem.stat';
+  | 'TemplateSourceReader.read';
 
 export interface SemanticAuthorityCall {
   readonly sourcePath: string;
@@ -2414,6 +2409,16 @@ const semanticAuthorityConfigs: readonly SemanticAuthorityConfig[] = [
     ],
   },
   {
+    name: 'DestinationTemplateSource.read',
+    methodName: 'read',
+    declarations: [
+      {
+        sourcePathSuffix: '/migrator/destination-template-source.ts',
+        containers: ['DestinationTemplateSource'],
+      },
+    ],
+  },
+  {
     name: 'AngularTemplateParser.parse',
     methodName: 'parse',
     declarations: [
@@ -2813,7 +2818,7 @@ function semanticAuthorityMethodHint(
         }
       }
     }
-    return name;
+    return undefined;
   }
   const symbol = checker.getSymbolAtLocation(unwrapped);
   if (symbol === undefined || seenSymbols.has(symbol)) return undefined;
@@ -2847,12 +2852,22 @@ function semanticAuthorityCandidates(
     const symbol = checker.getSymbolAtLocation(unwrapped);
     const localAlias = symbol?.declarations?.some(
       declaration =>
-        (ts.isVariableDeclaration(declaration) || ts.isBindingElement(declaration)) &&
+        (ts.isVariableDeclaration(declaration) ||
+          ts.isBindingElement(declaration) ||
+          ts.isImportSpecifier(declaration) ||
+          ts.isImportClause(declaration)) &&
         declaration.getSourceFile() === expression.getSourceFile(),
     );
     return localAlias === true ? semanticAuthorityConfigs : [];
   }
-  return ts.isElementAccessExpression(unwrapped) ? semanticAuthorityConfigs : [];
+  if (ts.isElementAccessExpression(unwrapped)) return semanticAuthorityConfigs;
+  if (
+    ts.isPropertyAccessExpression(unwrapped) &&
+    commonJsModuleReference(unwrapped.expression, checker, new Set()) !== undefined
+  ) {
+    return semanticAuthorityConfigs;
+  }
+  return [];
 }
 
 function semanticMemberNames(expression: ts.Expression, checker: ts.TypeChecker): readonly string[] {
@@ -2905,35 +2920,6 @@ function semanticFilesystemOperationInvocation(
       ? resolvedCallableInvocation(expression, checker, resolveOperation)
       : resolvedCallableApplication(reflected.target, reflected.arguments, checker, resolveOperation);
   return invocation?.provenance;
-}
-
-function contextualFilesystemAuthorityName(
-  operation: 'readFile' | 'readdir' | 'stat',
-  sourcePath: string,
-): SemanticAuthorityName {
-  const normalizedSourcePath = sourcePath.replaceAll('\\', '/');
-  if (operation === 'readdir') {
-    return normalizedSourcePath.endsWith('/pipeline/discover/discover-project.stage.ts')
-      ? 'DiscoveryTopology.readdir'
-      : 'UnownedFileSystem.readdir';
-  }
-  if (operation === 'stat') {
-    if (normalizedSourcePath.endsWith('/pipeline/discover/discover-project.stage.ts')) return 'DiscoveryTopology.stat';
-    if (normalizedSourcePath.endsWith('/migrator/migration-path.validator.ts')) return 'PathIdentity.stat';
-    return 'UnownedFileSystem.stat';
-  }
-  if (normalizedSourcePath.endsWith('/pipeline/analyze/analyze-project.stage.ts')) {
-    return 'OriginalTemplateSource.readFile';
-  }
-  if (
-    normalizedSourcePath.endsWith('/migrator/analyzed-file.migrator.ts') ||
-    normalizedSourcePath.endsWith('/migrator/migrator.ts')
-  ) {
-    return 'DestinationTemplateSource.readFile';
-  }
-  if (normalizedSourcePath.endsWith('/migrator/stylesheet.planner.ts')) return 'StylesheetSource.readFile';
-  if (normalizedSourcePath.endsWith('/lib/gitignore.helper.ts')) return 'IgnoreRulesSource.readFile';
-  return 'UnownedFileSystem.readFile';
 }
 
 function ignoreLibrarySymbolProvenance(
@@ -3026,54 +3012,80 @@ function ignoreLibraryInvocation(expression: ts.CallExpression, checker: ts.Type
   );
 }
 
-function ignoreLibraryAcquisition(node: ts.Node): boolean {
+function runtimeAcquisitionReference(node: ts.Node): string | undefined {
   if (ts.isImportDeclaration(node)) {
-    return runtimeImportReference(node) === 'ignore';
+    return runtimeImportReference(node);
   }
   if (ts.isExportDeclaration(node)) {
-    return runtimeExportReference(node) === 'ignore';
+    return runtimeExportReference(node);
   }
   if (ts.isImportEqualsDeclaration(node) && !node.isTypeOnly && ts.isExternalModuleReference(node.moduleReference)) {
-    return moduleText(node.moduleReference.expression) === 'ignore';
+    return moduleText(node.moduleReference.expression);
   }
-  return ts.isCallExpression(node) && calledModule(node) === 'ignore';
+  return ts.isCallExpression(node) ? calledModule(node) : undefined;
 }
 
-function isGitIgnoreHelperReference(reference: string, containingSourcePath: string): boolean {
-  return localModuleCandidates(reference, containingSourcePath).some(candidate =>
-    candidate.replaceAll('\\', '/').endsWith('/lib/gitignore.helper.ts'),
-  );
+function ignoreLibraryAcquisition(node: ts.Node): boolean {
+  return runtimeAcquisitionReference(node) === 'ignore';
 }
 
-function gitIgnoreHelperAcquisition(node: ts.Node, checker: ts.TypeChecker, program: ts.Program): boolean {
-  if (ts.isImportDeclaration(node)) {
-    const reference = moduleText(node.moduleSpecifier);
-    const clause = node.importClause;
-    if (reference === undefined || clause === undefined || clause.isTypeOnly) return false;
-    if (isGitIgnoreHelperReference(reference, node.getSourceFile().fileName)) return true;
-    const bindings = clause.namedBindings;
-    if (bindings === undefined || ts.isNamespaceImport(bindings)) return false;
-    const config = semanticAuthorityConfigs.find(
-      candidate => candidate.name === 'GitIgnoreHelper.createGitIgnoreMatcher',
-    );
-    return (
-      config !== undefined &&
-      bindings.elements.some(element => {
-        if (element.isTypeOnly) return false;
-        const symbol = checker.getSymbolAtLocation(element.name);
-        return semanticAuthoritySymbolProvenance(symbol, config, checker, program, new Set());
-      })
-    );
+function filesystemAcquisition(node: ts.Node): boolean {
+  const reference = runtimeAcquisitionReference(node);
+  return reference !== undefined && isFilesystemModuleReference(reference);
+}
+
+function runtimeReExportReferences(source: string, sourcePath: string): readonly string[] {
+  const sourceFile = ts.createSourceFile(sourcePath, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const references: string[] = [];
+  function visit(node: ts.Node): void {
+    if (ts.isExportDeclaration(node)) {
+      const reference = runtimeExportReference(node);
+      if (reference !== undefined) references.push(reference);
+      return;
+    }
+    ts.forEachChild(node, visit);
   }
-  if (
-    ts.isCallExpression(node) &&
-    (node.expression.kind === ts.SyntaxKind.ImportKeyword ||
-      (ts.isIdentifier(node.expression) && node.expression.text === 'require'))
-  ) {
-    const reference = moduleText(node.arguments[0]);
-    return reference !== undefined && isGitIgnoreHelperReference(reference, node.getSourceFile().fileName);
+  visit(sourceFile);
+  return references;
+}
+
+function runtimeAcquisitionReachesLocalPath(
+  reference: string,
+  containingSourcePath: string,
+  targetPathSuffix: string,
+  program: ts.Program,
+  seenPaths: ReadonlySet<string> = new Set(),
+): boolean {
+  for (const candidate of localModuleCandidates(reference, containingSourcePath)) {
+    const normalizedCandidate = resolve(candidate);
+    if (normalizedCandidate.replaceAll('\\', '/').endsWith(targetPathSuffix)) return true;
+    if (seenPaths.has(normalizedCandidate)) continue;
+    const sourceFile = program.getSourceFile(normalizedCandidate);
+    if (sourceFile === undefined) continue;
+    const nextSeen = new Set(seenPaths).add(normalizedCandidate);
+    if (
+      runtimeReExportReferences(sourceFile.text, normalizedCandidate).some(dependencyReference =>
+        runtimeAcquisitionReachesLocalPath(
+          dependencyReference,
+          normalizedCandidate,
+          targetPathSuffix,
+          program,
+          nextSeen,
+        ),
+      )
+    ) {
+      return true;
+    }
   }
   return false;
+}
+
+function gitIgnoreHelperAcquisition(node: ts.Node, program: ts.Program): boolean {
+  const reference = runtimeAcquisitionReference(node);
+  return (
+    reference !== undefined &&
+    runtimeAcquisitionReachesLocalPath(reference, node.getSourceFile().fileName, '/lib/gitignore.helper.ts', program)
+  );
 }
 
 function declarationCallableBody(declaration: ts.Declaration): ts.ConciseBody | undefined {
@@ -3242,16 +3254,19 @@ export function inspectSemanticAuthorityCalls(
     const sourcePath = resolve(sourceFile.fileName);
     if (!rootPaths.has(sourcePath)) continue;
     function visit(node: ts.Node): void {
-      if (gitIgnoreHelperAcquisition(node, checker, program)) {
+      if (gitIgnoreHelperAcquisition(node, program)) {
         calls.push({ sourcePath, name: 'GitIgnoreHelper.acquire' });
       }
       if (ignoreLibraryAcquisition(node)) {
         calls.push({ sourcePath, name: 'IgnoreLibrary.acquire' });
       }
+      if (filesystemAcquisition(node)) {
+        calls.push({ sourcePath, name: 'FileSystem.acquire' });
+      }
       if (ts.isCallExpression(node)) {
         const filesystemOperation = semanticFilesystemOperationInvocation(node, checker, program);
         if (filesystemOperation !== undefined) {
-          calls.push({ sourcePath, name: contextualFilesystemAuthorityName(filesystemOperation, sourcePath) });
+          calls.push({ sourcePath, name: `FileSystem.${filesystemOperation}` });
         }
         if (ignoreLibraryInvocation(node, checker, program)) {
           calls.push({ sourcePath, name: 'IgnoreLibrary.createMatcher' });

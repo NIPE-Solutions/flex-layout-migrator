@@ -318,15 +318,20 @@ function countingMigratorDependencies(counts: MigrationWorkloadCounts): Migrator
     return contents;
   };
   return {
-    readDestination,
+    destinationTemplates: { read: readDestination },
     referenceParser: {
       parse: (source, fileName) => {
         evidenceFor(counts).referenceParsePaths.push(fileName);
         return referenceParser.parse(source, fileName);
       },
     },
-    createFileMigrator: (adapter, template) => {
-      const migrator = new AnalyzedFileMigrator(adapter, template, countingFileDependencies(counts, readDestination));
+    createFileMigrator: (adapter, template, destinationTemplates) => {
+      const migrator = new AnalyzedFileMigrator(
+        adapter,
+        template,
+        countingFileDependencies(counts),
+        destinationTemplates,
+      );
       return {
         async plan(options) {
           const plan = await migrator.plan(options);
@@ -338,15 +343,11 @@ function countingMigratorDependencies(counts: MigrationWorkloadCounts): Migrator
   };
 }
 
-function countingFileDependencies(
-  counts: MigrationWorkloadCounts,
-  readDestination: (target: string) => Promise<string>,
-): AnalyzedFileMigratorDependencies {
+function countingFileDependencies(counts: MigrationWorkloadCounts): AnalyzedFileMigratorDependencies {
   const parser = new AngularTemplateParser();
   const planner = new ConversionPlanner();
 
   return {
-    readDestination,
     validationParser: {
       parse: (source, fileName) => {
         counts.validationParses++;

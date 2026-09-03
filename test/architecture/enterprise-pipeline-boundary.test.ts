@@ -20,11 +20,13 @@ const pipelineRoot = join(productionRoot, 'pipeline');
 const discoverStagePath = join(pipelineRoot, 'discover', 'discover-project.stage.ts');
 const analyzeStagePath = join(pipelineRoot, 'analyze', 'analyze-project.stage.ts');
 const atomicWriterPath = join(productionRoot, 'lib', 'atomic-file.writer.ts');
+const migratorPath = join(productionRoot, 'migrator', 'migrator.ts');
 const roguePath = join(productionRoot, '__architecture-fixture__', 'rogue.ts');
 const wholeProjectInspectionTimeout = 60_000;
 const productionPaths = productionTypeScriptFiles(productionRoot);
 let cachedProductionSemanticAuthorities: ReturnType<typeof inspectSemanticAuthorityCalls> | undefined;
 let cachedRogueProductionSemanticAuthorities: ReturnType<typeof inspectSemanticAuthorityCalls> | undefined;
+let cachedGitIgnoreBarrelAuthorities: ReturnType<typeof inspectSemanticAuthorityCalls> | undefined;
 const productionGraphAuthorities = new Set([
   'AnalyzeProjectStage.run',
   'CurrentMigrationPipeline.run',
@@ -33,20 +35,15 @@ const productionGraphAuthorities = new Set([
   'Migrator.migrate',
 ]);
 const resourceAuthorityNames = new Set([
-  'DestinationTemplateSource.readFile',
-  'DiscoveryTopology.readdir',
-  'DiscoveryTopology.stat',
+  'DestinationTemplateSource.read',
+  'FileSystem.acquire',
+  'FileSystem.readFile',
+  'FileSystem.readdir',
+  'FileSystem.stat',
   'GitIgnoreHelper.acquire',
   'GitIgnoreHelper.createGitIgnoreMatcher',
   'IgnoreLibrary.acquire',
   'IgnoreLibrary.createMatcher',
-  'IgnoreRulesSource.readFile',
-  'OriginalTemplateSource.readFile',
-  'PathIdentity.stat',
-  'StylesheetSource.readFile',
-  'UnownedFileSystem.readFile',
-  'UnownedFileSystem.readdir',
-  'UnownedFileSystem.stat',
 ]);
 const expectedProductionAuthorityGraph = [
   { source: 'cli/run-cli.ts', authority: 'CurrentMigrationPipeline.run' },
@@ -96,6 +93,50 @@ const rogueProductionAuthorityCases = [
 const rogueProductionAuthorityOverrides = new Map(
   rogueProductionAuthorityCases.map(fixture => [fixture.sourcePath, fixture.source] as const),
 );
+const gitIgnoreBarrelPath = join(productionRoot, '__architecture-fixture__', 'gitignore.barrel.ts');
+const gitIgnoreBarrelCases = [
+  {
+    label: 'unused ESM re-export alias',
+    sourcePath: join(productionRoot, '__architecture-fixture__', 'gitignore-esm-unused.ts'),
+    source: "import { matcherAlias as unused } from './gitignore.barrel.js'; void unused;",
+    expected: ['GitIgnoreHelper.acquire'],
+  },
+  {
+    label: 'invoked ESM re-export alias',
+    sourcePath: join(productionRoot, '__architecture-fixture__', 'gitignore-esm-invoked.ts'),
+    source: "import { matcherAlias } from './gitignore.barrel.js'; void matcherAlias('/project');",
+    expected: ['GitIgnoreHelper.acquire', 'GitIgnoreHelper.createGitIgnoreMatcher'],
+  },
+  {
+    label: 'unused dynamic barrel',
+    sourcePath: join(productionRoot, '__architecture-fixture__', 'gitignore-dynamic-unused.ts'),
+    source: "async function load() { return import('./gitignore.barrel.js'); } void load();",
+    expected: ['GitIgnoreHelper.acquire'],
+  },
+  {
+    label: 'invoked dynamic barrel',
+    sourcePath: join(productionRoot, '__architecture-fixture__', 'gitignore-dynamic-invoked.ts'),
+    source:
+      "async function load() { const helper = await import('./gitignore.barrel.js'); return helper.matcherAlias('/project'); } void load();",
+    expected: ['GitIgnoreHelper.acquire', 'GitIgnoreHelper.createGitIgnoreMatcher'],
+  },
+  {
+    label: 'unused CommonJS barrel',
+    sourcePath: join(productionRoot, '__architecture-fixture__', 'gitignore-commonjs-unused.ts'),
+    source: "const helper = require('./gitignore.barrel.js'); void helper;",
+    expected: ['GitIgnoreHelper.acquire'],
+  },
+  {
+    label: 'invoked CommonJS barrel',
+    sourcePath: join(productionRoot, '__architecture-fixture__', 'gitignore-commonjs-invoked.ts'),
+    source: "const { matcherAlias: create } = require('./gitignore.barrel.js'); void create('/project');",
+    expected: ['GitIgnoreHelper.acquire', 'GitIgnoreHelper.createGitIgnoreMatcher'],
+  },
+] as const;
+const gitIgnoreBarrelOverrides = new Map([
+  [gitIgnoreBarrelPath, "export { createGitIgnoreMatcher as matcherAlias } from '../lib/gitignore.helper.js';"],
+  ...gitIgnoreBarrelCases.map(fixture => [fixture.sourcePath, fixture.source] as const),
+]);
 const expectedRendererRelativePaths = [
   'adapter/css/css.adapter.ts',
   'adapter/css/flex/flex-align.css-renderer.ts',
@@ -196,19 +237,6 @@ function productionSemanticAuthorities(): ReturnType<typeof inspectSemanticAutho
   return cachedProductionSemanticAuthorities;
 }
 
-function uniqueNormalizedAuthoritySources(
-  calls: ReturnType<typeof inspectSemanticAuthorityCalls>,
-  names: ReadonlySet<string>,
-): readonly { readonly source: string; readonly authority: string }[] {
-  const normalized = normalizedAuthoritySources(calls, names);
-  return normalized.filter(
-    (finding, index) =>
-      index === 0 ||
-      finding.source !== normalized[index - 1]?.source ||
-      finding.authority !== normalized[index - 1]?.authority,
-  );
-}
-
 function fixtureSemanticAuthorities(source: string, sourcePath = roguePath): readonly string[] {
   return inspectSemanticAuthorityCalls([sourcePath], new Map([[sourcePath, source]])).map(call => call.name);
 }
@@ -219,6 +247,14 @@ function rogueProductionSemanticAuthorities(): ReturnType<typeof inspectSemantic
     rogueProductionAuthorityOverrides,
   );
   return cachedRogueProductionSemanticAuthorities;
+}
+
+function gitIgnoreBarrelAuthorities(): ReturnType<typeof inspectSemanticAuthorityCalls> {
+  cachedGitIgnoreBarrelAuthorities ??= inspectSemanticAuthorityCalls(
+    [gitIgnoreBarrelPath, ...gitIgnoreBarrelCases.map(fixture => fixture.sourcePath)],
+    gitIgnoreBarrelOverrides,
+  );
+  return cachedGitIgnoreBarrelAuthorities;
 }
 
 describe('enterprise pipeline dependency boundary', { timeout: wholeProjectInspectionTimeout }, () => {
@@ -244,22 +280,22 @@ describe('enterprise pipeline dependency boundary', { timeout: wholeProjectInspe
     [
       'aliased stat through Reflect.apply',
       "import { stat as inspect } from 'node:fs/promises'; void Reflect.apply(inspect, undefined, ['input']);",
-      'UnownedFileSystem.stat',
+      'FileSystem.stat',
     ],
     [
       'namespace readdir through Function.apply',
       "import * as fs from 'node:fs/promises'; void fs.readdir.apply(fs, ['input']);",
-      'UnownedFileSystem.readdir',
+      'FileSystem.readdir',
     ],
     [
       'dynamic-import stat through a local alias',
       "async function run() { const { stat: inspect } = await import('node:fs/promises'); await inspect('input'); }",
-      'UnownedFileSystem.stat',
+      'FileSystem.stat',
     ],
     [
       'CommonJS readdir through a computed member',
       "const fs = require('node:fs/promises'); void fs['readdir'].call(fs, 'input');",
-      'UnownedFileSystem.readdir',
+      'FileSystem.readdir',
     ],
   ])('detects direct topology bypass via %s', (_label, source, expected) => {
     expect(fixtureSemanticAuthorities(source)).toContain(expected);
@@ -269,12 +305,12 @@ describe('enterprise pipeline dependency boundary', { timeout: wholeProjectInspe
     [
       'adapter original-template read alias',
       "import { readFile as readOriginal } from 'node:fs/promises'; void readOriginal.call(undefined, 'card.html', 'utf8');",
-      'UnownedFileSystem.readFile',
+      'FileSystem.readFile',
     ],
     [
       'continuation dynamic namespace read',
       "async function run() { const fs = await import('node:fs/promises'); await Reflect.apply(fs.readFile, fs, ['card.html', 'utf8']); }",
-      'UnownedFileSystem.readFile',
+      'FileSystem.readFile',
     ],
   ])('detects a direct readFile bypass via %s', (_label, source, expected) => {
     expect(fixtureSemanticAuthorities(source)).toContain(expected);
@@ -312,32 +348,80 @@ describe('enterprise pipeline dependency boundary', { timeout: wholeProjectInspe
     expect(fixtureSemanticAuthorities(source)).toContain(expected);
   });
 
+  test.each(gitIgnoreBarrelCases)('detects createGitIgnoreMatcher through $label', fixture => {
+    expect(
+      gitIgnoreBarrelAuthorities()
+        .filter(call => call.sourcePath === fixture.sourcePath)
+        .map(call => call.name)
+        .filter(name => name.startsWith('GitIgnoreHelper.')),
+    ).toEqual(fixture.expected);
+  });
+
+  test.each([
+    "import { readFile as unused } from 'node:fs/promises'; void unused;",
+    "import * as unused from 'node:fs'; void unused;",
+    "async function load() { const unused = await import('node:fs/promises'); return unused; } void load();",
+    "const unused = require('fs-extra'); void unused;",
+  ])('detects an unused filesystem acquisition outside a named owner: %s', source => {
+    expect(fixtureSemanticAuthorities(source)).toContain('FileSystem.acquire');
+  });
+
+  test('rejects even one extra direct filesystem read and acquisition in Migrator', () => {
+    const source = `
+      import { readFile as forbiddenOriginalRead } from 'node:fs/promises';
+      ${readFileSync(migratorPath, 'utf8')}
+      void forbiddenOriginalRead('input.html', 'utf8');
+    `;
+    const calls = inspectSemanticAuthorityCalls(productionPaths, new Map([[migratorPath, source]])).filter(
+      call =>
+        call.sourcePath === migratorPath && (call.name === 'FileSystem.readFile' || call.name === 'FileSystem.acquire'),
+    );
+
+    expect(calls).toEqual([
+      { sourcePath: migratorPath, name: 'FileSystem.acquire' },
+      { sourcePath: migratorPath, name: 'FileSystem.readFile' },
+    ]);
+  });
+
   test.each([
     'interface Cache { stat(path: string): void } declare const cache: Cache; cache.stat("entry");',
     'function readdir(path: string): string[] { return [path]; } void readdir("entry");',
     'const readFile = (path: string): string => path; void readFile("entry");',
     'const ignore = (): { accepts(path: string): boolean } => ({ accepts: () => true }); void ignore();',
     'async function run() { const module = await import("../logger.js"); module.logger.debug("readFile stat ignore"); }',
+    "import type { FileHandle } from 'node:fs/promises'; declare const file: FileHandle; void file;",
+    "import type { createGitIgnoreMatcher } from '../lib/gitignore.helper.js'; type MatcherFactory = typeof createGitIgnoreMatcher;",
   ])('does not confuse an unrelated or non-filesystem read-only callable with resource authority: %s', source => {
     expect(fixtureSemanticAuthorities(source).filter(name => resourceAuthorityNames.has(name))).toEqual([]);
   });
 
   test('keeps direct filesystem and ignore authorities at their named production owners', () => {
-    expect(uniqueNormalizedAuthoritySources(productionSemanticAuthorities(), resourceAuthorityNames)).toEqual([
+    expect(normalizedAuthoritySources(productionSemanticAuthorities(), resourceAuthorityNames)).toEqual([
+      { source: 'cli/stylesheet-path.validator.ts', authority: 'FileSystem.acquire' },
+      { source: 'lib/atomic-file.writer.ts', authority: 'FileSystem.acquire' },
+      { source: 'lib/gitignore.helper.ts', authority: 'FileSystem.acquire' },
+      { source: 'lib/gitignore.helper.ts', authority: 'FileSystem.readFile' },
       { source: 'lib/gitignore.helper.ts', authority: 'IgnoreLibrary.acquire' },
       { source: 'lib/gitignore.helper.ts', authority: 'IgnoreLibrary.createMatcher' },
-      { source: 'lib/gitignore.helper.ts', authority: 'IgnoreRulesSource.readFile' },
-      { source: 'migrator/analyzed-file.migrator.ts', authority: 'DestinationTemplateSource.readFile' },
-      { source: 'migrator/migration-path.validator.ts', authority: 'PathIdentity.stat' },
-      { source: 'migrator/migrator.ts', authority: 'DestinationTemplateSource.readFile' },
-      { source: 'migrator/stylesheet.planner.ts', authority: 'StylesheetSource.readFile' },
-      { source: 'pipeline/analyze/analyze-project.stage.ts', authority: 'OriginalTemplateSource.readFile' },
-      { source: 'pipeline/discover/discover-project.stage.ts', authority: 'DiscoveryTopology.readdir' },
-      { source: 'pipeline/discover/discover-project.stage.ts', authority: 'DiscoveryTopology.stat' },
+      { source: 'migrator/analyzed-file.migrator.ts', authority: 'DestinationTemplateSource.read' },
+      { source: 'migrator/destination-template-source.ts', authority: 'FileSystem.acquire' },
+      { source: 'migrator/destination-template-source.ts', authority: 'FileSystem.readFile' },
+      { source: 'migrator/migration-path.validator.ts', authority: 'FileSystem.acquire' },
+      { source: 'migrator/migration-path.validator.ts', authority: 'FileSystem.stat' },
+      { source: 'migrator/migrator.ts', authority: 'DestinationTemplateSource.read' },
+      { source: 'migrator/stylesheet.planner.ts', authority: 'FileSystem.acquire' },
+      { source: 'migrator/stylesheet.planner.ts', authority: 'FileSystem.readFile' },
+      { source: 'pipeline/analyze/analyze-project.stage.ts', authority: 'FileSystem.acquire' },
+      { source: 'pipeline/analyze/analyze-project.stage.ts', authority: 'FileSystem.readFile' },
+      { source: 'pipeline/discover/discover-project.stage.ts', authority: 'FileSystem.acquire' },
+      { source: 'pipeline/discover/discover-project.stage.ts', authority: 'FileSystem.readdir' },
+      { source: 'pipeline/discover/discover-project.stage.ts', authority: 'FileSystem.stat' },
       {
         source: 'pipeline/discover/discover-project.stage.ts',
         authority: 'GitIgnoreHelper.acquire',
       },
+      { source: 'transaction/migration-transaction.ts', authority: 'FileSystem.acquire' },
+      { source: 'transaction/migration-transaction.ts', authority: 'FileSystem.acquire' },
     ]);
   });
 

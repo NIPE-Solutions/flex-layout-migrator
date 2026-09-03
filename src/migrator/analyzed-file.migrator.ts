@@ -1,4 +1,3 @@
-import { readFile } from 'node:fs/promises';
 import * as path from 'node:path';
 import type { ConversionAdapter } from '../adapter/conversion-adapter';
 import type { ConversionResult } from '../analyzer/conversion-result';
@@ -8,10 +7,10 @@ import type { AnalyzedTemplate } from '../pipeline/analyzed-project';
 import { ConversionPlanner } from '../planner/conversion-planner';
 import { AngularTemplateParser } from '../template/angular-template.parser';
 import { fileMigrationResult, type FileMigrationOptions, type FileMigrationResult } from './file-migration-result';
+import { nodeDestinationTemplateSource, type DestinationTemplateSource } from './destination-template-source';
 import { fileMigrationPlan, plannedOutputArtifact, type ArtifactState, type FileMigrationPlan } from './migration-plan';
 
 export interface AnalyzedFileMigratorDependencies {
-  readonly readDestination: (path: string) => Promise<string>;
   readonly validationParser: TemplateParser;
   readonly planner: ConversionPlanner;
 }
@@ -21,6 +20,7 @@ export class AnalyzedFileMigrator {
     private readonly adapter: ConversionAdapter,
     private readonly template: AnalyzedTemplate,
     private readonly dependencies: AnalyzedFileMigratorDependencies = defaultAnalyzedFileMigratorDependencies(),
+    private readonly destinationTemplates: DestinationTemplateSource = nodeDestinationTemplateSource,
   ) {}
 
   public async plan(options: FileMigrationOptions = { responsiveImages: false }): Promise<FileMigrationPlan> {
@@ -96,7 +96,7 @@ export class AnalyzedFileMigrator {
     }
 
     try {
-      return { status: 'present', contents: await this.dependencies.readDestination(this.template.file.outputPath) };
+      return { status: 'present', contents: await this.destinationTemplates.read(this.template.file.outputPath) };
     } catch (error: unknown) {
       if (isEnoent(error)) return { status: 'absent' };
       throw error;
@@ -119,7 +119,6 @@ export class AnalyzedFileMigrator {
 
 function defaultAnalyzedFileMigratorDependencies(): AnalyzedFileMigratorDependencies {
   return {
-    readDestination: path => readFile(path, 'utf8'),
     validationParser: new AngularTemplateParser(),
     planner: new ConversionPlanner(),
   };

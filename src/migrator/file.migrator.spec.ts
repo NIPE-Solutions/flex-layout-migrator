@@ -59,31 +59,35 @@ describe('production analyzed-file handoff', () => {
         },
       },
     );
-    const dependencies: MigratorDependencies = {
-      readDestination: async filePath => {
+    const destinationTemplates = {
+      async read(filePath: string) {
         destinationReads.push(filePath);
         return readFile(filePath, 'utf8');
       },
+    };
+    const dependencies: MigratorDependencies = {
+      destinationTemplates,
       referenceParser: parser,
-      createFileMigrator(adapter, template) {
-        return new AnalyzedFileMigrator(adapter, template, {
-          readDestination: async filePath => {
-            destinationReads.push(filePath);
-            return readFile(filePath, 'utf8');
-          },
-          validationParser: {
-            parse(contents, fileName) {
-              validationParses.push(fileName);
-              return parser.parse(contents, fileName);
+      createFileMigrator(adapter, template, receivedDestinationTemplates) {
+        return new AnalyzedFileMigrator(
+          adapter,
+          template,
+          {
+            validationParser: {
+              parse(contents, fileName) {
+                validationParses.push(fileName);
+                return parser.parse(contents, fileName);
+              },
+            },
+            planner: {
+              plan(...arguments_) {
+                renderedSources.push(arguments_[0]);
+                return planner.plan(...arguments_);
+              },
             },
           },
-          planner: {
-            plan(...arguments_) {
-              renderedSources.push(arguments_[0]);
-              return planner.plan(...arguments_);
-            },
-          },
-        });
+          receivedDestinationTemplates,
+        );
       },
     };
     const transaction = transactionDouble();

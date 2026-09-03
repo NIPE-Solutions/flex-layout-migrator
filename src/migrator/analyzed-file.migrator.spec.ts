@@ -20,11 +20,15 @@ describe('AnalyzedFileMigrator', () => {
     const renderPlan = vi.spyOn(planner, 'plan');
     const adapter = new TailwindAdapter();
 
-    const plan = await new AnalyzedFileMigrator(adapter, analyzed, {
-      readDestination,
-      validationParser,
-      planner,
-    }).plan({ responsiveImages: false });
+    const plan = await new AnalyzedFileMigrator(
+      adapter,
+      analyzed,
+      {
+        validationParser,
+        planner,
+      },
+      { read: readDestination },
+    ).plan({ responsiveImages: false });
 
     expect(plan.file).toMatchObject({
       inputPath: analyzed.file.inputPath,
@@ -57,11 +61,15 @@ describe('AnalyzedFileMigrator', () => {
     const planner = new ConversionPlanner();
     const renderPlan = vi.spyOn(planner, 'plan');
 
-    const plan = await new AnalyzedFileMigrator(new TailwindAdapter(), analyzed, {
-      readDestination,
-      validationParser,
-      planner,
-    }).plan();
+    const plan = await new AnalyzedFileMigrator(
+      new TailwindAdapter(),
+      analyzed,
+      {
+        validationParser,
+        planner,
+      },
+      { read: readDestination },
+    ).plan();
 
     expect(plan.file).toEqual({
       inputPath: analyzed.file.inputPath,
@@ -88,7 +96,7 @@ describe('AnalyzedFileMigrator', () => {
     const dependencies = dependenciesDouble();
     const renderPlan = vi.spyOn(dependencies.planner, 'plan');
 
-    const plan = await new AnalyzedFileMigrator(new TailwindAdapter(), analyzed, dependencies).plan();
+    const plan = await testMigrator(analyzed, dependencies).plan();
 
     expect(plan.file).toEqual({
       inputPath: analyzed.file.inputPath,
@@ -98,7 +106,7 @@ describe('AnalyzedFileMigrator', () => {
     });
     expect(plan.artifact).toBeUndefined();
     expect(renderPlan).not.toHaveBeenCalled();
-    expect(dependencies.readDestination).not.toHaveBeenCalled();
+    expect(dependencies.destinationTemplates.read).not.toHaveBeenCalled();
     expect(dependencies.validationParser.parse).not.toHaveBeenCalled();
   });
 
@@ -107,7 +115,7 @@ describe('AnalyzedFileMigrator', () => {
     const analyzed = parsedAnalysis(source, '/project/image.html', '/project/image.html');
     const dependencies = dependenciesDouble();
 
-    const plan = await new AnalyzedFileMigrator(new TailwindAdapter(), analyzed, dependencies).plan({
+    const plan = await testMigrator(analyzed, dependencies).plan({
       responsiveImages: true,
     });
 
@@ -117,35 +125,35 @@ describe('AnalyzedFileMigrator', () => {
       contents:
         '<picture><source media="screen and (min-width: 600px) and (max-width: 959.98px)" srcset="small.png"><img src="base.png"></picture>',
     });
-    expect(dependencies.readDestination).not.toHaveBeenCalled();
+    expect(dependencies.destinationTemplates.read).not.toHaveBeenCalled();
     expect(dependencies.validationParser.parse).toHaveBeenCalledOnce();
   });
 
   test('reads one distinct destination and records its existing state', async () => {
     const analyzed = parsedAnalysis('<div fxLayout="column"></div>');
     const dependencies = dependenciesDouble();
-    dependencies.readDestination.mockResolvedValue('<div class="old"></div>');
+    dependencies.destinationTemplates.read.mockResolvedValue('<div class="old"></div>');
 
-    const plan = await new AnalyzedFileMigrator(new TailwindAdapter(), analyzed, dependencies).plan();
+    const plan = await testMigrator(analyzed, dependencies).plan();
 
     expect(plan.file.changed).toBe(true);
     expect(plan.artifact?.original).toEqual({ status: 'present', contents: '<div class="old"></div>' });
-    expect(dependencies.readDestination).toHaveBeenCalledOnce();
-    expect(dependencies.readDestination).toHaveBeenCalledWith(analyzed.file.outputPath);
+    expect(dependencies.destinationTemplates.read).toHaveBeenCalledOnce();
+    expect(dependencies.destinationTemplates.read).toHaveBeenCalledWith(analyzed.file.outputPath);
     expect(dependencies.validationParser.parse).toHaveBeenCalledOnce();
   });
 
   test('returns unchanged when one distinct destination already equals the proposed template', async () => {
     const analyzed = parsedAnalysis('<div fxLayout="column"></div>');
     const dependencies = dependenciesDouble();
-    dependencies.readDestination.mockResolvedValue('<div class="flex flex-col box-border"></div>');
+    dependencies.destinationTemplates.read.mockResolvedValue('<div class="flex flex-col box-border"></div>');
 
-    const plan = await new AnalyzedFileMigrator(new TailwindAdapter(), analyzed, dependencies).plan();
+    const plan = await testMigrator(analyzed, dependencies).plan();
 
     expect(plan.file.changed).toBe(false);
     expect(plan.file.results).toEqual([expect.objectContaining({ status: 'converted' })]);
     expect(plan.artifact).toBeUndefined();
-    expect(dependencies.readDestination).toHaveBeenCalledOnce();
+    expect(dependencies.destinationTemplates.read).toHaveBeenCalledOnce();
     expect(dependencies.validationParser.parse).toHaveBeenCalledOnce();
   });
 
@@ -157,7 +165,7 @@ describe('AnalyzedFileMigrator', () => {
       diagnostics: [{ message: 'Injected generated failure', source: { start: 3, end: 6 } }],
     });
 
-    const plan = await new AnalyzedFileMigrator(new TailwindAdapter(), analyzed, dependencies).plan();
+    const plan = await testMigrator(analyzed, dependencies).plan();
 
     expect(plan.file).toEqual({
       inputPath: analyzed.file.inputPath,
@@ -175,7 +183,7 @@ describe('AnalyzedFileMigrator', () => {
     });
     expect(plan.artifact).toBeUndefined();
     expect(dependencies.validationParser.parse).toHaveBeenCalledOnce();
-    expect(dependencies.readDestination).not.toHaveBeenCalled();
+    expect(dependencies.destinationTemplates.read).not.toHaveBeenCalled();
   });
 });
 
@@ -239,14 +247,23 @@ function parseErrorAnalysis(
 }
 
 function dependenciesDouble(): AnalyzedFileMigratorDependencies & {
-  readonly readDestination: ReturnType<typeof vi.fn<(path: string) => Promise<string>>>;
+  readonly destinationTemplates: {
+    readonly read: ReturnType<typeof vi.fn<(path: string) => Promise<string>>>;
+  };
   readonly validationParser: { readonly parse: ReturnType<typeof vi.fn<TemplateParser['parse']>> };
 } {
   return {
-    readDestination: vi.fn().mockRejectedValue(enoent()),
+    destinationTemplates: { read: vi.fn().mockRejectedValue(enoent()) },
     validationParser: validationParserDouble(),
     planner: new ConversionPlanner(),
   };
+}
+
+function testMigrator(
+  analyzed: AnalyzedTemplate,
+  dependencies: ReturnType<typeof dependenciesDouble>,
+): AnalyzedFileMigrator {
+  return new AnalyzedFileMigrator(new TailwindAdapter(), analyzed, dependencies, dependencies.destinationTemplates);
 }
 
 function validationParserDouble(): { readonly parse: ReturnType<typeof vi.fn<TemplateParser['parse']>> } {

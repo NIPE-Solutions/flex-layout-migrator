@@ -46,17 +46,21 @@ describe('Migrator', () => {
       })),
     });
     const renderedPaths: string[] = [];
-    const dependencies = {
-      readDestination: vi.fn(async () => {
-        throw new Error('Authoritative analyzed inputs must not be read again.');
+    const destinationTemplates = {
+      read: vi.fn(async () => {
+        throw new Error('Tailwind migration must not read a destination template.');
       }),
+    };
+    const dependencies = {
+      destinationTemplates,
       referenceParser: {
         parse: vi.fn(() => {
           throw new Error('Tailwind migration must not collect CSS references.');
         }),
       },
-      createFileMigrator: vi.fn((_adapter, template) => ({
+      createFileMigrator: vi.fn((_adapter, template, receivedDestinationTemplates) => ({
         async plan() {
+          expect(receivedDestinationTemplates).toBe(destinationTemplates);
           renderedPaths.push(template.file.inputPath);
           return fileMigrationPlan({
             file: fileMigrationResult({
@@ -80,7 +84,7 @@ describe('Migrator', () => {
 
     expect(renderedPaths).toEqual(manifest.templates.map(template => template.inputPath));
     expect(dependencies.createFileMigrator).toHaveBeenCalledTimes(2);
-    expect(dependencies.readDestination).not.toHaveBeenCalled();
+    expect(dependencies.destinationTemplates.read).not.toHaveBeenCalled();
     expect(dependencies.referenceParser.parse).not.toHaveBeenCalled();
     expect(finalize).toHaveBeenCalledOnce();
     expect(report.files.map(file => file.path)).toEqual(['alpha.html', 'zeta.html']);
@@ -105,9 +109,10 @@ describe('Migrator', () => {
       plan: vi.fn<StylesheetPlanner['plan']>().mockResolvedValue(undefined),
     };
     const dependencies: MigratorDependencies = {
-      readDestination,
+      destinationTemplates: { read: readDestination },
       referenceParser: new AngularTemplateParser(),
-      createFileMigrator: (adapter, template) => new AnalyzedFileMigrator(adapter, template),
+      createFileMigrator: (adapter, template, destinationTemplates) =>
+        new AnalyzedFileMigrator(adapter, template, undefined, destinationTemplates),
     };
 
     await new Migrator(

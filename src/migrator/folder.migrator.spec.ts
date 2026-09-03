@@ -99,7 +99,7 @@ function continuationDependencies(
   createFileMigrator: MigratorDependencies['createFileMigrator'],
 ): MigratorDependencies {
   return {
-    readDestination: filePath => readFile(filePath, 'utf8'),
+    destinationTemplates: { read: filePath => readFile(filePath, 'utf8') },
     referenceParser: new AngularTemplateParser(),
     createFileMigrator,
   };

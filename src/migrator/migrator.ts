@@ -1,4 +1,3 @@
-import { readFile } from 'node:fs/promises';
 import * as path from 'node:path';
 import type { ConversionAdapter } from '../adapter/conversion-adapter';
 import type { ConversionAdapterSession } from '../adapter/conversion-adapter.session';
@@ -11,6 +10,7 @@ import { AngularTemplateParser } from '../template/angular-template.parser';
 import { templateAttributeKeys } from '../template/template-attribute';
 import { MigrationTransaction } from '../transaction/migration-transaction';
 import { AnalyzedFileMigrator } from './analyzed-file.migrator';
+import { nodeDestinationTemplateSource, type DestinationTemplateSource } from './destination-template-source';
 import type { MigrationMode } from './migration-mode';
 import { MigrationApplicationError } from './migration-application.error';
 import { migrationPlan, type FileMigrationPlan, type PlannedOutputArtifact } from './migration-plan';
@@ -27,10 +27,11 @@ export interface MigrationOptions {
 export type AnalyzedFileMigratorFactory = (
   adapter: ConversionAdapter,
   template: AnalyzedTemplate,
+  destinationTemplates: DestinationTemplateSource,
 ) => Pick<AnalyzedFileMigrator, 'plan'>;
 
 export interface MigratorDependencies {
-  readonly readDestination: (path: string) => Promise<string>;
+  readonly destinationTemplates: DestinationTemplateSource;
   readonly referenceParser: TemplateParser;
   readonly createFileMigrator: AnalyzedFileMigratorFactory;
 }
@@ -51,7 +52,11 @@ export class Migrator {
     const startedAt = this.now();
     const filePlans: FileMigrationPlan[] = [];
     for (const template of this.analyzed.templates) {
-      const analyzedFileMigrator = this.dependencies.createFileMigrator(this.session.adapter, template);
+      const analyzedFileMigrator = this.dependencies.createFileMigrator(
+        this.session.adapter,
+        template,
+        this.dependencies.destinationTemplates,
+      );
       filePlans.push(
         await analyzedFileMigrator.plan({
           responsiveImages: options.responsiveImages ?? false,
@@ -153,7 +158,10 @@ export class Migrator {
           return { contents: analyzedTemplate.source, complete: true };
         }
         try {
-          return { contents: await this.dependencies.readDestination(filePlan.file.outputPath), complete: true };
+          return {
+            contents: await this.dependencies.destinationTemplates.read(filePlan.file.outputPath),
+            complete: true,
+          };
         } catch (error: unknown) {
           if (isEnoent(error)) return { contents: '', complete: false };
           throw error;
@@ -204,9 +212,10 @@ export class Migrator {
 
 function defaultMigratorDependencies(): MigratorDependencies {
   return {
-    readDestination: path => readFile(path, 'utf8'),
+    destinationTemplates: nodeDestinationTemplateSource,
     referenceParser: new AngularTemplateParser(),
-    createFileMigrator: (adapter, template) => new AnalyzedFileMigrator(adapter, template),
+    createFileMigrator: (adapter, template, destinationTemplates) =>
+      new AnalyzedFileMigrator(adapter, template, undefined, destinationTemplates),
   };
 }
 
