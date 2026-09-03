@@ -50,9 +50,11 @@ const handoffImports = new Map<string, readonly string[]>([
     'validated-project-plan.ts',
     [
       './rendered-project',
+      '../migrator/file-migration-result',
       '../migrator/migration-application.error',
       '../migrator/migration-plan',
       '../report/migration-report.builder',
+      'node:path',
     ],
   ],
 ]);
@@ -182,10 +184,11 @@ describe('enterprise pipeline shell dependency boundary', { timeout: 20_000 }, (
   });
 
   test('keeps handoff arrays and completed result objects frozen under mutation attempts', async () => {
+    const stylesheetPath = join(process.cwd(), 'fixtures', 'migration.css');
     const invocation = migrationInvocation({
       inputPath: 'fixtures/source',
       outputPath: 'fixtures/output',
-      options: { mode: 'plan' },
+      options: { mode: 'plan', stylesheetPath },
     });
     const manifest = projectManifest({
       invocation,
@@ -222,6 +225,7 @@ describe('enterprise pipeline shell dependency boundary', { timeout: 20_000 }, (
     const validated = validatedProjectPlan({
       rendered,
       plan: { target: 'css', files: [rendered.files[0]!.file], artifacts: [] },
+      stylesheet: { path: stylesheetPath, change: 'unchanged' },
     });
     const result = await new MigrationPipeline(
       { run: () => Promise.resolve(manifest) },
@@ -257,6 +261,7 @@ describe('enterprise pipeline shell dependency boundary', { timeout: 20_000 }, (
       validated.plan.files,
       validated.plan.files[0]!,
       validated.plan.artifacts,
+      validated.stylesheet!,
       result,
       result.application,
     ]) {

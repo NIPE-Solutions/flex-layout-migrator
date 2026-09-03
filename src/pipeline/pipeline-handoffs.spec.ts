@@ -107,7 +107,16 @@ function cssRule(): OwnedCssRule {
 }
 
 function renderedCssProject(): RenderedProject {
-  const analyzed = parsedProject();
+  const analyzed = parsedProject(
+    projectManifest({
+      invocation: {
+        inputPath: 'templates',
+        outputPath: 'generated',
+        options: { mode: 'plan', stylesheetPath: path.resolve('generated/flex-layout.css') },
+      },
+      templates: [{ inputPath: 'templates/card.html', outputPath: 'generated/card.html' }],
+    }),
+  );
   return renderedProject({
     analyzed,
     files: [rawFilePlan(analyzed.manifest.templates[0]!.inputPath, analyzed.manifest.templates[0]!.outputPath)],
@@ -530,7 +539,7 @@ describe('pipeline handoff factories', () => {
     const plan: MigrationPlan = { target: 'css', files, artifacts };
     const stylesheet: StylesheetMigrationResult = {
       path: path.resolve('generated/flex-layout.css'),
-      change: 'created',
+      change: 'unchanged',
     };
 
     const validated = validatedProjectPlan({ rendered, plan, stylesheet });
