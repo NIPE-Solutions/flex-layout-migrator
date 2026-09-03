@@ -147,6 +147,8 @@ Add the benchmark corpus, structural counters, output snapshots, architectural d
 
 Introduce immutable manifest, analyzed-project, rendered-project, and validated-plan contracts plus the pipeline coordinator. Adapt the existing migrator behind these contracts without duplicating migration policy.
 
+`CurrentMigrationPipeline` is the single temporary compatibility façade over `Migrator`. Slices 3–6 replace its delegated responsibilities with concrete stages; Slice 7 removes the façade after the CLI-facing `MigrationRunner` is backed by `MigrationPipeline`.
+
 ### 3. Discovery and analysis
 
 Move file topology, reads, Angular parsing, and input analysis into their dedicated stages. Remove repeated construction and parsing while retaining deterministic ordering and current diagnostics.

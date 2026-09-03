@@ -54,12 +54,12 @@ interface TransactionApplyCall {
 
 interface ProjectWriteAuthorityCall {
   readonly sourcePath: string;
-  readonly name: 'apply' | 'migrate';
+  readonly name: 'apply' | 'migrate' | 'run';
 }
 
 interface NormalizedAuthorityEdge {
   readonly caller: string;
-  readonly authority: 'MigrationTransaction.apply' | 'Migrator.migrate';
+  readonly authority: 'CurrentMigrationPipeline.run' | 'MigrationTransaction.apply' | 'Migrator.migrate';
 }
 
 function transactionApplyCalls(
@@ -80,7 +80,12 @@ function normalizedAuthorityGraph(calls: readonly ProjectWriteAuthorityCall[]): 
   return calls
     .map(call => ({
       caller: relative(productionRoot, call.sourcePath).replaceAll('\\', '/'),
-      authority: call.name === 'apply' ? ('MigrationTransaction.apply' as const) : ('Migrator.migrate' as const),
+      authority:
+        call.name === 'apply'
+          ? ('MigrationTransaction.apply' as const)
+          : call.name === 'migrate'
+            ? ('Migrator.migrate' as const)
+            : ('CurrentMigrationPipeline.run' as const),
     }))
     .sort((left, right) => `${left.caller}\0${left.authority}`.localeCompare(`${right.caller}\0${right.authority}`));
 }
@@ -463,6 +468,205 @@ describe('migration transaction architecture boundary', { timeout: wholeProjectI
     expect(projectWriteAuthorityCalls(new Map([[presenter, source]]), [presenter])).toEqual([
       { sourcePath: presenter, name: 'migrate' },
     ]);
+  });
+
+  test('detects a caller invoking canonical CurrentMigrationPipeline#run in write mode', () => {
+    const presenter = join(projectFixtureRoot, 'current-pipeline.presenter.ts');
+    const source = `
+      import { CurrentMigrationPipeline as Runner } from '../pipeline/current-migration.pipeline.js';
+      declare const runner: Runner;
+      void runner.run({ inputPath: 'input.html', outputPath: 'output.html', options: { mode: 'write' } });
+    `;
+
+    expect(projectWriteAuthorityCalls(new Map([[presenter, source]]), [presenter])).toEqual([
+      { sourcePath: presenter, name: 'run' },
+    ]);
+  });
+
+  test('treats the canonical MigrationRunner port as current-pipeline write authority', () => {
+    const presenter = join(projectFixtureRoot, 'migration-runner-port.presenter.ts');
+    const source = `
+      import type { MigrationRunner as RunnerPort } from '../pipeline/current-migration.pipeline.js';
+      declare const runner: RunnerPort;
+      void runner.run({ inputPath: 'input.html', outputPath: 'output.html', options: { mode: 'write' } });
+    `;
+
+    expect(projectWriteAuthorityCalls(new Map([[presenter, source]]), [presenter])).toEqual([
+      { sourcePath: presenter, name: 'run' },
+    ]);
+  });
+
+  test('follows the canonical MigrationRunner port through a re-exported type alias', () => {
+    const barrel = join(projectFixtureRoot, 'migration-runner-port.index.ts');
+    const presenter = join(projectFixtureRoot, 'aliased-migration-runner-port.presenter.ts');
+    const sources = new Map([
+      [barrel, "export type { MigrationRunner as RunnerPort } from '../pipeline/current-migration.pipeline.js';"],
+      [
+        presenter,
+        `
+          import type { RunnerPort as ImportedPort } from './migration-runner-port.index.js';
+          declare const runner: ImportedPort;
+          void runner.run({ inputPath: 'input.html', outputPath: 'output.html', options: { mode: 'write' } });
+        `,
+      ],
+    ]);
+
+    expect(projectWriteAuthorityCalls(sources, [presenter])).toEqual([{ sourcePath: presenter, name: 'run' }]);
+  });
+
+  test.each([
+    ['a const literal method alias', "const method = 'run' as const;"],
+    ['an unknown computed method', 'declare const method: string;'],
+  ])('fails closed for canonical MigrationRunner invocation through %s', (_label, methodDeclaration) => {
+    const presenter = join(projectFixtureRoot, 'computed-migration-runner-port.presenter.ts');
+    const source = `
+      import type { MigrationRunner as RunnerPort } from '../pipeline/current-migration.pipeline.js';
+      declare const runner: RunnerPort;
+      ${methodDeclaration}
+      void runner[method]({ inputPath: 'input.html', outputPath: 'output.html', options: { mode: 'write' } });
+    `;
+
+    expect(projectWriteAuthorityCalls(new Map([[presenter, source]]), [presenter])).toEqual([
+      { sourcePath: presenter, name: 'run' },
+    ]);
+  });
+
+  test.each([
+    [
+      'direct bound callable',
+      "const execute = runner.run.bind(runner, { inputPath: 'input.html', outputPath: 'output.html', options: { mode: 'write' } }); void execute();",
+    ],
+    [
+      'aliased bound callable',
+      "const execute = runner.run.bind(runner); const run = execute; void run({ inputPath: 'input.html', outputPath: 'output.html', options: { mode: 'write' } });",
+    ],
+  ])('detects canonical current-pipeline write authority through a %s', (_label, invocation) => {
+    const presenter = join(projectFixtureRoot, 'bound-current-pipeline.presenter.ts');
+    const source = `
+      import { CurrentMigrationPipeline as Runner } from '../pipeline/current-migration.pipeline.js';
+      declare const runner: Runner;
+      ${invocation}
+    `;
+
+    expect(projectWriteAuthorityCalls(new Map([[presenter, source]]), [presenter])).toEqual([
+      { sourcePath: presenter, name: 'run' },
+    ]);
+  });
+
+  test('follows current-pipeline write authority through a re-export alias', () => {
+    const barrel = join(projectFixtureRoot, 'current-pipeline.index.ts');
+    const presenter = join(projectFixtureRoot, 'barrel-current-pipeline.presenter.ts');
+    const sources = new Map([
+      [barrel, "export { CurrentMigrationPipeline as Runner } from '../pipeline/current-migration.pipeline.js';"],
+      [
+        presenter,
+        `
+          import { Runner as ImportedRunner } from './current-pipeline.index.js';
+          declare const runner: ImportedRunner;
+          void runner.run({ inputPath: 'input.html', outputPath: 'output.html', options: { mode: 'write' } });
+        `,
+      ],
+    ]);
+
+    expect(projectWriteAuthorityCalls(sources, [presenter])).toEqual([{ sourcePath: presenter, name: 'run' }]);
+  });
+
+  test.each([
+    [
+      'dynamic import',
+      `
+        const { CurrentMigrationPipeline: Runner } = await import('../pipeline/current-migration.pipeline.js');
+        const runner = new Runner(undefined as never);
+      `,
+    ],
+    [
+      'CommonJS require',
+      `
+        const { CurrentMigrationPipeline: Runner } = require('../pipeline/current-migration.pipeline.js');
+        const runner = new Runner(undefined);
+      `,
+    ],
+  ])('detects canonical current-pipeline write authority acquired through %s', (_label, setup) => {
+    const presenter = join(projectFixtureRoot, 'runtime-current-pipeline.presenter.ts');
+    const source = `
+      async function present() {
+        ${setup}
+        await runner.run({ inputPath: 'input.html', outputPath: 'output.html', options: { mode: 'write' } });
+      }
+    `;
+
+    expect(projectWriteAuthorityCalls(new Map([[presenter, source]]), [presenter])).toEqual([
+      { sourcePath: presenter, name: 'run' },
+    ]);
+  });
+
+  test('fails closed for a mutable current-pipeline invocation', () => {
+    const presenter = join(projectFixtureRoot, 'mutable-current-pipeline.presenter.ts');
+    const source = `
+      import { CurrentMigrationPipeline as Runner } from '../pipeline/current-migration.pipeline.js';
+      declare const runner: Runner;
+      const invocation = { inputPath: 'input.html', outputPath: 'output.html', options: { mode: 'plan' } };
+      void runner.run(invocation);
+    `;
+
+    expect(projectWriteAuthorityCalls(new Map([[presenter, source]]), [presenter])).toEqual([
+      { sourcePath: presenter, name: 'run' },
+    ]);
+  });
+
+  test('allows an immutable explicit plan through the current pipeline without granting write authority', () => {
+    const presenter = join(projectFixtureRoot, 'plan-current-pipeline.presenter.ts');
+    const source = `
+      import { CurrentMigrationPipeline as Runner } from '../pipeline/current-migration.pipeline.js';
+      declare const runner: Runner;
+      const invocation = {
+        inputPath: 'input.html',
+        outputPath: 'output.html',
+        options: { mode: 'plan' },
+      } as const;
+      void runner.run(invocation);
+    `;
+
+    expect(projectWriteAuthorityCalls(new Map([[presenter, source]]), [presenter])).toEqual([]);
+  });
+
+  test.each([
+    [
+      'an unrelated run method',
+      `
+        interface Previewer { run(invocation: { options: { mode: 'write' } }): void }
+        declare const previewer: Previewer;
+        previewer.run({ options: { mode: 'write' } });
+      `,
+    ],
+    [
+      'a same-named local class',
+      `
+        class CurrentMigrationPipeline { run(invocation: { options: { mode: 'write' } }): void {} }
+        new CurrentMigrationPipeline().run({ options: { mode: 'write' } });
+      `,
+    ],
+    [
+      'a same-named local runner port',
+      `
+        interface MigrationRunner { run(invocation: { options: { mode: 'write' } }): void }
+        declare const runner: MigrationRunner;
+        runner.run({ options: { mode: 'write' } });
+      `,
+    ],
+    [
+      'an unrelated receiver with an unknown computed method',
+      `
+        interface Previewer { run(invocation: { options: { mode: 'write' } }): void }
+        declare const previewer: Previewer;
+        declare const method: string;
+        previewer[method]({ options: { mode: 'write' } });
+      `,
+    ],
+  ])('does not confuse %s with current-pipeline write authority', (_label, source) => {
+    const presenter = join(projectFixtureRoot, 'unrelated-current-pipeline.presenter.ts');
+
+    expect(projectWriteAuthorityCalls(new Map([[presenter, source]]), [presenter])).toEqual([]);
   });
 
   test.each([
@@ -969,6 +1173,304 @@ describe('migration transaction architecture boundary', { timeout: wholeProjectI
     expect(transactionApplyCalls(new Map([[presenter, source]]), [presenter])).toEqual([]);
   });
 
+  test('detects a re-exported MigrationTransaction.apply target invoked through Reflect.apply', () => {
+    const helper = join(projectFixtureRoot, 'reflected-transaction.helper.ts');
+    const barrel = join(projectFixtureRoot, 'reflected-transaction.index.ts');
+    const presenter = join(projectFixtureRoot, 'reflected-transaction.presenter.ts');
+    const sources = new Map([
+      [
+        helper,
+        `
+          import type { MigrationTransaction } from '../transaction/migration-transaction.js';
+          declare const transaction: Pick<MigrationTransaction, 'apply'>;
+          export const applyPlan = transaction.apply;
+        `,
+      ],
+      [barrel, "export { applyPlan as execute } from './reflected-transaction.helper.js';"],
+      [
+        presenter,
+        `
+          import { execute as target } from './reflected-transaction.index.js';
+          import type { MigrationPlan } from '../migrator/migration-plan.js';
+          declare const plan: MigrationPlan;
+          void Reflect.apply(target, undefined, [plan]);
+        `,
+      ],
+    ]);
+
+    expect(projectWriteAuthorityCalls(sources, [presenter])).toEqual([{ sourcePath: presenter, name: 'apply' }]);
+  });
+
+  test('detects a computed Migrator.migrate target through a re-exported Reflect.apply alias', () => {
+    const helper = join(projectFixtureRoot, 'reflect-apply.helper.ts');
+    const barrel = join(projectFixtureRoot, 'reflect-apply.index.ts');
+    const presenter = join(projectFixtureRoot, 'reflected-migrator.presenter.ts');
+    const sources = new Map([
+      [helper, 'export const invokeReflect = Reflect.apply;'],
+      [barrel, "export { invokeReflect as invoke } from './reflect-apply.helper.js';"],
+      [
+        presenter,
+        `
+          import { invoke as invokeReflect } from './reflect-apply.index.js';
+          import { Migrator as Coordinator } from '../migrator/migrator.js';
+          declare const migrator: Coordinator;
+          const method = 'migrate' as const;
+          void invokeReflect(migrator[method], migrator, [{ mode: 'write' }]);
+        `,
+      ],
+    ]);
+
+    expect(projectWriteAuthorityCalls(sources, [presenter])).toEqual([{ sourcePath: presenter, name: 'migrate' }]);
+  });
+
+  test.each([
+    [
+      'CurrentMigrationPipeline class',
+      `
+        import { CurrentMigrationPipeline as Runner } from '../pipeline/current-migration.pipeline.js';
+        declare const runner: Runner;
+      `,
+    ],
+    [
+      're-exported MigrationRunner port',
+      `
+        import type { RunnerPort as Runner } from './reflected-runner.index.js';
+        declare const runner: Runner;
+      `,
+    ],
+  ])('detects a computed %s target invoked through computed Reflect.apply', (_label, setup) => {
+    const barrel = join(projectFixtureRoot, 'reflected-runner.index.ts');
+    const presenter = join(projectFixtureRoot, 'reflected-runner.presenter.ts');
+    const sources = new Map([
+      [barrel, "export type { MigrationRunner as RunnerPort } from '../pipeline/current-migration.pipeline.js';"],
+      [
+        presenter,
+        `
+          ${setup}
+          const reflectMethod = 'apply' as const;
+          declare const runMethod: string;
+          void Reflect[reflectMethod](runner[runMethod], runner, [{
+            inputPath: 'input.html',
+            outputPath: 'output.html',
+            options: { mode: 'write' },
+          }]);
+        `,
+      ],
+    ]);
+
+    expect(projectWriteAuthorityCalls(sources, [presenter])).toEqual([{ sourcePath: presenter, name: 'run' }]);
+  });
+
+  const reflectiveAuthorityFixtures = [
+    {
+      label: 'MigrationTransaction.apply',
+      name: 'apply' as const,
+      reflectedCall: `
+        void Reflect.apply(transaction.apply.call, transaction.apply, [transaction, plan]);
+      `,
+      setup: `
+        import type { MigrationTransaction } from '../transaction/migration-transaction.js';
+        import type { MigrationPlan } from '../migrator/migration-plan.js';
+        declare const transaction: Pick<MigrationTransaction, 'apply'>;
+        declare const plan: MigrationPlan;
+        const target = transaction.apply;
+        const receiver = transaction;
+        const values = [plan];
+      `,
+    },
+    {
+      label: 'Migrator.migrate',
+      name: 'migrate' as const,
+      reflectedCall: `
+        void Reflect.apply(migrator.migrate.call, migrator.migrate, [migrator, { mode: 'write' }]);
+      `,
+      setup: `
+        import { Migrator } from '../migrator/migrator.js';
+        declare const migrator: Migrator;
+        const target = migrator.migrate;
+        const receiver = migrator;
+        const values = [{ mode: 'write' as const }];
+      `,
+    },
+    {
+      label: 'MigrationRunner.run',
+      name: 'run' as const,
+      reflectedCall: `
+        void Reflect.apply(runner.run.call, runner.run, [runner, {
+          inputPath: 'input.html',
+          outputPath: 'output.html',
+          options: { mode: 'write' },
+        }]);
+      `,
+      setup: `
+        import type { MigrationRunner } from '../pipeline/current-migration.pipeline.js';
+        declare const runner: MigrationRunner;
+        const target = runner.run;
+        const receiver = runner;
+        const values = [{
+          inputPath: 'input.html',
+          outputPath: 'output.html',
+          options: { mode: 'write' as const },
+        }];
+      `,
+    },
+  ];
+
+  test.each(reflectiveAuthorityFixtures)(
+    'detects $label through single and nested Function.call routes to Reflect.apply',
+    ({ setup, name }) => {
+      const presenter = join(projectFixtureRoot, `nested-reflect-${name}.presenter.ts`);
+      const source = `
+        ${setup}
+        void Reflect.apply.call(undefined, target, receiver, values);
+        void Reflect.apply.call.call(Reflect.apply, undefined, target, receiver, values);
+      `;
+
+      expect(projectWriteAuthorityCalls(new Map([[presenter, source]]), [presenter])).toEqual([
+        { sourcePath: presenter, name },
+        { sourcePath: presenter, name },
+      ]);
+    },
+  );
+
+  test.each(reflectiveAuthorityFixtures)(
+    'detects $label when Reflect.apply invokes the authority nested Function.call target',
+    ({ setup, reflectedCall, name }) => {
+      const presenter = join(projectFixtureRoot, `reflected-call-target-${name}.presenter.ts`);
+      const source = `${setup}${reflectedCall}`;
+
+      expect(projectWriteAuthorityCalls(new Map([[presenter, source]]), [presenter])).toEqual([
+        { sourcePath: presenter, name },
+      ]);
+    },
+  );
+
+  test.each(reflectiveAuthorityFixtures)(
+    'detects $label through Reflect.apply with its target and receiver prebound',
+    ({ setup, name }) => {
+      const presenter = join(projectFixtureRoot, `prebound-reflect-${name}.presenter.ts`);
+      const source = `
+        ${setup}
+        const invoke = Reflect.apply.bind(undefined, target, receiver);
+        void invoke(values);
+      `;
+
+      expect(projectWriteAuthorityCalls(new Map([[presenter, source]]), [presenter])).toEqual([
+        { sourcePath: presenter, name },
+      ]);
+    },
+  );
+
+  test.each([
+    [
+      'Migrator plan',
+      `
+        import { Migrator as Coordinator } from '../migrator/migrator.js';
+        declare const migrator: Coordinator;
+        void Reflect.apply(migrator.migrate, migrator, [{ mode: 'plan' }]);
+      `,
+    ],
+    [
+      'MigrationRunner plan',
+      `
+        import type { MigrationRunner as Runner } from '../pipeline/current-migration.pipeline.js';
+        declare const runner: Runner;
+        void Reflect.apply(runner.run, runner, [{
+          inputPath: 'input.html',
+          outputPath: 'output.html',
+          options: { mode: 'plan' },
+        }]);
+      `,
+    ],
+    [
+      'nested Migrator plan',
+      `
+        import { Migrator as Coordinator } from '../migrator/migrator.js';
+        declare const migrator: Coordinator;
+        void Reflect.apply.call(undefined, migrator.migrate, migrator, [{ mode: 'plan' }]);
+      `,
+    ],
+    [
+      'nested-call-target Migrator plan',
+      `
+        import { Migrator as Coordinator } from '../migrator/migrator.js';
+        declare const migrator: Coordinator;
+        void Reflect.apply(
+          migrator.migrate.call,
+          migrator.migrate,
+          [migrator, { mode: 'plan' }],
+        );
+      `,
+    ],
+    [
+      'prebound MigrationRunner plan',
+      `
+        import type { MigrationRunner as Runner } from '../pipeline/current-migration.pipeline.js';
+        declare const runner: Runner;
+        const invoke = Reflect.apply.bind(undefined, runner.run, runner);
+        void invoke([{
+          inputPath: 'input.html',
+          outputPath: 'output.html',
+          options: { mode: 'plan' },
+        }]);
+      `,
+    ],
+  ])('does not assign write authority to an explicit reflected %s', (_label, source) => {
+    const presenter = join(projectFixtureRoot, 'reflected-plan.presenter.ts');
+
+    expect(projectWriteAuthorityCalls(new Map([[presenter, source]]), [presenter])).toEqual([]);
+  });
+
+  test.each([
+    [
+      'unrelated formatter target',
+      `
+        interface Formatter { apply(value: string): string }
+        declare const formatter: Formatter;
+        void Reflect.apply(formatter.apply, formatter, ['text']);
+      `,
+    ],
+    [
+      'locally shadowed Reflect object',
+      `
+        import { Migrator as Coordinator } from '../migrator/migrator.js';
+        declare const migrator: Coordinator;
+        const Reflect = { apply: (target: Function, receiver: unknown, values: unknown[]) =>
+          target.apply(receiver, values) };
+        void Reflect.apply(migrator.migrate, migrator, [{ mode: 'write' }]);
+      `,
+    ],
+    [
+      'unrelated target through nested Function.call',
+      `
+        interface Formatter { format(value: string): string }
+        declare const formatter: Formatter;
+        void Reflect.apply.call.call(Reflect.apply, undefined, formatter.format, formatter, ['text']);
+      `,
+    ],
+    [
+      'unrelated prebound target',
+      `
+        interface Formatter { format(value: string): string }
+        declare const formatter: Formatter;
+        const invoke = Reflect.apply.bind(undefined, formatter.format, formatter);
+        void invoke(['text']);
+      `,
+    ],
+    [
+      'unrelated nested Function.call target',
+      `
+        interface Formatter { format(value: string): string }
+        declare const formatter: Formatter;
+        void Reflect.apply(formatter.format.call, formatter.format, [formatter, 'text']);
+      `,
+    ],
+  ])('does not confuse a Reflect.apply-shaped %s with write authority', (_label, source) => {
+    const presenter = join(projectFixtureRoot, 'unrelated-reflect-apply.presenter.ts');
+
+    expect(projectWriteAuthorityCalls(new Map([[presenter, source]]), [presenter])).toEqual([]);
+  });
+
   test('ignores a same-named CommonJS class without transaction provenance', () => {
     const localModule = join(projectFixtureRoot, 'local-transaction.ts');
     const presenter = join(projectFixtureRoot, 'local-commonjs.presenter.ts');
@@ -1004,15 +1506,16 @@ describe('migration transaction architecture boundary', { timeout: wholeProjectI
   });
 
   test(
-    'keeps the production authority graph exactly CLI to Migrator and Migrator to MigrationTransaction',
+    'keeps the production authority graph exactly CLI to CurrentMigrationPipeline to Migrator to MigrationTransaction',
     () => {
       const graph = normalizedAuthorityGraph(
         projectWriteAuthorityCalls(new Map(), productionTypeScriptFiles(productionRoot)),
       );
 
       expect(graph).toEqual([
-        { caller: 'cli/run-cli.ts', authority: 'Migrator.migrate' },
+        { caller: 'cli/run-cli.ts', authority: 'CurrentMigrationPipeline.run' },
         { caller: 'migrator/migrator.ts', authority: 'MigrationTransaction.apply' },
+        { caller: 'pipeline/current-migration.pipeline.ts', authority: 'Migrator.migrate' },
       ]);
     },
     wholeProjectInspectionTimeout,

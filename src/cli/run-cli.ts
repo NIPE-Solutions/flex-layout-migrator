@@ -2,8 +2,10 @@ import { Command, CommanderError, InvalidArgumentError, Option } from 'commander
 import * as path from 'node:path';
 import packageJson from '../../package.json' with { type: 'json' };
 import { AdapterFactory } from '../adapter/adapter.factory';
+import type { ConversionAdapterSession } from '../adapter/conversion-adapter.session';
 import { logger } from '../logger';
-import { Migrator } from '../migrator/migrator';
+import { CurrentMigrationPipeline, type MigrationRunner } from '../pipeline/current-migration.pipeline';
+import { migrationInvocation } from '../pipeline/project-manifest';
 import { JsonReportWriter } from '../report/json-report.writer';
 import { TerminalPresenter, type TextOutput } from '../report/terminal.presenter';
 import { getErrorMessage } from '../util/error.util';
@@ -31,6 +33,10 @@ export interface CliOutput {
   readonly stderr: TextOutput;
 }
 
+export interface RunCliDependencies {
+  readonly createMigrationRunner?: (session: ConversionAdapterSession) => MigrationRunner;
+}
+
 const processOutput: CliOutput = {
   stdout: process.stdout,
   stderr: process.stderr,
@@ -41,7 +47,11 @@ function parseSingleStylesheet(value: string, previous: string | undefined): str
   return value;
 }
 
-export async function runCli(argv: readonly string[], output: CliOutput = processOutput): Promise<0 | 1 | 2> {
+export async function runCli(
+  argv: readonly string[],
+  output: CliOutput = processOutput,
+  dependencies: RunCliDependencies = {},
+): Promise<0 | 1 | 2> {
   let exitCode: 0 | 1 | 2 = 0;
   let debug = false;
   const program = new Command();
@@ -110,12 +120,22 @@ export async function runCli(argv: readonly string[], output: CliOutput = proces
         orientationBreakpoints: options.orientationBreakpoints,
         printWithBreakpoints,
       });
-      const report = await new Migrator(session, input, destination).migrate({
-        mode,
-        responsiveImages: options.responsiveImages,
-        stylesheetPath,
-        reportPath,
-      });
+      const migrationRunner =
+        dependencies.createMigrationRunner === undefined
+          ? new CurrentMigrationPipeline(session)
+          : dependencies.createMigrationRunner(session);
+      const report = await migrationRunner.run(
+        migrationInvocation({
+          inputPath: input,
+          outputPath: destination,
+          options: {
+            mode,
+            responsiveImages: options.responsiveImages,
+            stylesheetPath,
+            reportPath,
+          },
+        }),
+      );
       const reportOutput = report.summary.parseErrors > 0 ? output.stderr : output.stdout;
 
       new TerminalPresenter().present(report, reportOutput);

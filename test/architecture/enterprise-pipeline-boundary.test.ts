@@ -14,8 +14,10 @@ import {
 
 const productionRoot = join(process.cwd(), 'src');
 const flexRoot = join(productionRoot, 'flex');
+const pipelineRoot = join(productionRoot, 'pipeline');
 const atomicWriterPath = join(productionRoot, 'lib', 'atomic-file.writer.ts');
 const roguePath = join(productionRoot, '__architecture-fixture__', 'rogue.ts');
+const wholeProjectInspectionTimeout = 60_000;
 const expectedRendererRelativePaths = [
   'adapter/css/css.adapter.ts',
   'adapter/css/flex/flex-align.css-renderer.ts',
@@ -73,7 +75,7 @@ function rendererMutationAuthorities(source: string): readonly string[] {
   ];
 }
 
-describe('enterprise pipeline dependency boundary', { timeout: 20_000 }, () => {
+describe('enterprise pipeline dependency boundary', { timeout: wholeProjectInspectionTimeout }, () => {
   test('keeps Flex semantics independent from both target adapters', () => {
     for (const path of productionTypeScriptFiles(flexRoot)) {
       const targetImport = inspectTypeScript(readFileSync(path, 'utf8'), path).moduleReferences.find(reference =>
@@ -142,9 +144,11 @@ describe('enterprise pipeline dependency boundary', { timeout: 20_000 }, () => {
   });
 
   test('reserves project mutation APIs for transaction and atomic-writer modules', () => {
-    const forbidden = inspectTypeScriptProject(
-      productionTypeScriptFiles(productionRoot),
-    ).filesystemMutationCalls.filter(
+    const productionPaths = productionTypeScriptFiles(productionRoot);
+    const pipelinePaths = productionTypeScriptFiles(pipelineRoot);
+    expect(productionPaths).toEqual(expect.arrayContaining([...pipelinePaths]));
+
+    const forbidden = inspectTypeScriptProject(productionPaths).filesystemMutationCalls.filter(
       finding =>
         !finding.sourcePath.startsWith(`${join(productionRoot, 'transaction')}/`) &&
         finding.sourcePath !== atomicWriterPath,

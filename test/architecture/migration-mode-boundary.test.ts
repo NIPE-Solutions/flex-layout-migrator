@@ -23,7 +23,7 @@ function fixtureModeInputs(source: string): readonly ExecutionModeInput[] {
   return executionModeInputs(new Map([[fixturePath, source]]), [fixturePath]);
 }
 
-describe('migration mode architecture boundary', () => {
+describe('migration mode architecture boundary', { timeout: wholeProjectInspectionTimeout }, () => {
   test('detects the canonical MigrationMode type through an aliased type-only import', () => {
     const source = `
       import type { MigrationMode as RequestedExecution } from '../migrator/migration-mode.js';
