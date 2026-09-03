@@ -14,6 +14,7 @@ import {
 
 const productionRoot = join(process.cwd(), 'src');
 const flexRoot = join(productionRoot, 'flex');
+const pipelineRoot = join(productionRoot, 'pipeline');
 const atomicWriterPath = join(productionRoot, 'lib', 'atomic-file.writer.ts');
 const roguePath = join(productionRoot, '__architecture-fixture__', 'rogue.ts');
 const expectedRendererRelativePaths = [
@@ -142,9 +143,11 @@ describe('enterprise pipeline dependency boundary', { timeout: 20_000 }, () => {
   });
 
   test('reserves project mutation APIs for transaction and atomic-writer modules', () => {
-    const forbidden = inspectTypeScriptProject(
-      productionTypeScriptFiles(productionRoot),
-    ).filesystemMutationCalls.filter(
+    const productionPaths = productionTypeScriptFiles(productionRoot);
+    const pipelinePaths = productionTypeScriptFiles(pipelineRoot);
+    expect(productionPaths).toEqual(expect.arrayContaining([...pipelinePaths]));
+
+    const forbidden = inspectTypeScriptProject(productionPaths).filesystemMutationCalls.filter(
       finding =>
         !finding.sourcePath.startsWith(`${join(productionRoot, 'transaction')}/`) &&
         finding.sourcePath !== atomicWriterPath,
