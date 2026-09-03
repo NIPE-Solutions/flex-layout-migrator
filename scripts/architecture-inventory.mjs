@@ -182,7 +182,7 @@ function parseOutputPath(argv) {
 }
 
 function trackedProductionPaths(repository) {
-  return execFileSync('git', ['ls-files', '--', 'src/**/*.ts'], { cwd: repository, encoding: 'utf8' })
+  return execFileSync('git', ['ls-files', '--', ':(glob)src/**/*.ts'], { cwd: repository, encoding: 'utf8' })
     .split(/\r?\n/u)
     .filter(path => path !== '' && !path.endsWith('.spec.ts'))
     .sort(compareCodeUnits);

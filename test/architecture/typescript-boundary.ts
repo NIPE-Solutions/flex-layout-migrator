@@ -2,10 +2,67 @@ import { readdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import ts from 'typescript';
 
-const filesystemModules = new Set(['fs', 'fs/promises', 'node:fs', 'node:fs/promises']);
-const filesystemMutationNames = new Set(['link', 'mkdir', 'open', 'rename', 'rmdir', 'unlink', 'writeFile']);
+const filesystemModules = new Set(['fs', 'fs/promises', 'node:fs', 'node:fs/promises', 'fs-extra']);
+const filesystemMutationNames = new Set([
+  'appendFile',
+  'appendFileSync',
+  'copy',
+  'copyFile',
+  'copyFileSync',
+  'copySync',
+  'cp',
+  'cpSync',
+  'createFile',
+  'createFileSync',
+  'emptyDir',
+  'emptyDirSync',
+  'ensureDir',
+  'ensureDirSync',
+  'ensureFile',
+  'ensureFileSync',
+  'ensureLink',
+  'ensureLinkSync',
+  'ensureSymlink',
+  'ensureSymlinkSync',
+  'link',
+  'linkSync',
+  'mkdir',
+  'mkdirSync',
+  'mkdtemp',
+  'mkdtempSync',
+  'move',
+  'moveSync',
+  'open',
+  'openSync',
+  'outputFile',
+  'outputFileSync',
+  'outputJson',
+  'outputJsonSync',
+  'remove',
+  'removeSync',
+  'rename',
+  'renameSync',
+  'rm',
+  'rmdir',
+  'rmdirSync',
+  'rmSync',
+  'symlink',
+  'symlinkSync',
+  'truncate',
+  'truncateSync',
+  'unlink',
+  'unlinkSync',
+  'write',
+  'writeFile',
+  'writeFileSync',
+  'writeSync',
+]);
 const adapterPathNames = new Set(['stylesheetPath', 'reportPath']);
 const mediaWidthFeature = /^\(\s*(?:min|max)-width\s*:\s*([0-9]+(?:\.[0-9]+)?)px\s*\)$/iu;
+
+function isFilesystemModuleReference(reference: string): boolean {
+  return filesystemModules.has(reference) || reference.startsWith('fs-extra/');
+}
 
 export interface InspectedParameter {
   readonly name: string;
@@ -512,7 +569,7 @@ function filesystemProvenance(
   const unwrapped = unwrapExpression(expression);
   if (ts.isCallExpression(unwrapped)) {
     const reference = calledModule(unwrapped);
-    if (reference !== undefined) return filesystemModules.has(reference) ? '*' : undefined;
+    if (reference !== undefined) return isFilesystemModuleReference(reference) ? '*' : undefined;
   }
 
   if (ts.isPropertyAccessExpression(unwrapped) || ts.isElementAccessExpression(unwrapped)) {
@@ -553,7 +610,7 @@ function filesystemSymbolProvenance(
 
   for (const declaration of symbol.declarations ?? []) {
     const reference = enclosingModuleReference(declaration);
-    if (reference !== undefined && filesystemModules.has(reference)) {
+    if (reference !== undefined && isFilesystemModuleReference(reference)) {
       if (ts.isNamespaceImport(declaration) || ts.isImportClause(declaration)) return '*';
       if (ts.isImportSpecifier(declaration)) {
         const importedName = declaration.propertyName?.text ?? declaration.name.text;

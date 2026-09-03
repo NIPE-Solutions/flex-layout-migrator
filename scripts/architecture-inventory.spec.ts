@@ -1,6 +1,10 @@
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
 import { describe, expect, it } from 'vitest';
 
-import { inventoryProject } from './architecture-inventory.mjs';
+import { inventoryProject, main } from './architecture-inventory.mjs';
 
 const syntheticProject = {
   productionFiles: [
@@ -51,6 +55,27 @@ const syntheticProject = {
 };
 
 describe('architecture inventory', () => {
+  it('discovers tracked root and nested production files while excluding specifications', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'architecture-inventory-discovery-'));
+    const outputPath = join(directory, 'inventory.json');
+
+    try {
+      await main(['--json', outputPath]);
+      const inventory = JSON.parse(await readFile(outputPath, 'utf8')) as {
+        readonly productionFiles: readonly { readonly path: string }[];
+      };
+      const paths = inventory.productionFiles.map(file => file.path);
+
+      expect(paths).toContain('src/main.ts');
+      expect(paths).toContain('src/logger.ts');
+      expect(paths).toContain('src/adapter/adapter.factory.ts');
+      expect(paths).not.toContain('src/logger.spec.ts');
+      expect(paths.some(path => path.endsWith('.spec.ts'))).toBe(false);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
   it('orders production code by code unit and records physical line counts', () => {
     const inventory = inventoryProject(syntheticProject);
 

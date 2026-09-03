@@ -15,6 +15,7 @@ import {
 const productionRoot = join(process.cwd(), 'src');
 const flexRoot = join(productionRoot, 'flex');
 const atomicWriterPath = join(productionRoot, 'lib', 'atomic-file.writer.ts');
+const roguePath = join(productionRoot, '__architecture-fixture__', 'rogue.ts');
 const packageManifest = JSON.parse(readFileSync(join(process.cwd(), 'package.json'), 'utf8')) as {
   readonly dependencies?: Readonly<Record<string, string>>;
 };
@@ -29,6 +30,21 @@ function externalPackage(reference: string): string | undefined {
 
 function containsLayer(reference: string, layers: readonly string[]): boolean {
   return layers.some(layer => moduleReferenceContainsPath(reference, layer));
+}
+
+function forbiddenRendererDependency(source: string, sourcePath = roguePath): string | undefined {
+  return inspectTypeScript(source, sourcePath).moduleReferences.find(
+    reference =>
+      /^(?:node:)?fs(?:\/|$)/u.test(reference) ||
+      /^fs-extra(?:\/|$)/u.test(reference) ||
+      containsLayer(reference, ['cli', 'report', 'transaction', 'lib/atomic-file.writer']),
+  );
+}
+
+function mutationCalls(source: string): readonly string[] {
+  return inspectTypeScriptProject([roguePath], new Map([[roguePath, source]])).filesystemMutationCalls.map(
+    finding => finding.name,
+  );
 }
 
 describe('enterprise pipeline dependency boundary', { timeout: 20_000 }, () => {
@@ -48,13 +64,22 @@ describe('enterprise pipeline dependency boundary', { timeout: 20_000 }, () => {
     );
 
     for (const path of rendererPaths) {
-      const forbidden = inspectTypeScript(readFileSync(path, 'utf8'), path).moduleReferences.find(
-        reference =>
-          /^(?:node:)?fs(?:\/|$)/u.test(reference) || containsLayer(reference, ['cli', 'report', 'transaction']),
-      );
+      const forbidden = forbiddenRendererDependency(readFileSync(path, 'utf8'), path);
 
       expect(forbidden, relative(process.cwd(), path)).toBeUndefined();
     }
+  });
+
+  test.each([
+    ["import fs from 'fs-extra';", 'fs-extra'],
+    ["import fs from 'fs-extra/esm';", 'fs-extra/esm'],
+    ["import { AtomicFileWriter } from '../../lib/atomic-file.writer';", '../../lib/atomic-file.writer'],
+    [
+      "import { MigrationTransaction } from '../../transaction/migration-transaction';",
+      '../../transaction/migration-transaction',
+    ],
+  ])('rejects renderer filesystem authority: %s', (source, expected) => {
+    expect(forbiddenRendererDependency(source)).toBe(expected);
   });
 
   test('keeps presenters independent from implementation and mutation layers', () => {
@@ -81,6 +106,29 @@ describe('enterprise pipeline dependency boundary', { timeout: 20_000 }, () => {
     );
 
     expect(forbidden).toEqual([]);
+  });
+
+  test.each([
+    ["import { rm } from 'node:fs/promises'; void rm('target', { recursive: true });", 'rm'],
+    ["import { copyFile } from 'node:fs/promises'; void copyFile('source', 'target');", 'copyFile'],
+    ["import { appendFile } from 'node:fs/promises'; void appendFile('target', 'value');", 'appendFile'],
+    ["import { truncate } from 'node:fs/promises'; void truncate('target');", 'truncate'],
+    ["import * as fs from 'node:fs'; fs.rmSync('target', { recursive: true });", 'rmSync'],
+    ["import * as fs from 'node:fs'; fs.copyFileSync('source', 'target');", 'copyFileSync'],
+    ["import * as fs from 'node:fs'; fs.appendFileSync('target', 'value');", 'appendFileSync'],
+    ["import * as fs from 'node:fs'; fs.truncateSync('target');", 'truncateSync'],
+    ["import fs from 'fs-extra'; void fs.outputFile('target', 'value');", 'outputFile'],
+    ["import fs from 'fs-extra/esm'; void fs.copy('source', 'target');", 'copy'],
+    ["import { removeSync } from 'fs-extra'; removeSync('target');", 'removeSync'],
+  ])('detects a rogue project mutation through %s', (source, expected) => {
+    expect(mutationCalls(source)).toContain(expected);
+  });
+
+  test.each([
+    "import { readFile } from 'node:fs/promises'; void readFile('target');",
+    "import fs from 'fs-extra'; void fs.pathExists('target');",
+  ])('permits read-only filesystem access in the project mutation scan: %s', source => {
+    expect(mutationCalls(source)).toEqual([]);
   });
 
   test('allows only the known undeclared ignore runtime package until the dependency slice', () => {
