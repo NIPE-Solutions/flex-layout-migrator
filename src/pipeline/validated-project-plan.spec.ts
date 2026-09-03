@@ -277,6 +277,78 @@ describe('validatedProjectPlan', () => {
     },
   );
 
+  test.each([
+    {
+      name: 'template input',
+      inputPath: (stylesheetPath: string) => noncanonicalPath(stylesheetPath),
+      outputPath: () => path.resolve('generated/card.html'),
+    },
+    {
+      name: 'unchanged template output',
+      inputPath: () => path.resolve('templates/card.html'),
+      outputPath: (stylesheetPath: string) => noncanonicalPath(stylesheetPath),
+    },
+  ])('rejects a CSS stylesheet path that collides with a $name path', scenario => {
+    const stylesheetPath = path.resolve('generated/flex-layout.css');
+    const manifest = projectManifest({
+      invocation: {
+        inputPath: 'templates',
+        outputPath: 'generated',
+        options: { mode: 'plan', stylesheetPath },
+      },
+      templates: [
+        {
+          inputPath: scenario.inputPath(stylesheetPath),
+          outputPath: scenario.outputPath(stylesheetPath),
+        },
+      ],
+    });
+    const rendered = renderedFor(manifest, 'css');
+
+    const error = captureInternalInvariant(() =>
+      validatedProjectPlan({
+        rendered,
+        plan: { target: 'css', files: rendered.files.map(file => file.file), artifacts: [] },
+        stylesheet: { path: stylesheetPath, change: 'unchanged' },
+      }),
+    );
+
+    expect(error.message).toBe(
+      'Configured stylesheet path must not collide with any template input, output, or artifact path.',
+    );
+  });
+
+  test('rejects colliding template and stylesheet artifacts at the configured CSS path', () => {
+    const stylesheetPath = path.resolve('generated/flex-layout.css');
+    const manifest = projectManifest({
+      invocation: {
+        inputPath: 'templates',
+        outputPath: 'generated',
+        options: { mode: 'plan', stylesheetPath },
+      },
+      templates: [{ inputPath: path.resolve('templates/card.html'), outputPath: stylesheetPath }],
+    });
+    const rendered = renderedFor(manifest, 'css', [changedFile(manifest.templates[0]!, '<article>card</article>')]);
+    const template = rendered.files[0]!.artifact!;
+    const stylesheet = stylesheetArtifact(stylesheetPath, 'created');
+
+    const error = captureInternalInvariant(() =>
+      validatedProjectPlan({
+        rendered,
+        plan: {
+          target: 'css',
+          files: rendered.files.map(file => file.file),
+          artifacts: [template, stylesheet],
+        },
+        stylesheet: { path: stylesheetPath, change: 'created' },
+      }),
+    );
+
+    expect(error.message).toBe(
+      'Configured stylesheet path must not collide with any template input, output, or artifact path.',
+    );
+  });
+
   test('rejects every inconsistent CSS stylesheet metadata and artifact combination', () => {
     const stylesheetPath = path.resolve('generated/flex-layout.css');
     const otherStylesheetPath = path.resolve('generated/other.css');
@@ -378,6 +450,20 @@ describe('validatedProjectPlan', () => {
         rendered,
         plan: { target: 'tailwind', files: rendered.files.map(file => file.file), artifacts: scenario.artifacts },
         ...(scenario.stylesheet === undefined ? {} : { stylesheet: scenario.stylesheet }),
+      }),
+    );
+
+    expect(error.message).toBe('Tailwind migration plans cannot contain stylesheet artifacts or metadata.');
+  });
+
+  test('rejects a Tailwind plan whose invocation configures a stylesheet path', () => {
+    const stylesheetPath = path.resolve('generated/flex-layout.css');
+    const rendered = renderedFor(manifestFor(['card.html'], stylesheetPath), 'tailwind');
+
+    const error = captureInternalInvariant(() =>
+      validatedProjectPlan({
+        rendered,
+        plan: { target: 'tailwind', files: rendered.files.map(file => file.file), artifacts: [] },
       }),
     );
 

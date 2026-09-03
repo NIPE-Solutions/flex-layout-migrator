@@ -84,8 +84,10 @@ function validatedStylesheet(
   supplied: StylesheetMigrationResult | undefined,
 ): StylesheetMigrationResult | undefined {
   const nonTemplateArtifacts = plan.artifacts.filter(artifact => artifact.kind !== 'template');
+  const configuredPath = rendered.analyzed.manifest.invocation.options.stylesheetPath;
   if (rendered.session.target === 'tailwind') {
     if (
+      configuredPath !== undefined ||
       supplied !== undefined ||
       nonTemplateArtifacts.length > 0 ||
       !sameArtifactSequence(plan.artifacts, templateArtifacts)
@@ -95,7 +97,6 @@ function validatedStylesheet(
     return undefined;
   }
 
-  const configuredPath = rendered.analyzed.manifest.invocation.options.stylesheetPath;
   const stylesheetArtifact = nonTemplateArtifacts.length === 1 ? nonTemplateArtifacts[0] : undefined;
   const canonicalConfiguredPath =
     configuredPath === undefined || configuredPath.trim().length === 0
@@ -103,6 +104,20 @@ function validatedStylesheet(
       : normalizedAbsolutePath(configuredPath);
   const expectedChange = stylesheetArtifact === undefined ? 'unchanged' : stylesheetChange(stylesheetArtifact);
   const expectedArtifacts = [...templateArtifacts, ...(stylesheetArtifact === undefined ? [] : [stylesheetArtifact])];
+
+  if (
+    canonicalConfiguredPath !== undefined &&
+    (plan.files.some(
+      file =>
+        normalizedAbsolutePath(file.inputPath) === canonicalConfiguredPath ||
+        normalizedAbsolutePath(file.outputPath) === canonicalConfiguredPath,
+    ) ||
+      templateArtifacts.some(artifact => normalizedAbsolutePath(artifact.path) === canonicalConfiguredPath))
+  ) {
+    throw internalInvariant(
+      'Configured stylesheet path must not collide with any template input, output, or artifact path.',
+    );
+  }
 
   if (
     canonicalConfiguredPath === undefined ||

@@ -22,20 +22,24 @@ export interface ProjectManifest {
 }
 
 export function migrationInvocation(invocation: MigrationInvocationInput): MigrationInvocation {
-  return Object.freeze({
+  return freezeMigrationInvocation({
     inputPath: invocation.inputPath,
     outputPath: invocation.outputPath,
     canonicalInputPath: normalizedAbsolutePath(invocation.inputPath),
     canonicalOutputPath: normalizedAbsolutePath(invocation.outputPath),
-    options: Object.freeze({ ...invocation.options }),
+    options: invocation.options,
   });
 }
 
 export function projectManifest(
-  manifest: Omit<ProjectManifest, 'invocation'> & { readonly invocation: MigrationInvocationInput },
+  manifest: Omit<ProjectManifest, 'invocation'> & {
+    readonly invocation: MigrationInvocationInput | MigrationInvocation;
+  },
 ): ProjectManifest {
   return Object.freeze({
-    invocation: migrationInvocation(manifest.invocation),
+    invocation: hasCanonicalIdentity(manifest.invocation)
+      ? freezeMigrationInvocation(manifest.invocation)
+      : migrationInvocation(manifest.invocation),
     templates: Object.freeze(
       manifest.templates.map(template =>
         Object.freeze({
@@ -44,6 +48,22 @@ export function projectManifest(
         }),
       ),
     ),
+  });
+}
+
+function hasCanonicalIdentity(
+  invocation: MigrationInvocationInput | MigrationInvocation,
+): invocation is MigrationInvocation {
+  return 'canonicalInputPath' in invocation && 'canonicalOutputPath' in invocation;
+}
+
+function freezeMigrationInvocation(invocation: MigrationInvocation): MigrationInvocation {
+  return Object.freeze({
+    inputPath: invocation.inputPath,
+    outputPath: invocation.outputPath,
+    canonicalInputPath: invocation.canonicalInputPath,
+    canonicalOutputPath: invocation.canonicalOutputPath,
+    options: Object.freeze({ ...invocation.options }),
   });
 }
 

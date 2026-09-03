@@ -198,6 +198,28 @@ describe('pipeline handoff factories', () => {
     expect(manifest.templates.map(template => path.basename(template.inputPath))).toEqual(['zeta.html', 'alpha.html']);
   });
 
+  test('preserves invocation canonical identities when the current working directory changes', () => {
+    const originalWorkingDirectory = process.cwd();
+    const invocation = migrationInvocation({
+      inputPath: 'templates/source',
+      outputPath: 'generated/output',
+      options: { mode: 'plan' },
+    });
+    const expectedInputPath = path.join(originalWorkingDirectory, 'templates', 'source');
+    const expectedOutputPath = path.join(originalWorkingDirectory, 'generated', 'output');
+
+    try {
+      process.chdir(path.dirname(originalWorkingDirectory));
+
+      const manifest = projectManifest({ invocation, templates: [] });
+
+      expect(manifest.invocation.canonicalInputPath).toBe(expectedInputPath);
+      expect(manifest.invocation.canonicalOutputPath).toBe(expectedOutputPath);
+    } finally {
+      process.chdir(originalWorkingDirectory);
+    }
+  });
+
   test('recursively owns parsed elements, attributes, and every nested source range', () => {
     const manifest = manifestFor();
     const elementSource = { start: 0, end: 26 };
