@@ -85,7 +85,7 @@ function normalizedAuthorityGraph(calls: readonly ProjectWriteAuthorityCall[]): 
     .sort((left, right) => `${left.caller}\0${left.authority}`.localeCompare(`${right.caller}\0${right.authority}`));
 }
 
-describe('migration transaction architecture boundary', () => {
+describe('migration transaction architecture boundary', { timeout: wholeProjectInspectionTimeout }, () => {
   test.each([
     [
       'direct write',
