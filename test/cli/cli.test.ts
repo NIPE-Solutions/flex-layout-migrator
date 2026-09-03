@@ -51,16 +51,36 @@ describe('packaged CLI execution', () => {
     expect(result.stdout).not.toContain('Flex-Layout Migrator');
   });
 
-  test('exits zero after writing a clean migration', async () => {
+  test('plans a clean Tailwind migration by default and applies it only with --write', async () => {
     const input = join(temporaryDirectory, 'input.html');
     const output = join(temporaryDirectory, 'output.html');
+    const report = join(temporaryDirectory, 'report.json');
     await writeFile(input, '<div fxLayout="row"></div>', 'utf8');
 
-    const result = await execute([input, '--output', output]);
+    const plan = await execute([input, '--output', output, '--report', report]);
 
-    expect(result).toMatchObject({ status: 0, stderr: '' });
-    expect(result.stdout).toContain('1 files scanned, 1 changed');
+    expect(plan).toMatchObject({ status: 0, stderr: '' });
+    expect(plan.stdout).toContain('Plan: 1 files scanned, 1 would change');
+    await expect(access(output)).rejects.toMatchObject({ code: 'ENOENT' });
+    expect(await readFile(input, 'utf8')).toBe('<div fxLayout="row"></div>');
+    const planReport = JSON.parse(await readFile(report, 'utf8')) as Record<string, unknown>;
+    expect(planReport).toMatchObject({
+      schemaVersion: 2,
+      mode: 'plan',
+      application: { status: 'skipped', reason: 'plan-only' },
+    });
+    expect(planReport).not.toHaveProperty('dryRun');
+
+    const applied = await execute([input, '--output', output, '--report', report, '--write']);
+
+    expect(applied).toMatchObject({ status: 0, stderr: '' });
+    expect(applied.stdout).toContain('Applied: 1 files scanned, 1 changed');
     expect(await readFile(output, 'utf8')).toBe('<div class="flex flex-row box-border"></div>');
+    expect(JSON.parse(await readFile(report, 'utf8'))).toMatchObject({
+      schemaVersion: 2,
+      mode: 'write',
+      application: { status: 'applied' },
+    });
   });
 
   test('executes the packaged CSS target with its companion stylesheet', async () => {
@@ -69,7 +89,7 @@ describe('packaged CLI execution', () => {
     const stylesheet = join(temporaryDirectory, 'flex-layout-migration.css');
     await writeFile(input, '<div fxLayout="row"></div>', 'utf8');
 
-    const result = await execute([input, '--output', output, '--target', 'css', '--stylesheet', stylesheet]);
+    const result = await execute([input, '--output', output, '--target', 'css', '--stylesheet', stylesheet, '--write']);
 
     expect(result).toMatchObject({ status: 0, stderr: '' });
     expect(result.stdout).toContain('Stylesheet: created flex-layout-migration.css');
@@ -79,16 +99,26 @@ describe('packaged CLI execution', () => {
     expect(await readFile(stylesheet, 'utf8')).toContain(`.${generatedClass} {`);
   });
 
-  test('exits one and preserves output after a parse failure', async () => {
+  test('reports a default plan with parse errors as plan-only and preserves output', async () => {
     const input = join(temporaryDirectory, 'input.html');
     const output = join(temporaryDirectory, 'output.html');
+    const report = join(temporaryDirectory, 'report.json');
     await writeFile(input, '<span fxLayout="row" />', 'utf8');
 
-    const result = await execute([input, '--output', output]);
+    const result = await execute([input, '--output', output, '--report', report]);
 
     expect(result.status).toBe(1);
     expect(result.stdout).toBe('');
+    expect(result.stderr).toContain('Plan: 1 files scanned, 0 would change');
     expect(result.stderr).toContain('[template-parse-error]');
+    const parsedReport = JSON.parse(await readFile(report, 'utf8')) as Record<string, unknown>;
+    expect(parsedReport).toMatchObject({
+      schemaVersion: 2,
+      mode: 'plan',
+      summary: { filesScanned: 1, filesChanged: 0, parseErrors: 1 },
+    });
+    expect(parsedReport.application).toEqual({ status: 'skipped', reason: 'plan-only' });
+    expect(parsedReport).not.toHaveProperty('dryRun');
     await expect(access(output)).rejects.toThrow();
   });
 
@@ -96,7 +126,7 @@ describe('packaged CLI execution', () => {
     const input = join(temporaryDirectory, 'input.html');
     await writeFile(input, '<div [fxFlex]="basis"></div>', 'utf8');
 
-    const result = await execute([input, '--dry-run']);
+    const result = await execute([input]);
 
     expect(result).toMatchObject({ status: 2, stderr: '' });
     expect(result.stdout).toContain('Review 1');
@@ -106,13 +136,18 @@ describe('packaged CLI execution', () => {
 
   test('documents and executes the packaged responsive image opt-in', async () => {
     const help = await execute(['--help']);
+    const normalizedHelp = help.stdout.replace(/\s+/g, ' ');
     expect(help.stdout).toContain('--responsive-images');
+    expect(help.stdout).toContain('--write');
+    expect(normalizedHelp).toContain('Plan Angular Flex-Layout migrations by default; use --write to apply');
+    expect(normalizedHelp).toContain('planned output HTML file or folder');
+    expect(help.stdout).not.toContain('--dry-run');
 
     const input = join(temporaryDirectory, 'input.html');
     const output = join(temporaryDirectory, 'output.html');
     await writeFile(input, '<img src="base.png" src.sm="small.png">', 'utf8');
 
-    const result = await execute([input, '--output', output, '--responsive-images']);
+    const result = await execute([input, '--output', output, '--responsive-images', '--write']);
 
     expect(result).toMatchObject({ status: 0, stderr: '' });
     expect(await readFile(output, 'utf8')).toContain('<picture>');

@@ -3,7 +3,15 @@ import type { ConversionResult } from '../analyzer/conversion-result';
 import type { LocatedFlexLayoutInput } from '../analyzer/flex-layout-attribute.analyzer';
 import type { FileMigrationResult } from '../migrator/file-migration-result';
 import { compareCodeUnits } from '../util/compare-code-units';
-import type { FileReport, MigrationReport, MigrationSummary, ReportResult, StylesheetReport } from './migration-report';
+import type {
+  FileReport,
+  MigrationApplication,
+  MigrationMode,
+  MigrationReport,
+  MigrationSummary,
+  ReportResult,
+  StylesheetReport,
+} from './migration-report';
 
 type PathApi = typeof path.posix;
 
@@ -17,7 +25,8 @@ export class MigrationReportBuilder {
     inputRoot: string,
     outputRoot: string,
     target: 'css' | 'tailwind',
-    dryRun: boolean,
+    mode: MigrationMode,
+    application: MigrationApplication,
     durationMs: number,
     files: readonly FileMigrationResult[],
     stylesheet?: StylesheetMigrationResult,
@@ -31,17 +40,15 @@ export class MigrationReportBuilder {
     const summary = this.summary(fileReports);
 
     return {
-      schemaVersion: 1,
+      schemaVersion: 2,
+      mode,
       target,
-      dryRun,
+      application,
       input: reportPaths.input,
       output: reportPaths.output,
       durationMs: Math.trunc(durationMs),
       summary,
       files: fileReports,
-      ...(summary.parseErrors > 0
-        ? { application: { status: 'skipped' as const, reason: 'parse-errors' as const } }
-        : {}),
       ...(target === 'css' && stylesheet
         ? { stylesheet: this.stylesheetReport(pathApi, inputRoot, singleFile, stylesheet) }
         : {}),

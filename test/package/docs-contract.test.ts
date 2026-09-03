@@ -32,7 +32,8 @@ function expectInOrder(source: string, markers: string[]): void {
 }
 
 function expectCurrentBetaBoundaries(readme: string): void {
-  expect(readme).toContain('writes changed templates in place when neither `--dry-run` nor `--output` is supplied');
+  expect(readme).toContain('plans and validates without changing project templates or stylesheets by default');
+  expect(readme).toContain('`--write` explicitly applies the validated plan');
   expect(readme).toContain('Tailwind CSS v4 remains the default target');
   expect(readme).toContain('native CSS target is available with `--target css --stylesheet <path>`');
   expect(readme).toContain('exactly eight Flex semantic families');
@@ -45,7 +46,6 @@ function expectCurrentBetaBoundaries(readme: string): void {
   expect(readme).toContain('Orientation and print conversion require explicit source-configuration evidence');
   expect(readme).toContain('--orientation-breakpoints');
   expect(readme).toContain('--print-with-breakpoints');
-  expect(readme).toContain('adaptive plan-by-default workflow is a later CLI improvement');
   expect(readme).toContain('unconfirmed recovery');
 }
 
@@ -172,17 +172,47 @@ describe('maintainer documentation', () => {
     const readme = await readRepositoryFile('README.md');
 
     expectInOrder(readme, [
-      'npx @nipe-solutions/flex-layout-codemod@beta ./src --dry-run',
+      'npx @nipe-solutions/flex-layout-codemod@beta ./src',
       'npm install --save-dev --save-exact @nipe-solutions/flex-layout-codemod@beta',
-      'npx flex-layout-codemod ./src --dry-run',
-      'npx flex-layout-codemod ./src --target tailwind',
-      'npx flex-layout-codemod ./src --target css --stylesheet ./src/flex-layout-migration.css',
+      'npx flex-layout-codemod ./src --report ./reports/flex-layout.json',
+      'npx flex-layout-codemod ./src --target tailwind --write',
+      'npx flex-layout-codemod ./src --target css --stylesheet ./src/flex-layout-migration.css --write',
     ]);
     expect(readme).toContain('docs/compatibility.md');
     expect(readme).toContain('--report ./reports/flex-layout.json');
     expect(readme).toContain('--allow-unresolved');
     expect(readme).not.toContain('npm install -g');
     expect(readme).not.toContain('production-ready conversion coverage');
+  });
+
+  it('documents schema-2 execution state and script upgrade guidance', async () => {
+    const [readme, compatibility] = await Promise.all([
+      readRepositoryFile('README.md'),
+      readRepositoryFile('docs/compatibility.md'),
+    ]);
+
+    for (const document of [readme, compatibility]) {
+      expect(document).toContain('schema version `2`');
+      expect(document).toContain('`mode`');
+      expect(document).toContain('`application`');
+      expect(document).toContain('`dryRun`');
+      expect(document).toContain('`--write`');
+      expect(document).toContain('`--dry-run`');
+    }
+    expect(readme).toContain('report is an explicit side effect');
+    expect(readme).toContain('Existing scripts that relied on implicit writes must add `--write`');
+    expect(readme).toContain('Existing preview scripts must remove `--dry-run`');
+  });
+
+  it('distinguishes parse-error application state in plan and write modes', async () => {
+    const readme = await readRepositoryFile('README.md');
+
+    expect(readme).toContain(
+      'In the default plan mode, `application` remains `{ "status": "skipped", "reason": "plan-only" }` even when parsing fails.',
+    );
+    expect(readme).toContain(
+      'When `--write` was requested, a parse error produces `{ "status": "skipped", "reason": "parse-errors" }`.',
+    );
   });
 
   it('documents the current beta safety boundaries', async () => {

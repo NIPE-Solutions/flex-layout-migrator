@@ -41,9 +41,16 @@ export interface TypeScriptInspection {
 export interface TypeScriptProjectInspection {
   readonly filesystemMutationCalls: readonly { readonly sourcePath: string; readonly name: string }[];
   readonly adapterPathInputs: readonly { readonly sourcePath: string; readonly name: string }[];
+  readonly executionModeInputs: readonly { readonly sourcePath: string; readonly name: string }[];
+  readonly transactionApplyCalls: readonly { readonly sourcePath: string; readonly name: 'apply' }[];
+  readonly projectWriteAuthorityCalls: readonly {
+    readonly sourcePath: string;
+    readonly name: 'apply' | 'migrate';
+  }[];
 }
 
 type FilesystemProvenance = '*' | string;
+const inspectionRootPaths = new WeakMap<ts.Program, ReadonlySet<string>>();
 
 function moduleText(expression: ts.Expression | undefined): string | undefined {
   return expression && ts.isStringLiteralLike(expression) ? expression.text : undefined;
@@ -77,6 +84,10 @@ function hasExportModifier(node: ts.Node): boolean {
 function objectPropertyName(property: ts.ObjectLiteralElementLike): string | undefined {
   if (ts.isSpreadAssignment(property)) return undefined;
   const name = property.name;
+  if (ts.isComputedPropertyName(name)) {
+    const expression = unwrapExpression(name.expression);
+    return ts.isStringLiteralLike(expression) || ts.isNumericLiteral(expression) ? expression.text : undefined;
+  }
   return ts.isIdentifier(name) || ts.isStringLiteralLike(name) || ts.isNumericLiteral(name) ? name.text : undefined;
 }
 
@@ -422,6 +433,7 @@ function createProjectProgram(
     }
   }
   const rootNames = sourcePaths.map(sourcePath => resolve(sourcePath));
+  const programRootNames = [...new Set([...rootNames, ...normalizedOverrides.keys()])];
   const options: ts.CompilerOptions = {
     module: ts.ModuleKind.ESNext,
     moduleResolution: ts.ModuleResolutionKind.Bundler,
@@ -440,7 +452,7 @@ function createProjectProgram(
       ? baseGetSourceFile(fileName, languageVersion, onError, shouldCreateNewSourceFile)
       : ts.createSourceFile(fileName, source, languageVersion, true, ts.ScriptKind.TS);
   };
-  const program = ts.createProgram({ rootNames, options, host });
+  const program = ts.createProgram({ rootNames: programRootNames, options, host });
   return { checker: program.getTypeChecker(), program, rootPaths: new Set(rootNames) };
 }
 
@@ -619,15 +631,982 @@ function adapterPathsInType(type: ts.Type, checker: ts.TypeChecker, seen: Set<ts
   return paths;
 }
 
-/** Semantically inspects filesystem provenance and adapter input types across local module edges. */
+function normalizedDeclarationPath(declaration: ts.Declaration): string {
+  return declaration.getSourceFile().fileName.replaceAll('\\', '/');
+}
+
+function typeHasDeclaration(type: ts.Type, symbolName: string, sourcePathSuffix: string): boolean {
+  return [type.aliasSymbol, type.getSymbol()].some(
+    symbol =>
+      symbol?.getName() === symbolName &&
+      symbol.declarations?.some(declaration => normalizedDeclarationPath(declaration).endsWith(sourcePathSuffix)) ===
+        true,
+  );
+}
+
+function isMigrationModeType(type: ts.Type): boolean {
+  return typeHasDeclaration(type, 'MigrationMode', '/migrator/migration-mode.ts');
+}
+
+function isMigrationReportType(type: ts.Type): boolean {
+  return typeHasDeclaration(type, 'MigrationReport', '/report/migration-report.ts');
+}
+
+function canonicalMigrationModeSymbol(
+  symbol: ts.Symbol | undefined,
+  checker: ts.TypeChecker,
+  seenSymbols: ReadonlySet<ts.Symbol> = new Set(),
+): boolean {
+  if (symbol === undefined || seenSymbols.has(symbol)) return false;
+  const nextSeen = new Set(seenSymbols).add(symbol);
+  if ((symbol.flags & ts.SymbolFlags.Alias) !== 0) {
+    const aliased = checker.getAliasedSymbol(symbol);
+    if (aliased !== symbol && canonicalMigrationModeSymbol(aliased, checker, nextSeen)) return true;
+  }
+  return (symbol.declarations ?? []).some(declaration => {
+    if (
+      ts.isTypeAliasDeclaration(declaration) &&
+      declaration.name.text === 'MigrationMode' &&
+      normalizedDeclarationPath(declaration).endsWith('/migrator/migration-mode.ts')
+    ) {
+      return true;
+    }
+    return (
+      ts.isTypeAliasDeclaration(declaration) && canonicalMigrationModeTypeNode(declaration.type, checker, nextSeen)
+    );
+  });
+}
+
+function canonicalMigrationModeTypeNode(
+  typeNode: ts.TypeNode | undefined,
+  checker: ts.TypeChecker,
+  seenSymbols: ReadonlySet<ts.Symbol> = new Set(),
+): boolean {
+  if (typeNode === undefined) return false;
+  if (ts.isParenthesizedTypeNode(typeNode)) {
+    return canonicalMigrationModeTypeNode(typeNode.type, checker, seenSymbols);
+  }
+  if (ts.isNamedTupleMember(typeNode) || ts.isOptionalTypeNode(typeNode) || ts.isRestTypeNode(typeNode)) {
+    return canonicalMigrationModeTypeNode(typeNode.type, checker, seenSymbols);
+  }
+  if (ts.isUnionTypeNode(typeNode) || ts.isIntersectionTypeNode(typeNode)) {
+    return typeNode.types.some(type => canonicalMigrationModeTypeNode(type, checker, seenSymbols));
+  }
+  if (ts.isTupleTypeNode(typeNode)) {
+    return typeNode.elements.some(type => canonicalMigrationModeTypeNode(type, checker, seenSymbols));
+  }
+  if (ts.isArrayTypeNode(typeNode)) {
+    return canonicalMigrationModeTypeNode(typeNode.elementType, checker, seenSymbols);
+  }
+  if (ts.isTypeOperatorNode(typeNode)) {
+    return canonicalMigrationModeTypeNode(typeNode.type, checker, seenSymbols);
+  }
+  if (!ts.isTypeReferenceNode(typeNode)) return false;
+  return (
+    canonicalMigrationModeSymbol(checker.getSymbolAtLocation(typeNode.typeName), checker, seenSymbols) ||
+    typeNode.typeArguments?.some(type => canonicalMigrationModeTypeNode(type, checker, seenSymbols)) === true
+  );
+}
+
+function declarationHasCanonicalMigrationMode(declaration: ts.Declaration, checker: ts.TypeChecker): boolean {
+  return (
+    (ts.isParameter(declaration) || ts.isPropertyDeclaration(declaration) || ts.isPropertySignature(declaration)) &&
+    canonicalMigrationModeTypeNode(declaration.type, checker)
+  );
+}
+
+function definedTypeParts(type: ts.Type): readonly ts.Type[] {
+  const parts = type.isUnion() ? type.types : [type];
+  return parts.filter(part => (part.flags & ts.TypeFlags.Undefined) === 0);
+}
+
+function isExactModeUnion(type: ts.Type): boolean {
+  const parts = definedTypeParts(type);
+  if (parts.length !== 2) return false;
+  const values = parts.flatMap(part => (part.isStringLiteral() ? [part.value] : []));
+  return values.length === 2 && values.includes('plan') && values.includes('write');
+}
+
+function isBooleanType(type: ts.Type): boolean {
+  if ((type.flags & ts.TypeFlags.Boolean) !== 0) return true;
+  const parts = definedTypeParts(type);
+  return parts.length === 2 && parts.every(part => (part.flags & ts.TypeFlags.BooleanLiteral) !== 0);
+}
+
+function executionModeInputsInType(type: ts.Type, checker: ts.TypeChecker, seen: Set<ts.Type>): readonly string[] {
+  if (seen.has(type) || isMigrationReportType(type)) return [];
+  seen.add(type);
+
+  const inputs: string[] = [];
+  for (const property of checker.getPropertiesOfType(type)) {
+    const declaration = property.valueDeclaration ?? property.declarations?.[0];
+    if (declaration === undefined) continue;
+    const name = property.getName();
+    const propertyType = checker.getTypeOfSymbolAtLocation(property, declaration);
+    if (
+      declarationHasCanonicalMigrationMode(declaration, checker) ||
+      isMigrationModeType(propertyType) ||
+      (name === 'mode' && isExactModeUnion(propertyType))
+    ) {
+      inputs.push(name);
+      continue;
+    }
+    if (name === 'write' && isBooleanType(propertyType)) {
+      inputs.push(name);
+      continue;
+    }
+    inputs.push(...executionModeInputsInType(propertyType, checker, seen));
+  }
+  for (const part of type.isUnionOrIntersection() ? type.types : []) {
+    inputs.push(...executionModeInputsInType(part, checker, seen));
+  }
+  return inputs;
+}
+
+function executionModeInputsInParameter(
+  parameter: ts.ParameterDeclaration,
+  checker: ts.TypeChecker,
+): readonly string[] {
+  const type = checker.getTypeAtLocation(parameter);
+  if (ts.isIdentifier(parameter.name)) {
+    const name = parameter.name.text;
+    if (declarationHasCanonicalMigrationMode(parameter, checker) || isMigrationModeType(type)) return [name];
+    if (name === 'mode' && isExactModeUnion(type)) return [name];
+    if (name === 'write' && isBooleanType(type)) return [name];
+  }
+  return executionModeInputsInType(type, checker, new Set());
+}
+
+function transactionApplyDeclaration(declaration: ts.Declaration): boolean {
+  if (!normalizedDeclarationPath(declaration).endsWith('/transaction/migration-transaction.ts')) return false;
+  for (let current: ts.Node | undefined = declaration; current !== undefined; current = current.parent) {
+    if (ts.isClassDeclaration(current)) return current.name?.text === 'MigrationTransaction';
+  }
+  return false;
+}
+
+function transactionApplySymbol(symbol: ts.Symbol | undefined): boolean {
+  return (
+    symbol?.getName() === 'apply' &&
+    symbol.declarations?.some(declaration => transactionApplyDeclaration(declaration)) === true
+  );
+}
+
+function migrationTransactionClassSymbol(
+  symbol: ts.Symbol | undefined,
+  checker: ts.TypeChecker,
+  seenSymbols: ReadonlySet<ts.Symbol> = new Set(),
+): boolean {
+  if (symbol === undefined || seenSymbols.has(symbol)) return false;
+  const nextSeen = new Set(seenSymbols).add(symbol);
+  if ((symbol.flags & ts.SymbolFlags.Alias) !== 0) {
+    const aliased = checker.getAliasedSymbol(symbol);
+    if (aliased !== symbol && migrationTransactionClassSymbol(aliased, checker, nextSeen)) return true;
+  }
+  return (
+    symbol.getName() === 'MigrationTransaction' &&
+    symbol.declarations?.some(
+      declaration =>
+        ts.isClassDeclaration(declaration) &&
+        normalizedDeclarationPath(declaration).endsWith('/transaction/migration-transaction.ts'),
+    ) === true
+  );
+}
+
+function migratorMigrateDeclaration(declaration: ts.Declaration): boolean {
+  if (!normalizedDeclarationPath(declaration).endsWith('/migrator/migrator.ts')) return false;
+  for (let current: ts.Node | undefined = declaration; current !== undefined; current = current.parent) {
+    if (ts.isClassDeclaration(current)) return current.name?.text === 'Migrator';
+  }
+  return false;
+}
+
+function migratorMigrateSymbol(symbol: ts.Symbol | undefined): boolean {
+  return (
+    symbol?.getName() === 'migrate' &&
+    symbol.declarations?.some(declaration => migratorMigrateDeclaration(declaration)) === true
+  );
+}
+
+function migratorClassSymbol(
+  symbol: ts.Symbol | undefined,
+  checker: ts.TypeChecker,
+  seenSymbols: ReadonlySet<ts.Symbol> = new Set(),
+): boolean {
+  if (symbol === undefined || seenSymbols.has(symbol)) return false;
+  const nextSeen = new Set(seenSymbols).add(symbol);
+  if ((symbol.flags & ts.SymbolFlags.Alias) !== 0) {
+    const aliased = checker.getAliasedSymbol(symbol);
+    if (aliased !== symbol && migratorClassSymbol(aliased, checker, nextSeen)) return true;
+  }
+  return (
+    symbol.getName() === 'Migrator' &&
+    symbol.declarations?.some(
+      declaration =>
+        ts.isClassDeclaration(declaration) && normalizedDeclarationPath(declaration).endsWith('/migrator/migrator.ts'),
+    ) === true
+  );
+}
+
+function localModuleCandidates(reference: string, containingSourcePath: string): readonly string[] {
+  if (!reference.startsWith('.')) return [];
+  const base = resolve(dirname(containingSourcePath), reference);
+  const withoutJavaScriptExtension = base.replace(/\.[cm]?js$/u, '');
+  return [
+    base,
+    `${withoutJavaScriptExtension}.ts`,
+    `${withoutJavaScriptExtension}.tsx`,
+    join(withoutJavaScriptExtension, 'index.ts'),
+  ].map(candidate => resolve(candidate));
+}
+
+interface CommonJsModuleReference {
+  readonly reference: string;
+  readonly containingSourcePath: string;
+}
+
+function commonJsExportedSymbol(
+  moduleReference: CommonJsModuleReference,
+  exportedName: string,
+  checker: ts.TypeChecker,
+  program: ts.Program,
+): ts.Symbol | undefined {
+  const sourceFile = localModuleCandidates(moduleReference.reference, moduleReference.containingSourcePath)
+    .map(candidate => program.getSourceFile(candidate))
+    .find((candidate): candidate is ts.SourceFile => candidate !== undefined);
+  if (sourceFile === undefined) return undefined;
+  const moduleSymbol = checker.getSymbolAtLocation(sourceFile);
+  return moduleSymbol === undefined
+    ? undefined
+    : checker.getExportsOfModule(moduleSymbol).find(symbol => symbol.getName() === exportedName);
+}
+
+function commonJsModuleReference(
+  expression: ts.Expression,
+  checker: ts.TypeChecker,
+  seenSymbols: ReadonlySet<ts.Symbol> = new Set(),
+): CommonJsModuleReference | undefined {
+  const unwrapped = unwrapExpression(expression);
+  if (ts.isCallExpression(unwrapped)) {
+    const reference = calledModule(unwrapped);
+    if (reference !== undefined) {
+      return { reference, containingSourcePath: unwrapped.getSourceFile().fileName };
+    }
+  }
+  const symbol = checker.getSymbolAtLocation(unwrapped);
+  if (symbol === undefined || seenSymbols.has(symbol)) return undefined;
+  const nextSeen = new Set(seenSymbols).add(symbol);
+  for (const declaration of symbol.declarations ?? []) {
+    if (ts.isVariableDeclaration(declaration) && declaration.initializer !== undefined) {
+      const reference = commonJsModuleReference(declaration.initializer, checker, nextSeen);
+      if (reference !== undefined) return reference;
+    }
+  }
+  return undefined;
+}
+
+function moduleExportsMigrationTransaction(
+  moduleReference: CommonJsModuleReference,
+  exportedName: string,
+  checker: ts.TypeChecker,
+  program: ts.Program,
+): boolean {
+  const candidates = localModuleCandidates(moduleReference.reference, moduleReference.containingSourcePath);
+  if (
+    exportedName === 'MigrationTransaction' &&
+    candidates.some(candidate => candidate.replaceAll('\\', '/').endsWith('/transaction/migration-transaction.ts'))
+  ) {
+    return true;
+  }
+
+  return migrationTransactionClassSymbol(
+    commonJsExportedSymbol(moduleReference, exportedName, checker, program),
+    checker,
+  );
+}
+
+function moduleExportsMigrator(
+  moduleReference: CommonJsModuleReference,
+  exportedName: string,
+  checker: ts.TypeChecker,
+  program: ts.Program,
+): boolean {
+  const candidates = localModuleCandidates(moduleReference.reference, moduleReference.containingSourcePath);
+  if (
+    exportedName === 'Migrator' &&
+    candidates.some(candidate => candidate.replaceAll('\\', '/').endsWith('/migrator/migrator.ts'))
+  ) {
+    return true;
+  }
+
+  return migratorClassSymbol(commonJsExportedSymbol(moduleReference, exportedName, checker, program), checker);
+}
+
+function migrationTransactionConstructorProvenance(
+  expression: ts.Expression,
+  checker: ts.TypeChecker,
+  program: ts.Program,
+  seenSymbols: ReadonlySet<ts.Symbol> = new Set(),
+): boolean {
+  const unwrapped = unwrapExpression(expression);
+  const directSymbol = checker.getSymbolAtLocation(unwrapped);
+  if (migrationTransactionClassSymbol(directSymbol, checker)) return true;
+
+  if (ts.isPropertyAccessExpression(unwrapped) || ts.isElementAccessExpression(unwrapped)) {
+    const exportedName = ts.isPropertyAccessExpression(unwrapped)
+      ? unwrapped.name.text
+      : moduleText(unwrapped.argumentExpression);
+    const moduleReference = commonJsModuleReference(unwrapped.expression, checker, seenSymbols);
+    if (
+      exportedName !== undefined &&
+      moduleReference !== undefined &&
+      moduleExportsMigrationTransaction(moduleReference, exportedName, checker, program)
+    ) {
+      return true;
+    }
+  }
+
+  if (directSymbol === undefined || seenSymbols.has(directSymbol)) return false;
+  const nextSeen = new Set(seenSymbols).add(directSymbol);
+  if ((directSymbol.flags & ts.SymbolFlags.Alias) !== 0) {
+    const aliased = checker.getAliasedSymbol(directSymbol);
+    if (migrationTransactionClassSymbol(aliased, checker)) return true;
+  }
+  return (directSymbol.declarations ?? []).some(declaration => {
+    if (ts.isVariableDeclaration(declaration) && declaration.initializer !== undefined) {
+      return migrationTransactionConstructorProvenance(declaration.initializer, checker, program, nextSeen);
+    }
+    if (ts.isBindingElement(declaration)) {
+      const pattern = declaration.parent;
+      const variable =
+        ts.isObjectBindingPattern(pattern) || ts.isArrayBindingPattern(pattern) ? pattern.parent : undefined;
+      if (variable === undefined || !ts.isVariableDeclaration(variable) || variable.initializer === undefined) {
+        return false;
+      }
+      const exportedName = bindingElementPropertyName(declaration);
+      const moduleReference = commonJsModuleReference(variable.initializer, checker, nextSeen);
+      return (
+        exportedName !== undefined &&
+        moduleReference !== undefined &&
+        moduleExportsMigrationTransaction(moduleReference, exportedName, checker, program)
+      );
+    }
+    return false;
+  });
+}
+
+function migratorConstructorProvenance(
+  expression: ts.Expression,
+  checker: ts.TypeChecker,
+  program: ts.Program,
+  seenSymbols: ReadonlySet<ts.Symbol> = new Set(),
+): boolean {
+  const unwrapped = unwrapExpression(expression);
+  const directSymbol = checker.getSymbolAtLocation(unwrapped);
+  if (migratorClassSymbol(directSymbol, checker)) return true;
+
+  if (ts.isPropertyAccessExpression(unwrapped) || ts.isElementAccessExpression(unwrapped)) {
+    const exportedName = ts.isPropertyAccessExpression(unwrapped)
+      ? unwrapped.name.text
+      : moduleText(unwrapped.argumentExpression);
+    const moduleReference = commonJsModuleReference(unwrapped.expression, checker, seenSymbols);
+    if (
+      exportedName !== undefined &&
+      moduleReference !== undefined &&
+      moduleExportsMigrator(moduleReference, exportedName, checker, program)
+    ) {
+      return true;
+    }
+  }
+
+  if (directSymbol === undefined || seenSymbols.has(directSymbol)) return false;
+  const nextSeen = new Set(seenSymbols).add(directSymbol);
+  if ((directSymbol.flags & ts.SymbolFlags.Alias) !== 0) {
+    const aliased = checker.getAliasedSymbol(directSymbol);
+    if (migratorClassSymbol(aliased, checker)) return true;
+  }
+  return (directSymbol.declarations ?? []).some(declaration => {
+    if (ts.isVariableDeclaration(declaration) && declaration.initializer !== undefined) {
+      return migratorConstructorProvenance(declaration.initializer, checker, program, nextSeen);
+    }
+    if (ts.isBindingElement(declaration)) {
+      const pattern = declaration.parent;
+      const variable =
+        ts.isObjectBindingPattern(pattern) || ts.isArrayBindingPattern(pattern) ? pattern.parent : undefined;
+      if (variable === undefined || !ts.isVariableDeclaration(variable) || variable.initializer === undefined) {
+        return false;
+      }
+      const exportedName = bindingElementPropertyName(declaration);
+      const moduleReference = commonJsModuleReference(variable.initializer, checker, nextSeen);
+      return (
+        exportedName !== undefined &&
+        moduleReference !== undefined &&
+        moduleExportsMigrator(moduleReference, exportedName, checker, program)
+      );
+    }
+    return false;
+  });
+}
+
+function migrationTransactionReceiverProvenance(
+  expression: ts.Expression,
+  checker: ts.TypeChecker,
+  program: ts.Program,
+  seenSymbols: ReadonlySet<ts.Symbol> = new Set(),
+): boolean {
+  const unwrapped = unwrapExpression(expression);
+  const applyProperty = checker.getPropertyOfType(checker.getTypeAtLocation(unwrapped), 'apply');
+  if (transactionApplySymbol(applyProperty)) return true;
+  if (ts.isNewExpression(unwrapped)) {
+    return migrationTransactionConstructorProvenance(unwrapped.expression, checker, program, seenSymbols);
+  }
+
+  const symbol = checker.getSymbolAtLocation(unwrapped);
+  if (symbol === undefined || seenSymbols.has(symbol)) return false;
+  const nextSeen = new Set(seenSymbols).add(symbol);
+  return (symbol.declarations ?? []).some(
+    declaration =>
+      ts.isVariableDeclaration(declaration) &&
+      declaration.initializer !== undefined &&
+      migrationTransactionReceiverProvenance(declaration.initializer, checker, program, nextSeen),
+  );
+}
+
+function migratorReceiverProvenance(
+  expression: ts.Expression,
+  checker: ts.TypeChecker,
+  program: ts.Program,
+  seenSymbols: ReadonlySet<ts.Symbol> = new Set(),
+): boolean {
+  const unwrapped = unwrapExpression(expression);
+  const migrateProperty = checker.getPropertyOfType(checker.getTypeAtLocation(unwrapped), 'migrate');
+  if (migratorMigrateSymbol(migrateProperty)) return true;
+  if (ts.isNewExpression(unwrapped)) {
+    return migratorConstructorProvenance(unwrapped.expression, checker, program, seenSymbols);
+  }
+
+  const symbol = checker.getSymbolAtLocation(unwrapped);
+  if (symbol === undefined || seenSymbols.has(symbol)) return false;
+  const nextSeen = new Set(seenSymbols).add(symbol);
+  return (symbol.declarations ?? []).some(
+    declaration =>
+      ts.isVariableDeclaration(declaration) &&
+      declaration.initializer !== undefined &&
+      migratorReceiverProvenance(declaration.initializer, checker, program, nextSeen),
+  );
+}
+
+function transactionApplySymbolProvenance(
+  symbol: ts.Symbol | undefined,
+  checker: ts.TypeChecker,
+  program: ts.Program,
+  seenSymbols: ReadonlySet<ts.Symbol>,
+): boolean {
+  if (symbol === undefined || seenSymbols.has(symbol)) return false;
+  if (migratorMigrateSymbol(symbol)) return false;
+  const nextSeen = new Set(seenSymbols).add(symbol);
+  if (transactionApplySymbol(symbol)) return true;
+  if ((symbol.flags & ts.SymbolFlags.Alias) !== 0) {
+    const aliased = checker.getAliasedSymbol(symbol);
+    if (transactionApplySymbolProvenance(aliased, checker, program, nextSeen)) return true;
+  }
+  return (symbol.declarations ?? []).some(declaration => {
+    const callableBody = declarationCallableBody(declaration);
+    if (callableBody !== undefined && shouldTraceCallableBody(declaration, program)) {
+      return callableBodyContainsTransactionApplication(callableBody, checker, program, nextSeen);
+    }
+    if (
+      (ts.isVariableDeclaration(declaration) ||
+        ts.isPropertyAssignment(declaration) ||
+        ts.isPropertyDeclaration(declaration)) &&
+      declaration.initializer !== undefined
+    ) {
+      return transactionApplyCallableProvenance(declaration.initializer, checker, program, nextSeen);
+    }
+    if (ts.isShorthandPropertyAssignment(declaration)) {
+      return transactionApplySymbolProvenance(
+        checker.getShorthandAssignmentValueSymbol(declaration),
+        checker,
+        program,
+        nextSeen,
+      );
+    }
+    if (ts.isExportAssignment(declaration)) {
+      return transactionApplyCallableProvenance(declaration.expression, checker, program, nextSeen);
+    }
+    if (ts.isBindingElement(declaration)) {
+      const pattern = declaration.parent;
+      const variable =
+        ts.isObjectBindingPattern(pattern) || ts.isArrayBindingPattern(pattern) ? pattern.parent : undefined;
+      if (variable === undefined || !ts.isVariableDeclaration(variable) || variable.initializer === undefined) {
+        return false;
+      }
+      const propertyName = bindingElementPropertyName(declaration);
+      if (propertyName === undefined) return false;
+      const moduleReference = commonJsModuleReference(variable.initializer, checker, nextSeen);
+      if (moduleReference !== undefined) {
+        const exportedSymbol = commonJsExportedSymbol(moduleReference, propertyName, checker, program);
+        if (transactionApplySymbolProvenance(exportedSymbol, checker, program, nextSeen)) return true;
+      }
+      const property = checker.getPropertyOfType(checker.getTypeAtLocation(variable.initializer), propertyName);
+      return (
+        transactionApplySymbolProvenance(property, checker, program, nextSeen) ||
+        (propertyName === 'apply' &&
+          migrationTransactionReceiverProvenance(variable.initializer, checker, program, nextSeen))
+      );
+    }
+    return false;
+  });
+}
+
+function transactionApplyCallableProvenance(
+  expression: ts.Expression,
+  checker: ts.TypeChecker,
+  program: ts.Program,
+  seenSymbols: ReadonlySet<ts.Symbol> = new Set(),
+): boolean {
+  const unwrapped = unwrapExpression(expression);
+  if (ts.isArrowFunction(unwrapped) || ts.isFunctionExpression(unwrapped)) {
+    return callableBodyContainsTransactionApplication(unwrapped.body, checker, program, seenSymbols);
+  }
+  if (ts.isCallExpression(unwrapped)) {
+    const target = unwrapExpression(unwrapped.expression);
+    if (
+      (ts.isPropertyAccessExpression(target) || ts.isElementAccessExpression(target)) &&
+      (ts.isPropertyAccessExpression(target) ? target.name.text : moduleText(target.argumentExpression)) === 'bind'
+    ) {
+      return transactionApplyCallableProvenance(target.expression, checker, program, seenSymbols);
+    }
+    return false;
+  }
+
+  if (ts.isPropertyAccessExpression(unwrapped) || ts.isElementAccessExpression(unwrapped)) {
+    const name = ts.isPropertyAccessExpression(unwrapped)
+      ? unwrapped.name.text
+      : moduleText(unwrapped.argumentExpression);
+    const moduleReference = commonJsModuleReference(unwrapped.expression, checker, seenSymbols);
+    if (name !== undefined && moduleReference !== undefined) {
+      const exportedSymbol = commonJsExportedSymbol(moduleReference, name, checker, program);
+      if (transactionApplySymbolProvenance(exportedSymbol, checker, program, seenSymbols)) return true;
+    }
+    if (name === 'apply') {
+      const property = checker.getPropertyOfType(checker.getTypeAtLocation(unwrapped.expression), name);
+      if (
+        transactionApplySymbol(property) ||
+        migrationTransactionReceiverProvenance(unwrapped.expression, checker, program, seenSymbols)
+      ) {
+        return true;
+      }
+    }
+    const propertyNode = ts.isPropertyAccessExpression(unwrapped) ? unwrapped.name : unwrapped.argumentExpression;
+    if (
+      propertyNode !== undefined &&
+      transactionApplySymbolProvenance(checker.getSymbolAtLocation(propertyNode), checker, program, seenSymbols)
+    ) {
+      return true;
+    }
+  }
+
+  const symbol = checker.getSymbolAtLocation(unwrapped);
+  return transactionApplySymbolProvenance(symbol, checker, program, seenSymbols);
+}
+
+function transactionApplicationInvocation(
+  expression: ts.CallExpression,
+  checker: ts.TypeChecker,
+  program: ts.Program,
+  seenSymbols: ReadonlySet<ts.Symbol> = new Set(),
+): boolean {
+  const target = unwrapExpression(expression.expression);
+  if (ts.isPropertyAccessExpression(target) || ts.isElementAccessExpression(target)) {
+    const name = ts.isPropertyAccessExpression(target) ? target.name.text : moduleText(target.argumentExpression);
+    if (
+      (name === 'call' || name === 'apply') &&
+      transactionApplyCallableProvenance(target.expression, checker, program, seenSymbols)
+    ) {
+      return true;
+    }
+  }
+  return transactionApplyCallableProvenance(expression.expression, checker, program, seenSymbols);
+}
+
+type MigrationModeLiteral = 'plan' | 'write';
+type MigrationOptionsMode = MigrationModeLiteral | 'absent' | 'unknown';
+
+function isConstVariableDeclaration(declaration: ts.VariableDeclaration): boolean {
+  return ts.isVariableDeclarationList(declaration.parent) && (declaration.parent.flags & ts.NodeFlags.Const) !== 0;
+}
+
+function isConstAssertion(expression: ts.Expression): boolean {
+  let current = expression;
+  while (ts.isParenthesizedExpression(current) || ts.isSatisfiesExpression(current)) {
+    current = current.expression;
+  }
+  if (!ts.isAsExpression(current) && !ts.isTypeAssertionExpression(current)) return false;
+  return (
+    ts.isTypeReferenceNode(current.type) &&
+    ts.isIdentifier(current.type.typeName) &&
+    current.type.typeName.text === 'const'
+  );
+}
+
+function migrationModeLiteral(
+  expression: ts.Expression,
+  checker: ts.TypeChecker,
+  seenSymbols: ReadonlySet<ts.Symbol> = new Set(),
+): MigrationModeLiteral | undefined {
+  const unwrapped = unwrapExpression(expression);
+  if (ts.isStringLiteralLike(unwrapped)) {
+    return unwrapped.text === 'plan' || unwrapped.text === 'write' ? unwrapped.text : undefined;
+  }
+  const type = checker.getTypeAtLocation(unwrapped);
+  if (type.isStringLiteral() && (type.value === 'plan' || type.value === 'write')) return type.value;
+
+  const symbol = checker.getSymbolAtLocation(unwrapped);
+  if (symbol === undefined || seenSymbols.has(symbol)) return undefined;
+  const nextSeen = new Set(seenSymbols).add(symbol);
+  for (const declaration of symbol.declarations ?? []) {
+    if (
+      ts.isVariableDeclaration(declaration) &&
+      declaration.initializer !== undefined &&
+      isConstVariableDeclaration(declaration)
+    ) {
+      const mode = migrationModeLiteral(declaration.initializer, checker, nextSeen);
+      if (mode !== undefined) return mode;
+    }
+  }
+  return undefined;
+}
+
+function migrationModeFromOptions(
+  expression: ts.Expression,
+  checker: ts.TypeChecker,
+  seenSymbols: ReadonlySet<ts.Symbol> = new Set(),
+): MigrationOptionsMode {
+  const unwrapped = unwrapExpression(expression);
+  if (ts.isObjectLiteralExpression(unwrapped)) {
+    let mode: MigrationOptionsMode = 'absent';
+    for (const property of unwrapped.properties) {
+      if (ts.isSpreadAssignment(property)) {
+        const spreadMode = migrationModeFromOptions(property.expression, checker, seenSymbols);
+        if (spreadMode !== 'absent') mode = spreadMode;
+        continue;
+      }
+      const propertyName = objectPropertyName(property);
+      if (propertyName === undefined && ts.isComputedPropertyName(property.name)) {
+        mode = 'unknown';
+        continue;
+      }
+      if (propertyName !== 'mode') continue;
+      if (ts.isPropertyAssignment(property)) {
+        mode = migrationModeLiteral(property.initializer, checker, seenSymbols) ?? 'unknown';
+      } else if (ts.isShorthandPropertyAssignment(property)) {
+        mode = migrationModeLiteral(property.name, checker, seenSymbols) ?? 'unknown';
+      } else {
+        mode = 'unknown';
+      }
+    }
+    return mode;
+  }
+
+  const symbol = checker.getSymbolAtLocation(unwrapped);
+  if (symbol === undefined || seenSymbols.has(symbol)) return 'unknown';
+  const nextSeen = new Set(seenSymbols).add(symbol);
+  for (const declaration of symbol.declarations ?? []) {
+    if (
+      ts.isVariableDeclaration(declaration) &&
+      declaration.initializer !== undefined &&
+      isConstVariableDeclaration(declaration) &&
+      isConstAssertion(declaration.initializer)
+    ) {
+      return migrationModeFromOptions(declaration.initializer, checker, nextSeen);
+    }
+  }
+  return 'unknown';
+}
+
+function migrationInvocationCanWrite(options: ts.Expression | undefined, checker: ts.TypeChecker): boolean {
+  if (options === undefined) return false;
+  const unwrapped = unwrapExpression(options);
+  if (ts.isIdentifier(unwrapped) && unwrapped.text === 'undefined') return false;
+  return migrationModeFromOptions(unwrapped, checker) !== 'plan';
+}
+
+interface MigratorMigrateCallableProvenance {
+  readonly boundArguments: readonly ts.Expression[];
+}
+
+function migratorMigrateSymbolProvenance(
+  symbol: ts.Symbol | undefined,
+  checker: ts.TypeChecker,
+  program: ts.Program,
+  seenSymbols: ReadonlySet<ts.Symbol>,
+): MigratorMigrateCallableProvenance | undefined {
+  if (symbol === undefined || seenSymbols.has(symbol)) return undefined;
+  const nextSeen = new Set(seenSymbols).add(symbol);
+  if (migratorMigrateSymbol(symbol)) return { boundArguments: [] };
+  if ((symbol.flags & ts.SymbolFlags.Alias) !== 0) {
+    const aliased = checker.getAliasedSymbol(symbol);
+    const provenance = migratorMigrateSymbolProvenance(aliased, checker, program, nextSeen);
+    if (provenance !== undefined) return provenance;
+  }
+  for (const declaration of symbol.declarations ?? []) {
+    if (
+      (ts.isVariableDeclaration(declaration) ||
+        ts.isPropertyAssignment(declaration) ||
+        ts.isPropertyDeclaration(declaration)) &&
+      declaration.initializer !== undefined
+    ) {
+      const provenance = migratorMigrateCallableProvenance(declaration.initializer, checker, program, nextSeen);
+      if (provenance !== undefined) return provenance;
+    }
+    if (ts.isShorthandPropertyAssignment(declaration)) {
+      const provenance = migratorMigrateSymbolProvenance(
+        checker.getShorthandAssignmentValueSymbol(declaration),
+        checker,
+        program,
+        nextSeen,
+      );
+      if (provenance !== undefined) return provenance;
+    }
+    if (ts.isExportAssignment(declaration)) {
+      const provenance = migratorMigrateCallableProvenance(declaration.expression, checker, program, nextSeen);
+      if (provenance !== undefined) return provenance;
+    }
+    if (ts.isBindingElement(declaration)) {
+      const pattern = declaration.parent;
+      const variable =
+        ts.isObjectBindingPattern(pattern) || ts.isArrayBindingPattern(pattern) ? pattern.parent : undefined;
+      if (variable === undefined || !ts.isVariableDeclaration(variable) || variable.initializer === undefined) {
+        continue;
+      }
+      const propertyName = bindingElementPropertyName(declaration);
+      if (propertyName === undefined) continue;
+      const property = checker.getPropertyOfType(checker.getTypeAtLocation(variable.initializer), propertyName);
+      const provenance = migratorMigrateSymbolProvenance(property, checker, program, nextSeen);
+      if (provenance !== undefined) return provenance;
+      if (propertyName === 'migrate' && migratorReceiverProvenance(variable.initializer, checker, program, nextSeen)) {
+        return { boundArguments: [] };
+      }
+    }
+  }
+  return undefined;
+}
+
+function migratorMigrateCallableProvenance(
+  expression: ts.Expression,
+  checker: ts.TypeChecker,
+  program: ts.Program,
+  seenSymbols: ReadonlySet<ts.Symbol> = new Set(),
+): MigratorMigrateCallableProvenance | undefined {
+  const unwrapped = unwrapExpression(expression);
+  if (ts.isCallExpression(unwrapped)) {
+    const target = unwrapExpression(unwrapped.expression);
+    if (
+      (ts.isPropertyAccessExpression(target) || ts.isElementAccessExpression(target)) &&
+      (ts.isPropertyAccessExpression(target) ? target.name.text : moduleText(target.argumentExpression)) === 'bind'
+    ) {
+      const provenance = migratorMigrateCallableProvenance(target.expression, checker, program, seenSymbols);
+      return provenance === undefined
+        ? undefined
+        : { boundArguments: [...provenance.boundArguments, ...unwrapped.arguments.slice(1)] };
+    }
+    return undefined;
+  }
+
+  if (ts.isPropertyAccessExpression(unwrapped) || ts.isElementAccessExpression(unwrapped)) {
+    const name = ts.isPropertyAccessExpression(unwrapped)
+      ? unwrapped.name.text
+      : moduleText(unwrapped.argumentExpression);
+    if (name === 'migrate') {
+      const property = checker.getPropertyOfType(checker.getTypeAtLocation(unwrapped.expression), name);
+      if (migratorMigrateSymbol(property) || migratorReceiverProvenance(unwrapped.expression, checker, program)) {
+        return { boundArguments: [] };
+      }
+    }
+    const propertyNode = ts.isPropertyAccessExpression(unwrapped) ? unwrapped.name : unwrapped.argumentExpression;
+    if (propertyNode !== undefined) {
+      const provenance = migratorMigrateSymbolProvenance(
+        checker.getSymbolAtLocation(propertyNode),
+        checker,
+        program,
+        seenSymbols,
+      );
+      if (provenance !== undefined) return provenance;
+    }
+  }
+
+  return migratorMigrateSymbolProvenance(checker.getSymbolAtLocation(unwrapped), checker, program, seenSymbols);
+}
+
+function migrationWriteSymbolProvenance(
+  symbol: ts.Symbol | undefined,
+  checker: ts.TypeChecker,
+  program: ts.Program,
+  seenSymbols: ReadonlySet<ts.Symbol>,
+): boolean {
+  if (symbol === undefined || seenSymbols.has(symbol)) return false;
+  const nextSeen = new Set(seenSymbols).add(symbol);
+  if ((symbol.flags & ts.SymbolFlags.Alias) !== 0) {
+    const aliased = checker.getAliasedSymbol(symbol);
+    if (migrationWriteSymbolProvenance(aliased, checker, program, nextSeen)) return true;
+  }
+  return (symbol.declarations ?? []).some(declaration => {
+    const callableBody = declarationCallableBody(declaration);
+    if (callableBody !== undefined && shouldTraceCallableBody(declaration, program)) {
+      return callableBodyContainsMigrationWrite(callableBody, checker, program, nextSeen);
+    }
+    if (
+      (ts.isVariableDeclaration(declaration) ||
+        ts.isPropertyAssignment(declaration) ||
+        ts.isPropertyDeclaration(declaration)) &&
+      declaration.initializer !== undefined
+    ) {
+      return migrationWriteCallableProvenance(declaration.initializer, checker, program, nextSeen);
+    }
+    if (ts.isShorthandPropertyAssignment(declaration)) {
+      return migrationWriteSymbolProvenance(
+        checker.getShorthandAssignmentValueSymbol(declaration),
+        checker,
+        program,
+        nextSeen,
+      );
+    }
+    if (ts.isExportAssignment(declaration)) {
+      return migrationWriteCallableProvenance(declaration.expression, checker, program, nextSeen);
+    }
+    return false;
+  });
+}
+
+function migrationWriteCallableProvenance(
+  expression: ts.Expression,
+  checker: ts.TypeChecker,
+  program: ts.Program,
+  seenSymbols: ReadonlySet<ts.Symbol> = new Set(),
+): boolean {
+  const unwrapped = unwrapExpression(expression);
+  if (ts.isArrowFunction(unwrapped) || ts.isFunctionExpression(unwrapped)) {
+    return callableBodyContainsMigrationWrite(unwrapped.body, checker, program, seenSymbols);
+  }
+  return migrationWriteSymbolProvenance(checker.getSymbolAtLocation(unwrapped), checker, program, seenSymbols);
+}
+
+function boundMigrationInvocationCanWrite(
+  provenance: MigratorMigrateCallableProvenance,
+  callArguments: readonly ts.Expression[],
+  checker: ts.TypeChecker,
+): boolean {
+  return migrationInvocationCanWrite([...provenance.boundArguments, ...callArguments][0], checker);
+}
+
+function migrationWriteInvocation(
+  expression: ts.CallExpression,
+  checker: ts.TypeChecker,
+  program: ts.Program,
+  seenSymbols: ReadonlySet<ts.Symbol> = new Set(),
+): boolean {
+  const target = unwrapExpression(expression.expression);
+  if (ts.isPropertyAccessExpression(target) || ts.isElementAccessExpression(target)) {
+    const name = ts.isPropertyAccessExpression(target) ? target.name.text : moduleText(target.argumentExpression);
+    const provenance = migratorMigrateCallableProvenance(target.expression, checker, program, seenSymbols);
+    if (name === 'call' && provenance !== undefined) {
+      return boundMigrationInvocationCanWrite(provenance, expression.arguments.slice(1), checker);
+    }
+    if (name === 'apply' && provenance !== undefined) {
+      const argumentList = expression.arguments[1];
+      const unwrappedArguments = argumentList === undefined ? undefined : unwrapExpression(argumentList);
+      if (unwrappedArguments !== undefined && ts.isArrayLiteralExpression(unwrappedArguments)) {
+        const callArguments = unwrappedArguments.elements.flatMap(argument =>
+          ts.isOmittedExpression(argument) ? [] : [argument],
+        );
+        return boundMigrationInvocationCanWrite(provenance, callArguments, checker);
+      }
+      return true;
+    }
+  }
+  const provenance = migratorMigrateCallableProvenance(expression.expression, checker, program, seenSymbols);
+  if (provenance !== undefined) {
+    return boundMigrationInvocationCanWrite(provenance, expression.arguments, checker);
+  }
+  return migrationWriteCallableProvenance(expression.expression, checker, program, seenSymbols);
+}
+
+function declarationCallableBody(declaration: ts.Declaration): ts.ConciseBody | undefined {
+  if (
+    ts.isArrowFunction(declaration) ||
+    ts.isFunctionDeclaration(declaration) ||
+    ts.isFunctionExpression(declaration) ||
+    ts.isMethodDeclaration(declaration)
+  ) {
+    return declaration.body;
+  }
+  return undefined;
+}
+
+function shouldTraceCallableBody(declaration: ts.Declaration, program: ts.Program): boolean {
+  // Root files are visited directly. Only follow bodies across a dependency edge,
+  // which keeps whole-project inspections linear while still attributing imported helpers to their caller.
+  return inspectionRootPaths.get(program)?.has(resolve(declaration.getSourceFile().fileName)) !== true;
+}
+
+function callableBodyContainsTransactionApplication(
+  body: ts.ConciseBody,
+  checker: ts.TypeChecker,
+  program: ts.Program,
+  seenSymbols: ReadonlySet<ts.Symbol>,
+): boolean {
+  let found = false;
+  function visit(node: ts.Node): void {
+    if (found) return;
+    if (ts.isFunctionLike(node) || ts.isClassDeclaration(node) || ts.isClassExpression(node)) return;
+    if (ts.isCallExpression(node) && transactionApplicationInvocation(node, checker, program, seenSymbols)) {
+      found = true;
+      return;
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(body);
+  return found;
+}
+
+function callableBodyContainsMigrationWrite(
+  body: ts.ConciseBody,
+  checker: ts.TypeChecker,
+  program: ts.Program,
+  seenSymbols: ReadonlySet<ts.Symbol>,
+): boolean {
+  let found = false;
+  function visit(node: ts.Node): void {
+    if (found) return;
+    if (ts.isFunctionLike(node) || ts.isClassDeclaration(node) || ts.isClassExpression(node)) return;
+    if (ts.isCallExpression(node) && migrationWriteInvocation(node, checker, program, seenSymbols)) {
+      found = true;
+      return;
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(body);
+  return found;
+}
+
+/** Semantically inspects mutation authority and boundary inputs across local module edges. */
 export function inspectTypeScriptProject(
   sourcePaths: readonly string[],
   sourceOverrides: ReadonlyMap<string, string> = new Map(),
 ): TypeScriptProjectInspection {
   const { checker, program, rootPaths } = createProjectProgram(sourcePaths, sourceOverrides);
+  inspectionRootPaths.set(program, rootPaths);
   const filesystemMutationCalls: { sourcePath: string; name: string }[] = [];
   const adapterPathInputs: { sourcePath: string; name: string }[] = [];
+  const executionModeInputs: { sourcePath: string; name: string }[] = [];
+  const transactionApplyCalls: { sourcePath: string; name: 'apply' }[] = [];
+  const projectWriteAuthorityCalls: {
+    sourcePath: string;
+    name: 'apply' | 'migrate';
+  }[] = [];
   const seenAdapterPaths = new Set<string>();
+  const seenExecutionModeInputs = new Set<string>();
 
   for (const sourceFile of program.getSourceFiles()) {
     const sourcePath = resolve(sourceFile.fileName);
@@ -637,6 +1616,13 @@ export function inspectTypeScriptProject(
         const provenance = filesystemProvenance(node.expression, checker);
         if (provenance !== undefined && provenance !== '*' && filesystemMutationNames.has(provenance)) {
           filesystemMutationCalls.push({ sourcePath, name: provenance });
+        }
+        if (transactionApplicationInvocation(node, checker, program)) {
+          transactionApplyCalls.push({ sourcePath, name: 'apply' });
+          projectWriteAuthorityCalls.push({ sourcePath, name: 'apply' });
+        }
+        if (migrationWriteInvocation(node, checker, program)) {
+          projectWriteAuthorityCalls.push({ sourcePath, name: 'migrate' });
         }
       }
       if (ts.isFunctionLike(node)) {
@@ -652,6 +1638,12 @@ export function inspectTypeScriptProject(
             seenAdapterPaths.add(key);
             adapterPathInputs.push({ sourcePath, name });
           }
+          for (const name of executionModeInputsInParameter(parameter, checker)) {
+            const key = `${sourcePath}\0${name}`;
+            if (seenExecutionModeInputs.has(key)) continue;
+            seenExecutionModeInputs.add(key);
+            executionModeInputs.push({ sourcePath, name });
+          }
         }
       }
       ts.forEachChild(node, visit);
@@ -659,7 +1651,13 @@ export function inspectTypeScriptProject(
     visit(sourceFile);
   }
 
-  return { filesystemMutationCalls, adapterPathInputs };
+  return {
+    filesystemMutationCalls,
+    adapterPathInputs,
+    executionModeInputs,
+    transactionApplyCalls,
+    projectWriteAuthorityCalls,
+  };
 }
 
 export function productionTypeScriptFiles(directory: string): readonly string[] {

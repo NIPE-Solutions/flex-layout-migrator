@@ -146,9 +146,15 @@ describe('JsonReportWriter', () => {
     const directory = await mkdtemp(join(tmpdir(), 'json-report-writer-'));
     const inputRoot = '/private/checkout/templates';
     const outputRoot = '/private/checkout/generated';
-    const report = new MigrationReportBuilder().build(inputRoot, outputRoot, 'tailwind', true, 12.9, [
-      file(`${inputRoot}/nested/card.component.html`),
-    ]);
+    const report = new MigrationReportBuilder().build(
+      inputRoot,
+      outputRoot,
+      'tailwind',
+      'plan',
+      { status: 'skipped', reason: 'plan-only' },
+      12.9,
+      [file(`${inputRoot}/nested/card.component.html`)],
+    );
     const target = join(directory, 'reports', 'migration.json');
 
     try {
@@ -157,7 +163,10 @@ describe('JsonReportWriter', () => {
       const contents = await readFile(target, 'utf8');
       expect(JSON.parse(contents)).toEqual(report);
       expect(contents).toBe(`${JSON.stringify(report, null, 2)}\n`);
-      expect(contents).toContain('  "schemaVersion": 1,');
+      expect(contents).toContain('  "schemaVersion": 2,');
+      expect(contents).toContain('  "mode": "plan",');
+      expect(contents).toContain('  "application": {');
+      expect(contents).not.toContain('dryRun');
       expect(report.files[0]?.path).toBe('nested/card.component.html');
       expect(contents).not.toContain(inputRoot);
       expect(contents).not.toContain(outputRoot);
@@ -172,7 +181,15 @@ describe('JsonReportWriter', () => {
   test('propagates atomic writer failures', async () => {
     const failure = new Error('report failed');
     const writer = { write: vi.fn().mockRejectedValue(failure) };
-    const report = new MigrationReportBuilder().build('templates', 'generated', 'tailwind', false, 0, []);
+    const report = new MigrationReportBuilder().build(
+      'templates',
+      'generated',
+      'tailwind',
+      'write',
+      { status: 'applied' },
+      0,
+      [],
+    );
 
     await expect(new JsonReportWriter(writer).write('report.json', report)).rejects.toThrow('report failed');
     expect(writer.write).toHaveBeenCalledOnce();
@@ -181,10 +198,19 @@ describe('JsonReportWriter', () => {
   test('revalidates a protected stylesheet alias immediately before writing the report', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'json-report-writer-'));
     const writer = { write: vi.fn().mockResolvedValue(undefined) };
-    const report = new MigrationReportBuilder().build('templates', 'generated', 'css', false, 0, [], {
-      path: join(directory, 'result.JSON'),
-      change: 'created',
-    });
+    const report = new MigrationReportBuilder().build(
+      'templates',
+      'generated',
+      'css',
+      'write',
+      { status: 'applied' },
+      0,
+      [],
+      {
+        path: join(directory, 'result.JSON'),
+        change: 'created',
+      },
+    );
     await writeFile(join(directory, 'result.JSON'), 'preserve stylesheet', 'utf8');
 
     try {
@@ -205,13 +231,21 @@ describe('JsonReportWriter', () => {
     const inputRoot = '/private/checkout/templates';
     const outputRoot = '/private/checkout/generated';
     const inputPath = `${inputRoot}/card.component.html`;
-    const report = new MigrationReportBuilder().build(inputRoot, outputRoot, 'tailwind', false, 0, [
-      {
-        ...file(inputPath),
-        changed: false,
-        results: [reviewResult(inputPath)],
-      },
-    ]);
+    const report = new MigrationReportBuilder().build(
+      inputRoot,
+      outputRoot,
+      'tailwind',
+      'write',
+      { status: 'applied' },
+      0,
+      [
+        {
+          ...file(inputPath),
+          changed: false,
+          results: [reviewResult(inputPath)],
+        },
+      ],
+    );
 
     const target = join(directory, 'reports', 'migration.json');
 
@@ -242,13 +276,24 @@ describe('JsonReportWriter', () => {
     const inputRoot = '/private/checkout/templates';
     const outputRoot = '/private/checkout/generated';
     const inputPath = `${inputRoot}/visibility.component.html`;
-    const report = new MigrationReportBuilder().build(inputRoot, outputRoot, 'tailwind', false, 0, [
-      {
-        ...file(inputPath),
-        changed: false,
-        results: [visibilityReviewResult(inputPath, 'fxShow', 12), visibilityReviewResult(inputPath, 'fxShow.sm', 27)],
-      },
-    ]);
+    const report = new MigrationReportBuilder().build(
+      inputRoot,
+      outputRoot,
+      'tailwind',
+      'write',
+      { status: 'applied' },
+      0,
+      [
+        {
+          ...file(inputPath),
+          changed: false,
+          results: [
+            visibilityReviewResult(inputPath, 'fxShow', 12),
+            visibilityReviewResult(inputPath, 'fxShow.sm', 27),
+          ],
+        },
+      ],
+    );
     const target = join(directory, 'reports', 'migration.json');
 
     try {
@@ -292,18 +337,26 @@ describe('JsonReportWriter', () => {
     const inputRoot = '/private/checkout/templates';
     const outputRoot = '/private/checkout/generated';
     const inputPath = `${inputRoot}/extended.component.html`;
-    const report = new MigrationReportBuilder().build(inputRoot, outputRoot, 'tailwind', false, 0, [
-      {
-        ...file(inputPath),
-        changed: true,
-        results: [
-          extendedConvertedResult(inputPath, 'ngClass', 'sm', 12),
-          extendedConvertedResult(inputPath, 'ngStyle', 'lt-md', 54),
-          extendedReviewResult(inputPath, 'ngClass', 'tailwind-candidate-unverified', 96),
-          extendedReviewResult(inputPath, 'ngStyle', 'style-value-unverified', 138),
-        ],
-      },
-    ]);
+    const report = new MigrationReportBuilder().build(
+      inputRoot,
+      outputRoot,
+      'tailwind',
+      'write',
+      { status: 'applied' },
+      0,
+      [
+        {
+          ...file(inputPath),
+          changed: true,
+          results: [
+            extendedConvertedResult(inputPath, 'ngClass', 'sm', 12),
+            extendedConvertedResult(inputPath, 'ngStyle', 'lt-md', 54),
+            extendedReviewResult(inputPath, 'ngClass', 'tailwind-candidate-unverified', 96),
+            extendedReviewResult(inputPath, 'ngStyle', 'style-value-unverified', 138),
+          ],
+        },
+      ],
+    );
     const target = join(directory, 'reports', 'migration.json');
 
     try {

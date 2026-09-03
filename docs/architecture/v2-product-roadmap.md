@@ -70,7 +70,8 @@ The CSS target writes deterministic utility-style classes to one explicit compan
 
 ```bash
 flex-layout-codemod ./src --target css \
-  --stylesheet ./src/flex-layout-migration.css
+  --stylesheet ./src/flex-layout-migration.css \
+  --write
 ```
 
 Templates and the stylesheet form one logical transaction. Codemod-owned rules carry a machine-readable ownership header and stable identifiers. Reruns update only owned rules; handwritten CSS is never reformatted or overwritten. Media queries and declarations are deduplicated and emitted in stable semantic order.
@@ -143,3 +144,5 @@ Repository verification, audit, package-surface checks, clean-status checks, and
 Milestones may be split into smaller pull requests when reviewability or risk requires it. Architectural cleanup follows demonstrated duplication and ownership needs rather than speculative abstraction.
 
 Milestone 5 is delivered through the Grid slice and the project-aware orientation/print slice. The latter remains deliberately Limited because conversion requires explicit evidence of the source application's Flex-Layout configuration.
+
+Milestone 8 is partially delivered: plan-only behavior is now the default, `--write` explicitly authorizes application, and reports expose schema-2 execution state. Adaptive interactive presentation, color controls, quiet and verbose modes, and stdout JSON remain pending.

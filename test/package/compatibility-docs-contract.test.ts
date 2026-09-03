@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest';
 import { COMPATIBILITY_INVENTORY } from '../../src/analyzer/compatibility-inventory';
 
 const compatibilityUrl = new URL('../../docs/compatibility.md', import.meta.url);
+const conversionSafetyUrl = new URL('../../docs/architecture/conversion-safety.md', import.meta.url);
+const adaptiveCliPlanDefaultUrl = new URL('../../docs/architecture/adaptive-cli-plan-default.md', import.meta.url);
 const startMarker = '<!-- compatibility-inventory:start -->';
 const endMarker = '<!-- compatibility-inventory:end -->';
 
@@ -312,10 +314,54 @@ describe('compatibility reference contract', () => {
     expect(markdown).toContain('--orientation-breakpoints');
     expect(markdown).toContain('--print-with-breakpoints');
     expect(markdown).toContain('--responsive-images');
-    expect(markdown).toContain('schema version `1`');
+    const reporting = sectionBody(markdown, '## Reporting API').join('\n');
+    expect(reporting).toContain('uses schema version `2`');
+    expect(reporting).toContain('The previous report contract used schema version `1`');
+    expect(reporting).toContain('required `application` outcome');
     expect(markdown).toContain('handset.portrait');
     expect(markdown).toContain('web.landscape');
     expect(markdown).toContain('printWithBreakpoints');
+  });
+
+  it('keeps the shared conversion-safety contract current with plan/write and schema 2', async () => {
+    const markdown = await readFile(conversionSafetyUrl, 'utf8');
+
+    expect(markdown).toContain('[Plan-by-default CLI and explicit application](adaptive-cli-plan-default.md)');
+    expect(markdown).not.toContain('plans and preflights every invocation');
+    expect(markdown).toContain('The current CLI uses plan mode by default');
+    expect(markdown).toContain('After successful parsing, it preflights the complete transaction plan');
+    expect(markdown).toContain(
+      'Parse-error runs still complete configuration and path validation, return a complete report, and apply nothing',
+    );
+    expect(markdown).toContain('`--write` authorizes transactional application');
+    expect(markdown).toContain('schema version `2`');
+    expect(markdown).toContain('required `mode` and `application` fields');
+    expect(markdown).not.toContain('A future native CSS adapter is outside the current implementation');
+    expect(markdown).not.toContain('real mode; dry-run');
+    expect(markdown).not.toContain('Both real and dry-run execution');
+    expect(markdown).not.toContain('schema-version `1` JSON report');
+  });
+
+  it('qualifies transaction preflight after successful parsing in current command contracts', async () => {
+    const documents = await Promise.all([
+      readFile(adaptiveCliPlanDefaultUrl, 'utf8'),
+      readFile(compatibilityUrl, 'utf8'),
+    ]);
+
+    for (const markdown of documents) {
+      expect(markdown).toContain('after successful parsing');
+      expect(markdown).toContain(
+        'Parse-error runs still validate CLI configuration and path collisions and produce complete reports, but apply nothing',
+      );
+      expect(markdown).toContain(
+        'late filesystem type/access failures unrelated to parse errors may surface only after parsing is repaired',
+      );
+      expect(markdown).not.toMatch(/Every command plans and preflights the complete migration/u);
+      expect(markdown).not.toMatch(/Preflight the complete plan in both modes\./u);
+      expect(markdown).not.toContain(
+        'planning, preflight, validation, diagnostic, and exit-policy path across both modes',
+      );
+    }
   });
 
   it('rejects duplicate visible safety entries', async () => {

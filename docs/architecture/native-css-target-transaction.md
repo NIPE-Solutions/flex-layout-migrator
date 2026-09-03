@@ -1,5 +1,7 @@
 # Native CSS Target and Transactional Application
 
+> **Superseded current behavior:** This document records the native-CSS transaction as originally delivered with `--dry-run` and implicit application. [Plan-by-default CLI and explicit application](adaptive-cli-plan-default.md) now makes planning the default, requires `--write`, and advances reports to schema 2; the transaction design below remains historical context.
+
 ## Purpose
 
 This slice exposes the existing native CSS Flex renderer and owned-stylesheet merger through the command line. It treats changed templates and one explicitly selected companion stylesheet as one invocation-wide change set: every output is planned and validated before any project file changes, and an apply failure restores the original project.

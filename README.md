@@ -17,7 +17,7 @@ The complete directive-by-directive status, including grid, image, breakpoint, a
 Evaluate the published beta without installing it. This safely previews the migration and does not write templates:
 
 ```bash
-npx @nipe-solutions/flex-layout-codemod@beta ./src --dry-run
+npx @nipe-solutions/flex-layout-codemod@beta ./src
 ```
 
 Read the terminal summary and diagnostics before applying any migration. A clean Git worktree makes the resulting template diff easy to inspect.
@@ -37,29 +37,27 @@ Use `npm ci` in CI to install the committed lockfile. The package exposes the `f
 Preview the local dependency and write a JSON report for review:
 
 ```bash
-npx flex-layout-codemod ./src --dry-run --report ./reports/flex-layout.json
+npx flex-layout-codemod ./src --report ./reports/flex-layout.json
 ```
 
-`--dry-run` validates the planned edits in memory and does not write template output or a companion stylesheet. `--report` is intentional reporting output and is written even during a dry run.
+The command plans and validates without changing project templates or stylesheets by default. `--report` is intentional reporting output: the report is an explicit side effect and is written atomically in both plan and write modes, even though a plan does not create template-output directories.
 
-If any template has a parse error, project application is skipped for the whole invocation. Terminal output labels the remaining edits as planned, and a requested JSON report includes `application: { "status": "skipped", "reason": "parse-errors" }`; neither output presents the planned template or stylesheet actions as applied writes.
+If any template has a parse error, no project changes are applied and terminal output labels the remaining edits as planned. In the default plan mode, `application` remains `{ "status": "skipped", "reason": "plan-only" }` even when parsing fails. When `--write` was requested, a parse error produces `{ "status": "skipped", "reason": "parse-errors" }`. Neither outcome presents proposed template or stylesheet actions as applied writes.
 
 After reviewing the report and committing or branching your work, apply the migration in place:
 
 ```bash
-npx flex-layout-codemod ./src --target tailwind
+npx flex-layout-codemod ./src --target tailwind --write
 ```
 
-The current beta writes changed templates in place when neither `--dry-run` nor `--output` is supplied. To write migrated templates to a different location, add `--output ./migrated-src`. Review the Git diff before accepting the changes. If an in-place run is unwanted, inspect `git diff` before taking further action, then restore only the intended files deliberately through your normal Git workflow from a clean worktree or committed branch.
-
-The current commands still write after review unless `--dry-run` is supplied; an adaptive plan-by-default workflow is a later CLI improvement.
+`--write` explicitly applies the validated plan. Without it, `--output` names only the proposed destination. With it, omitting `--output` applies changed templates in place; add `--output ./migrated-src` to apply them elsewhere. Review the Git diff before accepting the changes. If an in-place run is unwanted, inspect `git diff` before taking further action, then restore only the intended files deliberately through your normal Git workflow from a clean worktree or committed branch.
 
 ### Native CSS companion stylesheet
 
 Use the native CSS target when the documented Flex-only surface is appropriate:
 
 ```bash
-npx flex-layout-codemod ./src --target css --stylesheet ./src/flex-layout-migration.css
+npx flex-layout-codemod ./src --target css --stylesheet ./src/flex-layout-migration.css --write
 ```
 
 The migration updates templates and the one named companion stylesheet as a transaction. It owns only the marked `flex-layout-codemod` block, preserves handwritten CSS surrounding that block, retains unmatched owned rules because the stylesheet may serve templates outside the selected invocation, and keeps shared rules deduplicated across files. The current CLI has no complete-project pruning mode. On ordinary failures or handled interruption it rolls the changed templates and stylesheet back together.
@@ -94,10 +92,10 @@ Orientation and print conversion require explicit source-configuration evidence.
 
 ```bash
 # Source uses addOrientationBps: true and printWithBreakpoints: ['md', 'handset']
-npx flex-layout-codemod ./src --orientation-breakpoints --print-with-breakpoints md,handset
+npx flex-layout-codemod ./src --orientation-breakpoints --print-with-breakpoints md,handset --write
 
 # Source explicitly uses printWithBreakpoints: []
-npx flex-layout-codemod ./src --print-with-breakpoints none
+npx flex-layout-codemod ./src --print-with-breakpoints none --write
 ```
 
 With orientation enabled, all nine archived aliases are available: `handset`, `handset.portrait`, `handset.landscape`, `tablet`, `tablet.portrait`, `tablet.landscape`, `web`, `web.portrait`, and `web.landscape`. Print conversion reproduces configured responsive fallback values, while an explicit `.print` value takes precedence.
@@ -105,7 +103,7 @@ With orientation enabled, all nine archived aliases are available: `handset`, `h
 Responsive image migration is a separate opt-in because introducing `<picture>` changes the image's parent and may affect CSS or test selectors. After reviewing that risk, enable literal standard-breakpoint sources with `--responsive-images`:
 
 ```bash
-npx flex-layout-codemod ./src --responsive-images --report ./reports/flex-layout.json
+npx flex-layout-codemod ./src --responsive-images --report ./reports/flex-layout.json --write
 ```
 
 ```html
@@ -129,20 +127,22 @@ This fixture is intentionally preserved because the value is a runtime Angular e
 
 ## Reports and exit codes
 
-Reports use JSON schema version `1` and include per-file results, diagnostics, and a summary. Use them to review preserved cases and to track the migration over multiple branches.
+Reports use JSON schema version `2` and include required `mode` and `application` fields alongside per-file results, diagnostics, and a summary. `mode` records whether `plan` or `write` was requested. `application` records whether project changes were `applied` or were `skipped` because the run was plan-only or parsing failed. File `changed` values and stylesheet actions always describe proposed destination differences; consult `application` to determine whether those proposals reached the project.
+
+Schema 2 removes the schema-1 `dryRun` field. Existing scripts that relied on implicit writes must add `--write`. Existing preview scripts must remove `--dry-run`, because planning is now the default and the obsolete option is rejected. Report consumers must replace `dryRun` checks with `mode` plus the required `application` state.
 
 The default exit policy is strict:
 
-| Code | Meaning                                                                                 |
-| ---: | --------------------------------------------------------------------------------------- |
-|  `0` | Migration completed cleanly, or unresolved work was accepted with `--allow-unresolved`. |
-|  `1` | Configuration, parsing, template I/O, report writing, or an internal invariant failed.  |
-|  `2` | Migration completed safely, but `review`, `unsupported`, or `invalid` results remain.   |
+| Code | Meaning                                                                                                    |
+| ---: | ---------------------------------------------------------------------------------------------------------- |
+|  `0` | Planning or application completed cleanly, or unresolved work was accepted with `--allow-unresolved`.      |
+|  `1` | Configuration, parsing, project I/O, transaction, report writing, or an internal invariant failed.         |
+|  `2` | Planning or application completed safely, but `review`, `unsupported`, or `invalid` results remain strict. |
 
 For an informational CI report that accepts unresolved work while retaining every diagnostic, use:
 
 ```bash
-npx flex-layout-codemod ./src --dry-run --report ./reports/flex-layout.json --allow-unresolved
+npx flex-layout-codemod ./src --report ./reports/flex-layout.json --allow-unresolved
 ```
 
 `--allow-unresolved` changes only the final exit code; it does not hide diagnostics or alter the migration output.

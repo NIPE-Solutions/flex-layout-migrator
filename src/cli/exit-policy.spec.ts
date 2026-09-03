@@ -3,9 +3,10 @@ import { resolveExitCode } from './exit-policy';
 
 function report(overrides: Partial<MigrationReport['summary']> = {}): MigrationReport {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
+    mode: 'write',
     target: 'tailwind',
-    dryRun: false,
+    application: { status: 'applied' },
     input: 'templates',
     output: 'generated',
     durationMs: 0,
