@@ -155,7 +155,7 @@ Move file topology, reads, Angular parsing, and input analysis into their dedica
 
 Implemented on the production route. `CurrentMigrationPipeline` now composes `DiscoverProjectStage`, then `AnalyzeProjectStage`, then the existing `Migrator` continuation. Discover is authoritative for input topology, ignore loading, deterministic ordering, exclusions, and input/output mapping. Analyze is authoritative for each original template read, initial Angular parse, and Flex-Layout input analysis.
 
-Render through Apply remain on the compatibility continuation. `AnalyzedFileMigrator` owns rendering and its named changed-template validation parse; `Migrator` retains session finalization, native-CSS reference collection, stylesheet planning, report construction, and transaction coordination. The alias-only `FileMigrator` compatibility module and the empty `FolderMigrator` tombstone are unreachable from the production route and are scheduled for deletion in Slice 8.
+Render through Apply remain on the compatibility continuation. `AnalyzedFileMigrator` owns rendering and its named changed-template validation parse; `Migrator` retains session finalization, native-CSS reference collection, stylesheet planning, report construction, and transaction coordination. Existing destination/reference template bytes are read through the injected `DestinationTemplateSource`; its focused node adapter is the sole concrete filesystem owner for that role, so neither migrator implementation acquires a filesystem API. The alias-only `FileMigrator` compatibility module and the empty `FolderMigrator` tombstone are unreachable from the production route and are scheduled for deletion in Slice 8.
 
 ### 4. Shared semantics and target rendering
 

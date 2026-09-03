@@ -4,9 +4,13 @@ This report records the Slice 3 ownership cutover from the established enterpris
 
 ## Commit
 
-Commit captured: `d15b2aa1ccaacdbc1b4cf38c7930e0b6c1c9f7db`
+Commit captured: `4e2857d8cb8fc35636bc1344520141fef21b3b1a`
 
-The inventory and benchmark commands ran from this implementation commit. The evidence document and its executable documentation contract are committed separately so the measured revision remains exact.
+Initial workload and benchmark commit: `d15b2aa1ccaacdbc1b4cf38c7930e0b6c1c9f7db`
+
+Current structural inventory commit: `4e2857d8cb8fc35636bc1344520141fef21b3b1a`
+
+The benchmark remains the five-sample observation from the initial implementation commit. The inventory was refreshed from the current structural commit after the destination-template filesystem adapter was separated from `Migrator`; the evidence document is committed separately so both measured revisions remain exact.
 
 ## Environment
 
@@ -39,16 +43,16 @@ Against the Slice 1 baseline, the two-file CSS scenarios no longer count two ref
 
 ## Inventory evidence
 
-Generated with `npm run architecture:inventory -- --json architecture-inventory.json` from the captured commit. The JSON schema is unchanged.
+Generated with `npm run architecture:inventory -- --json architecture-inventory.json` from the current structural inventory commit. The JSON schema is unchanged.
 
 | Measure                                                       | Slice 1 baseline | Slice 3 |
 | ------------------------------------------------------------- | ---------------: | ------: |
-| Production TypeScript files                                   |              122 |     138 |
+| Production TypeScript files                                   |              122 |     139 |
 | Runtime dependency entries                                    |                5 |       5 |
-| Static internal and runtime external or built-in module edges |              416 |     472 |
+| Static internal and runtime external or built-in module edges |              416 |     473 |
 | Known policy owners                                           |                6 |       6 |
 
-The additional production files and edges are the staged handoffs, concrete Discover/Analyze stages, narrow ports, the analyzed renderer boundary, and compatibility error-path mapper delivered by Slice 3. Runtime dependency and policy-owner counts are unchanged. `ignore` remains the single known undeclared runtime import reserved for Slice 8; no dependency or lockfile changed.
+The additional production files and edges are the staged handoffs, concrete Discover/Analyze stages, narrow ports, the analyzed renderer boundary, the focused destination-template filesystem adapter, and compatibility error-path mapper delivered by Slice 3. Runtime dependency and policy-owner counts are unchanged. `ignore` remains the single known undeclared runtime import reserved for Slice 8; no dependency or lockfile changed.
 
 ## Benchmark method
 
@@ -85,7 +89,9 @@ CurrentMigrationPipeline.run -> Migrator.migrate
 Migrator.migrate -> MigrationTransaction.apply
 ```
 
-Discover exclusively invokes the `DiscoveryFileSystem.kind`, `DiscoveryFileSystem.entries`, and `IgnoreMatcherFactory.load` authorities, and it is the sole importer of `createGitIgnoreMatcher`. Analyze exclusively invokes `TemplateSourceReader.read` and `TemplateInputAnalyzer.analyze`. Parser findings name the four retained roles: `OriginalTemplateParser.parse` in Analyze, `ChangedTemplateValidation.parse` in `AnalyzedFileMigrator`, `CssReferenceParser.parse` in `Migrator`, and `StagedTemplateValidation.parse` in the transaction. Analyze has no adapter, planner, report, transaction, atomic-writer, or filesystem-mutation authority.
+Discover exclusively invokes the `DiscoveryFileSystem.kind`, `DiscoveryFileSystem.entries`, and `IgnoreMatcherFactory.load` authorities, and it is the sole acquirer of `createGitIgnoreMatcher`. Analyze exclusively invokes `TemplateSourceReader.read` and `TemplateInputAnalyzer.analyze`. Parser findings name the four retained roles: `OriginalTemplateParser.parse` in Analyze, `ChangedTemplateValidation.parse` in `AnalyzedFileMigrator`, `CssReferenceParser.parse` in `Migrator`, and `StagedTemplateValidation.parse` in the transaction. Analyze has no adapter, planner, report, transaction, atomic-writer, or filesystem-mutation authority.
+
+Concrete filesystem acquisition and operation findings are enforced independently of these ports. `destination-template-source.ts` is the only concrete reader for existing destination/reference template bytes; `Migrator` and `AnalyzedFileMigrator` receive its narrow `DestinationTemplateSource` port and no longer acquire filesystem APIs. Analyze remains the only concrete original-template reader, Discover remains the only topology and ignore-loading owner, and `StylesheetPlanner` retains its distinct stylesheet-read role. Exact findings retain duplicate acquisitions, so an extra call cannot disappear through pair deduplication.
 
 The inspector follows canonical types and symbols through aliases, dynamic imports, CommonJS acquisition, `.call`, `.apply`, `Reflect.apply`, and computed members. Unknown computed members on canonical receivers fail closed. Same-named unrelated classes, ports, and methods remain negative controls. Equivalent whole-project semantic inspection is cached within the ownership scenario.
 
