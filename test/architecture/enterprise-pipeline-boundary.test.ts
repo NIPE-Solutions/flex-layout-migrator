@@ -7,6 +7,7 @@ import { describe, expect, test } from 'vitest';
 import {
   inspectTypeScript,
   inspectTypeScriptProject,
+  inspectSemanticAuthorityCalls,
   moduleReferenceContainsPath,
   productionTypeScriptFiles,
   runtimeModuleReferences,
@@ -15,9 +16,13 @@ import {
 const productionRoot = join(process.cwd(), 'src');
 const flexRoot = join(productionRoot, 'flex');
 const pipelineRoot = join(productionRoot, 'pipeline');
+const discoverStagePath = join(pipelineRoot, 'discover', 'discover-project.stage.ts');
+const analyzeStagePath = join(pipelineRoot, 'analyze', 'analyze-project.stage.ts');
 const atomicWriterPath = join(productionRoot, 'lib', 'atomic-file.writer.ts');
 const roguePath = join(productionRoot, '__architecture-fixture__', 'rogue.ts');
 const wholeProjectInspectionTimeout = 60_000;
+const productionPaths = productionTypeScriptFiles(productionRoot);
+let cachedProductionSemanticAuthorities: ReturnType<typeof inspectSemanticAuthorityCalls> | undefined;
 const expectedRendererRelativePaths = [
   'adapter/css/css.adapter.ts',
   'adapter/css/flex/flex-align.css-renderer.ts',
@@ -75,6 +80,24 @@ function rendererMutationAuthorities(source: string): readonly string[] {
   ];
 }
 
+function normalizedAuthoritySources(
+  calls: readonly { readonly sourcePath: string; readonly name: string }[],
+  names: ReadonlySet<string>,
+): readonly { readonly source: string; readonly authority: string }[] {
+  return calls
+    .filter(call => names.has(call.name))
+    .map(call => ({
+      source: relative(productionRoot, call.sourcePath).replaceAll('\\', '/'),
+      authority: call.name,
+    }))
+    .sort((left, right) => `${left.source}\0${left.authority}`.localeCompare(`${right.source}\0${right.authority}`));
+}
+
+function productionSemanticAuthorities(): ReturnType<typeof inspectSemanticAuthorityCalls> {
+  cachedProductionSemanticAuthorities ??= inspectSemanticAuthorityCalls(productionPaths);
+  return cachedProductionSemanticAuthorities;
+}
+
 describe('enterprise pipeline dependency boundary', { timeout: wholeProjectInspectionTimeout }, () => {
   test('keeps Flex semantics independent from both target adapters', () => {
     for (const path of productionTypeScriptFiles(flexRoot)) {
@@ -84,6 +107,85 @@ describe('enterprise pipeline dependency boundary', { timeout: wholeProjectInspe
 
       expect(targetImport, relative(process.cwd(), path)).toBeUndefined();
     }
+  });
+
+  test('makes Discover the semantic owner of topology and ignore loading', () => {
+    const semanticAuthorityCalls = productionSemanticAuthorities();
+    const discoveryAuthorities = new Set([
+      'DiscoveryFileSystem.kind',
+      'DiscoveryFileSystem.entries',
+      'IgnoreMatcherFactory.load',
+    ]);
+    const matcherImporters = productionPaths.flatMap(path =>
+      inspectTypeScript(readFileSync(path, 'utf8'), path).runtimeImports.some(
+        imported =>
+          imported.importedName === 'createGitIgnoreMatcher' &&
+          moduleReferenceContainsPath(imported.moduleReference, 'lib/gitignore.helper'),
+      )
+        ? [path]
+        : [],
+    );
+
+    expect(normalizedAuthoritySources(semanticAuthorityCalls, discoveryAuthorities)).toEqual([
+      { source: 'pipeline/discover/discover-project.stage.ts', authority: 'DiscoveryFileSystem.entries' },
+      { source: 'pipeline/discover/discover-project.stage.ts', authority: 'DiscoveryFileSystem.kind' },
+      { source: 'pipeline/discover/discover-project.stage.ts', authority: 'IgnoreMatcherFactory.load' },
+    ]);
+    expect(matcherImporters).toEqual([discoverStagePath]);
+  });
+
+  test('makes Analyze the sole original-read, initial-parse, and input-analysis owner', () => {
+    const semanticAuthorityCalls = productionSemanticAuthorities();
+    const analyzeAuthorities = new Set(['TemplateSourceReader.read', 'TemplateInputAnalyzer.analyze']);
+    const parseCalls = normalizedAuthoritySources(
+      semanticAuthorityCalls,
+      new Set([
+        'AngularTemplateParser.parse',
+        'ChangedTemplateValidation.parse',
+        'CssReferenceParser.parse',
+        'OriginalTemplateParser.parse',
+        'StagedTemplateValidation.parse',
+      ]),
+    );
+
+    expect(normalizedAuthoritySources(semanticAuthorityCalls, analyzeAuthorities)).toEqual([
+      { source: 'pipeline/analyze/analyze-project.stage.ts', authority: 'TemplateInputAnalyzer.analyze' },
+      { source: 'pipeline/analyze/analyze-project.stage.ts', authority: 'TemplateSourceReader.read' },
+    ]);
+    expect(parseCalls).toEqual([
+      { source: 'migrator/analyzed-file.migrator.ts', authority: 'ChangedTemplateValidation.parse' },
+      { source: 'migrator/migrator.ts', authority: 'CssReferenceParser.parse' },
+      { source: 'pipeline/analyze/analyze-project.stage.ts', authority: 'OriginalTemplateParser.parse' },
+      { source: 'transaction/migration-transaction.ts', authority: 'StagedTemplateValidation.parse' },
+    ]);
+  });
+
+  test('keeps Analyze target-neutral and free of filesystem mutation authority', () => {
+    const source = readFileSync(analyzeStagePath, 'utf8');
+    const forbiddenImport = inspectTypeScript(source, analyzeStagePath).moduleReferences.find(reference =>
+      containsLayer(reference, [
+        'adapter',
+        'planner',
+        'report',
+        'transaction',
+        'lib/atomic-file.writer',
+        'migrator/stylesheet.planner',
+      ]),
+    );
+
+    expect(forbiddenImport).toBeUndefined();
+    expect(inspectTypeScriptProject([analyzeStagePath]).filesystemMutationCalls).toEqual([]);
+  });
+
+  test.each([
+    ["void import('../../adapter/conversion-adapter.js');", '../../adapter/conversion-adapter.js'],
+    ["const planner = require('../../planner/conversion-planner.js');", '../../planner/conversion-planner.js'],
+    [
+      "export { MigrationTransaction } from '../../transaction/migration-transaction.js';",
+      '../../transaction/migration-transaction.js',
+    ],
+  ])('rejects an Analyze runtime dependency on %s', (source, expected) => {
+    expect(inspectTypeScript(source, analyzeStagePath).moduleReferences).toContain(expected);
   });
 
   test('keeps renderers independent from filesystem and application control layers', () => {
@@ -144,7 +246,6 @@ describe('enterprise pipeline dependency boundary', { timeout: wholeProjectInspe
   });
 
   test('reserves project mutation APIs for transaction and atomic-writer modules', () => {
-    const productionPaths = productionTypeScriptFiles(productionRoot);
     const pipelinePaths = productionTypeScriptFiles(pipelineRoot);
     expect(productionPaths).toEqual(expect.arrayContaining([...pipelinePaths]));
 

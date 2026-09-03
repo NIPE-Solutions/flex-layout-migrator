@@ -110,6 +110,28 @@ export interface TypeScriptProjectInspection {
   }[];
 }
 
+export type SemanticAuthorityName =
+  | 'AnalyzeProjectStage.run'
+  | 'AngularTemplateParser.parse'
+  | 'ChangedTemplateValidation.parse'
+  | 'CssReferenceParser.parse'
+  | 'CurrentMigrationPipeline.run'
+  | 'DiscoveryFileSystem.entries'
+  | 'DiscoveryFileSystem.kind'
+  | 'DiscoverProjectStage.run'
+  | 'IgnoreMatcherFactory.load'
+  | 'MigrationTransaction.apply'
+  | 'Migrator.migrate'
+  | 'OriginalTemplateParser.parse'
+  | 'StagedTemplateValidation.parse'
+  | 'TemplateInputAnalyzer.analyze'
+  | 'TemplateSourceReader.read';
+
+export interface SemanticAuthorityCall {
+  readonly sourcePath: string;
+  readonly name: SemanticAuthorityName;
+}
+
 type FilesystemProvenance = '*' | string;
 const inspectionRootPaths = new WeakMap<ts.Program, ReadonlySet<string>>();
 
@@ -2245,6 +2267,571 @@ function migrationWriteInvocation(
   return migrationWriteCallableProvenance(expression.expression, checker, program, seenSymbols);
 }
 
+interface SemanticAuthorityDeclaration {
+  readonly sourcePathSuffix: string;
+  readonly containers: readonly string[];
+}
+
+interface SemanticAuthorityConfig {
+  readonly name: SemanticAuthorityName;
+  readonly methodName: string;
+  readonly declarations: readonly SemanticAuthorityDeclaration[];
+  readonly concreteClass?: {
+    readonly exportedName: string;
+    readonly sourcePathSuffix: string;
+  };
+}
+
+const semanticAuthorityConfigs: readonly SemanticAuthorityConfig[] = [
+  {
+    name: 'CurrentMigrationPipeline.run',
+    methodName: 'run',
+    declarations: [
+      {
+        sourcePathSuffix: '/pipeline/current-migration.pipeline.ts',
+        containers: ['CurrentMigrationPipeline', 'MigrationRunner'],
+      },
+    ],
+    concreteClass: {
+      exportedName: 'CurrentMigrationPipeline',
+      sourcePathSuffix: '/pipeline/current-migration.pipeline.ts',
+    },
+  },
+  {
+    name: 'DiscoverProjectStage.run',
+    methodName: 'run',
+    declarations: [
+      { sourcePathSuffix: '/pipeline/migration-pipeline.ts', containers: ['DiscoverStage'] },
+      {
+        sourcePathSuffix: '/pipeline/discover/discover-project.stage.ts',
+        containers: ['DiscoverProjectStage'],
+      },
+    ],
+    concreteClass: {
+      exportedName: 'DiscoverProjectStage',
+      sourcePathSuffix: '/pipeline/discover/discover-project.stage.ts',
+    },
+  },
+  {
+    name: 'AnalyzeProjectStage.run',
+    methodName: 'run',
+    declarations: [
+      { sourcePathSuffix: '/pipeline/migration-pipeline.ts', containers: ['AnalyzeStage'] },
+      {
+        sourcePathSuffix: '/pipeline/analyze/analyze-project.stage.ts',
+        containers: ['AnalyzeProjectStage'],
+      },
+    ],
+    concreteClass: {
+      exportedName: 'AnalyzeProjectStage',
+      sourcePathSuffix: '/pipeline/analyze/analyze-project.stage.ts',
+    },
+  },
+  {
+    name: 'Migrator.migrate',
+    methodName: 'migrate',
+    declarations: [{ sourcePathSuffix: '/migrator/migrator.ts', containers: ['Migrator'] }],
+    concreteClass: { exportedName: 'Migrator', sourcePathSuffix: '/migrator/migrator.ts' },
+  },
+  {
+    name: 'MigrationTransaction.apply',
+    methodName: 'apply',
+    declarations: [{ sourcePathSuffix: '/transaction/migration-transaction.ts', containers: ['MigrationTransaction'] }],
+    concreteClass: {
+      exportedName: 'MigrationTransaction',
+      sourcePathSuffix: '/transaction/migration-transaction.ts',
+    },
+  },
+  {
+    name: 'DiscoveryFileSystem.kind',
+    methodName: 'kind',
+    declarations: [
+      {
+        sourcePathSuffix: '/pipeline/discover/discovery-file-system.port.ts',
+        containers: ['DiscoveryFileSystem'],
+      },
+    ],
+  },
+  {
+    name: 'DiscoveryFileSystem.entries',
+    methodName: 'entries',
+    declarations: [
+      {
+        sourcePathSuffix: '/pipeline/discover/discovery-file-system.port.ts',
+        containers: ['DiscoveryFileSystem'],
+      },
+    ],
+  },
+  {
+    name: 'IgnoreMatcherFactory.load',
+    methodName: 'load',
+    declarations: [
+      {
+        sourcePathSuffix: '/pipeline/discover/ignore-matcher.port.ts',
+        containers: ['IgnoreMatcherFactory'],
+      },
+    ],
+  },
+  {
+    name: 'TemplateSourceReader.read',
+    methodName: 'read',
+    declarations: [
+      {
+        sourcePathSuffix: '/pipeline/analyze/template-source-reader.port.ts',
+        containers: ['TemplateSourceReader'],
+      },
+    ],
+  },
+  {
+    name: 'AngularTemplateParser.parse',
+    methodName: 'parse',
+    declarations: [
+      { sourcePathSuffix: '/pipeline/analyze/template-parser.port.ts', containers: ['TemplateParser'] },
+      { sourcePathSuffix: '/template/angular-template.parser.ts', containers: ['AngularTemplateParser'] },
+    ],
+    concreteClass: {
+      exportedName: 'AngularTemplateParser',
+      sourcePathSuffix: '/template/angular-template.parser.ts',
+    },
+  },
+  {
+    name: 'TemplateInputAnalyzer.analyze',
+    methodName: 'analyze',
+    declarations: [
+      {
+        sourcePathSuffix: '/pipeline/analyze/template-input-analyzer.port.ts',
+        containers: ['TemplateInputAnalyzer'],
+      },
+      { sourcePathSuffix: '/analyzer/template.analyzer.ts', containers: ['TemplateAnalyzer'] },
+    ],
+    concreteClass: { exportedName: 'TemplateAnalyzer', sourcePathSuffix: '/analyzer/template.analyzer.ts' },
+  },
+];
+
+function enclosingDeclarationContainerName(declaration: ts.Declaration): string | undefined {
+  for (let current: ts.Node | undefined = declaration.parent; current !== undefined; current = current.parent) {
+    if (ts.isClassDeclaration(current) || ts.isInterfaceDeclaration(current)) return current.name?.text;
+  }
+  return undefined;
+}
+
+function semanticAuthorityMethodSymbol(symbol: ts.Symbol | undefined, config: SemanticAuthorityConfig): boolean {
+  if (symbol?.getName() !== config.methodName) return false;
+  return (
+    symbol.declarations?.some(declaration => {
+      const sourcePath = normalizedDeclarationPath(declaration);
+      const container = enclosingDeclarationContainerName(declaration);
+      return config.declarations.some(
+        owner =>
+          sourcePath.endsWith(owner.sourcePathSuffix) &&
+          container !== undefined &&
+          owner.containers.includes(container),
+      );
+    }) === true
+  );
+}
+
+function semanticAuthorityClassSymbol(
+  symbol: ts.Symbol | undefined,
+  config: SemanticAuthorityConfig,
+  checker: ts.TypeChecker,
+  seenSymbols: ReadonlySet<ts.Symbol> = new Set(),
+): boolean {
+  const concreteClass = config.concreteClass;
+  if (symbol === undefined || concreteClass === undefined || seenSymbols.has(symbol)) return false;
+  const nextSeen = new Set(seenSymbols).add(symbol);
+  if ((symbol.flags & ts.SymbolFlags.Alias) !== 0) {
+    const aliased = checker.getAliasedSymbol(symbol);
+    if (aliased !== symbol && semanticAuthorityClassSymbol(aliased, config, checker, nextSeen)) return true;
+  }
+  return (
+    symbol.getName() === concreteClass.exportedName &&
+    symbol.declarations?.some(
+      declaration =>
+        ts.isClassDeclaration(declaration) &&
+        normalizedDeclarationPath(declaration).endsWith(concreteClass.sourcePathSuffix),
+    ) === true
+  );
+}
+
+function moduleExportsSemanticAuthorityClass(
+  moduleReference: CommonJsModuleReference,
+  exportedName: string,
+  config: SemanticAuthorityConfig,
+  checker: ts.TypeChecker,
+  program: ts.Program,
+): boolean {
+  const concreteClass = config.concreteClass;
+  if (concreteClass === undefined) return false;
+  const candidates = localModuleCandidates(moduleReference.reference, moduleReference.containingSourcePath);
+  if (
+    exportedName === concreteClass.exportedName &&
+    candidates.some(candidate => candidate.replaceAll('\\', '/').endsWith(concreteClass.sourcePathSuffix))
+  ) {
+    return true;
+  }
+  return semanticAuthorityClassSymbol(
+    commonJsExportedSymbol(moduleReference, exportedName, checker, program),
+    config,
+    checker,
+  );
+}
+
+function semanticAuthorityConstructorProvenance(
+  expression: ts.Expression,
+  config: SemanticAuthorityConfig,
+  checker: ts.TypeChecker,
+  program: ts.Program,
+  seenSymbols: ReadonlySet<ts.Symbol> = new Set(),
+): boolean {
+  const unwrapped = unwrapExpression(expression);
+  const directSymbol = checker.getSymbolAtLocation(unwrapped);
+  if (semanticAuthorityClassSymbol(directSymbol, config, checker)) return true;
+
+  if (ts.isPropertyAccessExpression(unwrapped) || ts.isElementAccessExpression(unwrapped)) {
+    const exportedName = resolvedMemberName(unwrapped, checker);
+    const moduleReference = commonJsModuleReference(unwrapped.expression, checker, seenSymbols);
+    if (
+      exportedName !== undefined &&
+      moduleReference !== undefined &&
+      moduleExportsSemanticAuthorityClass(moduleReference, exportedName, config, checker, program)
+    ) {
+      return true;
+    }
+  }
+
+  if (directSymbol === undefined || seenSymbols.has(directSymbol)) return false;
+  const nextSeen = new Set(seenSymbols).add(directSymbol);
+  if ((directSymbol.flags & ts.SymbolFlags.Alias) !== 0) {
+    const aliased = checker.getAliasedSymbol(directSymbol);
+    if (semanticAuthorityClassSymbol(aliased, config, checker)) return true;
+  }
+  return (directSymbol.declarations ?? []).some(declaration => {
+    if (ts.isVariableDeclaration(declaration) && declaration.initializer !== undefined) {
+      return semanticAuthorityConstructorProvenance(declaration.initializer, config, checker, program, nextSeen);
+    }
+    if (ts.isBindingElement(declaration)) {
+      const pattern = declaration.parent;
+      const variable =
+        ts.isObjectBindingPattern(pattern) || ts.isArrayBindingPattern(pattern) ? pattern.parent : undefined;
+      if (variable === undefined || !ts.isVariableDeclaration(variable) || variable.initializer === undefined) {
+        return false;
+      }
+      const exportedName = bindingElementPropertyName(declaration);
+      const moduleReference = commonJsModuleReference(variable.initializer, checker, nextSeen);
+      return (
+        exportedName !== undefined &&
+        moduleReference !== undefined &&
+        moduleExportsSemanticAuthorityClass(moduleReference, exportedName, config, checker, program)
+      );
+    }
+    return false;
+  });
+}
+
+function semanticAuthorityReceiverProvenance(
+  expression: ts.Expression,
+  config: SemanticAuthorityConfig,
+  checker: ts.TypeChecker,
+  program: ts.Program,
+  seenSymbols: ReadonlySet<ts.Symbol> = new Set(),
+): boolean {
+  const unwrapped = unwrapExpression(expression);
+  const property = checker.getPropertyOfType(checker.getTypeAtLocation(unwrapped), config.methodName);
+  if (semanticAuthorityMethodSymbol(property, config)) return true;
+  if (ts.isNewExpression(unwrapped)) {
+    return semanticAuthorityConstructorProvenance(unwrapped.expression, config, checker, program, seenSymbols);
+  }
+  if (ts.isConditionalExpression(unwrapped)) {
+    return (
+      semanticAuthorityReceiverProvenance(unwrapped.whenTrue, config, checker, program, seenSymbols) ||
+      semanticAuthorityReceiverProvenance(unwrapped.whenFalse, config, checker, program, seenSymbols)
+    );
+  }
+
+  const symbol = checker.getSymbolAtLocation(unwrapped);
+  if (symbol === undefined || seenSymbols.has(symbol)) return false;
+  const nextSeen = new Set(seenSymbols).add(symbol);
+  return (symbol.declarations ?? []).some(
+    declaration =>
+      ts.isVariableDeclaration(declaration) &&
+      declaration.initializer !== undefined &&
+      semanticAuthorityReceiverProvenance(declaration.initializer, config, checker, program, nextSeen),
+  );
+}
+
+function semanticAuthoritySymbolProvenance(
+  symbol: ts.Symbol | undefined,
+  config: SemanticAuthorityConfig,
+  checker: ts.TypeChecker,
+  program: ts.Program,
+  seenSymbols: ReadonlySet<ts.Symbol>,
+): boolean {
+  if (symbol === undefined || seenSymbols.has(symbol)) return false;
+  const nextSeen = new Set(seenSymbols).add(symbol);
+  if (semanticAuthorityMethodSymbol(symbol, config)) return true;
+  if ((symbol.flags & ts.SymbolFlags.Alias) !== 0) {
+    const aliased = checker.getAliasedSymbol(symbol);
+    if (semanticAuthoritySymbolProvenance(aliased, config, checker, program, nextSeen)) return true;
+  }
+  return (symbol.declarations ?? []).some(declaration => {
+    const callableBody = declarationCallableBody(declaration);
+    if (callableBody !== undefined && shouldTraceCallableBody(declaration, program)) {
+      return callableBodyContainsSemanticAuthority(callableBody, config, checker, program, nextSeen);
+    }
+    if (
+      (ts.isVariableDeclaration(declaration) ||
+        ts.isPropertyAssignment(declaration) ||
+        ts.isPropertyDeclaration(declaration)) &&
+      declaration.initializer !== undefined
+    ) {
+      return semanticAuthorityCallableProvenance(declaration.initializer, config, checker, program, nextSeen);
+    }
+    if (ts.isShorthandPropertyAssignment(declaration)) {
+      return semanticAuthoritySymbolProvenance(
+        checker.getShorthandAssignmentValueSymbol(declaration),
+        config,
+        checker,
+        program,
+        nextSeen,
+      );
+    }
+    if (ts.isExportAssignment(declaration)) {
+      return semanticAuthorityCallableProvenance(declaration.expression, config, checker, program, nextSeen);
+    }
+    if (ts.isBindingElement(declaration)) {
+      const pattern = declaration.parent;
+      const variable =
+        ts.isObjectBindingPattern(pattern) || ts.isArrayBindingPattern(pattern) ? pattern.parent : undefined;
+      if (variable === undefined || !ts.isVariableDeclaration(variable) || variable.initializer === undefined) {
+        return false;
+      }
+      const propertyName = bindingElementPropertyName(declaration);
+      if (propertyName === undefined) return false;
+      const moduleReference = commonJsModuleReference(variable.initializer, checker, nextSeen);
+      if (moduleReference !== undefined) {
+        const exportedSymbol = commonJsExportedSymbol(moduleReference, propertyName, checker, program);
+        if (semanticAuthoritySymbolProvenance(exportedSymbol, config, checker, program, nextSeen)) return true;
+      }
+      const property = checker.getPropertyOfType(checker.getTypeAtLocation(variable.initializer), propertyName);
+      return semanticAuthoritySymbolProvenance(property, config, checker, program, nextSeen);
+    }
+    return false;
+  });
+}
+
+function semanticAuthorityCallableProvenance(
+  expression: ts.Expression,
+  config: SemanticAuthorityConfig,
+  checker: ts.TypeChecker,
+  program: ts.Program,
+  seenSymbols: ReadonlySet<ts.Symbol> = new Set(),
+): boolean {
+  const unwrapped = unwrapExpression(expression);
+  if (ts.isArrowFunction(unwrapped) || ts.isFunctionExpression(unwrapped)) {
+    return callableBodyContainsSemanticAuthority(unwrapped.body, config, checker, program, seenSymbols);
+  }
+  if (ts.isCallExpression(unwrapped)) {
+    const target = unwrapExpression(unwrapped.expression);
+    if (
+      (ts.isPropertyAccessExpression(target) || ts.isElementAccessExpression(target)) &&
+      resolvedMemberName(target, checker) === 'bind'
+    ) {
+      return semanticAuthorityCallableProvenance(target.expression, config, checker, program, seenSymbols);
+    }
+    return false;
+  }
+
+  if (ts.isPropertyAccessExpression(unwrapped) || ts.isElementAccessExpression(unwrapped)) {
+    const name = resolvedMemberName(unwrapped, checker);
+    const moduleReference = commonJsModuleReference(unwrapped.expression, checker, seenSymbols);
+    if (name !== undefined && moduleReference !== undefined) {
+      const exportedSymbol = commonJsExportedSymbol(moduleReference, name, checker, program);
+      if (semanticAuthoritySymbolProvenance(exportedSymbol, config, checker, program, seenSymbols)) return true;
+    }
+    if (
+      (name === config.methodName || (name === undefined && ts.isElementAccessExpression(unwrapped))) &&
+      semanticAuthorityReceiverProvenance(unwrapped.expression, config, checker, program, seenSymbols)
+    ) {
+      return true;
+    }
+    const propertyNode = ts.isPropertyAccessExpression(unwrapped) ? unwrapped.name : unwrapped.argumentExpression;
+    if (
+      propertyNode !== undefined &&
+      semanticAuthoritySymbolProvenance(
+        checker.getSymbolAtLocation(propertyNode),
+        config,
+        checker,
+        program,
+        seenSymbols,
+      )
+    ) {
+      return true;
+    }
+  }
+
+  return semanticAuthoritySymbolProvenance(
+    checker.getSymbolAtLocation(unwrapped),
+    config,
+    checker,
+    program,
+    seenSymbols,
+  );
+}
+
+function semanticAuthorityInvocation(
+  expression: ts.CallExpression,
+  config: SemanticAuthorityConfig,
+  checker: ts.TypeChecker,
+  program: ts.Program,
+  seenSymbols: ReadonlySet<ts.Symbol> = new Set(),
+): boolean {
+  if (config.name === 'MigrationTransaction.apply') {
+    return transactionApplicationInvocation(expression, checker, program, seenSymbols);
+  }
+  const directTarget = unwrapExpression(expression.expression);
+  if (
+    (ts.isPropertyAccessExpression(directTarget) || ts.isElementAccessExpression(directTarget)) &&
+    resolvedMemberName(directTarget, checker) === 'bind'
+  ) {
+    return false;
+  }
+  const reflected = reflectedApplyInvocation(expression, checker, program, seenSymbols);
+  if (reflected !== undefined) {
+    const invocation = resolvedCallableApplication(reflected.target, reflected.arguments, checker, target =>
+      semanticAuthorityCallableProvenance(target, config, checker, program, seenSymbols) ? true : undefined,
+    );
+    if (invocation !== undefined) return true;
+  }
+  return (
+    resolvedCallableInvocation(expression, checker, target =>
+      semanticAuthorityCallableProvenance(target, config, checker, program, seenSymbols) ? true : undefined,
+    ) !== undefined
+  );
+}
+
+function callableBodyContainsSemanticAuthority(
+  body: ts.ConciseBody,
+  config: SemanticAuthorityConfig,
+  checker: ts.TypeChecker,
+  program: ts.Program,
+  seenSymbols: ReadonlySet<ts.Symbol>,
+): boolean {
+  let found = false;
+  function visit(node: ts.Node): void {
+    if (found) return;
+    if (ts.isFunctionLike(node) || ts.isClassDeclaration(node) || ts.isClassExpression(node)) return;
+    if (ts.isCallExpression(node) && semanticAuthorityInvocation(node, config, checker, program, seenSymbols)) {
+      found = true;
+      return;
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(body);
+  return found;
+}
+
+function semanticAuthorityMethodHint(
+  expression: ts.Expression,
+  checker: ts.TypeChecker,
+  seenSymbols: ReadonlySet<ts.Symbol> = new Set(),
+): string | undefined {
+  const unwrapped = unwrapExpression(expression);
+  if (ts.isPropertyAccessExpression(unwrapped) || ts.isElementAccessExpression(unwrapped)) {
+    const name = resolvedMemberName(unwrapped, checker);
+    if (name === 'call' || name === 'apply' || name === 'bind') {
+      return semanticAuthorityMethodHint(unwrapped.expression, checker, seenSymbols);
+    }
+    if (semanticAuthorityConfigs.some(config => config.methodName === name)) return name;
+    const propertyNode = ts.isPropertyAccessExpression(unwrapped) ? unwrapped.name : unwrapped.argumentExpression;
+    const propertySymbol = propertyNode === undefined ? undefined : checker.getSymbolAtLocation(propertyNode);
+    if (propertySymbol !== undefined && !seenSymbols.has(propertySymbol)) {
+      const nextSeen = new Set(seenSymbols).add(propertySymbol);
+      for (const declaration of propertySymbol.declarations ?? []) {
+        if (
+          (ts.isPropertyAssignment(declaration) || ts.isPropertyDeclaration(declaration)) &&
+          declaration.initializer !== undefined
+        ) {
+          const hint = semanticAuthorityMethodHint(declaration.initializer, checker, nextSeen);
+          if (hint !== undefined) return hint;
+        }
+      }
+    }
+    return name;
+  }
+  const symbol = checker.getSymbolAtLocation(unwrapped);
+  if (symbol === undefined || seenSymbols.has(symbol)) return undefined;
+  const nextSeen = new Set(seenSymbols).add(symbol);
+  for (const declaration of symbol.declarations ?? []) {
+    if (
+      (ts.isVariableDeclaration(declaration) ||
+        ts.isPropertyAssignment(declaration) ||
+        ts.isPropertyDeclaration(declaration)) &&
+      declaration.initializer !== undefined
+    ) {
+      const hint = semanticAuthorityMethodHint(declaration.initializer, checker, nextSeen);
+      if (hint !== undefined) return hint;
+    }
+  }
+  return undefined;
+}
+
+function semanticAuthorityCandidates(
+  expression: ts.CallExpression,
+  checker: ts.TypeChecker,
+  program: ts.Program,
+): readonly SemanticAuthorityConfig[] {
+  const reflected = reflectedApplyInvocation(expression, checker, program, new Set());
+  const target = reflected?.target ?? expression.expression;
+  const hint = semanticAuthorityMethodHint(target, checker);
+  if (hint !== undefined) return semanticAuthorityConfigs.filter(config => config.methodName === hint);
+
+  const unwrapped = unwrapExpression(target);
+  if (ts.isIdentifier(unwrapped)) {
+    const symbol = checker.getSymbolAtLocation(unwrapped);
+    const localAlias = symbol?.declarations?.some(
+      declaration =>
+        (ts.isVariableDeclaration(declaration) || ts.isBindingElement(declaration)) &&
+        declaration.getSourceFile() === expression.getSourceFile(),
+    );
+    return localAlias === true ? semanticAuthorityConfigs : [];
+  }
+  return ts.isElementAccessExpression(unwrapped) ? semanticAuthorityConfigs : [];
+}
+
+function semanticMemberNames(expression: ts.Expression, checker: ts.TypeChecker): readonly string[] {
+  const unwrapped = unwrapExpression(expression);
+  if (!ts.isPropertyAccessExpression(unwrapped) && !ts.isElementAccessExpression(unwrapped)) return [];
+  const name = resolvedMemberName(unwrapped, checker);
+  return [...semanticMemberNames(unwrapped.expression, checker), ...(name === undefined ? [] : [name])];
+}
+
+function contextualSemanticAuthorityName(
+  config: SemanticAuthorityConfig,
+  expression: ts.CallExpression,
+  sourcePath: string,
+  checker: ts.TypeChecker,
+  program: ts.Program,
+): SemanticAuthorityName {
+  if (config.name !== 'AngularTemplateParser.parse') return config.name;
+  const reflected = reflectedApplyInvocation(expression, checker, program, new Set());
+  const members = semanticMemberNames(reflected?.target ?? expression.expression, checker);
+  const normalizedSourcePath = sourcePath.replaceAll('\\', '/');
+  if (normalizedSourcePath.endsWith('/migrator/analyzed-file.migrator.ts') && members.includes('validationParser')) {
+    return 'ChangedTemplateValidation.parse';
+  }
+  if (normalizedSourcePath.endsWith('/migrator/migrator.ts') && members.includes('referenceParser')) {
+    return 'CssReferenceParser.parse';
+  }
+  if (normalizedSourcePath.endsWith('/pipeline/analyze/analyze-project.stage.ts') && members.includes('parser')) {
+    return 'OriginalTemplateParser.parse';
+  }
+  if (normalizedSourcePath.endsWith('/transaction/migration-transaction.ts') && members.includes('parser')) {
+    return 'StagedTemplateValidation.parse';
+  }
+  return config.name;
+}
+
 function declarationCallableBody(declaration: ts.Declaration): ts.ConciseBody | undefined {
   if (
     ts.isArrowFunction(declaration) ||
@@ -2396,6 +2983,41 @@ export function inspectTypeScriptProject(
     transactionApplyCalls,
     projectWriteAuthorityCalls,
   };
+}
+
+/** Resolves named pipeline and stage-boundary calls through semantic callable provenance. */
+export function inspectSemanticAuthorityCalls(
+  sourcePaths: readonly string[],
+  sourceOverrides: ReadonlyMap<string, string> = new Map(),
+): readonly SemanticAuthorityCall[] {
+  const { checker, program, rootPaths } = createProjectProgram(sourcePaths, sourceOverrides);
+  inspectionRootPaths.set(program, rootPaths);
+  const calls: SemanticAuthorityCall[] = [];
+
+  for (const sourceFile of program.getSourceFiles()) {
+    const sourcePath = resolve(sourceFile.fileName);
+    if (!rootPaths.has(sourcePath)) continue;
+    function visit(node: ts.Node): void {
+      if (ts.isCallExpression(node)) {
+        if (transactionApplicationInvocation(node, checker, program)) {
+          calls.push({ sourcePath, name: 'MigrationTransaction.apply' });
+        }
+        for (const config of semanticAuthorityCandidates(node, checker, program)) {
+          if (config.name === 'MigrationTransaction.apply') continue;
+          if (semanticAuthorityInvocation(node, config, checker, program)) {
+            calls.push({
+              sourcePath,
+              name: contextualSemanticAuthorityName(config, node, sourcePath, checker, program),
+            });
+          }
+        }
+      }
+      ts.forEachChild(node, visit);
+    }
+    visit(sourceFile);
+  }
+
+  return calls;
 }
 
 export function productionTypeScriptFiles(directory: string): readonly string[] {

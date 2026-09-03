@@ -28,6 +28,20 @@ interface MigrationWorkloadCounts {
   projectWrites: number;
 }
 
+interface MigrationWorkloadEvidence {
+  readonly analyzedPaths: string[];
+  readonly changedTemplatePaths: string[];
+  readonly destinationReadPaths: string[];
+  readonly discoveredPaths: string[];
+  readonly discoveredOutputPaths: string[];
+  readonly initialParsePaths: string[];
+  readonly originalReadPaths: string[];
+  readonly referenceParsePaths: string[];
+  readonly validationParsePaths: string[];
+}
+
+const workloadEvidence = new WeakMap<MigrationWorkloadCounts, MigrationWorkloadEvidence>();
+
 describe('migration workload counters', () => {
   let temporaryDirectory: string;
 
@@ -48,6 +62,8 @@ describe('migration workload counters', () => {
 
     await executeSingleFile(tailwindSession(), planInput, planOutput, 'plan', planCounts);
 
+    expectSingleOwnerEvidence(planCounts);
+
     expect(planCounts).toEqual({
       discoveryPasses: 1,
       templatesDiscovered: 1,
@@ -66,6 +82,8 @@ describe('migration workload counters', () => {
     await writeFile(writeInput, '<div fxLayout="row"></div>', 'utf8');
 
     await executeSingleFile(tailwindSession(), writeInput, writeOutput, 'write', writeCounts);
+
+    expectSingleOwnerEvidence(writeCounts);
 
     expect(writeCounts).toEqual({
       discoveryPasses: 1,
@@ -88,12 +106,14 @@ describe('migration workload counters', () => {
 
     await executeFolderCss(planInput, planOutput, planStylesheet, 'plan', planCounts);
 
+    expectSingleOwnerEvidence(planCounts);
+
     expect(planCounts).toEqual({
       discoveryPasses: 1,
       templatesDiscovered: 2,
       templateReads: 2,
       initialParses: 2,
-      validationParses: 4,
+      validationParses: 2,
       renderedTemplates: 2,
       stylesheetReads: 0,
       projectWrites: 0,
@@ -107,12 +127,14 @@ describe('migration workload counters', () => {
 
     await executeFolderCss(writeInput, writeOutput, writeStylesheet, 'write', writeCounts);
 
+    expectSingleOwnerEvidence(writeCounts);
+
     expect(writeCounts).toEqual({
       discoveryPasses: 1,
       templatesDiscovered: 2,
       templateReads: 2,
       initialParses: 2,
-      validationParses: 4,
+      validationParses: 2,
       renderedTemplates: 2,
       stylesheetReads: 0,
       projectWrites: 3,
@@ -129,10 +151,12 @@ describe('migration workload counters', () => {
 
     await executeSingleFile(tailwindSession(), tailwindInput, tailwindOutput, 'write', tailwindCounts);
 
+    expectSingleOwnerEvidence(tailwindCounts);
+
     expect(tailwindCounts).toEqual({
       discoveryPasses: 1,
       templatesDiscovered: 1,
-      templateReads: 2,
+      templateReads: 1,
       initialParses: 1,
       validationParses: 1,
       renderedTemplates: 1,
@@ -149,16 +173,48 @@ describe('migration workload counters', () => {
 
     await executeFolderCss(cssInput, cssOutput, cssStylesheet, 'write', cssCounts);
 
+    expectSingleOwnerEvidence(cssCounts);
+
     expect(cssCounts).toEqual({
       discoveryPasses: 1,
       templatesDiscovered: 2,
-      templateReads: 6,
+      templateReads: 2,
       initialParses: 2,
-      validationParses: 4,
+      validationParses: 2,
       renderedTemplates: 2,
       stylesheetReads: 1,
       projectWrites: 0,
     } satisfies MigrationWorkloadCounts);
+  });
+
+  test('does not analyze or validation-reparse a template whose initial parse fails', async () => {
+    const counts = emptyCounts();
+    const input = join(temporaryDirectory, 'parse-error', 'input.html');
+    const output = join(temporaryDirectory, 'parse-error', 'output.html');
+    await mkdir(dirname(input), { recursive: true });
+    await writeFile(input, '<div', 'utf8');
+
+    await executeSingleFile(tailwindSession(), input, output, 'plan', counts);
+
+    const evidence = evidenceFor(counts);
+    expect(evidence.originalReadPaths).toEqual(evidence.discoveredPaths);
+    expect(evidence.initialParsePaths).toEqual(evidence.discoveredPaths);
+    expect(evidence.analyzedPaths).toEqual([]);
+    expect(evidence.changedTemplatePaths).toEqual([]);
+    expect(evidence.validationParsePaths).toEqual([]);
+  });
+
+  test('does not validation-reparse an unchanged template proposal', async () => {
+    const counts = emptyCounts();
+    const input = join(temporaryDirectory, 'unchanged', 'input.html');
+    const output = join(temporaryDirectory, 'unchanged', 'output.html');
+    await mkdir(dirname(input), { recursive: true });
+    await writeFile(input, '<div class="card"></div>', 'utf8');
+
+    await executeSingleFile(tailwindSession(), input, output, 'plan', counts);
+
+    expectSingleOwnerEvidence(counts, false);
+    expect(evidenceFor(counts).changedTemplatePaths).toEqual([]);
   });
 });
 
@@ -219,6 +275,8 @@ function countingDiscoverStage(counts: MigrationWorkloadCounts): DiscoverStage {
       counts.discoveryPasses++;
       const manifest = await discover.run(invocation);
       counts.templatesDiscovered += manifest.templates.length;
+      evidenceFor(counts).discoveredPaths.push(...manifest.templates.map(template => template.inputPath));
+      evidenceFor(counts).discoveredOutputPaths.push(...manifest.templates.map(template => template.outputPath));
       return manifest;
     },
   };
@@ -232,16 +290,23 @@ function countingAnalyzeStage(counts: MigrationWorkloadCounts): AnalyzeStage {
       async read(target) {
         const contents = await readFile(target, 'utf8');
         counts.templateReads++;
+        evidenceFor(counts).originalReadPaths.push(target);
         return contents;
       },
     },
     {
       parse(source, fileName) {
         counts.initialParses++;
+        evidenceFor(counts).initialParsePaths.push(fileName);
         return parser.parse(source, fileName);
       },
     },
-    analyzer,
+    {
+      analyze(fileName, elements) {
+        evidenceFor(counts).analyzedPaths.push(fileName);
+        return analyzer.analyze(fileName, elements);
+      },
+    },
   );
 }
 
@@ -249,19 +314,27 @@ function countingMigratorDependencies(counts: MigrationWorkloadCounts): Migrator
   const referenceParser = new AngularTemplateParser();
   const readDestination = async (target: string): Promise<string> => {
     const contents = await readFile(target, 'utf8');
-    counts.templateReads++;
+    evidenceFor(counts).destinationReadPaths.push(target);
     return contents;
   };
   return {
     readDestination,
     referenceParser: {
       parse: (source, fileName) => {
-        counts.validationParses++;
+        evidenceFor(counts).referenceParsePaths.push(fileName);
         return referenceParser.parse(source, fileName);
       },
     },
-    createFileMigrator: (adapter, template) =>
-      new AnalyzedFileMigrator(adapter, template, countingFileDependencies(counts, readDestination)),
+    createFileMigrator: (adapter, template) => {
+      const migrator = new AnalyzedFileMigrator(adapter, template, countingFileDependencies(counts, readDestination));
+      return {
+        async plan(options) {
+          const plan = await migrator.plan(options);
+          if (plan.file.changed) evidenceFor(counts).changedTemplatePaths.push(plan.file.outputPath);
+          return plan;
+        },
+      };
+    },
   };
 }
 
@@ -277,6 +350,7 @@ function countingFileDependencies(
     validationParser: {
       parse: (source, fileName) => {
         counts.validationParses++;
+        evidenceFor(counts).validationParsePaths.push(fileName);
         return parser.parse(source, fileName);
       },
     },
@@ -307,7 +381,7 @@ function transactionDouble(counts: MigrationWorkloadCounts) {
 }
 
 function emptyCounts(): MigrationWorkloadCounts {
-  return {
+  const counts = {
     discoveryPasses: 0,
     templatesDiscovered: 0,
     templateReads: 0,
@@ -317,6 +391,32 @@ function emptyCounts(): MigrationWorkloadCounts {
     stylesheetReads: 0,
     projectWrites: 0,
   };
+  workloadEvidence.set(counts, {
+    analyzedPaths: [],
+    changedTemplatePaths: [],
+    destinationReadPaths: [],
+    discoveredPaths: [],
+    discoveredOutputPaths: [],
+    initialParsePaths: [],
+    originalReadPaths: [],
+    referenceParsePaths: [],
+    validationParsePaths: [],
+  });
+  return counts;
+}
+
+function evidenceFor(counts: MigrationWorkloadCounts): MigrationWorkloadEvidence {
+  const evidence = workloadEvidence.get(counts);
+  if (evidence === undefined) throw new Error('Workload evidence must be initialized with emptyCounts().');
+  return evidence;
+}
+
+function expectSingleOwnerEvidence(counts: MigrationWorkloadCounts, hasChangedProposal = true): void {
+  const evidence = evidenceFor(counts);
+  expect(evidence.originalReadPaths).toEqual(evidence.discoveredPaths);
+  expect(evidence.initialParsePaths).toEqual(evidence.discoveredPaths);
+  expect(evidence.analyzedPaths).toEqual(evidence.discoveredPaths);
+  expect(evidence.validationParsePaths).toEqual(hasChangedProposal ? evidence.discoveredOutputPaths : []);
 }
 
 function tailwindSession(): ConversionAdapterSession {

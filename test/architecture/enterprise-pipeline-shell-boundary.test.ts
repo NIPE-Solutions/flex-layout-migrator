@@ -11,6 +11,7 @@ import { validatedProjectPlan } from '../../src/pipeline/validated-project-plan'
 import {
   inspectTypeScript,
   inspectTypeScriptProject,
+  inspectSemanticAuthorityCalls,
   moduleReferenceContainsPath,
   productionTypeScriptFiles,
   runtimeModuleReferences,
@@ -135,6 +136,7 @@ describe('enterprise pipeline shell dependency boundary', { timeout: 20_000 }, (
 
   test('keeps the current-pipeline facade to one migrate call and no stage or policy ownership', () => {
     const inspection = sourceInspection(currentPipelinePath);
+    const projectInspection = inspectTypeScriptProject([currentPipelinePath]);
     const forbiddenSymbols = [
       ...inspection.identifiers,
       ...inspection.callExpressionNames,
@@ -148,6 +150,11 @@ describe('enterprise pipeline shell dependency boundary', { timeout: 20_000 }, (
     expect(sorted(inspection.moduleReferences)).toEqual(
       sorted([
         './project-manifest',
+        './analyze/analyze-project.stage',
+        './analyzed-project',
+        './discover/discover-project.stage',
+        './invocation-error-path.mapper',
+        './migration-pipeline',
         '../adapter/conversion-adapter.session',
         '../migrator/migrator',
         '../report/migration-report',
@@ -155,8 +162,13 @@ describe('enterprise pipeline shell dependency boundary', { timeout: 20_000 }, (
     );
     expect(inspection.callExpressionNames.filter(name => name === 'migrate')).toEqual(['migrate']);
     expect(forbiddenSymbols).toEqual([]);
-    expect(inspectTypeScriptProject([currentPipelinePath]).filesystemMutationCalls).toEqual([]);
-    expect(inspectTypeScriptProject([currentPipelinePath]).transactionApplyCalls).toEqual([]);
+    expect(projectInspection.filesystemMutationCalls).toEqual([]);
+    expect(projectInspection.transactionApplyCalls).toEqual([]);
+    expect(inspectSemanticAuthorityCalls([currentPipelinePath])).toEqual([
+      { sourcePath: currentPipelinePath, name: 'DiscoverProjectStage.run' },
+      { sourcePath: currentPipelinePath, name: 'AnalyzeProjectStage.run' },
+      { sourcePath: currentPipelinePath, name: 'Migrator.migrate' },
+    ]);
   });
 
   test('routes the CLI through the runner port without a direct Migrator dependency', () => {
@@ -273,12 +285,20 @@ describe('enterprise pipeline shell dependency boundary', { timeout: 20_000 }, (
     const pipelinePaths = productionTypeScriptFiles(pipelineRoot);
 
     expect(pipelinePaths.map(path => basename(path)).sort()).toEqual([
+      'analyze-project.stage.ts',
       'analyzed-project.ts',
       'current-migration.pipeline.ts',
+      'discover-project.stage.ts',
+      'discovery-file-system.port.ts',
+      'ignore-matcher.port.ts',
+      'invocation-error-path.mapper.ts',
       'migration-pipeline.ts',
       'pipeline-stage.error.ts',
       'project-manifest.ts',
       'rendered-project.ts',
+      'template-input-analyzer.port.ts',
+      'template-parser.port.ts',
+      'template-source-reader.port.ts',
       'validated-project-plan.ts',
     ]);
     expect(inspectTypeScriptProject(pipelinePaths).filesystemMutationCalls).toEqual([]);

@@ -4,6 +4,7 @@ import { join, relative } from 'node:path';
 import {
   inspectTypeScript,
   inspectTypeScriptProject,
+  inspectSemanticAuthorityCalls,
   productionTypeScriptFiles,
   type TypeScriptInspection,
   type TypeScriptProjectInspection,
@@ -59,7 +60,12 @@ interface ProjectWriteAuthorityCall {
 
 interface NormalizedAuthorityEdge {
   readonly caller: string;
-  readonly authority: 'CurrentMigrationPipeline.run' | 'MigrationTransaction.apply' | 'Migrator.migrate';
+  readonly authority:
+    | 'AnalyzeProjectStage.run'
+    | 'CurrentMigrationPipeline.run'
+    | 'DiscoverProjectStage.run'
+    | 'MigrationTransaction.apply'
+    | 'Migrator.migrate';
 }
 
 function transactionApplyCalls(
@@ -76,16 +82,21 @@ function projectWriteAuthorityCalls(
   return inspectProject(sources, entryPaths).projectWriteAuthorityCalls;
 }
 
-function normalizedAuthorityGraph(calls: readonly ProjectWriteAuthorityCall[]): readonly NormalizedAuthorityEdge[] {
+function normalizedSemanticAuthorityGraph(
+  calls: ReturnType<typeof inspectSemanticAuthorityCalls>,
+): readonly NormalizedAuthorityEdge[] {
   return calls
+    .filter(
+      (call): call is typeof call & { readonly name: NormalizedAuthorityEdge['authority'] } =>
+        call.name === 'AnalyzeProjectStage.run' ||
+        call.name === 'CurrentMigrationPipeline.run' ||
+        call.name === 'DiscoverProjectStage.run' ||
+        call.name === 'MigrationTransaction.apply' ||
+        call.name === 'Migrator.migrate',
+    )
     .map(call => ({
       caller: relative(productionRoot, call.sourcePath).replaceAll('\\', '/'),
-      authority:
-        call.name === 'apply'
-          ? ('MigrationTransaction.apply' as const)
-          : call.name === 'migrate'
-            ? ('Migrator.migrate' as const)
-            : ('CurrentMigrationPipeline.run' as const),
+      authority: call.name,
     }))
     .sort((left, right) => `${left.caller}\0${left.authority}`.localeCompare(`${right.caller}\0${right.authority}`));
 }
@@ -455,6 +466,130 @@ describe('migration transaction architecture boundary', { timeout: wholeProjectI
     );
 
     expect(inspection.transactionApplyCalls).toEqual([]);
+  });
+
+  test.each([
+    {
+      label: 'DiscoverStage.run',
+      authority: 'DiscoverProjectStage.run',
+      declaration: "import type { DiscoverStage as Stage } from '../pipeline/migration-pipeline.js';",
+      receiver: 'discover',
+      input: 'invocation',
+      inputDeclaration: "declare const invocation: Parameters<Stage['run']>[0];",
+    },
+    {
+      label: 'AnalyzeStage.run',
+      authority: 'AnalyzeProjectStage.run',
+      declaration: "import type { AnalyzeStage as Stage } from '../pipeline/migration-pipeline.js';",
+      receiver: 'analyze',
+      input: 'manifest',
+      inputDeclaration: "declare const manifest: Parameters<Stage['run']>[0];",
+    },
+  ])('detects $label through direct, alias, call, apply, computed, and Reflect routes', fixture => {
+    const caller = join(projectFixtureRoot, `${fixture.receiver}-routes.ts`);
+    const source = `
+      ${fixture.declaration}
+      declare const ${fixture.receiver}: Stage;
+      ${fixture.inputDeclaration}
+      const execute = ${fixture.receiver}.run.bind(${fixture.receiver});
+      const method = 'run' as const;
+      const unknownMethod: string = method;
+      void ${fixture.receiver}.run(${fixture.input});
+      void execute(${fixture.input});
+      void ${fixture.receiver}.run.call(${fixture.receiver}, ${fixture.input});
+      void ${fixture.receiver}.run.apply(${fixture.receiver}, [${fixture.input}]);
+      void ${fixture.receiver}[unknownMethod](${fixture.input});
+      void Reflect.apply(${fixture.receiver}[method], ${fixture.receiver}, [${fixture.input}]);
+    `;
+
+    expect(inspectSemanticAuthorityCalls([caller], new Map([[caller, source]])).map(call => call.name)).toEqual(
+      Array.from({ length: 6 }, () => fixture.authority),
+    );
+  });
+
+  test.each([
+    [
+      'dynamic import',
+      "const { DiscoverProjectStage: Stage } = await import('../pipeline/discover/discover-project.stage.js');",
+    ],
+    [
+      'CommonJS require',
+      "const { DiscoverProjectStage: Stage } = require('../pipeline/discover/discover-project.stage.js');",
+    ],
+  ])('detects DiscoverProjectStage.run acquired through %s', (_label, setup) => {
+    const caller = join(projectFixtureRoot, 'runtime-discover.ts');
+    const source = `
+      async function execute() {
+        ${setup}
+        const discover = new Stage();
+        await discover.run(undefined as never);
+      }
+    `;
+
+    expect(inspectSemanticAuthorityCalls([caller], new Map([[caller, source]]))).toEqual([
+      { sourcePath: caller, name: 'DiscoverProjectStage.run' },
+    ]);
+  });
+
+  test.each([
+    'interface Stage { run(value: unknown): void } declare const discover: Stage; discover.run(undefined);',
+    'class DiscoverProjectStage { run(value: unknown): void {} } new DiscoverProjectStage().run(undefined);',
+    'interface Analyzer { analyze(value: unknown): void } declare const analyzer: Analyzer; analyzer.analyze(undefined);',
+  ])('does not confuse an unrelated same-named callable with pipeline authority', source => {
+    const caller = join(projectFixtureRoot, 'unrelated-stage.ts');
+
+    expect(inspectSemanticAuthorityCalls([caller], new Map([[caller, source]]))).toEqual([]);
+  });
+
+  test.each([
+    {
+      authority: 'DiscoveryFileSystem.entries',
+      importType:
+        "import type { DiscoveryFileSystem as Port } from '../pipeline/discover/discovery-file-system.port.js';",
+      member: 'entries',
+      arguments: "'/project'",
+    },
+    {
+      authority: 'IgnoreMatcherFactory.load',
+      importType: "import type { IgnoreMatcherFactory as Port } from '../pipeline/discover/ignore-matcher.port.js';",
+      member: 'load',
+      arguments: "'/project'",
+    },
+    {
+      authority: 'TemplateSourceReader.read',
+      importType:
+        "import type { TemplateSourceReader as Port } from '../pipeline/analyze/template-source-reader.port.js';",
+      member: 'read',
+      arguments: "'/project/card.html'",
+    },
+    {
+      authority: 'AngularTemplateParser.parse',
+      importType: "import type { TemplateParser as Port } from '../pipeline/analyze/template-parser.port.js';",
+      member: 'parse',
+      arguments: "'<div></div>', '/project/card.html'",
+    },
+    {
+      authority: 'TemplateInputAnalyzer.analyze',
+      importType:
+        "import type { TemplateInputAnalyzer as Port } from '../pipeline/analyze/template-input-analyzer.port.js';",
+      member: 'analyze',
+      arguments: "'/project/card.html', []",
+    },
+  ])('follows $authority through aliases and invocation indirection', fixture => {
+    const caller = join(projectFixtureRoot, `semantic-${fixture.member}.ts`);
+    const source = `
+      ${fixture.importType}
+      declare const port: Port;
+      const direct = port.${fixture.member};
+      const operations = { execute: direct };
+      void operations.execute.call(port, ${fixture.arguments});
+      void Reflect.apply(port.${fixture.member}, port, [${fixture.arguments}]);
+    `;
+
+    expect(inspectSemanticAuthorityCalls([caller], new Map([[caller, source]])).map(call => call.name)).toEqual([
+      fixture.authority,
+      fixture.authority,
+    ]);
   });
 
   test('detects a presenter invoking canonical Migrator#migrate in write mode', () => {
@@ -1506,15 +1641,20 @@ describe('migration transaction architecture boundary', { timeout: wholeProjectI
   });
 
   test(
-    'keeps the production authority graph exactly CLI to CurrentMigrationPipeline to Migrator to MigrationTransaction',
+    'keeps the production authority graph exactly CLI to Discover to Analyze to Migrator to MigrationTransaction',
     () => {
-      const graph = normalizedAuthorityGraph(
-        projectWriteAuthorityCalls(new Map(), productionTypeScriptFiles(productionRoot)),
-      );
+      const graphPaths = [
+        join(productionRoot, 'cli', 'run-cli.ts'),
+        join(productionRoot, 'pipeline', 'current-migration.pipeline.ts'),
+        join(productionRoot, 'migrator', 'migrator.ts'),
+      ];
+      const graph = normalizedSemanticAuthorityGraph(inspectSemanticAuthorityCalls(graphPaths));
 
       expect(graph).toEqual([
         { caller: 'cli/run-cli.ts', authority: 'CurrentMigrationPipeline.run' },
         { caller: 'migrator/migrator.ts', authority: 'MigrationTransaction.apply' },
+        { caller: 'pipeline/current-migration.pipeline.ts', authority: 'AnalyzeProjectStage.run' },
+        { caller: 'pipeline/current-migration.pipeline.ts', authority: 'DiscoverProjectStage.run' },
         { caller: 'pipeline/current-migration.pipeline.ts', authority: 'Migrator.migrate' },
       ]);
     },
