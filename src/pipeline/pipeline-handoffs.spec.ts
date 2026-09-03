@@ -116,7 +116,7 @@ function captureInternalInvariant(action: () => unknown): MigrationApplicationEr
 }
 
 describe('pipeline handoff factories', () => {
-  test('normalizes invocation paths and owns an immutable options copy', () => {
+  test('preserves raw invocation paths, exposes canonical identities, and owns an immutable options copy', () => {
     const options: MigrationOptions = {
       mode: 'write',
       responsiveImages: true,
@@ -131,8 +131,10 @@ describe('pipeline handoff factories', () => {
     });
 
     expect(invocation).toEqual({
-      inputPath: path.resolve('templates'),
-      outputPath: path.resolve('generated'),
+      inputPath: 'fixtures/../templates',
+      outputPath: 'dist/../generated',
+      canonicalInputPath: path.resolve('templates'),
+      canonicalOutputPath: path.resolve('generated'),
       options: {
         mode: 'write',
         responsiveImages: true,

@@ -4,8 +4,12 @@ import type { MigrationOptions } from '../migrator/migrator';
 export interface MigrationInvocation {
   readonly inputPath: string;
   readonly outputPath: string;
+  readonly canonicalInputPath: string;
+  readonly canonicalOutputPath: string;
   readonly options: Readonly<MigrationOptions>;
 }
+
+type MigrationInvocationInput = Pick<MigrationInvocation, 'inputPath' | 'outputPath' | 'options'>;
 
 export interface ManifestTemplate {
   readonly inputPath: string;
@@ -17,15 +21,19 @@ export interface ProjectManifest {
   readonly templates: readonly ManifestTemplate[];
 }
 
-export function migrationInvocation(invocation: MigrationInvocation): MigrationInvocation {
+export function migrationInvocation(invocation: MigrationInvocationInput): MigrationInvocation {
   return Object.freeze({
-    inputPath: normalizedAbsolutePath(invocation.inputPath),
-    outputPath: normalizedAbsolutePath(invocation.outputPath),
+    inputPath: invocation.inputPath,
+    outputPath: invocation.outputPath,
+    canonicalInputPath: normalizedAbsolutePath(invocation.inputPath),
+    canonicalOutputPath: normalizedAbsolutePath(invocation.outputPath),
     options: Object.freeze({ ...invocation.options }),
   });
 }
 
-export function projectManifest(manifest: ProjectManifest): ProjectManifest {
+export function projectManifest(
+  manifest: Omit<ProjectManifest, 'invocation'> & { readonly invocation: MigrationInvocationInput },
+): ProjectManifest {
   return Object.freeze({
     invocation: migrationInvocation(manifest.invocation),
     templates: Object.freeze(

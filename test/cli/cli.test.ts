@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import { access, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { basename, join, relative, resolve, sep } from 'node:path';
 import packageJson from '../../package.json' with { type: 'json' };
 
 const repository = resolve(import.meta.dirname, '../..');
@@ -49,6 +49,32 @@ describe('packaged CLI execution', () => {
 
     expect(result).toMatchObject({ status: 0, stdout: `${packageJson.version}\n`, stderr: '' });
     expect(result.stdout).not.toContain('Flex-Layout Migrator');
+  });
+
+  test('preserves the relative missing input path in the packaged CLI error', async () => {
+    const input = `${basename(temporaryDirectory)}-missing.html`;
+
+    const result = await execute([input]);
+
+    expect(result).toEqual({
+      status: 1,
+      stdout: '',
+      stderr: `Error: ENOENT: no such file or directory, stat '${input}'\n`,
+    });
+  });
+
+  test('rejects a trailing separator on a packaged single-file HTML input', async () => {
+    const input = join(temporaryDirectory, 'trailing.html');
+    await writeFile(input, '<div fxLayout="row"></div>', 'utf8');
+    const relativeInput = `${relative(repository, input)}${sep}`;
+
+    const result = await execute([relativeInput]);
+
+    expect(result).toEqual({
+      status: 1,
+      stdout: '',
+      stderr: `Error: ENOTDIR: not a directory, stat '${relativeInput}'\n`,
+    });
   });
 
   test('plans a clean Tailwind migration by default and applies it only with --write', async () => {

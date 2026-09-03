@@ -41,7 +41,7 @@ describe('runCli', () => {
     return { exitCode, stdout: stdout.text, stderr: stderr.text };
   }
 
-  test('runs one normalized immutable invocation through the injected migration runner', async () => {
+  test('runs one immutable invocation with raw execution paths and canonical identities through the injected runner', async () => {
     const input = `${join(temporaryDirectory, 'templates')}${sep}..${sep}input.html`;
     const outputPath = `${join(temporaryDirectory, 'generated')}${sep}..${sep}output.html`;
     const reportPath = join(temporaryDirectory, 'migration.json');
@@ -89,8 +89,10 @@ describe('runCli', () => {
     expect(sessions[0]?.adapter.name).toBe('tailwind');
     expect(invocations).toHaveLength(1);
     expect(invocations[0]).toEqual({
-      inputPath: resolve(input),
-      outputPath: resolve(outputPath),
+      inputPath: input,
+      outputPath,
+      canonicalInputPath: resolve(input),
+      canonicalOutputPath: resolve(outputPath),
       options: {
         mode: 'plan',
         responsiveImages: true,

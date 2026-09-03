@@ -1,3 +1,4 @@
+import * as path from 'node:path';
 import { AdapterFactory } from '../adapter/adapter.factory';
 import type { MigrationOptions } from '../migrator/migrator';
 import type { MigrationReport } from '../report/migration-report';
@@ -5,7 +6,7 @@ import { CurrentMigrationPipeline, type MigratorFactory } from './current-migrat
 import { migrationInvocation } from './project-manifest';
 
 describe('CurrentMigrationPipeline', () => {
-  test('constructs one migrator from normalized paths and forwards the copied options', async () => {
+  test('constructs one migrator from raw legacy paths and forwards the copied options', async () => {
     const session = AdapterFactory.createSession('tailwind');
     const callerOptions: MigrationOptions = {
       mode: 'write',
@@ -36,7 +37,9 @@ describe('CurrentMigrationPipeline', () => {
 
     expect(invocation.options).not.toBe(callerOptions);
     expect(Object.isFrozen(invocation.options)).toBe(true);
-    expect(factoryArguments).toEqual([[session, invocation.inputPath, invocation.outputPath]]);
+    expect(factoryArguments).toEqual([[session, 'templates/../input.html', 'generated/../output.html']]);
+    expect(invocation.canonicalInputPath).toBe(path.resolve('input.html'));
+    expect(invocation.canonicalOutputPath).toBe(path.resolve('output.html'));
     expect(migratedOptions).toEqual([invocation.options]);
     expect(migratedOptions[0]).toBe(invocation.options);
   });
