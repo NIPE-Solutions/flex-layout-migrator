@@ -1,4 +1,8 @@
 import { existsSync } from 'node:fs';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { spawnSync } from 'node:child_process';
 
 import { describe, expect, it, vi } from 'vitest';
 
@@ -37,6 +41,31 @@ describe('architecture benchmark statistics', () => {
       medianAbsoluteDeviationMilliseconds: 3,
       peakRssBytes: [700, 100, 400],
     });
+  });
+});
+
+describe('architecture benchmark memory probe', () => {
+  it.each(['darwin', 'linux'])('records max RSS in bytes on %s', async platform => {
+    const directory = await mkdtemp(join(tmpdir(), 'architecture-memory-probe-'));
+    const metricsPath = join(directory, 'metrics.json');
+    const probeUrl = new URL('./memory-probe.mjs', import.meta.url).href;
+    const program = `
+      Object.defineProperty(process, 'platform', { value: ${JSON.stringify(platform)} });
+      process.resourceUsage = () => ({ maxRSS: 123 });
+      await import(${JSON.stringify(probeUrl)});
+    `;
+
+    try {
+      const result = spawnSync(process.execPath, ['--input-type=module', '--eval', program], {
+        encoding: 'utf8',
+        env: { ...process.env, FLEX_LAYOUT_BENCHMARK_METRICS_PATH: metricsPath },
+      });
+
+      expect(result).toMatchObject({ status: 0, stdout: '', stderr: '' });
+      expect(JSON.parse(await readFile(metricsPath, 'utf8'))).toEqual({ peakRssBytes: 123 * 1024 });
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
   });
 });
 
