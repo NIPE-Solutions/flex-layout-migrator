@@ -913,6 +913,7 @@ function currentMigrationPipelineRunDeclaration(declaration: ts.Declaration): bo
   if (!normalizedDeclarationPath(declaration).endsWith('/pipeline/current-migration.pipeline.ts')) return false;
   for (let current: ts.Node | undefined = declaration; current !== undefined; current = current.parent) {
     if (ts.isClassDeclaration(current)) return current.name?.text === 'CurrentMigrationPipeline';
+    if (ts.isInterfaceDeclaration(current)) return current.name.text === 'MigrationRunner';
   }
   return false;
 }
@@ -1697,6 +1698,18 @@ interface CurrentMigrationPipelineRunCallableProvenance {
   readonly boundArguments: readonly ts.Expression[];
 }
 
+function currentMigrationPipelineMemberName(
+  expression: ts.PropertyAccessExpression | ts.ElementAccessExpression,
+  checker: ts.TypeChecker,
+): string | undefined {
+  if (ts.isPropertyAccessExpression(expression)) return expression.name.text;
+  const directName = moduleText(expression.argumentExpression);
+  if (directName !== undefined) return directName;
+  if (expression.argumentExpression === undefined) return undefined;
+  const argumentType = checker.getTypeAtLocation(unwrapExpression(expression.argumentExpression));
+  return argumentType.isStringLiteral() || argumentType.isNumberLiteral() ? String(argumentType.value) : undefined;
+}
+
 function currentMigrationPipelineRunSymbolProvenance(
   symbol: ts.Symbol | undefined,
   checker: ts.TypeChecker,
@@ -1794,9 +1807,7 @@ function currentMigrationPipelineRunCallableProvenance(
   }
 
   if (ts.isPropertyAccessExpression(unwrapped) || ts.isElementAccessExpression(unwrapped)) {
-    const name = ts.isPropertyAccessExpression(unwrapped)
-      ? unwrapped.name.text
-      : moduleText(unwrapped.argumentExpression);
+    const name = currentMigrationPipelineMemberName(unwrapped, checker);
     if (name === 'run') {
       const property = checker.getPropertyOfType(checker.getTypeAtLocation(unwrapped.expression), name);
       if (
@@ -1805,6 +1816,13 @@ function currentMigrationPipelineRunCallableProvenance(
       ) {
         return { boundArguments: [] };
       }
+    }
+    if (
+      name === undefined &&
+      ts.isElementAccessExpression(unwrapped) &&
+      currentMigrationPipelineReceiverProvenance(unwrapped.expression, checker, program)
+    ) {
+      return { boundArguments: [] };
     }
     const propertyNode = ts.isPropertyAccessExpression(unwrapped) ? unwrapped.name : unwrapped.argumentExpression;
     if (propertyNode !== undefined) {

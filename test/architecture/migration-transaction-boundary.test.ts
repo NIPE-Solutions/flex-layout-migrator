@@ -483,6 +483,54 @@ describe('migration transaction architecture boundary', { timeout: wholeProjectI
     ]);
   });
 
+  test('treats the canonical MigrationRunner port as current-pipeline write authority', () => {
+    const presenter = join(projectFixtureRoot, 'migration-runner-port.presenter.ts');
+    const source = `
+      import type { MigrationRunner as RunnerPort } from '../pipeline/current-migration.pipeline.js';
+      declare const runner: RunnerPort;
+      void runner.run({ inputPath: 'input.html', outputPath: 'output.html', options: { mode: 'write' } });
+    `;
+
+    expect(projectWriteAuthorityCalls(new Map([[presenter, source]]), [presenter])).toEqual([
+      { sourcePath: presenter, name: 'run' },
+    ]);
+  });
+
+  test('follows the canonical MigrationRunner port through a re-exported type alias', () => {
+    const barrel = join(projectFixtureRoot, 'migration-runner-port.index.ts');
+    const presenter = join(projectFixtureRoot, 'aliased-migration-runner-port.presenter.ts');
+    const sources = new Map([
+      [barrel, "export type { MigrationRunner as RunnerPort } from '../pipeline/current-migration.pipeline.js';"],
+      [
+        presenter,
+        `
+          import type { RunnerPort as ImportedPort } from './migration-runner-port.index.js';
+          declare const runner: ImportedPort;
+          void runner.run({ inputPath: 'input.html', outputPath: 'output.html', options: { mode: 'write' } });
+        `,
+      ],
+    ]);
+
+    expect(projectWriteAuthorityCalls(sources, [presenter])).toEqual([{ sourcePath: presenter, name: 'run' }]);
+  });
+
+  test.each([
+    ['a const literal method alias', "const method = 'run' as const;"],
+    ['an unknown computed method', 'declare const method: string;'],
+  ])('fails closed for canonical MigrationRunner invocation through %s', (_label, methodDeclaration) => {
+    const presenter = join(projectFixtureRoot, 'computed-migration-runner-port.presenter.ts');
+    const source = `
+      import type { MigrationRunner as RunnerPort } from '../pipeline/current-migration.pipeline.js';
+      declare const runner: RunnerPort;
+      ${methodDeclaration}
+      void runner[method]({ inputPath: 'input.html', outputPath: 'output.html', options: { mode: 'write' } });
+    `;
+
+    expect(projectWriteAuthorityCalls(new Map([[presenter, source]]), [presenter])).toEqual([
+      { sourcePath: presenter, name: 'run' },
+    ]);
+  });
+
   test.each([
     [
       'direct bound callable',
@@ -596,6 +644,23 @@ describe('migration transaction architecture boundary', { timeout: wholeProjectI
       `
         class CurrentMigrationPipeline { run(invocation: { options: { mode: 'write' } }): void {} }
         new CurrentMigrationPipeline().run({ options: { mode: 'write' } });
+      `,
+    ],
+    [
+      'a same-named local runner port',
+      `
+        interface MigrationRunner { run(invocation: { options: { mode: 'write' } }): void }
+        declare const runner: MigrationRunner;
+        runner.run({ options: { mode: 'write' } });
+      `,
+    ],
+    [
+      'an unrelated receiver with an unknown computed method',
+      `
+        interface Previewer { run(invocation: { options: { mode: 'write' } }): void }
+        declare const previewer: Previewer;
+        declare const method: string;
+        previewer[method]({ options: { mode: 'write' } });
       `,
     ],
   ])('does not confuse %s with current-pipeline write authority', (_label, source) => {
