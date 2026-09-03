@@ -3397,19 +3397,75 @@ function runtimeAcquisitionReaches(
   return false;
 }
 
-function filesystemModuleExportProvenance(
+function uniqueFilesystemProvenances(provenances: readonly FilesystemProvenance[]): readonly FilesystemProvenance[] {
+  return [...new Set(provenances)];
+}
+
+function filesystemModuleNamespaceProvenances(
+  reference: string,
+  containingSourcePath: string,
+  operationNames: ReadonlySet<string>,
+  program: ts.Program,
+  seenExports: ReadonlySet<string> = new Set(),
+): readonly FilesystemProvenance[] {
+  if (isFilesystemModuleReference(reference)) return ['*'];
+
+  const provenances: FilesystemProvenance[] = [];
+  for (const candidate of localModuleCandidates(reference, containingSourcePath)) {
+    const sourcePath = resolve(candidate);
+    const key = `${sourcePath}\0<namespace>`;
+    if (seenExports.has(key)) continue;
+    const sourceFile = program.getSourceFile(sourcePath);
+    if (sourceFile === undefined) continue;
+    const nextSeen = new Set(seenExports).add(key);
+
+    for (const exportedName of runtimeExportedNames(sourceFile)) {
+      if (exportedName === '*') continue;
+      provenances.push(
+        ...filesystemModuleExportProvenances(
+          reference,
+          containingSourcePath,
+          exportedName,
+          operationNames,
+          program,
+          nextSeen,
+        ),
+      );
+    }
+
+    for (const target of runtimeExportedBindingTargets(sourceFile, '*')) {
+      provenances.push(
+        ...(target.importedName === '*'
+          ? filesystemModuleNamespaceProvenances(target.reference, sourcePath, operationNames, program, nextSeen)
+          : filesystemModuleExportProvenances(
+              target.reference,
+              sourcePath,
+              target.importedName,
+              operationNames,
+              program,
+              nextSeen,
+            )),
+      );
+    }
+  }
+
+  return uniqueFilesystemProvenances(provenances);
+}
+
+function filesystemModuleExportProvenances(
   reference: string,
   containingSourcePath: string,
   exportedName: string,
   operationNames: ReadonlySet<string>,
   program: ts.Program,
   seenExports: ReadonlySet<string> = new Set(),
-): FilesystemProvenance | undefined {
+): readonly FilesystemProvenance[] {
   if (isFilesystemModuleReference(reference)) {
-    if (operationNames.has(exportedName)) return exportedName;
-    return filesystemNamespaceMemberNames.has(exportedName) || exportedName === '*' ? '*' : undefined;
+    if (operationNames.has(exportedName)) return [exportedName];
+    return filesystemNamespaceMemberNames.has(exportedName) || exportedName === '*' ? ['*'] : [];
   }
 
+  const provenances: FilesystemProvenance[] = [];
   for (const candidate of localModuleCandidates(reference, containingSourcePath)) {
     const sourcePath = resolve(candidate);
     const key = `${sourcePath}\0${exportedName}`;
@@ -3418,21 +3474,40 @@ function filesystemModuleExportProvenance(
     if (sourceFile === undefined) continue;
     const nextSeen = new Set(seenExports).add(key);
     for (const target of runtimeExportedBindingTargets(sourceFile, exportedName)) {
-      const nextName =
-        target.importedName === '*' && target.forwardExportedName === true ? exportedName : target.importedName;
-      const provenance = filesystemModuleExportProvenance(
-        target.reference,
-        sourcePath,
-        nextName,
-        operationNames,
-        program,
-        nextSeen,
+      provenances.push(
+        ...(target.importedName === '*' && target.forwardExportedName !== true
+          ? filesystemModuleNamespaceProvenances(target.reference, sourcePath, operationNames, program, nextSeen)
+          : filesystemModuleExportProvenances(
+              target.reference,
+              sourcePath,
+              target.importedName === '*' ? exportedName : target.importedName,
+              operationNames,
+              program,
+              nextSeen,
+            )),
       );
-      if (provenance !== undefined) return provenance;
     }
   }
 
-  return undefined;
+  return uniqueFilesystemProvenances(provenances);
+}
+
+function filesystemModuleExportProvenance(
+  reference: string,
+  containingSourcePath: string,
+  exportedName: string,
+  operationNames: ReadonlySet<string>,
+  program: ts.Program,
+  seenExports: ReadonlySet<string> = new Set(),
+): FilesystemProvenance | undefined {
+  return filesystemModuleExportProvenances(
+    reference,
+    containingSourcePath,
+    exportedName,
+    operationNames,
+    program,
+    seenExports,
+  )[0];
 }
 
 function semanticFilesystemAcquisition(
@@ -3470,35 +3545,16 @@ function filesystemNamespaceAcquisitions(
   reference: string,
   containingSourcePath: string,
   program: ts.Program,
-  seenPaths: ReadonlySet<string> = new Set(),
 ): readonly SemanticFilesystemAcquisition[] {
-  if (isFilesystemModuleReference(reference)) return ['*'];
-
-  const acquisitions: SemanticFilesystemAcquisition[] = [];
-  for (const candidate of localModuleCandidates(reference, containingSourcePath)) {
-    const sourcePath = resolve(candidate);
-    if (seenPaths.has(sourcePath)) continue;
-    const sourceFile = program.getSourceFile(sourcePath);
-    if (sourceFile === undefined) continue;
-    const nextSeen = new Set(seenPaths).add(sourcePath);
-    for (const exportedName of runtimeExportedNames(sourceFile)) {
-      const provenance = semanticFilesystemAcquisition(
-        filesystemModuleExportProvenance(
-          reference,
-          containingSourcePath,
-          exportedName,
-          semanticFilesystemOperations,
-          program,
-        ),
-      );
-      if (provenance !== undefined) acquisitions.push(provenance);
-    }
-    if (acquisitions.length > 0) continue;
-    for (const dependencyReference of runtimeReExportReferences(sourceFile)) {
-      acquisitions.push(...filesystemNamespaceAcquisitions(dependencyReference, sourcePath, program, nextSeen));
-    }
-  }
-  return acquisitions;
+  return filesystemModuleNamespaceProvenances(
+    reference,
+    containingSourcePath,
+    semanticFilesystemOperations,
+    program,
+  ).flatMap(provenance => {
+    const acquisition = semanticFilesystemAcquisition(provenance);
+    return acquisition === undefined ? [] : [acquisition];
+  });
 }
 
 function filesystemImportedBindingAcquisition(
@@ -3508,16 +3564,16 @@ function filesystemImportedBindingAcquisition(
   program: ts.Program,
 ): readonly SemanticFilesystemAcquisition[] {
   if (importedName === '*') return filesystemNamespaceAcquisitions(reference, containingSourcePath, program);
-  const provenance = semanticFilesystemAcquisition(
-    filesystemModuleExportProvenance(
-      reference,
-      containingSourcePath,
-      importedName,
-      semanticFilesystemOperations,
-      program,
-    ),
-  );
-  return provenance === undefined ? [] : [provenance];
+  return filesystemModuleExportProvenances(
+    reference,
+    containingSourcePath,
+    importedName,
+    semanticFilesystemOperations,
+    program,
+  ).flatMap(provenance => {
+    const acquisition = semanticFilesystemAcquisition(provenance);
+    return acquisition === undefined ? [] : [acquisition];
+  });
 }
 
 function bindingIdentifiers(name: ts.BindingName): readonly ts.Identifier[] {

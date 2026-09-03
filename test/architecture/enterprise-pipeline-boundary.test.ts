@@ -31,6 +31,7 @@ let cachedRogueProductionSemanticAuthorities: ReturnType<typeof inspectSemanticA
 let cachedGitIgnoreBarrelAuthorities: ReturnType<typeof inspectSemanticAuthorityCalls> | undefined;
 let cachedLocalBindingBarrelAuthorities: ReturnType<typeof inspectSemanticAuthorityCalls> | undefined;
 let cachedFilesystemBarrelAuthorities: ReturnType<typeof inspectSemanticAuthorityCalls> | undefined;
+let cachedFilesystemNamespaceUnionAuthorities: ReturnType<typeof inspectSemanticAuthorityCalls> | undefined;
 const productionGraphAuthorities = new Set([
   'AnalyzeProjectStage.run',
   'CurrentMigrationPipeline.run',
@@ -375,6 +376,101 @@ const filesystemBarrelOverrides = new Map([
   [filesystemCycleBPath, "import { loopA } from './filesystem-cycle-a.js'; export { loopA as loopB };"],
   ...filesystemBarrelCases.map(fixture => [fixture.sourcePath, fixture.source] as const),
 ]);
+const filesystemNamespaceInnerPath = join(localBindingFixtureRoot, 'filesystem-namespace-inner.ts');
+const filesystemNamedNamespaceExportPath = join(localBindingFixtureRoot, 'filesystem-named-namespace-export.ts');
+const filesystemMixedStarInnerPath = join(localBindingFixtureRoot, 'filesystem-mixed-star-inner.ts');
+const filesystemMixedStarBarrelPath = join(localBindingFixtureRoot, 'filesystem-mixed-star.barrel.ts');
+const filesystemMixedStarHopPath = join(localBindingFixtureRoot, 'filesystem-mixed-star-hop.ts');
+const filesystemMixedStarCycleAPath = join(localBindingFixtureRoot, 'filesystem-mixed-star-cycle-a.ts');
+const filesystemMixedStarCycleBPath = join(localBindingFixtureRoot, 'filesystem-mixed-star-cycle-b.ts');
+const filesystemTypeOnlyStarInnerPath = join(localBindingFixtureRoot, 'filesystem-type-only-star-inner.ts');
+const filesystemTypeOnlyStarBarrelPath = join(localBindingFixtureRoot, 'filesystem-type-only-star.barrel.ts');
+const filesystemUnrelatedStarInnerPath = join(localBindingFixtureRoot, 'filesystem-unrelated-star-inner.ts');
+const filesystemUnrelatedStarBarrelPath = join(localBindingFixtureRoot, 'filesystem-unrelated-star.barrel.ts');
+const mixedStarAcquisitions = [
+  'FileSystem.acquire.readFile',
+  'FileSystem.acquire.readdir',
+  'FileSystem.acquire.stat',
+] as const;
+const filesystemNamespaceUnionCases = [
+  {
+    label: 'named namespace re-export with an aliased byte reader',
+    sourcePath: join(localBindingFixtureRoot, 'filesystem-named-namespace-consumer.ts'),
+    source: "import { filesystem } from './filesystem-named-namespace-export.js'; void filesystem;",
+    expected: ['FileSystem.acquire.readFile'],
+  },
+  {
+    label: 'ESM namespace over mixed direct and export-star bindings',
+    sourcePath: join(localBindingFixtureRoot, 'filesystem-mixed-star-esm.ts'),
+    source: "import * as filesystem from './filesystem-mixed-star.barrel.js'; void filesystem;",
+    expected: mixedStarAcquisitions,
+  },
+  {
+    label: 'dynamic namespace over mixed direct and export-star bindings',
+    sourcePath: join(localBindingFixtureRoot, 'filesystem-mixed-star-dynamic.ts'),
+    source:
+      "async function load() { const filesystem = await import('./filesystem-mixed-star.barrel.js'); return filesystem; } void load();",
+    expected: mixedStarAcquisitions,
+  },
+  {
+    label: 'CommonJS namespace over mixed direct and export-star bindings',
+    sourcePath: join(localBindingFixtureRoot, 'filesystem-mixed-star-commonjs.ts'),
+    source: "const filesystem = require('./filesystem-mixed-star.barrel.js'); void filesystem;",
+    expected: mixedStarAcquisitions,
+  },
+  {
+    label: 'TypeScript import-equals namespace over mixed direct and export-star bindings',
+    sourcePath: join(localBindingFixtureRoot, 'filesystem-mixed-star-import-equals.ts'),
+    source: "import filesystem = require('./filesystem-mixed-star.barrel.js'); void filesystem;",
+    expected: mixedStarAcquisitions,
+  },
+  {
+    label: 'unused mixed namespace acquisition inside the approved Discover owner',
+    sourcePath: discoverStagePath,
+    source:
+      "import * as filesystem from '../../__architecture-fixture__/filesystem-mixed-star.barrel.js'; void filesystem;",
+    expected: mixedStarAcquisitions,
+  },
+  {
+    label: 'multi-hop mixed namespace behind a terminating cycle',
+    sourcePath: join(localBindingFixtureRoot, 'filesystem-mixed-star-cycle-consumer.ts'),
+    source: "const filesystem = require('./filesystem-mixed-star-cycle-a.js'); void filesystem;",
+    expected: mixedStarAcquisitions,
+  },
+  {
+    label: 'type-only export-star namespace',
+    sourcePath: join(localBindingFixtureRoot, 'filesystem-type-only-star-consumer.ts'),
+    source: "import * as filesystem from './filesystem-type-only-star.barrel.js'; void filesystem;",
+    expected: [],
+  },
+  {
+    label: 'unrelated same-named export-star namespace',
+    sourcePath: join(localBindingFixtureRoot, 'filesystem-unrelated-star-consumer.ts'),
+    source:
+      "import * as filesystem from './filesystem-unrelated-star.barrel.js'; void filesystem.readFile('card.html');",
+    expected: [],
+  },
+] as const;
+const filesystemNamespaceUnionOverrides = new Map([
+  [filesystemNamespaceInnerPath, "export { readFile as bytes } from 'node:fs/promises';"],
+  [filesystemNamedNamespaceExportPath, "export * as filesystem from './filesystem-namespace-inner.js';"],
+  [filesystemMixedStarInnerPath, "export { readFile as bytes } from 'node:fs/promises';"],
+  [
+    filesystemMixedStarBarrelPath,
+    "export { readdir, stat } from 'node:fs/promises'; export * from './filesystem-mixed-star-inner.js';",
+  ],
+  [filesystemMixedStarHopPath, "export * from './filesystem-mixed-star.barrel.js';"],
+  [
+    filesystemMixedStarCycleAPath,
+    "export * from './filesystem-mixed-star-cycle-b.js'; export * from './filesystem-mixed-star-hop.js';",
+  ],
+  [filesystemMixedStarCycleBPath, "export * from './filesystem-mixed-star-cycle-a.js';"],
+  [filesystemTypeOnlyStarInnerPath, "export type { FileHandle as Handle } from 'node:fs/promises';"],
+  [filesystemTypeOnlyStarBarrelPath, "export * from './filesystem-type-only-star-inner.js';"],
+  [filesystemUnrelatedStarInnerPath, 'const readFile = (path: string): string => path; export { readFile };'],
+  [filesystemUnrelatedStarBarrelPath, "export * from './filesystem-unrelated-star-inner.js';"],
+  ...filesystemNamespaceUnionCases.map(fixture => [fixture.sourcePath, fixture.source] as const),
+]);
 const expectedRendererRelativePaths = [
   'adapter/css/css.adapter.ts',
   'adapter/css/flex/flex-align.css-renderer.ts',
@@ -514,6 +610,14 @@ function filesystemBarrelAuthorities(): ReturnType<typeof inspectSemanticAuthori
     filesystemBarrelOverrides,
   );
   return cachedFilesystemBarrelAuthorities;
+}
+
+function filesystemNamespaceUnionAuthorities(): ReturnType<typeof inspectSemanticAuthorityCalls> {
+  cachedFilesystemNamespaceUnionAuthorities ??= inspectSemanticAuthorityCalls(
+    filesystemNamespaceUnionCases.map(fixture => fixture.sourcePath),
+    filesystemNamespaceUnionOverrides,
+  );
+  return cachedFilesystemNamespaceUnionAuthorities;
 }
 
 describe('enterprise pipeline dependency boundary', { timeout: wholeProjectInspectionTimeout }, () => {
@@ -747,6 +851,15 @@ describe('enterprise pipeline dependency boundary', { timeout: wholeProjectInspe
         .filter(call => call.sourcePath === fixture.sourcePath)
         .map(call => call.name),
     ).toEqual(expect.arrayContaining([...fixture.expected]));
+  });
+
+  test.each(filesystemNamespaceUnionCases)('unions exact filesystem acquisitions for $label', fixture => {
+    const acquisitions = filesystemNamespaceUnionAuthorities()
+      .filter(call => call.sourcePath === fixture.sourcePath && call.name.startsWith('FileSystem.acquire.'))
+      .map(call => call.name)
+      .sort();
+
+    expect(acquisitions).toEqual([...fixture.expected].sort());
   });
 
   test.each([
