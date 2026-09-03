@@ -48,6 +48,44 @@ const workloadRows = [
   ['Unchanged CSS folder rerun', '2', '4', '2', '4', '2', '1', '0'],
 ] as const;
 
+const policyOwnerRows = [
+  ['artifact identity', 'src/adapter/css/css-artifact.registry.ts', 'CssArtifactRegistry'],
+  ['breakpoint classification', 'src/breakpoint/breakpoint-catalog.ts', 'BreakpointCatalog'],
+  ['diagnostics', 'src/analyzer/conversion-result.ts', 'DiagnosticCode'],
+  ['responsive precedence', 'src/adapter/responsive-family.planner.ts', 'SharedResponsiveFamilyPlanner'],
+  ['semantic planning', 'src/planner/conversion-planner.ts', 'ConversionPlanner'],
+  ['transaction recovery', 'src/transaction/migration-transaction.ts', 'MigrationTransaction'],
+] as const;
+
+const runtimeDependencyRows = [
+  [
+    '@angular/compiler',
+    'declared, used',
+    'Angular template parsing',
+    '21.2.22',
+    '21.2.22',
+    'src/template/angular-template.parser.ts',
+  ],
+  ['commander', 'declared, used', 'CLI command and option parsing', '^15.0.0', '15.0.0', 'src/cli/run-cli.ts'],
+  [
+    'fs-extra',
+    'declared, used',
+    'Filesystem traversal and copy helpers',
+    '^11.4.0',
+    '11.4.0',
+    'src/lib/gitignore.helper.ts',
+  ],
+  [
+    'ignore',
+    'undeclared, used',
+    'Gitignore-compatible path filtering',
+    'not declared',
+    '5.2.4',
+    'src/lib/gitignore.helper.ts',
+  ],
+  ['winston', 'declared, used', 'Application logging', '^3.19.0', '3.19.0', 'src/logger.ts'],
+] as const;
+
 function tableRows(markdown: string, heading: string): string[][] {
   const start = markdown.indexOf(`## ${heading}`);
   if (start === -1) throw new Error(`Missing baseline section: ${heading}`);
@@ -87,13 +125,8 @@ describe('enterprise architecture baseline documentation contract', () => {
       ['Known policy owners', '6'],
     ]);
     expect(tableRows(markdown, 'Largest production modules')).toEqual(largestProductionModules);
-    expect(tableRows(markdown, 'Runtime dependencies').map(row => row.slice(0, 3))).toEqual([
-      ['@angular/compiler', 'declared, used', 'Angular template parsing'],
-      ['commander', 'declared, used', 'CLI command and option parsing'],
-      ['fs-extra', 'declared, used', 'Filesystem traversal and copy helpers'],
-      ['ignore', 'undeclared, used', 'Gitignore-compatible path filtering'],
-      ['winston', 'declared, used', 'Application logging'],
-    ]);
+    expect(tableRows(markdown, 'Policy owners')).toEqual(policyOwnerRows);
+    expect(tableRows(markdown, 'Runtime dependencies')).toEqual(runtimeDependencyRows);
   });
 
   test('freezes the public oracle, benchmark method, and deterministic workload counters', async () => {

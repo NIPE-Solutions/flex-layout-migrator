@@ -4,9 +4,9 @@ This document records the Slice 1 baseline for the enterprise architecture rewri
 
 ## Commit
 
-Commit captured: `1b6a8dcde0205e60f6c4f944a668a509d288b5e3`
+Commit captured: `2ddac75b4171fd60a2fd39ca26ad8ad67a7813ee`
 
-The evidence was collected before this baseline document was added, from a clean build of the commit above.
+The corrected benchmark evidence was collected from a clean build of the commit above. The structural and workload facts remain unchanged from their original capture and are rechecked by the full verification gate.
 
 ## Environment
 
@@ -52,7 +52,18 @@ The inventory reads Git-tracked `src/**/*.ts` production files, excluding specif
 | Relative, built-in, and external module edges |   245 |
 | Known policy owners                           |     6 |
 
-The six symbol-derived owners are artifact identity (`CssArtifactRegistry` in `src/adapter/css/css-artifact.registry.ts`), breakpoint classification (`BreakpointCatalog` in `src/breakpoint/breakpoint-catalog.ts`), diagnostics (`DiagnosticCode` in `src/analyzer/conversion-result.ts`), responsive precedence (`SharedResponsiveFamilyPlanner` in `src/adapter/responsive-family.planner.ts`), semantic planning (`ConversionPlanner` in `src/planner/conversion-planner.ts`), and transaction recovery (`MigrationTransaction` in `src/transaction/migration-transaction.ts`).
+## Policy owners
+
+The inventory discovers these owners from their declared symbols rather than from a hardcoded module list.
+
+| Policy                    | Module                                     | Symbol                          |
+| ------------------------- | ------------------------------------------ | ------------------------------- |
+| artifact identity         | `src/adapter/css/css-artifact.registry.ts` | `CssArtifactRegistry`           |
+| breakpoint classification | `src/breakpoint/breakpoint-catalog.ts`     | `BreakpointCatalog`             |
+| diagnostics               | `src/analyzer/conversion-result.ts`        | `DiagnosticCode`                |
+| responsive precedence     | `src/adapter/responsive-family.planner.ts` | `SharedResponsiveFamilyPlanner` |
+| semantic planning         | `src/planner/conversion-planner.ts`        | `ConversionPlanner`             |
+| transaction recovery      | `src/transaction/migration-transaction.ts` | `MigrationTransaction`          |
 
 ## Largest production modules
 
@@ -97,7 +108,7 @@ Every observed runtime import appears here. Declared ranges come from `package.j
 
 ## Benchmark method
 
-The benchmark invokes the built package entry point with `node --import scripts/benchmark/memory-probe.mjs dist/cli.js`. Every invocation copies a checked-in fixture to a new temporary project, writes metrics to an invocation-owned path, and must exit successfully.
+The benchmark invokes the built package entry point with `node --import scripts/benchmark/memory-probe.mjs dist/cli.js`. Every invocation copies a checked-in fixture to a new temporary project, writes metrics to an invocation-owned path, and must exit successfully. Node reports `process.resourceUsage().maxRSS` in KiB on every supported platform, so the probe multiplies it by 1,024 and records bytes.
 
 Warm-up runs per scenario: **1**
 
@@ -112,14 +123,14 @@ Warm-up observations are discarded. The five recorded elapsed-time and peak-RSS 
 
 ## Benchmark results
 
-Generated at `2026-09-03T08:54:27.913Z` on the environment and commit above. Millisecond and peak-RSS values are machine-specific observations. CI does not use wall-clock thresholds.
+Generated at `2026-09-03T09:05:52.629Z` on the environment and commit above. Millisecond and peak-RSS values are machine-specific observations. CI does not use wall-clock thresholds.
 
-| Scenario                | Recorded milliseconds                                                                              |             Median |            Minimum |            Maximum |                MAD | Recorded peak RSS bytes                |
-| ----------------------- | -------------------------------------------------------------------------------------------------- | -----------------: | -----------------: | -----------------: | -----------------: | -------------------------------------- |
-| `single-tailwind-plan`  | 97.67575; 100.721791; 97.34474999999998; 97.04762500000004; 106.55008299999997                     |           97.67575 |  97.04762500000004 | 106.55008299999997 | 0.6281249999999545 | 97808; 98416; 98736; 97440; 101344     |
-| `multi-tailwind-plan`   | 127.85149999999999; 133.91358400000001; 118.05620900000008; 115.95770900000002; 117.44954200000006 | 118.05620900000008 | 115.95770900000002 | 133.91358400000001 |  2.098500000000058 | 106416; 106336; 103200; 101744; 102352 |
-| `multi-native-css-plan` | 109.1764999999998; 104.9202499999999; 100.03250000000003; 102.12245800000005; 102.45916599999987   | 102.45916599999987 | 100.03250000000003 |  109.1764999999998 |  2.426665999999841 | 99264; 98896; 88096; 98496; 97936      |
-| `unchanged-write`       | 94.39654199999995; 92.8530410000003; 93.142875; 94.00412499999993; 91.99858300000005               |          93.142875 |  91.99858300000005 |  94.39654199999995 | 0.8612499999999272 | 97504; 95888; 96752; 95520; 96656      |
+| Scenario                | Recorded milliseconds                                                                              |             Median |            Minimum |            Maximum |                 MAD | Recorded peak RSS bytes                               |
+| ----------------------- | -------------------------------------------------------------------------------------------------- | -----------------: | -----------------: | -----------------: | ------------------: | ----------------------------------------------------- |
+| `single-tailwind-plan`  | 95.91866599999999; 95.10062500000001; 96.17808400000001; 96.43895800000007; 96.16120799999999      |  96.16120799999999 |  95.10062500000001 |  96.43895800000007 | 0.24254200000000026 | 99155968; 99696640; 99401728; 100188160; 100859904    |
+| `multi-tailwind-plan`   | 111.87008300000002; 112.62116700000001; 111.19566699999996; 110.87675000000013; 111.61333300000001 | 111.61333300000001 | 110.87675000000013 | 112.62116700000001 |  0.4176660000000538 | 104628224; 104103936; 104660992; 104857600; 105086976 |
+| `multi-native-css-plan` | 100.9709170000001; 99.84483299999988; 98.03295900000012; 109.09720900000002; 102.55604200000016    |  100.9709170000001 |  98.03295900000012 | 109.09720900000002 |  1.5851250000000618 | 100745216; 100810752; 99663872; 101695488; 90046464   |
+| `unchanged-write`       | 90.75312500000018; 88.75366699999995; 86.74779199999966; 86.1884170000003; 86.58579099999997       |  86.74779199999966 |   86.1884170000003 |  90.75312500000018 |  0.5593749999993634 | 96993280; 97517568; 98041856; 97206272; 99778560      |
 
 ## Known hotspots
 
