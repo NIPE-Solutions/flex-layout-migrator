@@ -57,6 +57,11 @@ interface ProjectWriteAuthorityCall {
   readonly name: 'apply' | 'migrate';
 }
 
+interface NormalizedAuthorityEdge {
+  readonly caller: string;
+  readonly authority: 'MigrationTransaction.apply' | 'Migrator.migrate';
+}
+
 function transactionApplyCalls(
   sources: ReadonlyMap<string, string>,
   entryPaths: readonly string[],
@@ -69,6 +74,15 @@ function projectWriteAuthorityCalls(
   entryPaths: readonly string[],
 ): readonly ProjectWriteAuthorityCall[] {
   return inspectProject(sources, entryPaths).projectWriteAuthorityCalls;
+}
+
+function normalizedAuthorityGraph(calls: readonly ProjectWriteAuthorityCall[]): readonly NormalizedAuthorityEdge[] {
+  return calls
+    .map(call => ({
+      caller: relative(productionRoot, call.sourcePath).replaceAll('\\', '/'),
+      authority: call.name === 'apply' ? ('MigrationTransaction.apply' as const) : ('Migrator.migrate' as const),
+    }))
+    .sort((left, right) => `${left.caller}\0${left.authority}`.localeCompare(`${right.caller}\0${right.authority}`));
 }
 
 describe('migration transaction architecture boundary', () => {
@@ -340,6 +354,83 @@ describe('migration transaction architecture boundary', () => {
     expect(inspection.transactionApplyCalls).toEqual([{ sourcePath: presenter, name: 'apply' }]);
   });
 
+  test.each([
+    [
+      'destructured require',
+      "const { applyPlan } = require('./commonjs-transaction.helper.js'); void applyPlan(plan);",
+    ],
+    [
+      'required namespace member',
+      "const helpers = require('./commonjs-transaction.helper.js'); void helpers.applyPlan(plan);",
+    ],
+  ])('detects a CommonJS helper whose exported callable applies the transaction through %s', (_label, source) => {
+    const helper = join(projectFixtureRoot, 'commonjs-transaction.helper.ts');
+    const presenter = join(projectFixtureRoot, 'commonjs-helper.presenter.ts');
+    const inspection = inspectProject(
+      new Map([
+        [
+          helper,
+          `
+            import type { MigrationTransaction } from '../transaction/migration-transaction.js';
+            import type { MigrationPlan } from '../migrator/migration-plan.js';
+            declare const transaction: Pick<MigrationTransaction, 'apply'>;
+            export async function applyPlan(plan: MigrationPlan) { await transaction.apply(plan); }
+          `,
+        ],
+        [
+          presenter,
+          `
+            import type { MigrationPlan } from '../migrator/migration-plan.js';
+            declare const plan: MigrationPlan;
+            ${source}
+          `,
+        ],
+      ]),
+      [presenter],
+    );
+
+    expect(inspection.transactionApplyCalls).toEqual([{ sourcePath: presenter, name: 'apply' }]);
+  });
+
+  test('follows a CommonJS helper callable through a renamed re-export, barrel, and export cycle', () => {
+    const helper = join(projectFixtureRoot, 'commonjs-transaction.helper.ts');
+    const reexport = join(projectFixtureRoot, 'commonjs-transaction.reexport.ts');
+    const barrel = join(projectFixtureRoot, 'commonjs-transaction.index.ts');
+    const cycle = join(projectFixtureRoot, 'commonjs-transaction.cycle.ts');
+    const presenter = join(projectFixtureRoot, 'commonjs-cycle.presenter.ts');
+    const inspection = inspectProject(
+      new Map([
+        [
+          helper,
+          `
+            import type { MigrationTransaction } from '../transaction/migration-transaction.js';
+            import type { MigrationPlan } from '../migrator/migration-plan.js';
+            declare const transaction: Pick<MigrationTransaction, 'apply'>;
+            export function applyPlan(plan: MigrationPlan) { return transaction.apply(plan); }
+          `,
+        ],
+        [reexport, "export { applyPlan as commitPlan } from './commonjs-transaction.helper.js';"],
+        [
+          barrel,
+          "export * from './commonjs-transaction.reexport.js'; export * from './commonjs-transaction.cycle.js';",
+        ],
+        [cycle, "export * from './commonjs-transaction.index.js';"],
+        [
+          presenter,
+          `
+            import type { MigrationPlan } from '../migrator/migration-plan.js';
+            const operations = require('./commonjs-transaction.index.js');
+            declare const plan: MigrationPlan;
+            void operations.commitPlan(plan);
+          `,
+        ],
+      ]),
+      [presenter],
+    );
+
+    expect(inspection.transactionApplyCalls).toEqual([{ sourcePath: presenter, name: 'apply' }]);
+  });
+
   test('does not confuse an imported helper whose function body calls an unrelated apply method', () => {
     const helper = join(projectFixtureRoot, 'formatter.helper.ts');
     const presenter = join(projectFixtureRoot, 'formatter.presenter.ts');
@@ -367,6 +458,131 @@ describe('migration transaction architecture boundary', () => {
       import { Migrator as Coordinator } from '../migrator/migrator.js';
       declare const migrator: Coordinator;
       void migrator.migrate({ mode: 'write' });
+    `;
+
+    expect(projectWriteAuthorityCalls(new Map([[presenter, source]]), [presenter])).toEqual([
+      { sourcePath: presenter, name: 'migrate' },
+    ]);
+  });
+
+  test.each([
+    ['direct bound callable', "const run = migrator.migrate.bind(migrator, { mode: 'write' }); void run();"],
+    [
+      'aliased bound callable',
+      "const run = migrator.migrate.bind(migrator, { mode: 'write' }); const execute = run; void execute();",
+    ],
+    [
+      'bound receiver with final-call options',
+      "const run = migrator.migrate.bind(migrator); void run({ mode: 'write' });",
+    ],
+  ])('detects canonical write-mode migration through a %s', (_label, invocation) => {
+    const presenter = join(projectFixtureRoot, 'bound-migrator.presenter.ts');
+    const source = `
+      import { Migrator as Coordinator } from '../migrator/migrator.js';
+      declare const migrator: Coordinator;
+      ${invocation}
+    `;
+
+    expect(projectWriteAuthorityCalls(new Map([[presenter, source]]), [presenter])).toEqual([
+      { sourcePath: presenter, name: 'migrate' },
+    ]);
+  });
+
+  test('follows bound write-mode migration arguments through a re-export and barrel alias', () => {
+    const helper = join(projectFixtureRoot, 'bound-migrator.helper.ts');
+    const barrel = join(projectFixtureRoot, 'bound-migrator.index.ts');
+    const presenter = join(projectFixtureRoot, 'bound-migrator-import.presenter.ts');
+    const sources = new Map([
+      [
+        helper,
+        `
+          import { Migrator as Coordinator } from '../migrator/migrator.js';
+          declare const migrator: Coordinator;
+          export const runWrite = migrator.migrate.bind(migrator, { mode: 'write' });
+        `,
+      ],
+      [barrel, "export { runWrite as execute } from './bound-migrator.helper.js';"],
+      [presenter, "import { execute as run } from './bound-migrator.index.js'; void run();"],
+    ]);
+
+    expect(projectWriteAuthorityCalls(sources, [presenter])).toEqual([{ sourcePath: presenter, name: 'migrate' }]);
+  });
+
+  test('uses bound options before final-call arguments when deciding whether migration can write', () => {
+    const presenter = join(projectFixtureRoot, 'bound-plan-migrator.presenter.ts');
+    const source = `
+      import { Migrator as Coordinator } from '../migrator/migrator.js';
+      declare const migrator: Coordinator;
+      const run = migrator.migrate.bind(migrator, { mode: 'plan' });
+      void run({ mode: 'write' });
+    `;
+
+    expect(projectWriteAuthorityCalls(new Map([[presenter, source]]), [presenter])).toEqual([]);
+  });
+
+  test.each([
+    [
+      'a reassigned mutable option',
+      "const options = { mode: 'plan' }; options.mode = 'write'; void migrator.migrate(options);",
+    ],
+    ['a mutable const initializer', "const options = { mode: 'plan' }; void migrator.migrate(options);"],
+    ['a mutable let initializer', "let options = { mode: 'plan' }; void migrator.migrate(options);"],
+  ])('fails closed for %s', (_label, invocation) => {
+    const presenter = join(projectFixtureRoot, 'mutable-options-migrator.presenter.ts');
+    const source = `
+      import { Migrator as Coordinator } from '../migrator/migrator.js';
+      declare const migrator: Coordinator;
+      ${invocation}
+    `;
+
+    expect(projectWriteAuthorityCalls(new Map([[presenter, source]]), [presenter])).toEqual([
+      { sourcePath: presenter, name: 'migrate' },
+    ]);
+  });
+
+  test('preserves explicit plan precision for an immutable const-asserted option', () => {
+    const presenter = join(projectFixtureRoot, 'immutable-options-migrator.presenter.ts');
+    const source = `
+      import { Migrator as Coordinator } from '../migrator/migrator.js';
+      declare const migrator: Coordinator;
+      const options = { mode: 'plan' } as const;
+      void migrator.migrate(options);
+    `;
+
+    expect(projectWriteAuthorityCalls(new Map([[presenter, source]]), [presenter])).toEqual([]);
+  });
+
+  test('preserves explicit plan precision when a trailing inline spread provably has no mode', () => {
+    const presenter = join(projectFixtureRoot, 'unrelated-spread-migrator.presenter.ts');
+    const source = `
+      import { Migrator as Coordinator } from '../migrator/migrator.js';
+      declare const migrator: Coordinator;
+      void migrator.migrate({ mode: 'plan', ...{ responsiveImages: true } });
+    `;
+
+    expect(projectWriteAuthorityCalls(new Map([[presenter, source]]), [presenter])).toEqual([]);
+  });
+
+  test.each([
+    ['a trailing spread that sets write mode', "void migrator.migrate({ mode: 'plan', ...{ mode: 'write' } });"],
+    [
+      'a trailing spread with a computed mode field',
+      "void migrator.migrate({ mode: 'plan', ...{ ['mode']: 'write' } });",
+    ],
+    [
+      'a trailing spread with a dynamic computed field',
+      "declare const field: string; void migrator.migrate({ mode: 'plan', ...{ [field]: true } });",
+    ],
+    [
+      'a trailing spread with unknown fields',
+      "declare const overrides: Record<string, unknown>; void migrator.migrate({ mode: 'plan', ...overrides });",
+    ],
+  ])('fails closed for %s', (_label, invocation) => {
+    const presenter = join(projectFixtureRoot, 'unsafe-spread-migrator.presenter.ts');
+    const source = `
+      import { Migrator as Coordinator } from '../migrator/migrator.js';
+      declare const migrator: Coordinator;
+      ${invocation}
     `;
 
     expect(projectWriteAuthorityCalls(new Map([[presenter, source]]), [presenter])).toEqual([
@@ -672,6 +888,55 @@ describe('migration transaction architecture boundary', () => {
     expect(inspection.transactionApplyCalls).toEqual([]);
   });
 
+  test.each([
+    [
+      'destructured require',
+      "const { applyFormat: execute } = require('./commonjs-formatter.helper.js'); void execute('text');",
+    ],
+    [
+      'required namespace member',
+      "const helpers = require('./commonjs-formatter.helper.js'); void helpers.applyFormat('text');",
+    ],
+  ])(
+    'does not confuse an unrelated CommonJS helper acquired through %s with transaction application',
+    (_label, source) => {
+      const helper = join(projectFixtureRoot, 'commonjs-formatter.helper.ts');
+      const presenter = join(projectFixtureRoot, 'commonjs-formatter.presenter.ts');
+      const inspection = inspectProject(
+        new Map([
+          [
+            helper,
+            `
+            interface Formatter { apply(value: string): string }
+            declare const formatter: Formatter;
+            export function applyFormat(value: string) { return formatter.apply(value); }
+          `,
+          ],
+          [presenter, source],
+        ]),
+        [presenter],
+      );
+
+      expect(inspection.transactionApplyCalls).toEqual([]);
+    },
+  );
+
+  test('terminates safely on a CommonJS re-export cycle with no transaction authority', () => {
+    const first = join(projectFixtureRoot, 'commonjs-cycle-first.ts');
+    const second = join(projectFixtureRoot, 'commonjs-cycle-second.ts');
+    const presenter = join(projectFixtureRoot, 'commonjs-unrelated-cycle.presenter.ts');
+    const inspection = inspectProject(
+      new Map([
+        [first, "export * from './commonjs-cycle-second.js'; export const format = (value: string) => value;"],
+        [second, "export * from './commonjs-cycle-first.js';"],
+        [presenter, "const helpers = require('./commonjs-cycle-second.js'); void helpers.format('text');"],
+      ]),
+      [presenter],
+    );
+
+    expect(inspection.transactionApplyCalls).toEqual([]);
+  });
+
   test('does not confuse presenter text output or an unrelated apply method with application authority', () => {
     const presenter = join(projectFixtureRoot, 'terminal.presenter.ts');
     const source = `
@@ -739,15 +1004,16 @@ describe('migration transaction architecture boundary', () => {
   });
 
   test(
-    'keeps project-write authority out of production code except the CLI and Migrator orchestration boundaries',
+    'keeps the production authority graph exactly CLI to Migrator and Migrator to MigrationTransaction',
     () => {
-      const runCliPath = join(productionRoot, 'cli', 'run-cli.ts');
-      const migratorPath = join(migratorRoot, 'migrator.ts');
-      const findings = projectWriteAuthorityCalls(new Map(), productionTypeScriptFiles(productionRoot)).filter(
-        finding => finding.sourcePath !== runCliPath && finding.sourcePath !== migratorPath,
+      const graph = normalizedAuthorityGraph(
+        projectWriteAuthorityCalls(new Map(), productionTypeScriptFiles(productionRoot)),
       );
 
-      expect(findings).toEqual([]);
+      expect(graph).toEqual([
+        { caller: 'cli/run-cli.ts', authority: 'Migrator.migrate' },
+        { caller: 'migrator/migrator.ts', authority: 'MigrationTransaction.apply' },
+      ]);
     },
     wholeProjectInspectionTimeout,
   );
