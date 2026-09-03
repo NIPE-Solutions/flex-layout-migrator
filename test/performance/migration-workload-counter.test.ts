@@ -5,9 +5,9 @@ import { AdapterFactory } from '../../src/adapter/adapter.factory';
 import type { ConversionAdapterSession } from '../../src/adapter/conversion-adapter.session';
 import { TemplateAnalyzer } from '../../src/analyzer/template.analyzer';
 import { ConversionPlanner } from '../../src/planner/conversion-planner';
-import { FileMigrator, type FileMigratorDependencies } from '../../src/migrator/file.migrator';
-import { FolderMigrator } from '../../src/migrator/folder.migrator';
-import { migrationPlan, type FileMigrationPlan, type MigrationPlan } from '../../src/migrator/migration-plan';
+import type { FileMigratorDependencies } from '../../src/migrator/file.migrator';
+import { Migrator, type MigratorDependencies } from '../../src/migrator/migrator';
+import type { MigrationMode } from '../../src/migrator/migration-mode';
 import { StylesheetPlanner } from '../../src/migrator/stylesheet.planner';
 import { AngularTemplateParser } from '../../src/template/angular-template.parser';
 import type { MigrationTransaction } from '../../src/transaction/migration-transaction';
@@ -84,7 +84,7 @@ describe('migration workload counters', () => {
       discoveries: 2,
       templateReads: 2,
       initialParses: 2,
-      validationParses: 2,
+      validationParses: 4,
       renderedTemplates: 2,
       stylesheetReads: 0,
       projectWrites: 0,
@@ -102,7 +102,7 @@ describe('migration workload counters', () => {
       discoveries: 2,
       templateReads: 2,
       initialParses: 2,
-      validationParses: 2,
+      validationParses: 4,
       renderedTemplates: 2,
       stylesheetReads: 0,
       projectWrites: 3,
@@ -140,9 +140,9 @@ describe('migration workload counters', () => {
 
     expect(cssCounts).toEqual({
       discoveries: 2,
-      templateReads: 2,
+      templateReads: 4,
       initialParses: 2,
-      validationParses: 2,
+      validationParses: 4,
       renderedTemplates: 2,
       stylesheetReads: 1,
       projectWrites: 0,
@@ -157,14 +157,7 @@ async function executeSingleFile(
   mode: 'plan' | 'write',
   counts: MigrationWorkloadCounts,
 ): Promise<void> {
-  const dependencies = countingDependencies(counts);
-  const filePlan = await new FileMigrator(session.adapter, input, output, undefined, dependencies).plan();
-  const plan = migrationPlan({
-    target: session.finalize().target,
-    files: [filePlan.file],
-    artifacts: filePlan.artifact ? [filePlan.artifact] : [],
-  });
-  await executePlan(plan, mode, counts);
+  await executeMigration(session, input, output, mode, counts);
 }
 
 async function executeFolderCss(
@@ -174,12 +167,18 @@ async function executeFolderCss(
   mode: 'plan' | 'write',
   counts: MigrationWorkloadCounts,
 ): Promise<void> {
-  const session = AdapterFactory.createSession('css');
-  const filePlans = await new FolderMigrator(session.adapter, input, output, [], () =>
-    countingDependencies(counts),
-  ).plan();
-  const sessionResult = session.finalize();
-  if (sessionResult.target !== 'css') throw new Error('Expected a CSS adapter session.');
+  await executeMigration(AdapterFactory.createSession('css'), input, output, mode, counts, stylesheetPath);
+}
+
+async function executeMigration(
+  session: ConversionAdapterSession,
+  input: string,
+  output: string,
+  mode: MigrationMode,
+  counts: MigrationWorkloadCounts,
+  stylesheetPath?: string,
+): Promise<void> {
+  const transaction = transactionDouble(counts);
   const stylesheetPlanner = new StylesheetPlanner({
     lstat,
     readFile: async target => {
@@ -187,38 +186,38 @@ async function executeFolderCss(
       return readFile(target, 'utf8');
     },
   });
-  const stylesheetArtifact = await stylesheetPlanner.plan(stylesheetPath, sessionResult.rules);
-  const plan = completePlan('css', filePlans, stylesheetArtifact);
-  await executePlan(plan, mode, counts);
+  await new Migrator(
+    session,
+    input,
+    output,
+    () => 0,
+    transaction,
+    stylesheetPlanner,
+    countingMigratorDependencies(counts),
+  ).migrate({ mode, ...(stylesheetPath ? { stylesheetPath } : {}) });
 }
 
-function completePlan(
-  target: 'css' | 'tailwind',
-  filePlans: readonly FileMigrationPlan[],
-  stylesheetArtifact?: FileMigrationPlan['artifact'],
-): MigrationPlan {
-  return migrationPlan({
-    target,
-    files: filePlans.map(filePlan => filePlan.file),
-    artifacts: [
-      ...filePlans.flatMap(filePlan => (filePlan.artifact ? [filePlan.artifact] : [])),
-      ...(stylesheetArtifact ? [stylesheetArtifact] : []),
-    ],
-  });
+function countingMigratorDependencies(counts: MigrationWorkloadCounts): MigratorDependencies {
+  const referenceParser = new AngularTemplateParser();
+  return {
+    fileMigratorDependencies: () => {
+      counts.discoveries++;
+      return countingFileDependencies(counts);
+    },
+    readTemplate: async target => {
+      counts.templateReads++;
+      return readFile(target, 'utf8');
+    },
+    parser: {
+      parse: (source, fileName) => {
+        counts.validationParses++;
+        return referenceParser.parse(source, fileName);
+      },
+    },
+  };
 }
 
-async function executePlan(
-  plan: MigrationPlan,
-  mode: 'plan' | 'write',
-  counts: MigrationWorkloadCounts,
-): Promise<void> {
-  const transaction = transactionDouble(counts);
-  await transaction.preflight(plan);
-  if (mode === 'write' && plan.artifacts.length > 0) await transaction.apply(plan);
-}
-
-function countingDependencies(counts: MigrationWorkloadCounts): FileMigratorDependencies {
-  counts.discoveries++;
+function countingFileDependencies(counts: MigrationWorkloadCounts): FileMigratorDependencies {
   const parser = new AngularTemplateParser();
   const analyzer = new TemplateAnalyzer();
   const planner = new ConversionPlanner();
