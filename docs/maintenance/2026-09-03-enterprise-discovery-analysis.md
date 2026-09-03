@@ -4,11 +4,11 @@ This report records the Slice 3 ownership cutover from the established enterpris
 
 ## Commit
 
-Commit captured: `4e2857d8cb8fc35636bc1344520141fef21b3b1a`
+Commit captured: `5aebdaff5e6ea32b488199a6a0908fb8e8d69d47`
 
 Initial workload and benchmark commit: `d15b2aa1ccaacdbc1b4cf38c7930e0b6c1c9f7db`
 
-Current structural inventory commit: `4e2857d8cb8fc35636bc1344520141fef21b3b1a`
+Current structural inventory commit: `5aebdaff5e6ea32b488199a6a0908fb8e8d69d47`
 
 The benchmark remains the five-sample observation from the initial implementation commit. The inventory was refreshed from the current structural commit after the destination-template filesystem adapter was separated from `Migrator`; the evidence document is committed separately so both measured revisions remain exact.
 
@@ -49,10 +49,10 @@ Generated with `npm run architecture:inventory -- --json architecture-inventory.
 | ------------------------------------------------------------- | ---------------: | ------: |
 | Production TypeScript files                                   |              122 |     139 |
 | Runtime dependency entries                                    |                5 |       5 |
-| Static internal and runtime external or built-in module edges |              416 |     473 |
+| Static internal and runtime external or built-in module edges |              416 |     474 |
 | Known policy owners                                           |                6 |       6 |
 
-The additional production files and edges are the staged handoffs, concrete Discover/Analyze stages, narrow ports, the analyzed renderer boundary, the focused destination-template filesystem adapter, and compatibility error-path mapper delivered by Slice 3. Runtime dependency and policy-owner counts are unchanged. `ignore` remains the single known undeclared runtime import reserved for Slice 8; no dependency or lockfile changed.
+The additional production files and edges are the staged handoffs, concrete Discover/Analyze stages, narrow ports, the analyzed renderer boundary, the focused destination-template filesystem adapter, compatibility error-path mapper, and restored Discover progress-logger edge delivered by Slice 3. Runtime dependency and policy-owner counts are unchanged. `ignore` remains the single known undeclared runtime import reserved for Slice 8; no dependency or lockfile changed.
 
 ## Benchmark method
 
@@ -93,10 +93,12 @@ Discover exclusively invokes the `DiscoveryFileSystem.kind`, `DiscoveryFileSyste
 
 Concrete filesystem acquisition and operation findings are enforced independently of these ports. `destination-template-source.ts` is the only concrete reader for existing destination/reference template bytes; `Migrator` and `AnalyzedFileMigrator` receive its narrow `DestinationTemplateSource` port and no longer acquire filesystem APIs. Analyze remains the only concrete original-template reader, Discover remains the only topology and ignore-loading owner, and `StylesheetPlanner` retains its distinct stylesheet-read role. Exact findings retain duplicate acquisitions, so an extra call cannot disappear through pair deduplication.
 
-The inspector follows canonical types and symbols through aliases, dynamic imports, CommonJS acquisition, `.call`, `.apply`, `Reflect.apply`, and computed members. Filesystem and ignore-helper acquisition provenance follows both ordinary `export … from` edges and imported local bindings that are exported under aliases, including multi-hop and cyclic barrels. Type-only and unrelated same-named exports remain negative controls, and traversal terminates on cycles. Unknown computed members on canonical receivers fail closed. Equivalent whole-project semantic inspection is cached within the ownership scenario.
+The inspector follows canonical types and symbols through aliases, namespace and dynamic imports, CommonJS and TypeScript import-equals acquisition, constructors, `.call`, `.apply`, `Reflect.apply`, and computed members. The concrete topology and byte-read surface covers synchronous, promise, descriptor, directory-handle, stream, Blob, JSON, metadata, glob, link, realpath, watch, and current helper operations across `node:fs`, `node:fs/promises`, and `fs-extra`. Filesystem and ignore-helper acquisition provenance follows both ordinary `export … from` edges and imported local bindings that are exported under aliases or assignments, including multi-hop and cyclic barrels. Type-only and unrelated same-named exports remain negative controls, and traversal terminates on cycles. Unknown computed members on canonical receivers fail closed. Equivalent whole-project semantic inspection is cached within the ownership scenario.
 
 ## Retained compatibility
 
 Render through Apply remain on the compatibility continuation. `AnalyzedFileMigrator` renders authoritative analyzed templates and owns the named changed-template validation parse. `Migrator` retains one invocation-scoped session, CSS reference collection, stylesheet planning, report construction, and transaction coordination.
+
+Canonical-to-raw I/O error mapping is restricted to Discover, Analyze, and distinct-destination source reads; validation, stylesheet, transaction, rendering, and other continuation errors retain their original absolute error metadata and messages. Folder discovery follows legacy stat semantics for symlink and unknown directory entries, retains deterministic per-entry debug progress with raw relative display paths, and includes Discover and Analyze in the invocation duration reported by the continuation.
 
 `src/migrator/file.migrator.ts` is an alias-only deprecated compatibility module, and `src/migrator/folder.migrator.ts` is an empty tombstone. Neither is reachable from the production authority graph. Both name Slice 8 as their deletion point. The obsolete module-global gitignore cache and its unreachable `loadGitIgnore` and `shouldIgnore` exports were removed in this slice.
