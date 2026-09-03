@@ -1,6 +1,10 @@
 import { access, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve, sep } from 'node:path';
+import type { ConversionAdapterSession } from '../adapter/conversion-adapter.session';
+import type { MigrationRunner } from '../pipeline/current-migration.pipeline';
+import type { MigrationInvocation } from '../pipeline/project-manifest';
+import type { MigrationReport } from '../report/migration-report';
 import type { TextOutput } from '../report/terminal.presenter';
 import { runCli, type CliOutput } from './run-cli';
 
@@ -36,6 +40,73 @@ describe('runCli', () => {
     const exitCode = await runCli(['node', 'flex-layout-codemod', ...arguments_], output);
     return { exitCode, stdout: stdout.text, stderr: stderr.text };
   }
+
+  test('runs one normalized immutable invocation through the injected migration runner', async () => {
+    const input = `${join(temporaryDirectory, 'templates')}${sep}..${sep}input.html`;
+    const outputPath = `${join(temporaryDirectory, 'generated')}${sep}..${sep}output.html`;
+    const reportPath = join(temporaryDirectory, 'migration.json');
+    const expectedReport: MigrationReport = {
+      schemaVersion: 2,
+      mode: 'plan',
+      target: 'tailwind',
+      application: { status: 'skipped', reason: 'plan-only' },
+      input: 'validated-input',
+      output: 'validated-output',
+      durationMs: 7,
+      summary: {
+        filesScanned: 1,
+        filesChanged: 0,
+        converted: 0,
+        review: 1,
+        unsupported: 0,
+        invalid: 0,
+        parseErrors: 0,
+      },
+      files: [],
+    };
+    const sessions: ConversionAdapterSession[] = [];
+    const invocations: MigrationInvocation[] = [];
+    const stdout = new MemoryOutput();
+    const stderr = new MemoryOutput();
+
+    const exitCode = await runCli(
+      ['node', 'flex-layout-codemod', input, '--output', outputPath, '--responsive-images', '--report', reportPath],
+      { stdout, stderr },
+      {
+        createMigrationRunner(session): MigrationRunner {
+          sessions.push(session);
+          return {
+            run(invocation) {
+              invocations.push(invocation);
+              return Promise.resolve(expectedReport);
+            },
+          };
+        },
+      },
+    );
+
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0]?.adapter.name).toBe('tailwind');
+    expect(invocations).toHaveLength(1);
+    expect(invocations[0]).toEqual({
+      inputPath: resolve(input),
+      outputPath: resolve(outputPath),
+      options: {
+        mode: 'plan',
+        responsiveImages: true,
+        stylesheetPath: undefined,
+        reportPath,
+      },
+    });
+    expect(Object.isFrozen(invocations[0])).toBe(true);
+    expect(Object.isFrozen(invocations[0]?.options)).toBe(true);
+    expect(exitCode).toBe(2);
+    expect(stdout.text).toBe(
+      'Plan: 1 files scanned, 0 would change\nConverted 0 | Review 1 | Unsupported 0 | Invalid 0 | Parse errors 0\nNo project files were written. Run again with --write to apply this plan.\n',
+    );
+    expect(stderr.text).toBe('');
+    expect(JSON.parse(await readFile(reportPath, 'utf8'))).toEqual(expectedReport);
+  });
 
   test('defaults a clean Tailwind migration to a plan without creating its output', async () => {
     const input = join(temporaryDirectory, 'input.html');

@@ -54,12 +54,12 @@ interface TransactionApplyCall {
 
 interface ProjectWriteAuthorityCall {
   readonly sourcePath: string;
-  readonly name: 'apply' | 'migrate';
+  readonly name: 'apply' | 'migrate' | 'run';
 }
 
 interface NormalizedAuthorityEdge {
   readonly caller: string;
-  readonly authority: 'MigrationTransaction.apply' | 'Migrator.migrate';
+  readonly authority: 'CurrentMigrationPipeline.run' | 'MigrationTransaction.apply' | 'Migrator.migrate';
 }
 
 function transactionApplyCalls(
@@ -80,7 +80,12 @@ function normalizedAuthorityGraph(calls: readonly ProjectWriteAuthorityCall[]): 
   return calls
     .map(call => ({
       caller: relative(productionRoot, call.sourcePath).replaceAll('\\', '/'),
-      authority: call.name === 'apply' ? ('MigrationTransaction.apply' as const) : ('Migrator.migrate' as const),
+      authority:
+        call.name === 'apply'
+          ? ('MigrationTransaction.apply' as const)
+          : call.name === 'migrate'
+            ? ('Migrator.migrate' as const)
+            : ('CurrentMigrationPipeline.run' as const),
     }))
     .sort((left, right) => `${left.caller}\0${left.authority}`.localeCompare(`${right.caller}\0${right.authority}`));
 }
@@ -463,6 +468,140 @@ describe('migration transaction architecture boundary', { timeout: wholeProjectI
     expect(projectWriteAuthorityCalls(new Map([[presenter, source]]), [presenter])).toEqual([
       { sourcePath: presenter, name: 'migrate' },
     ]);
+  });
+
+  test('detects a caller invoking canonical CurrentMigrationPipeline#run in write mode', () => {
+    const presenter = join(projectFixtureRoot, 'current-pipeline.presenter.ts');
+    const source = `
+      import { CurrentMigrationPipeline as Runner } from '../pipeline/current-migration.pipeline.js';
+      declare const runner: Runner;
+      void runner.run({ inputPath: 'input.html', outputPath: 'output.html', options: { mode: 'write' } });
+    `;
+
+    expect(projectWriteAuthorityCalls(new Map([[presenter, source]]), [presenter])).toEqual([
+      { sourcePath: presenter, name: 'run' },
+    ]);
+  });
+
+  test.each([
+    [
+      'direct bound callable',
+      "const execute = runner.run.bind(runner, { inputPath: 'input.html', outputPath: 'output.html', options: { mode: 'write' } }); void execute();",
+    ],
+    [
+      'aliased bound callable',
+      "const execute = runner.run.bind(runner); const run = execute; void run({ inputPath: 'input.html', outputPath: 'output.html', options: { mode: 'write' } });",
+    ],
+  ])('detects canonical current-pipeline write authority through a %s', (_label, invocation) => {
+    const presenter = join(projectFixtureRoot, 'bound-current-pipeline.presenter.ts');
+    const source = `
+      import { CurrentMigrationPipeline as Runner } from '../pipeline/current-migration.pipeline.js';
+      declare const runner: Runner;
+      ${invocation}
+    `;
+
+    expect(projectWriteAuthorityCalls(new Map([[presenter, source]]), [presenter])).toEqual([
+      { sourcePath: presenter, name: 'run' },
+    ]);
+  });
+
+  test('follows current-pipeline write authority through a re-export alias', () => {
+    const barrel = join(projectFixtureRoot, 'current-pipeline.index.ts');
+    const presenter = join(projectFixtureRoot, 'barrel-current-pipeline.presenter.ts');
+    const sources = new Map([
+      [barrel, "export { CurrentMigrationPipeline as Runner } from '../pipeline/current-migration.pipeline.js';"],
+      [
+        presenter,
+        `
+          import { Runner as ImportedRunner } from './current-pipeline.index.js';
+          declare const runner: ImportedRunner;
+          void runner.run({ inputPath: 'input.html', outputPath: 'output.html', options: { mode: 'write' } });
+        `,
+      ],
+    ]);
+
+    expect(projectWriteAuthorityCalls(sources, [presenter])).toEqual([{ sourcePath: presenter, name: 'run' }]);
+  });
+
+  test.each([
+    [
+      'dynamic import',
+      `
+        const { CurrentMigrationPipeline: Runner } = await import('../pipeline/current-migration.pipeline.js');
+        const runner = new Runner(undefined as never);
+      `,
+    ],
+    [
+      'CommonJS require',
+      `
+        const { CurrentMigrationPipeline: Runner } = require('../pipeline/current-migration.pipeline.js');
+        const runner = new Runner(undefined);
+      `,
+    ],
+  ])('detects canonical current-pipeline write authority acquired through %s', (_label, setup) => {
+    const presenter = join(projectFixtureRoot, 'runtime-current-pipeline.presenter.ts');
+    const source = `
+      async function present() {
+        ${setup}
+        await runner.run({ inputPath: 'input.html', outputPath: 'output.html', options: { mode: 'write' } });
+      }
+    `;
+
+    expect(projectWriteAuthorityCalls(new Map([[presenter, source]]), [presenter])).toEqual([
+      { sourcePath: presenter, name: 'run' },
+    ]);
+  });
+
+  test('fails closed for a mutable current-pipeline invocation', () => {
+    const presenter = join(projectFixtureRoot, 'mutable-current-pipeline.presenter.ts');
+    const source = `
+      import { CurrentMigrationPipeline as Runner } from '../pipeline/current-migration.pipeline.js';
+      declare const runner: Runner;
+      const invocation = { inputPath: 'input.html', outputPath: 'output.html', options: { mode: 'plan' } };
+      void runner.run(invocation);
+    `;
+
+    expect(projectWriteAuthorityCalls(new Map([[presenter, source]]), [presenter])).toEqual([
+      { sourcePath: presenter, name: 'run' },
+    ]);
+  });
+
+  test('allows an immutable explicit plan through the current pipeline without granting write authority', () => {
+    const presenter = join(projectFixtureRoot, 'plan-current-pipeline.presenter.ts');
+    const source = `
+      import { CurrentMigrationPipeline as Runner } from '../pipeline/current-migration.pipeline.js';
+      declare const runner: Runner;
+      const invocation = {
+        inputPath: 'input.html',
+        outputPath: 'output.html',
+        options: { mode: 'plan' },
+      } as const;
+      void runner.run(invocation);
+    `;
+
+    expect(projectWriteAuthorityCalls(new Map([[presenter, source]]), [presenter])).toEqual([]);
+  });
+
+  test.each([
+    [
+      'an unrelated run method',
+      `
+        interface Previewer { run(invocation: { options: { mode: 'write' } }): void }
+        declare const previewer: Previewer;
+        previewer.run({ options: { mode: 'write' } });
+      `,
+    ],
+    [
+      'a same-named local class',
+      `
+        class CurrentMigrationPipeline { run(invocation: { options: { mode: 'write' } }): void {} }
+        new CurrentMigrationPipeline().run({ options: { mode: 'write' } });
+      `,
+    ],
+  ])('does not confuse %s with current-pipeline write authority', (_label, source) => {
+    const presenter = join(projectFixtureRoot, 'unrelated-current-pipeline.presenter.ts');
+
+    expect(projectWriteAuthorityCalls(new Map([[presenter, source]]), [presenter])).toEqual([]);
   });
 
   test.each([
@@ -1004,15 +1143,16 @@ describe('migration transaction architecture boundary', { timeout: wholeProjectI
   });
 
   test(
-    'keeps the production authority graph exactly CLI to Migrator and Migrator to MigrationTransaction',
+    'keeps the production authority graph exactly CLI to CurrentMigrationPipeline to Migrator to MigrationTransaction',
     () => {
       const graph = normalizedAuthorityGraph(
         projectWriteAuthorityCalls(new Map(), productionTypeScriptFiles(productionRoot)),
       );
 
       expect(graph).toEqual([
-        { caller: 'cli/run-cli.ts', authority: 'Migrator.migrate' },
+        { caller: 'cli/run-cli.ts', authority: 'CurrentMigrationPipeline.run' },
         { caller: 'migrator/migrator.ts', authority: 'MigrationTransaction.apply' },
+        { caller: 'pipeline/current-migration.pipeline.ts', authority: 'Migrator.migrate' },
       ]);
     },
     wholeProjectInspectionTimeout,
