@@ -116,20 +116,39 @@ export type SemanticAuthorityName =
   | 'ChangedTemplateValidation.parse'
   | 'CssReferenceParser.parse'
   | 'CurrentMigrationPipeline.run'
+  | 'DestinationTemplateSource.readFile'
+  | 'DiscoveryTopology.readdir'
+  | 'DiscoveryTopology.stat'
   | 'DiscoveryFileSystem.entries'
   | 'DiscoveryFileSystem.kind'
   | 'DiscoverProjectStage.run'
+  | 'GitIgnoreHelper.acquire'
+  | 'GitIgnoreHelper.createGitIgnoreMatcher'
+  | 'IgnoreLibrary.acquire'
+  | 'IgnoreLibrary.createMatcher'
   | 'IgnoreMatcherFactory.load'
+  | 'IgnoreRulesSource.readFile'
   | 'MigrationTransaction.apply'
   | 'Migrator.migrate'
+  | 'OriginalTemplateSource.readFile'
   | 'OriginalTemplateParser.parse'
+  | 'PathIdentity.stat'
   | 'StagedTemplateValidation.parse'
+  | 'StylesheetSource.readFile'
   | 'TemplateInputAnalyzer.analyze'
-  | 'TemplateSourceReader.read';
+  | 'TemplateSourceReader.read'
+  | 'UnownedFileSystem.readFile'
+  | 'UnownedFileSystem.readdir'
+  | 'UnownedFileSystem.stat';
 
 export interface SemanticAuthorityCall {
   readonly sourcePath: string;
   readonly name: SemanticAuthorityName;
+}
+
+export interface RuntimeDependencyFinding {
+  readonly sourcePath: string;
+  readonly dependencyPath: string;
 }
 
 type FilesystemProvenance = '*' | string;
@@ -603,6 +622,7 @@ function filesystemProvenance(
   expression: ts.Expression,
   checker: ts.TypeChecker,
   seenSymbols: ReadonlySet<ts.Symbol> = new Set(),
+  operationNames: ReadonlySet<string> = filesystemMutationNames,
 ): FilesystemProvenance | undefined {
   const unwrapped = unwrapExpression(expression);
   if (ts.isCallExpression(unwrapped)) {
@@ -611,12 +631,9 @@ function filesystemProvenance(
   }
 
   if (ts.isPropertyAccessExpression(unwrapped) || ts.isElementAccessExpression(unwrapped)) {
-    const propertyName = ts.isPropertyAccessExpression(unwrapped)
-      ? unwrapped.name.text
-      : moduleText(unwrapped.argumentExpression);
-    const receiver = filesystemProvenance(unwrapped.expression, checker, seenSymbols);
-    if (receiver === '*' && propertyName !== undefined && filesystemMutationNames.has(propertyName))
-      return propertyName;
+    const propertyName = resolvedMemberName(unwrapped, checker);
+    const receiver = filesystemProvenance(unwrapped.expression, checker, seenSymbols, operationNames);
+    if (receiver === '*' && propertyName !== undefined && operationNames.has(propertyName)) return propertyName;
   }
 
   const symbol = checker.getSymbolAtLocation(unwrapped);
@@ -626,21 +643,22 @@ function filesystemProvenance(
   if ((symbol.flags & ts.SymbolFlags.Alias) !== 0) {
     const aliased = checker.getAliasedSymbol(symbol);
     if (aliased !== symbol) {
-      const provenance = filesystemSymbolProvenance(aliased, checker, nextSeen);
+      const provenance = filesystemSymbolProvenance(aliased, checker, nextSeen, operationNames);
       if (provenance !== undefined) return provenance;
     }
   }
-  return filesystemSymbolProvenance(symbol, checker, nextSeen);
+  return filesystemSymbolProvenance(symbol, checker, nextSeen, operationNames);
 }
 
 function filesystemSymbolProvenance(
   symbol: ts.Symbol,
   checker: ts.TypeChecker,
   seenSymbols: ReadonlySet<ts.Symbol>,
+  operationNames: ReadonlySet<string> = filesystemMutationNames,
 ): FilesystemProvenance | undefined {
   const symbolName = symbol.getName();
   if (
-    filesystemMutationNames.has(symbolName) &&
+    operationNames.has(symbolName) &&
     symbol.declarations?.some(declaration => isNodeFilesystemDeclaration(declaration)) === true
   ) {
     return symbolName;
@@ -652,24 +670,29 @@ function filesystemSymbolProvenance(
       if (ts.isNamespaceImport(declaration) || ts.isImportClause(declaration)) return '*';
       if (ts.isImportSpecifier(declaration)) {
         const importedName = declaration.propertyName?.text ?? declaration.name.text;
-        if (filesystemMutationNames.has(importedName)) return importedName;
+        if (operationNames.has(importedName)) return importedName;
       }
     }
     if (ts.isVariableDeclaration(declaration) && declaration.initializer !== undefined) {
-      const provenance = filesystemProvenance(declaration.initializer, checker, seenSymbols);
+      const provenance = filesystemProvenance(declaration.initializer, checker, seenSymbols, operationNames);
       if (provenance !== undefined) return provenance;
     }
     if (
       (ts.isPropertyAssignment(declaration) || ts.isPropertyDeclaration(declaration)) &&
       declaration.initializer !== undefined
     ) {
-      const provenance = filesystemProvenance(declaration.initializer, checker, seenSymbols);
+      const provenance = filesystemProvenance(declaration.initializer, checker, seenSymbols, operationNames);
       if (provenance !== undefined) return provenance;
     }
     if (ts.isShorthandPropertyAssignment(declaration)) {
       const valueSymbol = checker.getShorthandAssignmentValueSymbol(declaration);
       if (valueSymbol !== undefined && !seenSymbols.has(valueSymbol)) {
-        const provenance = filesystemSymbolProvenance(valueSymbol, checker, new Set(seenSymbols).add(valueSymbol));
+        const provenance = filesystemSymbolProvenance(
+          valueSymbol,
+          checker,
+          new Set(seenSymbols).add(valueSymbol),
+          operationNames,
+        );
         if (provenance !== undefined) return provenance;
       }
     }
@@ -678,15 +701,20 @@ function filesystemSymbolProvenance(
       const variable =
         ts.isObjectBindingPattern(pattern) || ts.isArrayBindingPattern(pattern) ? pattern.parent : undefined;
       if (variable !== undefined && ts.isVariableDeclaration(variable) && variable.initializer !== undefined) {
-        const receiver = filesystemProvenance(variable.initializer, checker, seenSymbols);
+        const receiver = filesystemProvenance(variable.initializer, checker, seenSymbols, operationNames);
         const propertyName = bindingElementPropertyName(declaration);
-        if (receiver === '*' && propertyName !== undefined && filesystemMutationNames.has(propertyName)) {
+        if (receiver === '*' && propertyName !== undefined && operationNames.has(propertyName)) {
           return propertyName;
         }
         if (propertyName !== undefined) {
           const property = checker.getPropertyOfType(checker.getTypeAtLocation(variable.initializer), propertyName);
           if (property !== undefined && !seenSymbols.has(property)) {
-            const provenance = filesystemSymbolProvenance(property, checker, new Set(seenSymbols).add(property));
+            const provenance = filesystemSymbolProvenance(
+              property,
+              checker,
+              new Set(seenSymbols).add(property),
+              operationNames,
+            );
             if (provenance !== undefined) return provenance;
           }
         }
@@ -2269,7 +2297,7 @@ function migrationWriteInvocation(
 
 interface SemanticAuthorityDeclaration {
   readonly sourcePathSuffix: string;
-  readonly containers: readonly string[];
+  readonly containers?: readonly string[];
 }
 
 interface SemanticAuthorityConfig {
@@ -2301,7 +2329,6 @@ const semanticAuthorityConfigs: readonly SemanticAuthorityConfig[] = [
     name: 'DiscoverProjectStage.run',
     methodName: 'run',
     declarations: [
-      { sourcePathSuffix: '/pipeline/migration-pipeline.ts', containers: ['DiscoverStage'] },
       {
         sourcePathSuffix: '/pipeline/discover/discover-project.stage.ts',
         containers: ['DiscoverProjectStage'],
@@ -2316,7 +2343,6 @@ const semanticAuthorityConfigs: readonly SemanticAuthorityConfig[] = [
     name: 'AnalyzeProjectStage.run',
     methodName: 'run',
     declarations: [
-      { sourcePathSuffix: '/pipeline/migration-pipeline.ts', containers: ['AnalyzeStage'] },
       {
         sourcePathSuffix: '/pipeline/analyze/analyze-project.stage.ts',
         containers: ['AnalyzeProjectStage'],
@@ -2373,6 +2399,11 @@ const semanticAuthorityConfigs: readonly SemanticAuthorityConfig[] = [
     ],
   },
   {
+    name: 'GitIgnoreHelper.createGitIgnoreMatcher',
+    methodName: 'createGitIgnoreMatcher',
+    declarations: [{ sourcePathSuffix: '/lib/gitignore.helper.ts' }],
+  },
+  {
     name: 'TemplateSourceReader.read',
     methodName: 'read',
     declarations: [
@@ -2424,8 +2455,9 @@ function semanticAuthorityMethodSymbol(symbol: ts.Symbol | undefined, config: Se
       return config.declarations.some(
         owner =>
           sourcePath.endsWith(owner.sourcePathSuffix) &&
-          container !== undefined &&
-          owner.containers.includes(container),
+          (owner.containers === undefined
+            ? container === undefined
+            : container !== undefined && owner.containers.includes(container)),
       );
     }) === true
   );
@@ -2474,6 +2506,31 @@ function moduleExportsSemanticAuthorityClass(
     commonJsExportedSymbol(moduleReference, exportedName, checker, program),
     config,
     checker,
+  );
+}
+
+function moduleExportsSemanticAuthorityCallable(
+  moduleReference: CommonJsModuleReference,
+  exportedName: string,
+  config: SemanticAuthorityConfig,
+  checker: ts.TypeChecker,
+  program: ts.Program,
+): boolean {
+  const candidates = localModuleCandidates(moduleReference.reference, moduleReference.containingSourcePath);
+  if (
+    exportedName === config.methodName &&
+    config.declarations.some(owner =>
+      candidates.some(candidate => candidate.replaceAll('\\', '/').endsWith(owner.sourcePathSuffix)),
+    )
+  ) {
+    return true;
+  }
+  return semanticAuthoritySymbolProvenance(
+    commonJsExportedSymbol(moduleReference, exportedName, checker, program),
+    config,
+    checker,
+    program,
+    new Set(),
   );
 }
 
@@ -2554,7 +2611,7 @@ function semanticAuthorityReceiverProvenance(
   const nextSeen = new Set(seenSymbols).add(symbol);
   return (symbol.declarations ?? []).some(
     declaration =>
-      ts.isVariableDeclaration(declaration) &&
+      (ts.isVariableDeclaration(declaration) || ts.isParameter(declaration)) &&
       declaration.initializer !== undefined &&
       semanticAuthorityReceiverProvenance(declaration.initializer, config, checker, program, nextSeen),
   );
@@ -2610,8 +2667,8 @@ function semanticAuthoritySymbolProvenance(
       if (propertyName === undefined) return false;
       const moduleReference = commonJsModuleReference(variable.initializer, checker, nextSeen);
       if (moduleReference !== undefined) {
-        const exportedSymbol = commonJsExportedSymbol(moduleReference, propertyName, checker, program);
-        if (semanticAuthoritySymbolProvenance(exportedSymbol, config, checker, program, nextSeen)) return true;
+        if (moduleExportsSemanticAuthorityCallable(moduleReference, propertyName, config, checker, program))
+          return true;
       }
       const property = checker.getPropertyOfType(checker.getTypeAtLocation(variable.initializer), propertyName);
       return semanticAuthoritySymbolProvenance(property, config, checker, program, nextSeen);
@@ -2646,8 +2703,7 @@ function semanticAuthorityCallableProvenance(
     const name = resolvedMemberName(unwrapped, checker);
     const moduleReference = commonJsModuleReference(unwrapped.expression, checker, seenSymbols);
     if (name !== undefined && moduleReference !== undefined) {
-      const exportedSymbol = commonJsExportedSymbol(moduleReference, name, checker, program);
-      if (semanticAuthoritySymbolProvenance(exportedSymbol, config, checker, program, seenSymbols)) return true;
+      if (moduleExportsSemanticAuthorityCallable(moduleReference, name, config, checker, program)) return true;
     }
     if (
       (name === config.methodName || (name === undefined && ts.isElementAccessExpression(unwrapped))) &&
@@ -2832,6 +2888,194 @@ function contextualSemanticAuthorityName(
   return config.name;
 }
 
+const semanticFilesystemOperationNames = new Set(['readFile', 'readdir', 'stat']);
+
+function semanticFilesystemOperationInvocation(
+  expression: ts.CallExpression,
+  checker: ts.TypeChecker,
+  program: ts.Program,
+): 'readFile' | 'readdir' | 'stat' | undefined {
+  const resolveOperation = (target: ts.Expression): 'readFile' | 'readdir' | 'stat' | undefined => {
+    const provenance = filesystemProvenance(target, checker, new Set(), semanticFilesystemOperationNames);
+    return provenance === 'readFile' || provenance === 'readdir' || provenance === 'stat' ? provenance : undefined;
+  };
+  const reflected = reflectedApplyInvocation(expression, checker, program, new Set());
+  const invocation =
+    reflected === undefined
+      ? resolvedCallableInvocation(expression, checker, resolveOperation)
+      : resolvedCallableApplication(reflected.target, reflected.arguments, checker, resolveOperation);
+  return invocation?.provenance;
+}
+
+function contextualFilesystemAuthorityName(
+  operation: 'readFile' | 'readdir' | 'stat',
+  sourcePath: string,
+): SemanticAuthorityName {
+  const normalizedSourcePath = sourcePath.replaceAll('\\', '/');
+  if (operation === 'readdir') {
+    return normalizedSourcePath.endsWith('/pipeline/discover/discover-project.stage.ts')
+      ? 'DiscoveryTopology.readdir'
+      : 'UnownedFileSystem.readdir';
+  }
+  if (operation === 'stat') {
+    if (normalizedSourcePath.endsWith('/pipeline/discover/discover-project.stage.ts')) return 'DiscoveryTopology.stat';
+    if (normalizedSourcePath.endsWith('/migrator/migration-path.validator.ts')) return 'PathIdentity.stat';
+    return 'UnownedFileSystem.stat';
+  }
+  if (normalizedSourcePath.endsWith('/pipeline/analyze/analyze-project.stage.ts')) {
+    return 'OriginalTemplateSource.readFile';
+  }
+  if (
+    normalizedSourcePath.endsWith('/migrator/analyzed-file.migrator.ts') ||
+    normalizedSourcePath.endsWith('/migrator/migrator.ts')
+  ) {
+    return 'DestinationTemplateSource.readFile';
+  }
+  if (normalizedSourcePath.endsWith('/migrator/stylesheet.planner.ts')) return 'StylesheetSource.readFile';
+  if (normalizedSourcePath.endsWith('/lib/gitignore.helper.ts')) return 'IgnoreRulesSource.readFile';
+  return 'UnownedFileSystem.readFile';
+}
+
+function ignoreLibrarySymbolProvenance(
+  symbol: ts.Symbol | undefined,
+  checker: ts.TypeChecker,
+  seenSymbols: ReadonlySet<ts.Symbol>,
+): boolean {
+  if (symbol === undefined || seenSymbols.has(symbol)) return false;
+  const nextSeen = new Set(seenSymbols).add(symbol);
+  if ((symbol.flags & ts.SymbolFlags.Alias) !== 0) {
+    const aliased = checker.getAliasedSymbol(symbol);
+    if (aliased !== symbol && ignoreLibrarySymbolProvenance(aliased, checker, nextSeen)) return true;
+  }
+  return (symbol.declarations ?? []).some(declaration => {
+    const reference = enclosingModuleReference(declaration);
+    if (
+      reference === 'ignore' &&
+      (ts.isImportClause(declaration) ||
+        (ts.isImportSpecifier(declaration) && (declaration.propertyName?.text ?? declaration.name.text) === 'default'))
+    ) {
+      return true;
+    }
+    if (
+      (ts.isVariableDeclaration(declaration) ||
+        ts.isPropertyAssignment(declaration) ||
+        ts.isPropertyDeclaration(declaration)) &&
+      declaration.initializer !== undefined
+    ) {
+      return ignoreLibraryCallableProvenance(declaration.initializer, checker, nextSeen);
+    }
+    if (ts.isShorthandPropertyAssignment(declaration)) {
+      return ignoreLibrarySymbolProvenance(checker.getShorthandAssignmentValueSymbol(declaration), checker, nextSeen);
+    }
+    if (ts.isBindingElement(declaration)) {
+      const pattern = declaration.parent;
+      const variable =
+        ts.isObjectBindingPattern(pattern) || ts.isArrayBindingPattern(pattern) ? pattern.parent : undefined;
+      if (variable === undefined || !ts.isVariableDeclaration(variable) || variable.initializer === undefined) {
+        return false;
+      }
+      const propertyName = bindingElementPropertyName(declaration);
+      const moduleReference = commonJsModuleReference(variable.initializer, checker, nextSeen);
+      return moduleReference?.reference === 'ignore' && (propertyName === 'default' || propertyName === undefined);
+    }
+    return false;
+  });
+}
+
+function ignoreLibraryCallableProvenance(
+  expression: ts.Expression,
+  checker: ts.TypeChecker,
+  seenSymbols: ReadonlySet<ts.Symbol> = new Set(),
+): boolean {
+  const unwrapped = unwrapExpression(expression);
+  if (ts.isCallExpression(unwrapped)) {
+    const reference = calledModule(unwrapped);
+    if (reference === 'ignore') return true;
+    const target = unwrapExpression(unwrapped.expression);
+    if (
+      (ts.isPropertyAccessExpression(target) || ts.isElementAccessExpression(target)) &&
+      resolvedMemberName(target, checker) === 'bind'
+    ) {
+      return ignoreLibraryCallableProvenance(target.expression, checker, seenSymbols);
+    }
+    return false;
+  }
+  if (ts.isPropertyAccessExpression(unwrapped) || ts.isElementAccessExpression(unwrapped)) {
+    const name = resolvedMemberName(unwrapped, checker);
+    const moduleReference = commonJsModuleReference(unwrapped.expression, checker, seenSymbols);
+    if (moduleReference?.reference === 'ignore' && (name === 'default' || name === undefined)) return true;
+    const propertyNode = ts.isPropertyAccessExpression(unwrapped) ? unwrapped.name : unwrapped.argumentExpression;
+    if (
+      propertyNode !== undefined &&
+      ignoreLibrarySymbolProvenance(checker.getSymbolAtLocation(propertyNode), checker, seenSymbols)
+    ) {
+      return true;
+    }
+  }
+  return ignoreLibrarySymbolProvenance(checker.getSymbolAtLocation(unwrapped), checker, seenSymbols);
+}
+
+function ignoreLibraryInvocation(expression: ts.CallExpression, checker: ts.TypeChecker, program: ts.Program): boolean {
+  const reflected = reflectedApplyInvocation(expression, checker, program, new Set());
+  const resolveIgnore = (target: ts.Expression): true | undefined =>
+    ignoreLibraryCallableProvenance(target, checker) ? true : undefined;
+  return (
+    (reflected === undefined
+      ? resolvedCallableInvocation(expression, checker, resolveIgnore)
+      : resolvedCallableApplication(reflected.target, reflected.arguments, checker, resolveIgnore)) !== undefined
+  );
+}
+
+function ignoreLibraryAcquisition(node: ts.Node): boolean {
+  if (ts.isImportDeclaration(node)) {
+    return runtimeImportReference(node) === 'ignore';
+  }
+  if (ts.isExportDeclaration(node)) {
+    return runtimeExportReference(node) === 'ignore';
+  }
+  if (ts.isImportEqualsDeclaration(node) && !node.isTypeOnly && ts.isExternalModuleReference(node.moduleReference)) {
+    return moduleText(node.moduleReference.expression) === 'ignore';
+  }
+  return ts.isCallExpression(node) && calledModule(node) === 'ignore';
+}
+
+function isGitIgnoreHelperReference(reference: string, containingSourcePath: string): boolean {
+  return localModuleCandidates(reference, containingSourcePath).some(candidate =>
+    candidate.replaceAll('\\', '/').endsWith('/lib/gitignore.helper.ts'),
+  );
+}
+
+function gitIgnoreHelperAcquisition(node: ts.Node, checker: ts.TypeChecker, program: ts.Program): boolean {
+  if (ts.isImportDeclaration(node)) {
+    const reference = moduleText(node.moduleSpecifier);
+    const clause = node.importClause;
+    if (reference === undefined || clause === undefined || clause.isTypeOnly) return false;
+    if (isGitIgnoreHelperReference(reference, node.getSourceFile().fileName)) return true;
+    const bindings = clause.namedBindings;
+    if (bindings === undefined || ts.isNamespaceImport(bindings)) return false;
+    const config = semanticAuthorityConfigs.find(
+      candidate => candidate.name === 'GitIgnoreHelper.createGitIgnoreMatcher',
+    );
+    return (
+      config !== undefined &&
+      bindings.elements.some(element => {
+        if (element.isTypeOnly) return false;
+        const symbol = checker.getSymbolAtLocation(element.name);
+        return semanticAuthoritySymbolProvenance(symbol, config, checker, program, new Set());
+      })
+    );
+  }
+  if (
+    ts.isCallExpression(node) &&
+    (node.expression.kind === ts.SyntaxKind.ImportKeyword ||
+      (ts.isIdentifier(node.expression) && node.expression.text === 'require'))
+  ) {
+    const reference = moduleText(node.arguments[0]);
+    return reference !== undefined && isGitIgnoreHelperReference(reference, node.getSourceFile().fileName);
+  }
+  return false;
+}
+
 function declarationCallableBody(declaration: ts.Declaration): ts.ConciseBody | undefined {
   if (
     ts.isArrowFunction(declaration) ||
@@ -2998,7 +3242,20 @@ export function inspectSemanticAuthorityCalls(
     const sourcePath = resolve(sourceFile.fileName);
     if (!rootPaths.has(sourcePath)) continue;
     function visit(node: ts.Node): void {
+      if (gitIgnoreHelperAcquisition(node, checker, program)) {
+        calls.push({ sourcePath, name: 'GitIgnoreHelper.acquire' });
+      }
+      if (ignoreLibraryAcquisition(node)) {
+        calls.push({ sourcePath, name: 'IgnoreLibrary.acquire' });
+      }
       if (ts.isCallExpression(node)) {
+        const filesystemOperation = semanticFilesystemOperationInvocation(node, checker, program);
+        if (filesystemOperation !== undefined) {
+          calls.push({ sourcePath, name: contextualFilesystemAuthorityName(filesystemOperation, sourcePath) });
+        }
+        if (ignoreLibraryInvocation(node, checker, program)) {
+          calls.push({ sourcePath, name: 'IgnoreLibrary.createMatcher' });
+        }
         if (transactionApplicationInvocation(node, checker, program)) {
           calls.push({ sourcePath, name: 'MigrationTransaction.apply' });
         }
@@ -3018,6 +3275,59 @@ export function inspectSemanticAuthorityCalls(
   }
 
   return calls;
+}
+
+/** Resolves the transitive local runtime dependency closure for every requested source root. */
+export function inspectRuntimeDependencyClosure(
+  sourcePaths: readonly string[],
+  sourceOverrides: ReadonlyMap<string, string> = new Map(),
+): readonly RuntimeDependencyFinding[] {
+  const { program } = createProjectProgram(sourcePaths, sourceOverrides);
+  const normalizedOverrides = new Map(
+    [...sourceOverrides].map(([sourcePath, source]) => [resolve(sourcePath), source] as const),
+  );
+  const findings: RuntimeDependencyFinding[] = [];
+  const seenFindings = new Set<string>();
+
+  function sourceText(sourcePath: string): string | undefined {
+    return (
+      normalizedOverrides.get(sourcePath) ?? program.getSourceFile(sourcePath)?.text ?? ts.sys.readFile(sourcePath)
+    );
+  }
+
+  function resolvedLocalDependency(reference: string, containingSourcePath: string): string | undefined {
+    if (!reference.startsWith('.')) return undefined;
+    return localModuleCandidates(reference, containingSourcePath).find(
+      candidate =>
+        normalizedOverrides.has(candidate) ||
+        program.getSourceFile(candidate) !== undefined ||
+        ts.sys.fileExists(candidate),
+    );
+  }
+
+  for (const requestedSourcePath of sourcePaths) {
+    const sourcePath = resolve(requestedSourcePath);
+    const visited = new Set<string>();
+    function visit(currentSourcePath: string): void {
+      if (visited.has(currentSourcePath)) return;
+      visited.add(currentSourcePath);
+      const source = sourceText(currentSourcePath);
+      if (source === undefined) return;
+      for (const reference of runtimeModuleReferences(source, currentSourcePath)) {
+        const dependencyPath = resolvedLocalDependency(reference, currentSourcePath);
+        if (dependencyPath === undefined) continue;
+        const key = `${sourcePath}\0${dependencyPath}`;
+        if (!seenFindings.has(key)) {
+          seenFindings.add(key);
+          findings.push({ sourcePath, dependencyPath });
+        }
+        visit(dependencyPath);
+      }
+    }
+    visit(sourcePath);
+  }
+
+  return findings;
 }
 
 export function productionTypeScriptFiles(directory: string): readonly string[] {
