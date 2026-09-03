@@ -1,7 +1,7 @@
 import * as path from 'node:path';
 import type { LocatedFlexLayoutInput } from '../analyzer/flex-layout-attribute.analyzer';
 import { MigrationApplicationError } from '../migrator/migration-application.error';
-import type { TemplateParseResult } from '../template/template.model';
+import type { SourceRange, TemplateAttribute, TemplateElement, TemplateParseResult } from '../template/template.model';
 import { projectManifest, type ManifestTemplate, type ProjectManifest } from './project-manifest';
 
 export type AnalyzedTemplate =
@@ -26,8 +26,11 @@ export interface AnalyzedProject {
 
 export function analyzedProject(project: AnalyzedProject): AnalyzedProject {
   const manifest = projectManifest(project.manifest);
-  const templates = project.templates.map(template => {
-    const file = manifestTemplate(manifest, template.file);
+  if (project.templates.length !== manifest.templates.length) {
+    throw sequenceInvariant();
+  }
+  const templates = project.templates.map((template, index) => {
+    const file = manifestTemplateAt(manifest, template.file, index);
     if (template.status === 'parse-error') {
       return Object.freeze({
         status: template.status,
@@ -54,8 +57,39 @@ function freezeParsedResult(
 ): Extract<TemplateParseResult, { readonly status: 'parsed' }> {
   return Object.freeze({
     status: result.status,
-    elements: Object.freeze([...result.elements]),
+    elements: Object.freeze(result.elements.map(element => freezeTemplateElement(element))),
   });
+}
+
+function freezeTemplateElement(element: TemplateElement): TemplateElement {
+  return Object.freeze({
+    id: element.id,
+    name: element.name,
+    source: freezeSourceRange(element.source),
+    startTag: freezeSourceRange(element.startTag),
+    ...(element.endTag === undefined ? {} : { endTag: freezeSourceRange(element.endTag) }),
+    structural: element.structural,
+    attributes: Object.freeze(element.attributes.map(attribute => freezeTemplateAttribute(attribute))),
+    ...(element.parentId === undefined ? {} : { parentId: element.parentId }),
+  });
+}
+
+function freezeTemplateAttribute(attribute: TemplateAttribute): TemplateAttribute {
+  return Object.freeze({
+    name: attribute.name,
+    rawName: attribute.rawName,
+    rawValue: attribute.rawValue,
+    value: attribute.value,
+    binding: attribute.binding,
+    ...(attribute.bindingTarget === undefined ? {} : { bindingTarget: attribute.bindingTarget }),
+    source: freezeSourceRange(attribute.source),
+    nameSource: freezeSourceRange(attribute.nameSource),
+    ...(attribute.valueSource === undefined ? {} : { valueSource: freezeSourceRange(attribute.valueSource) }),
+  });
+}
+
+function freezeSourceRange(source: SourceRange): SourceRange {
+  return Object.freeze({ start: source.start, end: source.end });
 }
 
 function freezeParseErrorResult(
@@ -74,15 +108,12 @@ function freezeParseErrorResult(
   });
 }
 
-function manifestTemplate(manifest: ProjectManifest, candidate: ManifestTemplate): ManifestTemplate {
-  const match = manifest.templates.find(template => samePathPair(template, candidate));
-  if (match === undefined) {
-    throw internalInvariant('Analyzed template is not present in its project manifest.', [
-      candidate.inputPath,
-      candidate.outputPath,
-    ]);
+function manifestTemplateAt(manifest: ProjectManifest, candidate: ManifestTemplate, index: number): ManifestTemplate {
+  const expected = manifest.templates[index];
+  if (expected === undefined || !samePathPair(expected, candidate)) {
+    throw sequenceInvariant([candidate.inputPath, candidate.outputPath]);
   }
-  return match;
+  return expected;
 }
 
 function samePathPair(left: ManifestTemplate, right: ManifestTemplate): boolean {
@@ -105,6 +136,13 @@ function normalizedAbsolutePath(value: string): string {
   return path.normalize(path.resolve(value));
 }
 
-function internalInvariant(message: string, paths: readonly string[]): MigrationApplicationError {
+function sequenceInvariant(paths: readonly string[] = []): MigrationApplicationError {
+  return internalInvariant(
+    'Analyzed project templates must match its manifest one-to-one and in the same order.',
+    paths,
+  );
+}
+
+function internalInvariant(message: string, paths: readonly string[] = []): MigrationApplicationError {
   return new MigrationApplicationError('internal-invariant', message, paths);
 }

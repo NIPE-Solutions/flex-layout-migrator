@@ -6,26 +6,11 @@ import type { FileMigrationPlan, MigrationPlan } from '../migrator/migration-pla
 import { MigrationApplicationError } from '../migrator/migration-application.error';
 import type { MigrationOptions } from '../migrator/migrator';
 import type { StylesheetMigrationResult } from '../report/migration-report.builder';
-import type { TemplateElement, TemplateParseResult } from '../template/template.model';
-import { analyzedProject, type AnalyzedProject } from './analyzed-project';
-import { migrationInvocation, projectManifest, type ProjectManifest } from './project-manifest';
+import type { TemplateParseResult } from '../template/template.model';
+import { analyzedProject, type AnalyzedProject, type AnalyzedTemplate } from './analyzed-project';
+import { migrationInvocation, projectManifest, type ManifestTemplate, type ProjectManifest } from './project-manifest';
 import { renderedProject, type RenderedProject } from './rendered-project';
 import { validatedProjectPlan } from './validated-project-plan';
-
-class OpaqueTemplateElement implements TemplateElement {
-  readonly id = '0';
-  readonly name = 'div';
-  readonly source = { start: 0, end: 26 };
-  readonly startTag = { start: 0, end: 20 };
-  readonly endTag = { start: 20, end: 26 };
-  readonly structural = false;
-  readonly attributes = [];
-  touched = false;
-
-  touch(): void {
-    this.touched = true;
-  }
-}
 
 function manifestFor(inputPath = 'templates/card.html', outputPath = 'generated/card.html'): ProjectManifest {
   return projectManifest({
@@ -36,6 +21,32 @@ function manifestFor(inputPath = 'templates/card.html', outputPath = 'generated/
     },
     templates: [{ inputPath, outputPath }],
   });
+}
+
+function twoTemplateManifest(): ProjectManifest {
+  return projectManifest({
+    invocation: {
+      inputPath: 'templates',
+      outputPath: 'generated',
+      options: { mode: 'plan' },
+    },
+    templates: [
+      { inputPath: 'templates/alpha.html', outputPath: 'generated/alpha.html' },
+      { inputPath: 'templates/beta.html', outputPath: 'generated/beta.html' },
+    ],
+  });
+}
+
+function parseErrorTemplate(file: ManifestTemplate): AnalyzedTemplate {
+  return {
+    status: 'parse-error',
+    file: { ...file },
+    source: '<div',
+    parseResult: {
+      status: 'parse-error',
+      diagnostics: [{ message: 'incomplete start tag', source: { start: 0, end: 4 } }],
+    },
+  };
 }
 
 function locatedInput(fileName = path.resolve('templates/card.html')): LocatedFlexLayoutInput {
@@ -178,10 +189,35 @@ describe('pipeline handoff factories', () => {
     expect(manifest.templates.map(template => path.basename(template.inputPath))).toEqual(['zeta.html', 'alpha.html']);
   });
 
-  test('owns parsed result wrappers and arrays while preserving opaque element identity and mutability', () => {
+  test('recursively owns parsed elements, attributes, and every nested source range', () => {
     const manifest = manifestFor();
-    const opaqueNode = new OpaqueTemplateElement();
-    const elements = [opaqueNode];
+    const elementSource = { start: 0, end: 26 };
+    const startTag = { start: 0, end: 20 };
+    const endTag = { start: 20, end: 26 };
+    const attributeSource = { start: 5, end: 19 };
+    const attributeNameSource = { start: 5, end: 13 };
+    const attributeValueSource = { start: 15, end: 18 };
+    const attribute = {
+      name: 'fxLayout',
+      rawName: 'fxLayout',
+      rawValue: 'row',
+      value: 'row',
+      binding: 'literal' as const,
+      source: attributeSource,
+      nameSource: attributeNameSource,
+      valueSource: attributeValueSource,
+    };
+    const attributes = [attribute];
+    const element = {
+      id: '0',
+      name: 'div',
+      source: elementSource,
+      startTag,
+      endTag,
+      structural: false,
+      attributes,
+    };
+    const elements = [element];
     const parseResult: Extract<TemplateParseResult, { readonly status: 'parsed' }> = {
       status: 'parsed',
       elements,
@@ -209,9 +245,28 @@ describe('pipeline handoff factories', () => {
     if (analyzed.templates[0]!.status !== 'parsed') throw new Error('Expected a parsed template.');
     expect(analyzed.templates[0]!.parseResult).not.toBe(parseResult);
     expect(analyzed.templates[0]!.parseResult.elements).not.toBe(elements);
-    expect(analyzed.templates[0]!.parseResult.elements[0]).toBe(opaqueNode);
+    const ownedElement = analyzed.templates[0]!.parseResult.elements[0]!;
+    const ownedAttribute = ownedElement.attributes[0]!;
+    expect(ownedElement).not.toBe(element);
+    expect(ownedElement.attributes).not.toBe(attributes);
+    expect(ownedAttribute).not.toBe(attribute);
+    expect(ownedElement.source).not.toBe(elementSource);
+    expect(ownedElement.startTag).not.toBe(startTag);
+    expect(ownedElement.endTag).not.toBe(endTag);
+    expect(ownedAttribute.source).not.toBe(attributeSource);
+    expect(ownedAttribute.nameSource).not.toBe(attributeNameSource);
+    expect(ownedAttribute.valueSource).not.toBe(attributeValueSource);
     expect(Object.isFrozen(analyzed.templates[0]!.parseResult)).toBe(true);
     expect(Object.isFrozen(analyzed.templates[0]!.parseResult.elements)).toBe(true);
+    expect(Object.isFrozen(ownedElement)).toBe(true);
+    expect(Object.isFrozen(ownedElement.attributes)).toBe(true);
+    expect(Object.isFrozen(ownedAttribute)).toBe(true);
+    expect(Object.isFrozen(ownedElement.source)).toBe(true);
+    expect(Object.isFrozen(ownedElement.startTag)).toBe(true);
+    expect(Object.isFrozen(ownedElement.endTag)).toBe(true);
+    expect(Object.isFrozen(ownedAttribute.source)).toBe(true);
+    expect(Object.isFrozen(ownedAttribute.nameSource)).toBe(true);
+    expect(Object.isFrozen(ownedAttribute.valueSource)).toBe(true);
     expect(Object.isFrozen(analyzed)).toBe(true);
     expect(Object.isFrozen(analyzed.templates)).toBe(true);
     expect(Object.isFrozen(analyzed.templates[0])).toBe(true);
@@ -221,17 +276,41 @@ describe('pipeline handoff factories', () => {
     expect(
       Object.isFrozen((analyzed.templates[0] as { readonly inputs: readonly LocatedFlexLayoutInput[] }).inputs[0]),
     ).toBe(true);
-    expect(Object.isFrozen(opaqueNode)).toBe(false);
+    expect(Object.isFrozen(element)).toBe(false);
+    expect(Object.isFrozen(attribute)).toBe(false);
 
+    const input = inputs[0]!;
+    element.name = 'section';
+    attribute.name = 'class';
+    elementSource.start = 2;
+    startTag.end = 18;
+    endTag.start = 18;
+    attributeSource.start = 4;
+    attributeNameSource.end = 12;
+    attributeValueSource.start = 14;
+    (input.source as { start: number }).start = 4;
+    (input.nameSource as { end: number }).end = 12;
+    (input.valueSource as { start: number }).start = 14;
     inputs.pop();
     templates.pop();
     elements.pop();
-    (parseResult as { elements: readonly TemplateElement[] }).elements = [];
-    opaqueNode.touch();
+    attributes.pop();
+    (parseResult as unknown as { elements: readonly (typeof element)[] }).elements = [];
     expect((analyzed.templates[0] as { readonly inputs: readonly LocatedFlexLayoutInput[] }).inputs).toHaveLength(1);
     expect(analyzed.templates).toHaveLength(1);
-    expect(analyzed.templates[0]!.parseResult.elements).toEqual([opaqueNode]);
-    expect(opaqueNode.touched).toBe(true);
+    expect(ownedElement.name).toBe('div');
+    expect(ownedElement.source).toEqual({ start: 0, end: 26 });
+    expect(ownedElement.startTag).toEqual({ start: 0, end: 20 });
+    expect(ownedElement.endTag).toEqual({ start: 20, end: 26 });
+    expect(ownedElement.attributes).toHaveLength(1);
+    expect(ownedAttribute.name).toBe('fxLayout');
+    expect(ownedAttribute.source).toEqual({ start: 5, end: 19 });
+    expect(ownedAttribute.nameSource).toEqual({ start: 5, end: 13 });
+    expect(ownedAttribute.valueSource).toEqual({ start: 15, end: 18 });
+    const ownedInput = (analyzed.templates[0] as { readonly inputs: readonly LocatedFlexLayoutInput[] }).inputs[0]!;
+    expect(ownedInput.source).toEqual({ start: 5, end: 19 });
+    expect(ownedInput.nameSource).toEqual({ start: 5, end: 13 });
+    expect(ownedInput.valueSource).toEqual({ start: 15, end: 18 });
   });
 
   test('recursively owns parse-error diagnostics and source ranges', () => {
@@ -299,6 +378,25 @@ describe('pipeline handoff factories', () => {
     );
   });
 
+  test('requires analyzed templates to match every manifest template once and in the same order', () => {
+    const manifest = twoTemplateManifest();
+    const first = parseErrorTemplate(manifest.templates[0]!);
+    const second = parseErrorTemplate(manifest.templates[1]!);
+    const malformedSequences = [
+      { name: 'omission', templates: [first] },
+      { name: 'duplicate', templates: [first, first] },
+      { name: 'extra', templates: [first, second, first] },
+      { name: 'reordered', templates: [second, first] },
+    ];
+
+    for (const scenario of malformedSequences) {
+      const error = captureInternalInvariant(() => analyzedProject({ manifest, templates: scenario.templates }));
+      expect(error.message, scenario.name).toBe(
+        'Analyzed project templates must match its manifest one-to-one and in the same order.',
+      );
+    }
+  });
+
   test('owns rendered file plans and CSS session rules through immutable copies', () => {
     const analyzed = parsedProject();
     const results: NonNullable<FileMigrationPlan['file']['results']>[number][] = [];
@@ -358,6 +456,71 @@ describe('pipeline handoff factories', () => {
         session: { target: 'tailwind' },
       }),
     );
+  });
+
+  test('requires rendered files to match every analyzed template once and in the same order', () => {
+    const manifest = twoTemplateManifest();
+    const analyzed = analyzedProject({
+      manifest,
+      templates: manifest.templates.map(file => parseErrorTemplate(file)),
+    });
+    const first = rawFilePlan(manifest.templates[0]!.inputPath, manifest.templates[0]!.outputPath);
+    const second = rawFilePlan(manifest.templates[1]!.inputPath, manifest.templates[1]!.outputPath);
+    const malformedSequences = [
+      { name: 'omission', files: [first] },
+      { name: 'duplicate', files: [first, first] },
+      { name: 'extra', files: [first, second, first] },
+      { name: 'reordered', files: [second, first] },
+    ];
+
+    for (const scenario of malformedSequences) {
+      const error = captureInternalInvariant(() =>
+        renderedProject({ analyzed, files: scenario.files, session: { target: 'tailwind' } }),
+      );
+      expect(error.message, scenario.name).toBe(
+        'Rendered project files must match its analyzed templates one-to-one and in the same order.',
+      );
+    }
+  });
+
+  test('canonicalizes rendered file identities without dropping results or template artifacts', () => {
+    const analyzed = parsedProject();
+    const identity = analyzed.manifest.templates[0]!;
+    const inputPath = `${path.dirname(identity.inputPath)}${path.sep}nested${path.sep}..${path.sep}${path.basename(identity.inputPath)}`;
+    const outputPath = `${path.dirname(identity.outputPath)}${path.sep}nested${path.sep}..${path.sep}${path.basename(identity.outputPath)}`;
+    const result = {
+      status: 'parse-error' as const,
+      fileName: inputPath,
+      code: 'template-parse-error' as const,
+      reason: 'fixture diagnostic',
+      source: { start: 1, end: 2 },
+    };
+    const artifact: MigrationPlan['artifacts'][number] = {
+      kind: 'template',
+      path: identity.outputPath,
+      original: { status: 'absent' },
+      proposed: { status: 'present', contents: '<div></div>' },
+    };
+
+    const rendered = renderedProject({
+      analyzed,
+      files: [
+        {
+          file: { inputPath, outputPath, changed: true, results: [result] },
+          artifact,
+        },
+      ],
+      session: { target: 'tailwind' },
+    });
+
+    expect(rendered.files[0]!.file).toEqual({
+      inputPath: identity.inputPath,
+      outputPath: identity.outputPath,
+      changed: true,
+      results: [result],
+    });
+    expect(rendered.files[0]!.artifact).toEqual(artifact);
+    expect(rendered.files[0]!.artifact).not.toBe(artifact);
   });
 
   test('owns migration plan contents and a plain stylesheet result record', () => {

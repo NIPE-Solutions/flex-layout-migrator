@@ -15,16 +15,23 @@ export interface RenderedProject {
 
 export function renderedProject(project: RenderedProject): RenderedProject {
   const analyzed = analyzedProject(project.analyzed);
-  const files = project.files.map(file => fileMigrationPlan(file));
-
-  for (const file of files) {
-    if (!analyzed.templates.some(template => samePathPair(template.file, file.file))) {
-      throw internalInvariant('Rendered file is not represented by an analyzed template.', [
-        file.file.inputPath,
-        file.file.outputPath,
-      ]);
-    }
+  if (project.files.length !== analyzed.templates.length) {
+    throw sequenceInvariant();
   }
+  const files = project.files.map((file, index) => {
+    const identity = analyzed.templates[index]?.file;
+    if (identity === undefined || !samePathPair(identity, file.file)) {
+      throw sequenceInvariant([file.file.inputPath, file.file.outputPath]);
+    }
+    return fileMigrationPlan({
+      file: {
+        ...file.file,
+        inputPath: identity.inputPath,
+        outputPath: identity.outputPath,
+      },
+      ...(file.artifact === undefined ? {} : { artifact: file.artifact }),
+    });
+  });
 
   return Object.freeze({
     analyzed,
@@ -73,6 +80,13 @@ function normalizedAbsolutePath(value: string): string {
   return path.normalize(path.resolve(value));
 }
 
-function internalInvariant(message: string, paths: readonly string[]): MigrationApplicationError {
+function sequenceInvariant(paths: readonly string[] = []): MigrationApplicationError {
+  return internalInvariant(
+    'Rendered project files must match its analyzed templates one-to-one and in the same order.',
+    paths,
+  );
+}
+
+function internalInvariant(message: string, paths: readonly string[] = []): MigrationApplicationError {
   return new MigrationApplicationError('internal-invariant', message, paths);
 }
