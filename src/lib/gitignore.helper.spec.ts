@@ -19,7 +19,7 @@ describe('createGitIgnoreMatcher', () => {
     const secondRoot = join(temporaryDirectory, 'second');
     await Promise.all([mkdir(firstRoot), mkdir(secondRoot)]);
     await Promise.all([
-      writeFile(join(firstRoot, '.gitignore'), 'first-only.html\n', 'utf8'),
+      writeFile(join(firstRoot, '.gitignore'), 'first-only.html\nfirst-directory/\n', 'utf8'),
       writeFile(join(secondRoot, '.gitignore'), 'second-only.html\n', 'utf8'),
     ]);
 
@@ -32,6 +32,8 @@ describe('createGitIgnoreMatcher', () => {
       second.ignores(join(secondRoot, 'first-only.html')),
       second.ignores(join(secondRoot, 'second-only.html')),
     ]).toEqual([true, false, false, true]);
+    expect(first.ignores(join(firstRoot, 'first-directory'))).toBe(false);
+    expect(first.ignoresDirectory(join(firstRoot, 'first-directory'))).toBe(true);
     expect(Object.isFrozen(first)).toBe(true);
     expect(Object.isFrozen(second)).toBe(true);
   });

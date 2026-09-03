@@ -87,8 +87,7 @@ export class DiscoverProjectStage implements DiscoverStage {
 
     for (const entry of entries) {
       const candidate = path.join(directory, entry.name);
-      const ignored =
-        matcher.ignores(candidate) || (entry.kind === 'directory' && matcher.ignores(`${candidate}${path.sep}`));
+      const ignored = entry.kind === 'directory' ? matcher.ignoresDirectory(candidate) : matcher.ignores(candidate);
       if (ignored || exclusions.has(path.normalize(candidate))) continue;
 
       if (entry.kind === 'directory') {

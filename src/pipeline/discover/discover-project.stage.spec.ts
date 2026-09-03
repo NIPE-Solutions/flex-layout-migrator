@@ -1,6 +1,7 @@
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { dirname, join, relative, resolve, sep } from 'node:path';
+import { dirname, join, relative, resolve } from 'node:path';
+import { createGitIgnoreMatcher } from '../../lib/gitignore.helper';
 import { migrationInvocation } from '../project-manifest';
 import type { DiscoveryFileSystem } from './discovery-file-system.port';
 import { DiscoverProjectStage } from './discover-project.stage';
@@ -70,7 +71,7 @@ describe('DiscoverProjectStage', () => {
           : [{ name: 'nested.html', kind: 'file' }],
     };
     const ignoreMatchers: IgnoreMatcherFactory = {
-      load: async () => Object.freeze({ ignores: () => false }),
+      load: async () => Object.freeze({ ignores: () => false, ignoresDirectory: () => false }),
     };
 
     const manifest = await new DiscoverProjectStage(fileSystem, ignoreMatchers).run(
@@ -133,10 +134,42 @@ describe('DiscoverProjectStage', () => {
       },
     };
     const ignoreMatchers: IgnoreMatcherFactory = {
-      load: async () => ({ ignores: candidate => candidate === `${ignoredRoot}${sep}` }),
+      load: async () => ({
+        ignores: () => false,
+        ignoresDirectory: candidate => candidate === ignoredRoot,
+      }),
     };
 
     const manifest = await new DiscoverProjectStage(fileSystem, ignoreMatchers).run(
+      migrationInvocation({ inputPath: inputRoot, outputPath: outputRoot, options: { mode: 'plan' } }),
+    );
+
+    expect(enumeratedDirectories).toEqual([inputRoot]);
+    expect(manifest.templates).toEqual([
+      { inputPath: join(inputRoot, 'kept.html'), outputPath: join(outputRoot, 'kept.html') },
+    ]);
+  });
+
+  test('does not enumerate a directory ignored by the production matcher with a directory-only rule', async () => {
+    const inputRoot = join(temporaryDirectory, 'input');
+    const outputRoot = join(temporaryDirectory, 'output');
+    const ignoredRoot = join(inputRoot, 'ignored');
+    await mkdir(inputRoot);
+    await writeFile(join(inputRoot, '.gitignore'), 'ignored/\n', 'utf8');
+    const enumeratedDirectories: string[] = [];
+    const fileSystem: DiscoveryFileSystem = {
+      kind: async () => 'directory',
+      entries: async directory => {
+        enumeratedDirectories.push(directory);
+        if (directory === ignoredRoot) throw new Error(`Unexpected descent into ${directory}`);
+        return [
+          { name: 'ignored', kind: 'directory' },
+          { name: 'kept.html', kind: 'file' },
+        ];
+      },
+    };
+
+    const manifest = await new DiscoverProjectStage(fileSystem, { load: createGitIgnoreMatcher }).run(
       migrationInvocation({ inputPath: inputRoot, outputPath: outputRoot, options: { mode: 'plan' } }),
     );
 

@@ -14,7 +14,11 @@ export async function createGitIgnoreMatcher(root: string): Promise<IgnoreMatche
     matcher.add(await fs.readFile(gitignorePath, 'utf8'));
     logger.debug(`Loaded .gitignore file from ${gitignorePath}`);
   }
-  return Object.freeze({ ignores: (candidate: string) => matcher.ignores(path.relative(root, candidate)) });
+  const relativeIgnorePath = (candidate: string): string => path.relative(root, candidate).split(path.sep).join('/');
+  return Object.freeze({
+    ignores: (candidate: string) => matcher.ignores(relativeIgnorePath(candidate)),
+    ignoresDirectory: (candidate: string) => matcher.ignores(`${relativeIgnorePath(candidate)}/`),
+  });
 }
 
 // Compatibility exports loadGitIgnore and shouldIgnore remain for the unchanged legacy caller;
