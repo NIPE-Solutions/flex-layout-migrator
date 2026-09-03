@@ -2,11 +2,17 @@ import { access, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:f
 import { tmpdir } from 'node:os';
 import { join, resolve, sep } from 'node:path';
 import type { ConversionAdapterSession } from '../adapter/conversion-adapter.session';
-import type { MigrationRunner } from '../pipeline/current-migration.pipeline';
-import type { MigrationInvocation } from '../pipeline/project-manifest';
+import { AnalyzeProjectStage } from '../pipeline/analyze/analyze-project.stage';
+import {
+  CurrentMigrationPipeline,
+  type MigrationRunner,
+  type MigratorFactory,
+} from '../pipeline/current-migration.pipeline';
+import type { DiscoverStage } from '../pipeline/migration-pipeline';
+import { projectManifest, type MigrationInvocation } from '../pipeline/project-manifest';
 import type { MigrationReport } from '../report/migration-report';
 import type { TextOutput } from '../report/terminal.presenter';
-import { runCli, type CliOutput } from './run-cli';
+import { runCli, type CliOutput, type RunCliDependencies } from './run-cli';
 
 class MemoryOutput implements TextOutput {
   public text = '';
@@ -29,7 +35,10 @@ describe('runCli', () => {
     await rm(temporaryDirectory, { recursive: true, force: true });
   });
 
-  async function run(arguments_: readonly string[]): Promise<{
+  async function run(
+    arguments_: readonly string[],
+    dependencies: RunCliDependencies = {},
+  ): Promise<{
     readonly exitCode: 0 | 1 | 2;
     readonly stdout: string;
     readonly stderr: string;
@@ -37,7 +46,7 @@ describe('runCli', () => {
     const stdout = new MemoryOutput();
     const stderr = new MemoryOutput();
     const output: CliOutput = { stdout, stderr };
-    const exitCode = await runCli(['node', 'flex-layout-codemod', ...arguments_], output);
+    const exitCode = await runCli(['node', 'flex-layout-codemod', ...arguments_], output, dependencies);
     return { exitCode, stdout: stdout.text, stderr: stderr.text };
   }
 
@@ -108,6 +117,65 @@ describe('runCli', () => {
     );
     expect(stderr.text).toBe('');
     expect(JSON.parse(await readFile(reportPath, 'utf8'))).toEqual(expectedReport);
+  });
+
+  test('prints the raw relative analyzed-read error and does not write a requested JSON report', async () => {
+    const rawInputPath = 'relative-fixtures/input';
+    const rawTemplatePath = join(rawInputPath, 'nested', 'card.html');
+    const reportPath = join(temporaryDirectory, 'migration.json');
+    const canonicalTemplatePath = resolve(rawTemplatePath);
+    const cause = new Error('filesystem cause');
+    const error = Object.assign(
+      new Error(`ENOENT: no such file or directory, open '${canonicalTemplatePath}'`, { cause }),
+      {
+        code: 'ENOENT',
+        errno: -2,
+        syscall: 'open',
+        path: canonicalTemplatePath,
+      },
+    );
+    const discover: DiscoverStage = {
+      async run(invocation) {
+        return projectManifest({
+          invocation,
+          templates: [
+            {
+              inputPath: canonicalTemplatePath,
+              outputPath: join(invocation.canonicalOutputPath, 'nested', 'card.html'),
+            },
+          ],
+        });
+      },
+    };
+    const analyze = new AnalyzeProjectStage(
+      { read: vi.fn(async () => Promise.reject(error)) },
+      {
+        parse() {
+          throw new Error('Source-read failure must prevent parsing.');
+        },
+      },
+      {
+        analyze() {
+          throw new Error('Source-read failure must prevent analysis.');
+        },
+      },
+    );
+    const createMigrator = vi.fn<MigratorFactory>();
+
+    const result = await run([rawInputPath, '--report', reportPath], {
+      createMigrationRunner: session => new CurrentMigrationPipeline(session, discover, analyze, createMigrator),
+    });
+
+    expect(result).toEqual({
+      exitCode: 1,
+      stdout: '',
+      stderr: `Error: ENOENT: no such file or directory, open '${rawTemplatePath}'\n`,
+    });
+    expect(error.path).toBe(rawTemplatePath);
+    expect(error.code).toBe('ENOENT');
+    expect(error.cause).toBe(cause);
+    expect(createMigrator).not.toHaveBeenCalled();
+    await expect(access(reportPath)).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
   test('defaults a clean Tailwind migration to a plan without creating its output', async () => {

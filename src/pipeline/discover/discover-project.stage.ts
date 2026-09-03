@@ -40,12 +40,7 @@ export class DiscoverProjectStage implements DiscoverStage {
 
   public async run(invocation: MigrationInvocation): Promise<ProjectManifest> {
     const inputProbePath = preserveTrailingSeparator(invocation.canonicalInputPath, invocation.inputPath);
-    let inputKind: Awaited<ReturnType<DiscoveryFileSystem['kind']>>;
-    try {
-      inputKind = await this.fileSystem.kind(inputProbePath);
-    } catch (error: unknown) {
-      throw preserveRawInputError(error, inputProbePath, invocation.inputPath);
-    }
+    const inputKind = await this.fileSystem.kind(inputProbePath);
     let templates: readonly ManifestTemplate[];
 
     if (inputKind === 'file') {
@@ -118,11 +113,4 @@ export class DiscoverProjectStage implements DiscoverStage {
 
 function preserveTrailingSeparator(canonicalPath: string, rawPath: string): string {
   return /[\\/]$/u.test(rawPath) && !/[\\/]$/u.test(canonicalPath) ? `${canonicalPath}${path.sep}` : canonicalPath;
-}
-
-function preserveRawInputError(error: unknown, probedPath: string, rawPath: string): unknown {
-  if (!(error instanceof Error) || probedPath === rawPath) return error;
-  error.message = error.message.replace(probedPath, rawPath);
-  if ('path' in error) error.path = rawPath;
-  return error;
 }

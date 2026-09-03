@@ -4,6 +4,7 @@ import type { MigrationReport } from '../report/migration-report';
 import { AnalyzeProjectStage } from './analyze/analyze-project.stage';
 import type { AnalyzedProject } from './analyzed-project';
 import { DiscoverProjectStage } from './discover/discover-project.stage';
+import { remapInvocationErrorPaths } from './invocation-error-path.mapper';
 import type { AnalyzeStage, DiscoverStage } from './migration-pipeline';
 import type { MigrationInvocation } from './project-manifest';
 
@@ -27,8 +28,13 @@ export class CurrentMigrationPipeline implements MigrationRunner {
   ) {}
 
   public async run(invocation: MigrationInvocation): Promise<MigrationReport> {
-    const manifest = await this.discover.run(invocation);
-    const analyzed = await this.analyze.run(manifest);
-    return this.createMigrator(this.session, analyzed).migrate(invocation.options);
+    try {
+      const manifest = await this.discover.run(invocation);
+      const analyzed = await this.analyze.run(manifest);
+      const report = await this.createMigrator(this.session, analyzed).migrate(invocation.options);
+      return report;
+    } catch (error: unknown) {
+      throw remapInvocationErrorPaths(error, invocation);
+    }
   }
 }
