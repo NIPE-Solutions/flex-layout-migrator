@@ -1261,6 +1261,81 @@ describe('migration transaction architecture boundary', { timeout: wholeProjectI
     expect(projectWriteAuthorityCalls(sources, [presenter])).toEqual([{ sourcePath: presenter, name: 'run' }]);
   });
 
+  const reflectiveAuthorityFixtures = [
+    {
+      label: 'MigrationTransaction.apply',
+      name: 'apply' as const,
+      setup: `
+        import type { MigrationTransaction } from '../transaction/migration-transaction.js';
+        import type { MigrationPlan } from '../migrator/migration-plan.js';
+        declare const transaction: Pick<MigrationTransaction, 'apply'>;
+        declare const plan: MigrationPlan;
+        const target = transaction.apply;
+        const receiver = transaction;
+        const values = [plan];
+      `,
+    },
+    {
+      label: 'Migrator.migrate',
+      name: 'migrate' as const,
+      setup: `
+        import { Migrator } from '../migrator/migrator.js';
+        declare const migrator: Migrator;
+        const target = migrator.migrate;
+        const receiver = migrator;
+        const values = [{ mode: 'write' as const }];
+      `,
+    },
+    {
+      label: 'MigrationRunner.run',
+      name: 'run' as const,
+      setup: `
+        import type { MigrationRunner } from '../pipeline/current-migration.pipeline.js';
+        declare const runner: MigrationRunner;
+        const target = runner.run;
+        const receiver = runner;
+        const values = [{
+          inputPath: 'input.html',
+          outputPath: 'output.html',
+          options: { mode: 'write' as const },
+        }];
+      `,
+    },
+  ];
+
+  test.each(reflectiveAuthorityFixtures)(
+    'detects $label through single and nested Function.call routes to Reflect.apply',
+    ({ setup, name }) => {
+      const presenter = join(projectFixtureRoot, `nested-reflect-${name}.presenter.ts`);
+      const source = `
+        ${setup}
+        void Reflect.apply.call(undefined, target, receiver, values);
+        void Reflect.apply.call.call(Reflect.apply, undefined, target, receiver, values);
+      `;
+
+      expect(projectWriteAuthorityCalls(new Map([[presenter, source]]), [presenter])).toEqual([
+        { sourcePath: presenter, name },
+        { sourcePath: presenter, name },
+      ]);
+    },
+  );
+
+  test.each(reflectiveAuthorityFixtures)(
+    'detects $label through Reflect.apply with its target and receiver prebound',
+    ({ setup, name }) => {
+      const presenter = join(projectFixtureRoot, `prebound-reflect-${name}.presenter.ts`);
+      const source = `
+        ${setup}
+        const invoke = Reflect.apply.bind(undefined, target, receiver);
+        void invoke(values);
+      `;
+
+      expect(projectWriteAuthorityCalls(new Map([[presenter, source]]), [presenter])).toEqual([
+        { sourcePath: presenter, name },
+      ]);
+    },
+  );
+
   test.each([
     [
       'Migrator plan',
@@ -1276,6 +1351,27 @@ describe('migration transaction architecture boundary', { timeout: wholeProjectI
         import type { MigrationRunner as Runner } from '../pipeline/current-migration.pipeline.js';
         declare const runner: Runner;
         void Reflect.apply(runner.run, runner, [{
+          inputPath: 'input.html',
+          outputPath: 'output.html',
+          options: { mode: 'plan' },
+        }]);
+      `,
+    ],
+    [
+      'nested Migrator plan',
+      `
+        import { Migrator as Coordinator } from '../migrator/migrator.js';
+        declare const migrator: Coordinator;
+        void Reflect.apply.call(undefined, migrator.migrate, migrator, [{ mode: 'plan' }]);
+      `,
+    ],
+    [
+      'prebound MigrationRunner plan',
+      `
+        import type { MigrationRunner as Runner } from '../pipeline/current-migration.pipeline.js';
+        declare const runner: Runner;
+        const invoke = Reflect.apply.bind(undefined, runner.run, runner);
+        void invoke([{
           inputPath: 'input.html',
           outputPath: 'output.html',
           options: { mode: 'plan' },
@@ -1305,6 +1401,23 @@ describe('migration transaction architecture boundary', { timeout: wholeProjectI
         const Reflect = { apply: (target: Function, receiver: unknown, values: unknown[]) =>
           target.apply(receiver, values) };
         void Reflect.apply(migrator.migrate, migrator, [{ mode: 'write' }]);
+      `,
+    ],
+    [
+      'unrelated target through nested Function.call',
+      `
+        interface Formatter { format(value: string): string }
+        declare const formatter: Formatter;
+        void Reflect.apply.call.call(Reflect.apply, undefined, formatter.format, formatter, ['text']);
+      `,
+    ],
+    [
+      'unrelated prebound target',
+      `
+        interface Formatter { format(value: string): string }
+        declare const formatter: Formatter;
+        const invoke = Reflect.apply.bind(undefined, formatter.format, formatter);
+        void invoke(['text']);
       `,
     ],
   ])('does not confuse a Reflect.apply-shaped %s with write authority', (_label, source) => {

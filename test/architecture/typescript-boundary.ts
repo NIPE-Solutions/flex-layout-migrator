@@ -1089,53 +1089,62 @@ function canonicalReflectApplySymbol(symbol: ts.Symbol | undefined): boolean {
   );
 }
 
+interface ReflectApplyCallableProvenance {
+  readonly boundArguments: readonly ts.Expression[];
+}
+
 function reflectApplySymbolProvenance(
   symbol: ts.Symbol | undefined,
   checker: ts.TypeChecker,
   program: ts.Program,
   seenSymbols: ReadonlySet<ts.Symbol>,
-): boolean {
-  if (symbol === undefined || seenSymbols.has(symbol)) return false;
+): ReflectApplyCallableProvenance | undefined {
+  if (symbol === undefined || seenSymbols.has(symbol)) return undefined;
   const nextSeen = new Set(seenSymbols).add(symbol);
-  if (canonicalReflectApplySymbol(symbol)) return true;
+  if (canonicalReflectApplySymbol(symbol)) return { boundArguments: [] };
   if ((symbol.flags & ts.SymbolFlags.Alias) !== 0) {
     const aliased = checker.getAliasedSymbol(symbol);
-    if (reflectApplySymbolProvenance(aliased, checker, program, nextSeen)) return true;
+    const provenance = reflectApplySymbolProvenance(aliased, checker, program, nextSeen);
+    if (provenance !== undefined) return provenance;
   }
-  return (symbol.declarations ?? []).some(declaration => {
+  for (const declaration of symbol.declarations ?? []) {
     if (
       (ts.isVariableDeclaration(declaration) ||
         ts.isPropertyAssignment(declaration) ||
         ts.isPropertyDeclaration(declaration)) &&
       declaration.initializer !== undefined
     ) {
-      return reflectApplyCallableProvenance(declaration.initializer, checker, program, nextSeen);
+      const provenance = reflectApplyCallableProvenance(declaration.initializer, checker, program, nextSeen);
+      if (provenance !== undefined) return provenance;
     }
     if (ts.isShorthandPropertyAssignment(declaration)) {
-      return reflectApplySymbolProvenance(
+      const provenance = reflectApplySymbolProvenance(
         checker.getShorthandAssignmentValueSymbol(declaration),
         checker,
         program,
         nextSeen,
       );
+      if (provenance !== undefined) return provenance;
     }
     if (ts.isExportAssignment(declaration)) {
-      return reflectApplyCallableProvenance(declaration.expression, checker, program, nextSeen);
+      const provenance = reflectApplyCallableProvenance(declaration.expression, checker, program, nextSeen);
+      if (provenance !== undefined) return provenance;
     }
     if (ts.isBindingElement(declaration)) {
       const pattern = declaration.parent;
       const variable =
         ts.isObjectBindingPattern(pattern) || ts.isArrayBindingPattern(pattern) ? pattern.parent : undefined;
       if (variable === undefined || !ts.isVariableDeclaration(variable) || variable.initializer === undefined) {
-        return false;
+        continue;
       }
       const propertyName = bindingElementPropertyName(declaration);
-      if (propertyName === undefined) return false;
+      if (propertyName === undefined) continue;
       const property = checker.getPropertyOfType(checker.getTypeAtLocation(variable.initializer), propertyName);
-      return reflectApplySymbolProvenance(property, checker, program, nextSeen);
+      const provenance = reflectApplySymbolProvenance(property, checker, program, nextSeen);
+      if (provenance !== undefined) return provenance;
     }
-    return false;
-  });
+  }
+  return undefined;
 }
 
 function reflectApplyCallableProvenance(
@@ -1143,32 +1152,38 @@ function reflectApplyCallableProvenance(
   checker: ts.TypeChecker,
   program: ts.Program,
   seenSymbols: ReadonlySet<ts.Symbol> = new Set(),
-): boolean {
+): ReflectApplyCallableProvenance | undefined {
   const unwrapped = unwrapExpression(expression);
   if (ts.isCallExpression(unwrapped)) {
     const target = unwrapExpression(unwrapped.expression);
     if (
-      unwrapped.arguments.length === 1 &&
       (ts.isPropertyAccessExpression(target) || ts.isElementAccessExpression(target)) &&
       resolvedMemberName(target, checker) === 'bind'
     ) {
-      return reflectApplyCallableProvenance(target.expression, checker, program, seenSymbols);
+      const provenance = reflectApplyCallableProvenance(target.expression, checker, program, seenSymbols);
+      return provenance === undefined
+        ? undefined
+        : { boundArguments: [...provenance.boundArguments, ...unwrapped.arguments.slice(1)] };
     }
-    return false;
+    return undefined;
   }
 
   if (ts.isPropertyAccessExpression(unwrapped) || ts.isElementAccessExpression(unwrapped)) {
     const name = resolvedMemberName(unwrapped, checker);
     if (name === 'apply' || (name === undefined && ts.isElementAccessExpression(unwrapped))) {
       const property = checker.getPropertyOfType(checker.getTypeAtLocation(unwrapped.expression), 'apply');
-      if (reflectApplySymbolProvenance(property, checker, program, seenSymbols)) return true;
+      const provenance = reflectApplySymbolProvenance(property, checker, program, seenSymbols);
+      if (provenance !== undefined) return provenance;
     }
     const propertyNode = ts.isPropertyAccessExpression(unwrapped) ? unwrapped.name : unwrapped.argumentExpression;
-    if (
-      propertyNode !== undefined &&
-      reflectApplySymbolProvenance(checker.getSymbolAtLocation(propertyNode), checker, program, seenSymbols)
-    ) {
-      return true;
+    if (propertyNode !== undefined) {
+      const provenance = reflectApplySymbolProvenance(
+        checker.getSymbolAtLocation(propertyNode),
+        checker,
+        program,
+        seenSymbols,
+      );
+      if (provenance !== undefined) return provenance;
     }
   }
 
@@ -1187,16 +1202,68 @@ function arrayLiteralArguments(expression: ts.Expression | undefined): readonly 
   return unwrapped.elements.flatMap(element => (ts.isOmittedExpression(element) ? [] : [element]));
 }
 
+interface ResolvedCallableInvocation<Provenance> {
+  readonly provenance: Provenance;
+  readonly arguments?: readonly ts.Expression[];
+}
+
+function resolvedCallableInvocation<Provenance>(
+  expression: ts.CallExpression,
+  checker: ts.TypeChecker,
+  resolveCallable: (target: ts.Expression) => Provenance | undefined,
+): ResolvedCallableInvocation<Provenance> | undefined {
+  const direct = resolveCallable(expression.expression);
+  if (direct !== undefined) return { provenance: direct, arguments: expression.arguments };
+
+  const target = unwrapExpression(expression.expression);
+  if (!ts.isPropertyAccessExpression(target) && !ts.isElementAccessExpression(target)) return undefined;
+  const name = resolvedMemberName(target, checker);
+  if (name === 'apply') {
+    const provenance = resolveCallable(target.expression);
+    if (provenance === undefined) return undefined;
+    const callArguments = arrayLiteralArguments(expression.arguments[1]);
+    return callArguments === undefined ? { provenance } : { provenance, arguments: callArguments };
+  }
+  if (name !== 'call') return undefined;
+
+  const provenance = resolveCallable(target.expression);
+  if (provenance !== undefined) {
+    return { provenance, arguments: expression.arguments.slice(1) };
+  }
+
+  const nestedTarget = unwrapExpression(target.expression);
+  if (
+    (!ts.isPropertyAccessExpression(nestedTarget) && !ts.isElementAccessExpression(nestedTarget)) ||
+    resolvedMemberName(nestedTarget, checker) !== 'call' ||
+    resolveCallable(nestedTarget.expression) === undefined
+  ) {
+    return undefined;
+  }
+  const reboundTarget = expression.arguments[0];
+  if (reboundTarget === undefined) return undefined;
+  const reboundProvenance = resolveCallable(reboundTarget);
+  return reboundProvenance === undefined
+    ? undefined
+    : { provenance: reboundProvenance, arguments: expression.arguments.slice(2) };
+}
+
 function reflectedApplyInvocation(
   expression: ts.CallExpression,
   checker: ts.TypeChecker,
   program: ts.Program,
   seenSymbols: ReadonlySet<ts.Symbol>,
 ): ReflectedApplyInvocation | undefined {
-  if (!reflectApplyCallableProvenance(expression.expression, checker, program, seenSymbols)) return undefined;
-  const target = expression.arguments[0];
+  const invocation = resolvedCallableInvocation(expression, checker, target =>
+    reflectApplyCallableProvenance(target, checker, program, seenSymbols),
+  );
+  if (invocation === undefined) return undefined;
+  const effectiveArguments =
+    invocation.arguments === undefined
+      ? invocation.provenance.boundArguments
+      : [...invocation.provenance.boundArguments, ...invocation.arguments];
+  const target = effectiveArguments[0];
   if (target === undefined) return undefined;
-  const reflectedArguments = arrayLiteralArguments(expression.arguments[2]);
+  const reflectedArguments = arrayLiteralArguments(effectiveArguments[2]);
   return reflectedArguments === undefined ? { target } : { target, arguments: reflectedArguments };
 }
 
@@ -1567,17 +1634,11 @@ function transactionApplicationInvocation(
   if (reflected !== undefined && transactionApplyCallableProvenance(reflected.target, checker, program, seenSymbols)) {
     return true;
   }
-  const target = unwrapExpression(expression.expression);
-  if (ts.isPropertyAccessExpression(target) || ts.isElementAccessExpression(target)) {
-    const name = resolvedMemberName(target, checker);
-    if (
-      (name === 'call' || name === 'apply') &&
-      transactionApplyCallableProvenance(target.expression, checker, program, seenSymbols)
-    ) {
-      return true;
-    }
-  }
-  return transactionApplyCallableProvenance(expression.expression, checker, program, seenSymbols);
+  return (
+    resolvedCallableInvocation(expression, checker, target =>
+      transactionApplyCallableProvenance(target, checker, program, seenSymbols) ? true : undefined,
+    ) !== undefined
+  );
 }
 
 type MigrationModeLiteral = 'plan' | 'write';
@@ -2063,29 +2124,13 @@ function currentPipelineWriteInvocation(
     }
     return currentPipelineWriteCallableProvenance(reflected.target, checker, program, seenSymbols);
   }
-  const target = unwrapExpression(expression.expression);
-  if (ts.isPropertyAccessExpression(target) || ts.isElementAccessExpression(target)) {
-    const name = resolvedMemberName(target, checker);
-    const provenance = currentMigrationPipelineRunCallableProvenance(target.expression, checker, program, seenSymbols);
-    if (name === 'call' && provenance !== undefined) {
-      return boundCurrentPipelineInvocationCanWrite(provenance, expression.arguments.slice(1), checker);
-    }
-    if (name === 'apply' && provenance !== undefined) {
-      const callArguments = arrayLiteralArguments(expression.arguments[1]);
-      if (callArguments !== undefined) {
-        return boundCurrentPipelineInvocationCanWrite(provenance, callArguments, checker);
-      }
-      return true;
-    }
-  }
-  const provenance = currentMigrationPipelineRunCallableProvenance(
-    expression.expression,
-    checker,
-    program,
-    seenSymbols,
+  const invocation = resolvedCallableInvocation(expression, checker, target =>
+    currentMigrationPipelineRunCallableProvenance(target, checker, program, seenSymbols),
   );
-  if (provenance !== undefined) {
-    return boundCurrentPipelineInvocationCanWrite(provenance, expression.arguments, checker);
+  if (invocation !== undefined) {
+    return invocation.arguments === undefined
+      ? true
+      : boundCurrentPipelineInvocationCanWrite(invocation.provenance, invocation.arguments, checker);
   }
   return currentPipelineWriteCallableProvenance(expression.expression, checker, program, seenSymbols);
 }
@@ -2168,24 +2213,13 @@ function migrationWriteInvocation(
     }
     return migrationWriteCallableProvenance(reflected.target, checker, program, seenSymbols);
   }
-  const target = unwrapExpression(expression.expression);
-  if (ts.isPropertyAccessExpression(target) || ts.isElementAccessExpression(target)) {
-    const name = resolvedMemberName(target, checker);
-    const provenance = migratorMigrateCallableProvenance(target.expression, checker, program, seenSymbols);
-    if (name === 'call' && provenance !== undefined) {
-      return boundMigrationInvocationCanWrite(provenance, expression.arguments.slice(1), checker);
-    }
-    if (name === 'apply' && provenance !== undefined) {
-      const callArguments = arrayLiteralArguments(expression.arguments[1]);
-      if (callArguments !== undefined) {
-        return boundMigrationInvocationCanWrite(provenance, callArguments, checker);
-      }
-      return true;
-    }
-  }
-  const provenance = migratorMigrateCallableProvenance(expression.expression, checker, program, seenSymbols);
-  if (provenance !== undefined) {
-    return boundMigrationInvocationCanWrite(provenance, expression.arguments, checker);
+  const invocation = resolvedCallableInvocation(expression, checker, target =>
+    migratorMigrateCallableProvenance(target, checker, program, seenSymbols),
+  );
+  if (invocation !== undefined) {
+    return invocation.arguments === undefined
+      ? true
+      : boundMigrationInvocationCanWrite(invocation.provenance, invocation.arguments, checker);
   }
   return migrationWriteCallableProvenance(expression.expression, checker, program, seenSymbols);
 }
