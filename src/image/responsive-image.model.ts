@@ -1,4 +1,4 @@
-import type { PlannedConversion } from '../adapter/conversion-adapter';
+import type { PlannedConversion } from '../render/conversion-renderer';
 import type { LocatedFlexLayoutInput } from '../analyzer/flex-layout-attribute.analyzer';
 import type { BreakpointDefinition } from '../breakpoint/breakpoint-catalog';
 import type { TemplateElement } from '../template/template.model';

@@ -1,7 +1,6 @@
 import type { LocatedFlexLayoutInput } from '../analyzer/flex-layout-attribute.analyzer';
-import type { ConversionContext, PlannedConversion } from '../adapter/conversion-adapter';
 import { MigrationApplicationError } from '../migrator/migration-application.error';
-import type { ConversionRenderer } from '../render/conversion-renderer';
+import type { ConversionRenderer, PlannedConversion } from '../render/conversion-renderer';
 import type { SemanticConversionContext } from '../semantic/conversion-context';
 import { ElementSemanticPlanner } from '../semantic/element-semantic.planner';
 import type { ResolvedSemanticPlan, UnresolvedSemanticPlan } from '../semantic/semantic-plan';
@@ -9,46 +8,7 @@ import type { ResolvedSemanticPlan, UnresolvedSemanticPlan } from '../semantic/s
 type TargetDiagnostic = Exclude<PlannedConversion, { readonly status: 'converted' }>;
 type ResultBoundary = 'Initial target rendering' | 'Target conflict resolution';
 
-const familyContextDirectives = new Set<LocatedFlexLayoutInput['directive']>([
-  'fxShow',
-  'fxHide',
-  'class',
-  'ngClass',
-  'style',
-  'ngStyle',
-]);
-
-function completeContext(
-  context: ConversionContext,
-  inputs: readonly LocatedFlexLayoutInput[],
-): SemanticConversionContext {
-  return {
-    ...context,
-    inputs,
-    parentInputs: context.parentInputs ?? [],
-    existingClassNames: context.existingClassNames ?? [],
-    attributeEvidence: context.attributeEvidence ?? context.element.attributes,
-  };
-}
-
-function standaloneContextReason(renderer: ConversionRenderer, input: LocatedFlexLayoutInput): string | undefined {
-  if (renderer.target !== 'tailwind' || !familyContextDirectives.has(input.directive)) return undefined;
-  return input.directive === 'fxShow' || input.directive === 'fxHide'
-    ? 'Visibility requires complete element-family context before conversion.'
-    : 'Responsive class and style conversion requires complete element-family context.';
-}
-
-function contextUnverified(input: LocatedFlexLayoutInput, reason: string): PlannedConversion {
-  return {
-    status: 'review',
-    input,
-    code: 'context-unverified',
-    reason,
-    suggestion: 'Migrate the complete layout and visibility context together manually.',
-  };
-}
-
-/** One production coordinator shared by the file planner and deprecated adapter facade. */
+/** Coordinates target-neutral semantic planning with exactly one target renderer. */
 export class SemanticRenderCoordinator {
   private readonly semanticPlanner: ElementSemanticPlanner;
 
@@ -62,25 +22,13 @@ export class SemanticRenderCoordinator {
     this.semanticPlanner = semanticPlanner;
   }
 
-  plan(input: LocatedFlexLayoutInput, context: ConversionContext): PlannedConversion {
-    const inputs = context.inputs?.length ? context.inputs : [input];
-    const semanticContext = completeContext(context, inputs);
-    const reason = standaloneContextReason(this.renderer, input);
-    const plan = this.planElement(inputs, semanticContext, false).find(candidate => candidate.input.id === input.id);
-    if (!plan) throw new Error(`${this.renderer.target} renderer did not plan input ${input.id}`);
-    const result = reason !== undefined && plan.status === 'converted' ? contextUnverified(input, reason) : plan;
-    this.record([result]);
-    return result;
-  }
-
   planElement(
     inputs: readonly LocatedFlexLayoutInput[],
-    context: ConversionContext,
+    context: SemanticConversionContext,
     record = true,
   ): readonly PlannedConversion[] {
     this.assertUniqueInputIds(inputs);
-    const semanticContext = completeContext(context, inputs);
-    const semanticPlans = this.semanticPlanner.plan(inputs, semanticContext, {
+    const semanticPlans = this.semanticPlanner.plan(inputs, context, {
       breakpointConfig: this.renderer.breakpointConfig,
       sourcePropertyEvidence: this.renderer.sourcePropertyEvidence,
     });
@@ -91,10 +39,10 @@ export class SemanticRenderCoordinator {
         ? this.semanticPlanner.closeDisplayDependencies(familyClosed, this.renderer.sourcePropertyEvidence)
         : familyClosed;
     const rendered = locallyClosed.map(plan =>
-      plan.status === 'converted' ? this.renderer.render(plan, semanticContext) : plan,
+      plan.status === 'converted' ? this.renderer.render(plan, context) : plan,
     );
     this.assertResultCorrespondence(inputs, rendered, 'Initial target rendering');
-    const resolved = this.renderer.resolveConflicts(rendered, semanticContext);
+    const resolved = this.renderer.resolveConflicts(rendered, context);
     this.assertResultCorrespondence(inputs, resolved, 'Target conflict resolution');
     if (record) this.record(resolved);
     return resolved;
@@ -104,47 +52,12 @@ export class SemanticRenderCoordinator {
     this.renderer.record(plans);
   }
 
-  resolveClassConflicts(
-    plans: readonly PlannedConversion[],
-    existingClassNames: readonly string[],
-  ): readonly PlannedConversion[] {
-    this.assertUniqueInputIds(plans.map(plan => plan.input));
-    const resolved = this.renderer.resolveConflicts(plans, {
-      element: {
-        id: `${this.renderer.target}-adapter-compatibility`,
-        name: 'div',
-        source: { start: 0, end: 0 },
-        startTag: { start: 0, end: 0 },
-        structural: false,
-        attributes: [],
-      },
-      inputs: plans.map(plan => plan.input),
-      parentInputs: [],
-      existingClassNames,
-      attributeEvidence: [],
-    });
-    this.assertResultCorrespondence(
-      plans.map(plan => plan.input),
-      resolved,
-      'Target conflict resolution',
-    );
-    return resolved;
-  }
-
   closeDependencies(
     plans: readonly PlannedConversion[],
-    context: ConversionContext,
+    context: SemanticConversionContext,
     plansByInputId: ReadonlyMap<string, PlannedConversion>,
   ): readonly PlannedConversion[] {
-    return this.semanticPlanner.closeDependencies(
-      plans,
-      completeContext(
-        context,
-        plans.map(plan => plan.input),
-      ),
-      plansByInputId,
-      this.renderer.sourcePropertyEvidence,
-    );
+    return this.semanticPlanner.closeDependencies(plans, context, plansByInputId, this.renderer.sourcePropertyEvidence);
   }
 
   private applyTargetEligibility(

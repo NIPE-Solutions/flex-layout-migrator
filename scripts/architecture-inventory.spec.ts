@@ -21,12 +21,13 @@ const syntheticProject = {
       path: 'src/a-consumer.ts',
       source: [
         "import { command } from 'commander/extra';",
+        "import ignore from 'ignore';",
         "import { helper } from './Z-helper.js';",
         "import type { ResponsiveFamilyPlanner } from './ä-policy.js';",
         "import type { CompilerOptions } from 'typescript';",
         'const example = "import value from \'not-a-package\'";',
         "// import ignored from 'also-not-a-package';",
-        'export const result = command + helper + example;',
+        'export const result = command + helper + ignore + example;',
       ].join('\n'),
     },
     {
@@ -66,6 +67,12 @@ describe('architecture inventory', () => {
       await main(['--json', outputPath]);
       const inventory = JSON.parse(await readFile(outputPath, 'utf8')) as {
         readonly productionFiles: readonly { readonly path: string }[];
+        readonly policyOwners: readonly {
+          readonly policy: string;
+          readonly module: string;
+          readonly symbol: string;
+        }[];
+        readonly runtimeDependencyViolations?: readonly unknown[];
       };
       const paths = inventory.productionFiles.map(file => file.path);
 
@@ -74,6 +81,35 @@ describe('architecture inventory', () => {
       expect(paths).toContain('src/adapter/adapter.factory.ts');
       expect(paths).not.toContain('src/logger.spec.ts');
       expect(paths.some(path => path.endsWith('.spec.ts'))).toBe(false);
+      expect(inventory.runtimeDependencyViolations).toEqual([]);
+      expect(inventory.policyOwners).toEqual([
+        {
+          policy: 'artifact identity',
+          module: 'src/adapter/css/css-artifact.registry.ts',
+          symbol: 'CssArtifactRegistry',
+        },
+        {
+          policy: 'breakpoint classification',
+          module: 'src/breakpoint/breakpoint-catalog.ts',
+          symbol: 'BreakpointCatalog',
+        },
+        { policy: 'diagnostics', module: 'src/analyzer/conversion-result.ts', symbol: 'DiagnosticCode' },
+        {
+          policy: 'responsive precedence',
+          module: 'src/semantic/responsive-family.planner.ts',
+          symbol: 'ResponsiveFamilyPlanner',
+        },
+        {
+          policy: 'semantic planning',
+          module: 'src/semantic/element-semantic.planner.ts',
+          symbol: 'ElementSemanticPlanner',
+        },
+        {
+          policy: 'transaction recovery',
+          module: 'src/transaction/migration-transaction.ts',
+          symbol: 'MigrationTransaction',
+        },
+      ]);
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
@@ -84,11 +120,11 @@ describe('architecture inventory', () => {
 
     expect(inventory.productionFiles).toEqual([
       { path: 'src/Z-helper.ts', lines: 6 },
-      { path: 'src/a-consumer.ts', lines: 7 },
+      { path: 'src/a-consumer.ts', lines: 8 },
       { path: 'src/ä-policy.ts', lines: 4 },
     ]);
     expect(inventory.largestFiles).toEqual([
-      { path: 'src/a-consumer.ts', lines: 7 },
+      { path: 'src/a-consumer.ts', lines: 8 },
       { path: 'src/Z-helper.ts', lines: 6 },
       { path: 'src/ä-policy.ts', lines: 4 },
     ]);
@@ -101,6 +137,7 @@ describe('architecture inventory', () => {
       { from: 'src/Z-helper.ts', kind: 'external', to: '@angular/compiler' },
       { from: 'src/Z-helper.ts', kind: 'builtin', to: 'node:fs/promises' },
       { from: 'src/a-consumer.ts', kind: 'external', to: 'commander' },
+      { from: 'src/a-consumer.ts', kind: 'external', to: 'ignore' },
       { from: 'src/a-consumer.ts', kind: 'relative', to: 'src/Z-helper.ts' },
       { from: 'src/a-consumer.ts', kind: 'relative', to: 'src/ä-policy.ts' },
       { from: 'src/ä-policy.ts', kind: 'relative', to: 'src/Z-helper.ts' },
@@ -127,12 +164,23 @@ describe('architecture inventory', () => {
         status: 'used',
       },
       {
+        name: 'ignore',
+        declared: null,
+        resolved: null,
+        importedBy: ['src/a-consumer.ts'],
+        status: 'used',
+      },
+      {
         name: 'winston',
         declared: '^3.19.0',
         resolved: '3.19.0',
         importedBy: [],
         status: 'unused',
       },
+    ]);
+    expect(inventory.runtimeDependencyViolations).toEqual([
+      { name: 'ignore', issue: 'undeclared-import' },
+      { name: 'winston', issue: 'unused-declaration' },
     ]);
   });
 

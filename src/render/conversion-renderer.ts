@@ -1,15 +1,25 @@
 import type { LocatedFlexLayoutInput } from '../analyzer/flex-layout-attribute.analyzer';
-import type { PlannedConversion } from '../adapter/conversion-adapter';
+import type { DiagnosticCode } from '../analyzer/conversion-result';
 import type { BreakpointMigrationConfig } from '../config/breakpoint-migration-config';
 import type { SemanticConversionContext } from '../semantic/conversion-context';
 import type { ResolvedSemanticPlan } from '../semantic/semantic-plan';
 import type { SourcePropertyEvidence } from '../semantic/source-property-evidence';
 
-export interface RenderedConversion {
-  readonly status: 'converted';
-  readonly input: LocatedFlexLayoutInput;
-  readonly classNames: readonly string[];
-}
+export type PlannedConversion =
+  | {
+      readonly status: 'converted';
+      readonly input: LocatedFlexLayoutInput;
+      readonly classNames: readonly string[];
+      /** Class tokens retained in a source authority rather than emitted by this plan. */
+      readonly retainedClassNames?: readonly string[];
+    }
+  | {
+      readonly status: 'review' | 'unsupported' | 'invalid';
+      readonly input: LocatedFlexLayoutInput;
+      readonly code: DiagnosticCode;
+      readonly reason: string;
+      readonly suggestion: string;
+    };
 
 export interface ConversionRenderer {
   readonly target: 'tailwind' | 'css';

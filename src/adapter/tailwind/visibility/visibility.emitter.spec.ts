@@ -1,6 +1,6 @@
 import type { LocatedFlexLayoutInput } from '../../../analyzer/flex-layout-attribute.analyzer';
 import { BreakpointCatalog } from '../../../breakpoint/breakpoint-catalog';
-import type { VisibilityIntent, VisibilityState } from './visibility.model';
+import type { VisibilityIntent, VisibilityState } from '../../../semantic/visibility/visibility.model';
 import { VisibilityEmitter } from './visibility.emitter';
 
 function input(breakpoint?: string): LocatedFlexLayoutInput {

@@ -1,5 +1,5 @@
 import type { LocatedFlexLayoutInput } from '../../../analyzer/flex-layout-attribute.analyzer';
-import { parseVisibilityValue } from './visibility-value.parser';
+import { parseVisibilityValue } from '../../../semantic/visibility/visibility-value.parser';
 
 function input(overrides: Partial<LocatedFlexLayoutInput> = {}): LocatedFlexLayoutInput {
   return {

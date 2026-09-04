@@ -12,4 +12,17 @@ describe('local quality tooling', () => {
     expect(JSON.stringify(pkg['lint-staged'])).not.toContain('git add');
     expect(pkg.scripts).not.toHaveProperty('postinstall');
   });
+
+  it('locks every direct runtime package at the manifest root without classifying it as development tooling', async () => {
+    const [pkg, lock] = await Promise.all(
+      ['../../package.json', '../../package-lock.json'].map(async path =>
+        JSON.parse(await readFile(new URL(path, import.meta.url), 'utf8')),
+      ),
+    );
+
+    expect(pkg.dependencies.ignore).toBe('5.2.4');
+    expect(lock.packages[''].dependencies).toEqual(pkg.dependencies);
+    expect(lock.packages['node_modules/ignore']?.version).toBe('5.2.4');
+    expect(pkg.devDependencies).not.toHaveProperty('ignore');
+  });
 });

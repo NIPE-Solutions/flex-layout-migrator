@@ -1,5 +1,5 @@
 import { ResponsiveVariantEmitter } from '../responsive-variant.emitter';
-import type { VisibilityState } from './visibility.model';
+import type { VisibilityState } from '../../../semantic/visibility/visibility.model';
 
 export class VisibilityEmitter {
   constructor(private readonly responsiveEmitter = new ResponsiveVariantEmitter()) {}

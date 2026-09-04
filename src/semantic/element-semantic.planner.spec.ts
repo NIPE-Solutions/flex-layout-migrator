@@ -1,7 +1,7 @@
 import type { LocatedFlexLayoutInput } from '../analyzer/flex-layout-attribute.analyzer';
 import { CssArtifactRegistry } from '../adapter/css/css-artifact.registry';
 import type { CssDeclaration, CssSemanticFamily } from '../adapter/css/css-artifact.model';
-import type { PlannedConversion } from '../adapter/conversion-adapter';
+import type { PlannedConversion } from '../render/conversion-renderer';
 import { TailwindSourcePropertyEvidence } from '../evidence/tailwind-source-property.evidence';
 import { SemanticRenderCoordinator } from '../planner/semantic-render.coordinator';
 import { CssRenderer } from '../render/css/css.renderer';

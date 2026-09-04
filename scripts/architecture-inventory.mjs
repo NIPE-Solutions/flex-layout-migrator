@@ -167,6 +167,12 @@ export function inventoryProject(input) {
       status: importedBy.length > 0 ? 'used' : 'unused',
     };
   });
+  const runtimeDependencyViolations = runtimeDependencies.flatMap(dependency => {
+    if (dependency.declared === null) return [{ name: dependency.name, issue: 'undeclared-import' }];
+    if (dependency.importedBy.length === 0) return [{ name: dependency.name, issue: 'unused-declaration' }];
+    if (dependency.resolved === null) return [{ name: dependency.name, issue: 'unresolved-declaration' }];
+    return [];
+  });
 
   const productionFiles = files.map(file => ({ path: file.path, lines: physicalLineCount(file.source) }));
   const largestFiles = [...productionFiles]
@@ -176,7 +182,14 @@ export function inventoryProject(input) {
     inspections.filter(file => file.symbols.has(symbol)).map(file => ({ policy, module: file.path, symbol })),
   );
 
-  return { productionFiles, runtimeDependencies, largestFiles, moduleEdges, policyOwners };
+  return {
+    productionFiles,
+    runtimeDependencies,
+    runtimeDependencyViolations,
+    largestFiles,
+    moduleEdges,
+    policyOwners,
+  };
 }
 
 function parseOutputPath(argv) {

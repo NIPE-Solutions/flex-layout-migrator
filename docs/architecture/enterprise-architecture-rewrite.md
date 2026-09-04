@@ -147,39 +147,47 @@ Add the benchmark corpus, structural counters, output snapshots, architectural d
 
 Introduce immutable manifest, analyzed-project, rendered-project, and validated-plan contracts plus the pipeline coordinator. Adapt the existing migrator behind these contracts without duplicating migration policy.
 
-`CurrentMigrationPipeline` is the single temporary compatibility façade over `Migrator`. Slices 3–6 replace its delegated responsibilities with concrete stages; Slice 7 removes the façade after the CLI-facing `MigrationRunner` is backed by `MigrationPipeline`.
+This slice introduced `CurrentMigrationPipeline` as a temporary compatibility façade over `Migrator`. Slices 3–6 replaced its delegated responsibilities with concrete stages, and Slice 7 removed both compatibility owners after the CLI-facing `MigrationRunner` moved to `MigrationPipeline`.
 
 ### 3. Discovery and analysis
 
 Move file topology, reads, Angular parsing, and input analysis into their dedicated stages. Remove repeated construction and parsing while retaining deterministic ordering and current diagnostics.
 
-Implemented on the production route. `CurrentMigrationPipeline` now composes `DiscoverProjectStage`, then `AnalyzeProjectStage`, then the existing `Migrator` continuation. Discover is authoritative for input topology, ignore loading, deterministic ordering, exclusions, and input/output mapping. Analyze is authoritative for each original template read, initial Angular parse, and Flex-Layout input analysis.
-
-Render through Apply remain on the compatibility continuation. `AnalyzedFileMigrator` owns rendering and its named changed-template validation parse; `Migrator` retains session finalization, native-CSS reference collection, stylesheet planning, report construction, and transaction coordination. Existing destination/reference template bytes are read through the injected `DestinationTemplateSource`; its focused node adapter is the sole concrete filesystem owner for that role, so neither migrator implementation acquires a filesystem API. The alias-only `FileMigrator` compatibility module and the empty `FolderMigrator` tombstone are unreachable from the production route and are scheduled for deletion in Slice 8.
+Implemented on the production route. `DiscoverProjectStage` is authoritative for input topology, ignore loading, deterministic ordering, exclusions, and input/output mapping. `AnalyzeProjectStage` is authoritative for each original template read, initial Angular parse, and Flex-Layout input analysis. Both feed immutable handoffs directly into the remaining concrete stages; the transitional migrator continuation was removed in Slices 7–8.
 
 ### 4. Shared semantics and target rendering
 
 Move target-neutral responsive and dependency policy out of the adapters, then reduce Tailwind and CSS adapters to target rendering and capability decisions. Preserve distinct target constraints and add cross-target semantic parity contracts.
 
-Implemented on the production route. `ElementSemanticPlanner` now owns target-neutral family grouping, responsive activation and precedence, contextual dependency closure, and preservation decisions. `TailwindRenderer` and `CssRenderer` consume the same resolved semantic plans and retain only target capability, syntax, artifact, and conflict behavior. `RenderProjectStage` creates one invocation-scoped render session, processes analyzed templates in manifest order, and finalizes the session exactly once before producing `RenderedProject`; the downstream `Migrator` receives that immutable handoff and cannot plan semantics, render targets, or finalize the session.
+Implemented on the production route. `ElementSemanticPlanner` now owns target-neutral family grouping, responsive activation and precedence, contextual dependency closure, and preservation decisions. `TailwindRenderer` and `CssRenderer` consume the same resolved semantic plans and retain only target capability, syntax, artifact, and conflict behavior. `RenderProjectStage` creates one invocation-scoped render session, processes analyzed templates in manifest order, and finalizes the session exactly once before producing `RenderedProject`; `ValidateProjectStage` receives that immutable handoff, and no downstream component can plan semantics, render targets, or finalize the session.
 
-`CompatibilityEditValidator` remains the deliberately narrow changed-template edit and reparse boundary. Slice 5 moves that validation into the concrete Validate stage. The generic `MigrationPipeline` compatibility surface remains assigned to Slice 7, while unreachable adapter aliases plus the `FileMigrator` alias and `FolderMigrator` tombstone remain assigned to Slice 8.
+`TemplateProposalValidator` is now the changed-template edit and reparse boundary under the concrete Validate stage. The temporary migration, adapter, and render-session façades used during the transition were removed in Slices 7–8.
 
 ### 5. Validation
 
 Centralize edit, topology, collision, target-finalization, and Angular reparse validation. Make the validated plan the sole Apply input and prove plan/write decision parity.
 
+Implemented on the production route. `ValidateProjectStage` consumes only `RenderedProject`, validates invocation and output topology through `validateMigrationPaths`, delegates in-memory edit application and the single changed-template reparse to `TemplateProposalValidator`, and delegates native-CSS destination/reference reads to `CssReferenceCollector`. It finalizes stylesheet planning and returns the immutable `ValidatedProjectPlan` that both plan and write modes consume; Render remains proposal-only.
+
 ### 6. Transaction decomposition
 
 Extract staging, commit, rollback, and cleanup from the current transaction class into focused units. Preserve atomicity, recovery evidence, signal behavior, fault-injection coverage, and the single-mutation-authority architecture boundary.
+
+Implemented on the production route. `ApplyProjectStage` is the sole project-level mutation caller and accepts only `ValidatedProjectPlan`. `MigrationTransaction` owns state transitions, signal scope, and recovery decisions while `FileSystemStagingUnit`, `FileSystemCommitUnit`, `FileSystemRollbackUnit`, and `FileSystemCleanupUnit` own their individual filesystem responsibilities through `TransactionUnitSession`. Plan mode performs preflight only; it cannot enter application.
 
 ### 7. CLI and presentation composition
 
 Reduce CLI and migrator orchestration to pipeline composition. Ensure presenters remain observers and remove compatibility facades made obsolete by the preceding slices.
 
+Implemented on the production route. `runCli` constructs `DiscoverProjectStage`, `AnalyzeProjectStage`, `RenderProjectStage`, `ValidateProjectStage`, and `ApplyProjectStage` in that exact order and invokes one `MigrationRunner`. `MigrationPipeline` is the sole five-stage coordinator. `MigrationRunner` maps the applied handoff into the report, while `TerminalPresenter` and `JsonReportWriter` observe the completed report without stage or mutation authority. `CurrentMigrationPipeline` and `Migrator` were removed.
+
 ### 8. Dependency and dead-code removal
 
 Remove superseded modules, duplicated policies, unused dependencies, and temporary facades. Update architecture contracts to enforce the final dependency direction.
+
+Implemented on the production route. Resolved-symbol closure and text-reference evidence removed the unreachable conversion-adapter/session chain, target adapter aliases, duplicate adapter-side responsive and visibility planners, renderer compatibility barrel, and the `AnalyzedFileMigrator`, `FileMigrator`, and `FolderMigrator` aliases/tombstone. Surviving callers import canonical semantic models and `TailwindRenderer`/`CssRenderer` contracts directly; public package entry points remain unchanged.
+
+The runtime dependency gate now requires a bijection between production external imports, `package.json`, and resolved lockfile entries. The production `ignore` import used by `GitIgnoreHelper` is declared at its already locked `5.2.4` version rather than being supplied transitively. The declared runtime set is `@angular/compiler`, `commander`, `fs-extra`, `ignore`, and `winston`, with no unused or unresolved declaration. Architecture gates additionally enforce the exact stage route, single policy owners, the sole project mutation owner, transaction-unit boundaries, observer-only presentation, and absence of compatibility façades.
 
 ### 9. Final structural and performance report
 

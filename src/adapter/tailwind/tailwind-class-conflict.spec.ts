@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import postcss from 'postcss';
 import { __unstable__loadDesignSystem, compile } from 'tailwindcss';
-import { cssPropertyOwnershipCovers } from './extended/css-property-ownership';
+import { cssPropertyOwnershipCovers } from '../../semantic/css-property-ownership';
 import {
   describeTailwindDisplay,
   describeTailwindUtility,

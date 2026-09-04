@@ -260,8 +260,6 @@ describe('migration mode architecture boundary', { timeout: wholeProjectInspecti
           sourcePath.startsWith('planner/') ||
           sourcePath.startsWith('template/') ||
           sourcePath.startsWith('transaction/') ||
-          sourcePath === 'migrator/file.migrator.ts' ||
-          sourcePath === 'migrator/folder.migrator.ts' ||
           sourcePath === 'migrator/stylesheet.planner.ts'
         );
       });

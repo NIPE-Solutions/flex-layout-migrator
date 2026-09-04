@@ -3292,8 +3292,7 @@ function contextualSemanticAuthorityName(
   const members = semanticMemberNames(reflected?.target ?? expression.expression, checker);
   const normalizedSourcePath = sourcePath.replaceAll('\\', '/');
   if (
-    (normalizedSourcePath.endsWith('/migrator/analyzed-file.migrator.ts') ||
-      normalizedSourcePath.endsWith('/pipeline/validate/template-proposal.validator.ts')) &&
+    normalizedSourcePath.endsWith('/pipeline/validate/template-proposal.validator.ts') &&
     members.includes('validationParser')
   ) {
     return 'ChangedTemplateValidation.parse';

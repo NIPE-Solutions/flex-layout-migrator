@@ -1,9 +1,10 @@
 import type { LocatedFlexLayoutInput } from '../../../analyzer/flex-layout-attribute.analyzer';
 import { BreakpointCatalog } from '../../../breakpoint/breakpoint-catalog';
 import { ExtendedResponsiveEmitter } from './extended-responsive.emitter';
-import type { ExtendedResponsiveState, ResponsiveClassValue } from './responsive-class.model';
-import { parseResponsiveStyleValue } from './responsive-style-value.parser';
-import type { ResponsiveStyleValue } from './responsive-style.model';
+import type { ExtendedResponsiveState, ResponsiveClassValue } from '../../../semantic/extended/responsive-class.model';
+import { TailwindSourcePropertyEvidence } from '../../../evidence/tailwind-source-property.evidence';
+import { parseResponsiveStyleValue } from '../../../semantic/extended/responsive-style-value.parser';
+import type { ResponsiveStyleValue } from '../../../semantic/extended/responsive-style.model';
 
 function input(
   directive: 'ngClass' | 'ngStyle',
@@ -41,7 +42,7 @@ function classState(alias: string, tokens: readonly string[]): ExtendedResponsiv
 
 function styleState(alias: string, value: string): ExtendedResponsiveState<ResponsiveStyleValue> {
   const member = input('ngStyle', alias, value);
-  const parsed = parseResponsiveStyleValue(member);
+  const parsed = parseResponsiveStyleValue(member, new TailwindSourcePropertyEvidence());
   if (parsed.status !== 'parsed') throw new Error(`Expected the style fixture to parse: ${parsed.reason}`);
   return {
     input: member,

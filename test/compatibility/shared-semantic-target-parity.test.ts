@@ -1,5 +1,5 @@
 import type { LocatedFlexLayoutInput } from '../../src/analyzer/flex-layout-attribute.analyzer';
-import type { PlannedConversion } from '../../src/adapter/conversion-adapter';
+import type { PlannedConversion } from '../../src/render/conversion-renderer';
 import type { CssDeclaration } from '../../src/adapter/css/css-artifact.model';
 import { CssArtifactRegistry } from '../../src/adapter/css/css-artifact.registry';
 import type { BreakpointMigrationConfig } from '../../src/config/breakpoint-migration-config';

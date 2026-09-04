@@ -251,7 +251,7 @@ async function executeFolderCss(
   mode: 'plan' | 'write',
   counts: MigrationWorkloadCounts,
 ): Promise<void> {
-  await executeMigration(AdapterFactory.createSession('css'), input, output, mode, counts, stylesheetPath);
+  await executeMigration(AdapterFactory.createRenderSession('css'), input, output, mode, counts, stylesheetPath);
 }
 
 async function executeMigration(
@@ -483,7 +483,7 @@ function expectRenderOwnership(counts: MigrationWorkloadCounts): void {
 }
 
 function tailwindSession(): RenderSession {
-  return AdapterFactory.createSession('tailwind');
+  return AdapterFactory.createRenderSession('tailwind');
 }
 
 async function writeFolderInputs(input: string): Promise<void> {

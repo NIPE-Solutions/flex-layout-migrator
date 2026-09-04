@@ -1,5 +1,5 @@
 import type { LocatedFlexLayoutInput } from '../../../analyzer/flex-layout-attribute.analyzer';
-import { VisibilityStatePlanner } from './visibility-state.planner';
+import { VisibilityStatePlanner } from '../../../semantic/visibility/visibility-state.planner';
 
 function input(
   sourceName: string,

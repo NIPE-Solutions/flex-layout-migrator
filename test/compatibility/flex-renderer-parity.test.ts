@@ -1,5 +1,4 @@
 import { CssArtifactRegistry } from '../../src/adapter/css/css-artifact.registry';
-import { CssAdapter } from '../../src/adapter/css/css.adapter';
 import type { CssDeclaration, CssRuleContext } from '../../src/adapter/css/css-artifact.model';
 import { cssRuleContext } from '../../src/adapter/css/css-breakpoint.context';
 import { renderFlexAlignCss } from '../../src/adapter/css/flex/flex-align.css-renderer';
@@ -29,7 +28,9 @@ import { planLayoutGapSemantics } from '../../src/flex/layout-gap.semantic';
 import { parseLayout } from '../../src/flex/layout.semantic';
 import type { LocatedFlexLayoutInput } from '../../src/analyzer/flex-layout-attribute.analyzer';
 import type { TemplateElement } from '../../src/template/template.model';
-import { TailwindAdapter } from '../../src/adapter/tailwind/tailwind.adapter';
+import { SemanticRenderCoordinator } from '../../src/planner/semantic-render.coordinator';
+import { CssRenderer } from '../../src/render/css/css.renderer';
+import { TailwindRenderer } from '../../src/render/tailwind/tailwind.renderer';
 
 describe('cross-target Flex renderer parity', () => {
   test.each([
@@ -285,7 +286,7 @@ describe('cross-target Flex renderer parity', () => {
   });
 });
 
-describe('cross-target Flex adapter parity', () => {
+describe('cross-target Flex renderer parity', () => {
   const element: TemplateElement = {
     id: '0',
     name: 'div',
@@ -309,8 +310,9 @@ describe('cross-target Flex adapter parity', () => {
 
   test('passes the shared semantic diagnostic through both adapter boundaries', () => {
     const cssRegistry = new CssArtifactRegistry();
-    const tailwind = new TailwindAdapter().plan(gap, { element });
-    const css = new CssAdapter(cssRegistry).plan(gap, { element });
+    const context = { element, inputs: [gap], parentInputs: [], existingClassNames: [], attributeEvidence: [] };
+    const tailwind = new SemanticRenderCoordinator(new TailwindRenderer()).planElement([gap], context)[0];
+    const css = new SemanticRenderCoordinator(new CssRenderer(cssRegistry)).planElement([gap], context)[0];
 
     expect(css).toEqual(tailwind);
     expect(cssRegistry.rules()).toEqual([]);
@@ -334,8 +336,9 @@ describe('cross-target Flex adapter parity', () => {
       breakpoint: 'sm',
     };
     const inputs = [broad, narrow];
-    const tailwind = new TailwindAdapter().planElement(inputs, { element, inputs });
-    const css = new CssAdapter(new CssArtifactRegistry()).planElement(inputs, { element, inputs });
+    const context = { element, inputs, parentInputs: [], existingClassNames: [], attributeEvidence: [] };
+    const tailwind = new SemanticRenderCoordinator(new TailwindRenderer()).planElement(inputs, context);
+    const css = new SemanticRenderCoordinator(new CssRenderer(new CssArtifactRegistry())).planElement(inputs, context);
     const decisions = (plans: typeof tailwind) =>
       plans.map(plan => ({ status: plan.status, code: plan.status === 'converted' ? undefined : plan.code }));
 

@@ -9,7 +9,6 @@ import type { FlexOrderSemantics } from '../../flex/flex-order.semantic';
 import type { LayoutAlignmentSemantics } from '../../flex/layout-align.semantic';
 import type { LayoutGapSemantics } from '../../flex/layout-gap.semantic';
 import type { LayoutSemantics } from '../../flex/layout.semantic';
-import type { PlannedConversion } from '../../adapter/conversion-adapter';
 import type { CssDeclaration, CssSemanticFamily, OwnedCssRule } from '../../adapter/css/css-artifact.model';
 import { CssArtifactRegistry } from '../../adapter/css/css-artifact.registry';
 import { cssRuleContext } from '../../adapter/css/css-breakpoint.context';
@@ -24,7 +23,7 @@ import { renderLayoutGapCss } from '../../adapter/css/flex/layout-gap.css-render
 import { renderLayoutCss } from '../../adapter/css/flex/layout.css-renderer';
 import type { SemanticConversionContext } from '../../semantic/conversion-context';
 import type { ResolvedSemanticPlan } from '../../semantic/semantic-plan';
-import type { ConversionRenderer } from '../conversion-renderer';
+import type { ConversionRenderer, PlannedConversion } from '../conversion-renderer';
 
 const supportedFamilies = new Set<CssSemanticFamily>([
   'layout',

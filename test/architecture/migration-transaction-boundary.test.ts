@@ -208,14 +208,17 @@ describe('migration transaction architecture boundary', { timeout: wholeProjectI
     expect(consumers).toEqual([migrationTransactionPath]);
   });
 
-  test('keeps FileMigrator and FolderMigrator free of direct writes and AtomicFileWriter usage', () => {
-    for (const fileName of ['file.migrator.ts', 'folder.migrator.ts']) {
-      const path = join(migratorRoot, fileName);
-      expect(
-        forbiddenMigratorMutation(inspectTypeScript(readFileSync(path, 'utf8'), path)),
-        relative(process.cwd(), path),
-      ).toBeUndefined();
-    }
+  test('keeps obsolete migrator mutation facades out of production', () => {
+    const migratorPaths = productionTypeScriptFiles(migratorRoot).map(path => relative(migratorRoot, path));
+
+    expect(migratorPaths).not.toEqual(
+      expect.arrayContaining([
+        'analyzed-file.migrator.ts',
+        'base.migrator.ts',
+        'file.migrator.ts',
+        'folder.migrator.ts',
+      ]),
+    );
   });
 
   test('keeps MigrationRunner downstream of semantic planning, rendering, and render-session finalization', () => {
@@ -227,7 +230,6 @@ describe('migration transaction architecture boundary', { timeout: wholeProjectI
           join(productionRoot, 'semantic'),
           join(productionRoot, 'render'),
           join(productionRoot, 'planner', 'conversion-planner.ts'),
-          join(productionRoot, 'adapter', 'conversion-adapter.session.ts'),
         ].some(namespace => symbol.declarationPath === namespace || symbol.declarationPath.startsWith(`${namespace}/`)),
       );
     const renderAuthorities = runnerInspection

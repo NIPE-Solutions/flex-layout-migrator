@@ -6,6 +6,31 @@ import { describe, expect, test } from 'vitest';
 import { inspectTypeScript } from './typescript-boundary';
 
 const sourceRoot = join(process.cwd(), 'src');
+const compatibilityModulePaths = [
+  'adapter/conversion-adapter.session.ts',
+  'adapter/conversion-adapter.ts',
+  'adapter/css/css.adapter.ts',
+  'adapter/renderer-backed-conversion.adapter.ts',
+  'adapter/tailwind/extended/css-property-ownership.ts',
+  'adapter/tailwind/extended/extended-display-composition.planner.ts',
+  'adapter/tailwind/extended/extended-family.planner.ts',
+  'adapter/tailwind/extended/extended-responsive.planner.ts',
+  'adapter/tailwind/extended/generated-property-composition.planner.ts',
+  'adapter/tailwind/extended/responsive-class-value.parser.ts',
+  'adapter/tailwind/extended/responsive-class.model.ts',
+  'adapter/tailwind/extended/responsive-style-value.parser.ts',
+  'adapter/tailwind/extended/responsive-style.model.ts',
+  'adapter/tailwind/independent-directive.registry.ts',
+  'adapter/tailwind/responsive-plan.ts',
+  'adapter/tailwind/tailwind.adapter.ts',
+  'adapter/tailwind/visibility/display-composition.planner.ts',
+  'adapter/tailwind/visibility/literal-style-display.ts',
+  'adapter/tailwind/visibility/visibility-state.planner.ts',
+  'adapter/tailwind/visibility/visibility-value.parser.ts',
+  'adapter/tailwind/visibility/visibility.model.ts',
+  'adapter/tailwind/visibility/visible-display.resolver.ts',
+  'render/tailwind/extended-responsive.renderer.ts',
+] as const;
 
 function runtimeModules(relativePath: string): readonly string[] {
   const path = join(sourceRoot, relativePath);
@@ -45,16 +70,12 @@ describe('semantic/render ownership', () => {
     );
   });
 
-  test('keeps compatibility adapters free of semantic planning dependencies', () => {
-    const adapterModules = [
-      ...runtimeModules('adapter/renderer-backed-conversion.adapter.ts'),
-      ...runtimeModules('adapter/tailwind/tailwind.adapter.ts'),
-      ...runtimeModules('adapter/css/css.adapter.ts'),
-    ];
+  test('keeps compatibility adapters, aliases, and superseded target-planning facades out of production', () => {
+    const productionPaths = productionTypeScriptFiles(sourceRoot).map(path =>
+      path.slice(sourceRoot.length + 1).replaceAll('\\', '/'),
+    );
 
-    for (const forbidden of ['semantic/element-semantic.planner', 'semantic/responsive-family.planner']) {
-      expect(adapterModules, forbidden).not.toEqual(expect.arrayContaining([expect.stringContaining(forbidden)]));
-    }
+    expect(productionPaths).not.toEqual(expect.arrayContaining([...compatibilityModulePaths]));
   });
 
   test('keeps resolved-family composition in semantic planning before target rendering', () => {
@@ -90,12 +111,16 @@ describe('semantic/render ownership', () => {
     }
   });
 
-  test('keeps target candidate emission out of the deprecated extended planner', () => {
-    const path = join(sourceRoot, 'adapter/tailwind/extended/extended-responsive.planner.ts');
-    const inspection = inspectTypeScript(readFileSync(path, 'utf8'), path);
+  test('keeps production imports on canonical semantic and render owners', () => {
+    const compatibilityReferences = productionTypeScriptFiles(sourceRoot).flatMap(path =>
+      inspectTypeScript(readFileSync(path, 'utf8'), path).moduleReferences.filter(reference =>
+        compatibilityModulePaths.some(candidate =>
+          reference.replace(/\.[cm]?[jt]s$/u, '').endsWith(candidate.replace(/\.ts$/u, '')),
+        ),
+      ),
+    );
 
-    expect(inspection.runtimeImports.map(item => item.moduleReference)).not.toContain('./extended-responsive.emitter');
-    expect(inspection.identifiers).not.toContain('classNames');
+    expect(compatibilityReferences).toEqual([]);
   });
 
   test('uses semantic-plan as the only directive-family identity owner', () => {
