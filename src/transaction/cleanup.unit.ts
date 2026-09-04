@@ -7,6 +7,7 @@ import {
   isEnoent,
   pathDepth,
   recoveryOutcome,
+  recoveryUnitError,
   runtimeArtifact,
   sameArtifactState,
   sameIdentity,
@@ -41,7 +42,12 @@ export class FileSystemCleanupUnit implements CleanupUnit {
   public async cleanup(staged: readonly StagedArtifact[]): Promise<readonly string[]> {
     const failures: unknown[] = [];
     const paths = new Set<string>();
-    const stagedItems = staged.map(entry => runtimeArtifact(this.context, entry.artifact));
+    let stagedItems: RuntimeArtifact[];
+    try {
+      stagedItems = staged.map(entry => runtimeArtifact(this.context, entry.artifact));
+    } catch (error: unknown) {
+      throw recoveryUnitError(error);
+    }
     const items = this.kind === 'recovery' ? stagedItems.reverse() : stagedItems;
     for (const item of items) {
       await this.session.closeReadHandles(item, failures);

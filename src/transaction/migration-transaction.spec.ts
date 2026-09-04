@@ -642,6 +642,7 @@ describe('MigrationTransaction', () => {
         const handle = await open(candidate, flags);
         if (basename(candidate) !== 'stage') return handle;
         return {
+          chmod: mode => handle.chmod(mode),
           writeFile: async (contents, encoding) => {
             await handle.writeFile(contents, encoding);
             registrar.interrupt('SIGTERM');
@@ -725,6 +726,7 @@ function recordingHandle(
 ): MigrationTransactionFileHandle {
   const name = basename(path);
   return {
+    chmod: mode => handle.chmod(mode),
     writeFile: async (contents, encoding) => {
       events.push(`write:${name}`);
       await handle.writeFile(contents, encoding);
@@ -868,6 +870,7 @@ function namedFailureOperations(
       if (flags === 'wx' && kind !== undefined) attempt(`${owner(target)} ${kind} open`);
       const handle = await open(target, flags);
       return {
+        chmod: mode => handle.chmod(mode),
         writeFile: async (contents, encoding) => {
           if (flags === 'wx' && kind !== undefined) attempt(`${owner(target)} ${kind} writeFile`);
           await handle.writeFile(contents, encoding);

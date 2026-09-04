@@ -1,9 +1,10 @@
-import { access, link, lstat, mkdir, mkdtemp, open, rename, rm, rmdir, stat, unlink } from 'node:fs/promises';
+import { access, link, lstat, mkdir, mkdtemp, open, readdir, rename, rm, rmdir, stat, unlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import { plannedOutputArtifact, type PlannedOutputArtifact } from '../migrator/migration-plan';
-import { FileSystemStagingUnit } from './staging.unit';
+import { FileSystemCleanupUnit } from './cleanup.unit';
+import { FileSystemStagingUnit, StagingUnitError } from './staging.unit';
 import {
   TransactionUnitSession,
   type MigrationTransactionFileHandle,
@@ -67,6 +68,51 @@ describe('FileSystemStagingUnit', () => {
       new FileSystemStagingUnit(session).stage([artifact(join(root, 'card.html'))], controller.signal),
     ).rejects.toThrow('cancelled');
     await expect(access(join(root, 'card.html'))).rejects.toMatchObject({ code: 'ENOENT' });
+    expect(await readdir(root)).toEqual([]);
+  });
+
+  test('exposes exact namespace recovery evidence when durable staging fails', async () => {
+    const target = join(root, 'card.html');
+    const failure = new Error('stage sync failed');
+    const events: string[] = [];
+    let stagingPath = '';
+    const session = new TransactionUnitSession(
+      operationsWith({
+        open: async (candidate, flags) => {
+          const handle = await open(candidate, flags);
+          if (flags === 'r') return handle;
+          stagingPath = candidate;
+          events.push(`open:${candidate}:${flags}`);
+          return {
+            chmod: mode => handle.chmod(mode),
+            readFile: options => handle.readFile(options),
+            stat: () => handle.stat(),
+            writeFile: async (contents, encoding) => {
+              events.push(`write:${candidate}`);
+              await handle.writeFile(contents, encoding);
+            },
+            sync: async () => {
+              events.push(`sync:${candidate}`);
+              throw failure;
+            },
+            close: () => handle.close(),
+          };
+        },
+      }),
+    );
+
+    const error = await captureError(
+      new FileSystemStagingUnit(session).stage([artifact(target)], new AbortController().signal),
+    );
+
+    expect(error).toBeInstanceOf(StagingUnitError);
+    expect(error).toMatchObject({ cause: failure });
+    expect((error as StagingUnitError).staged).toMatchObject([{ artifact: { path: target }, stagingPath }]);
+    expect(events).toEqual([`open:${stagingPath}:wx`, `write:${stagingPath}`, `sync:${stagingPath}`]);
+    expect(await readdir(dirname(stagingPath))).toEqual(['stage']);
+
+    await new FileSystemCleanupUnit(session, 'recovery').cleanup((error as StagingUnitError).staged);
+    expect(await readdir(root)).toEqual([]);
   });
 });
 
@@ -100,6 +146,7 @@ function recordingHandle(
   events: string[],
 ): MigrationTransactionFileHandle {
   return {
+    chmod: mode => handle.chmod(mode),
     readFile: options => handle.readFile(options),
     stat: () => handle.stat(),
     writeFile: async (contents, encoding) => {
@@ -115,4 +162,13 @@ function recordingHandle(
       await handle.close();
     },
   };
+}
+
+async function captureError(promise: Promise<unknown>): Promise<unknown> {
+  try {
+    await promise;
+    throw new Error('Expected promise to reject.');
+  } catch (error: unknown) {
+    return error;
+  }
 }

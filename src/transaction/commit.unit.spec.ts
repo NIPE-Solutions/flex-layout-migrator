@@ -1,5 +1,6 @@
 import {
   access,
+  chmod,
   link,
   lstat,
   mkdir,
@@ -87,6 +88,52 @@ describe('FileSystemCommitUnit', () => {
     expect(error).toMatchObject({ cause: failure });
     expect((error as CommitUnitError).committed.map(item => item.artifact.path)).toEqual([first]);
     expect(Object.isFrozen((error as CommitUnitError).committed)).toBe(true);
+  });
+
+  test('preserves the destination permission mode when installing replacement bytes', async () => {
+    const target = join(root, 'private.html');
+    await writeFile(target, 'private before');
+    await chmod(target, 0o600);
+    const session = new TransactionUnitSession(operationsWith());
+    const signal = new AbortController().signal;
+    const staged = await new FileSystemStagingUnit(session).stage(
+      [artifact(target, 'private before', '<div>private after</div>')],
+      signal,
+    );
+
+    await new FileSystemCommitUnit(session).commit(staged, signal);
+
+    expect((await stat(target)).mode & 0o777).toBe(0o600);
+  });
+
+  test('rejects a foreign staged journal before starting any commit mechanics', async () => {
+    const target = join(root, 'card.html');
+    const foreign = artifact(join(root, 'foreign.html'), undefined, '<div>foreign</div>');
+    const commitOperations: string[] = [];
+    const session = new TransactionUnitSession(
+      operationsWith({
+        link: async (source, destination) => {
+          commitOperations.push(`link:${source}:${destination}`);
+          await link(source, destination);
+        },
+        rename: async (source, destination) => {
+          commitOperations.push(`rename:${source}:${destination}`);
+          await rename(source, destination);
+        },
+      }),
+    );
+    const signal = new AbortController().signal;
+    await new FileSystemStagingUnit(session).stage([artifact(target, undefined, '<div>after</div>')], signal);
+
+    const error = await captureError(new FileSystemCommitUnit(session).commit([{ artifact: foreign }], signal));
+
+    expect(error).toBeInstanceOf(CommitUnitError);
+    expect(error).toMatchObject({
+      cause: { code: 'internal-invariant', paths: [foreign.path] },
+      committed: [],
+    });
+    expect(commitOperations).toEqual([]);
+    await expect(access(target)).rejects.toMatchObject({ code: 'ENOENT' });
   });
 });
 

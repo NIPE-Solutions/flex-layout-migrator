@@ -58,6 +58,7 @@ export class FileSystemStagingUnit implements StagingUnit {
           item.artifact.proposed.contents,
           this.context,
           signal,
+          item.originalMode,
         );
         const staged = await this.session.readOwnedFile(item, item.stage);
         if (item.artifact.kind === 'template') this.session.validateStagedTemplate(item.artifact.path, staged);

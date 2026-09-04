@@ -41,10 +41,7 @@ export class CurrentMigrationPipeline implements MigrationRunner {
     const analyzed = await withInvocationPathCompatibility(() => this.analyze.run(manifest), invocation);
     const rendered = await withInvocationPathCompatibility(() => this.render.run(analyzed), invocation);
     const validated = await withInvocationPathCompatibility(() => this.validate.run(rendered), invocation);
-    const applied = await withInvocationPathCompatibility(
-      () => this.createApply(invocation.options.mode).run(validated),
-      invocation,
-    );
+    const applied = await this.createApply(invocation.options.mode).run(validated);
     return this.createMigrator(applied).migrate(invocation.options, {
       mapDestinationReadError: error => remapInvocationErrorPaths(error, invocation),
       now: this.now,

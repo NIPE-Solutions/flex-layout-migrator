@@ -48,8 +48,13 @@ export class FileSystemCommitUnit implements CommitUnit {
 
   public async commit(staged: readonly StagedArtifact[], signal: AbortSignal): Promise<readonly CommittedArtifact[]> {
     const committed: CommittedArtifact[] = [];
-    for (const entry of staged) {
-      const item = runtimeArtifact(this.context, entry.artifact);
+    let items: readonly RuntimeArtifact[];
+    try {
+      items = staged.map(entry => runtimeArtifact(this.context, entry.artifact));
+    } catch (error: unknown) {
+      throw new CommitUnitError(error, staged, committed);
+    }
+    for (const item of items) {
       try {
         this.session.assertNotInterrupted(signal);
         if (item.artifact.original.status === 'present') await this.captureOriginal(item, signal);
@@ -76,7 +81,14 @@ export class FileSystemCommitUnit implements CommitUnit {
     ) {
       throw this.session.concurrentModification(item.artifact.path);
     }
-    item.backup = await this.session.createOwnedFile(item, 'backup', firstCapture.contents, this.context, signal);
+    item.backup = await this.session.createOwnedFile(
+      item,
+      'backup',
+      firstCapture.contents,
+      this.context,
+      signal,
+      firstCapture.mode,
+    );
     if ((await this.session.readOwnedFile(item, item.backup)) !== firstCapture.contents) {
       throw this.session.ownershipFailure(item.artifact.path);
     }

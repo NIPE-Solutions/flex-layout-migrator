@@ -15,7 +15,7 @@ import {
   writeFile,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { basename, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import { plannedOutputArtifact } from '../migrator/migration-plan';
 import { FileSystemCleanupUnit, RecoveryUnitError } from './cleanup.unit';
@@ -77,6 +77,35 @@ describe('FileSystemCleanupUnit', () => {
     expect(error).toBeInstanceOf(RecoveryUnitError);
     expect(error).toMatchObject({ paths: [target], failures: [failure] });
     expect(await access(stagingPath)).toBeUndefined();
+    expect(await readdir(dirname(stagingPath))).toEqual(['stage']);
+  });
+
+  test('rejects a foreign staged journal before removing any invocation-owned path', async () => {
+    const target = join(root, 'card.html');
+    const cleanupOperations: string[] = [];
+    let cleaning = false;
+    const session = new TransactionUnitSession(
+      operationsWith({
+        rmdir: async candidate => {
+          if (cleaning) cleanupOperations.push(`rmdir:${candidate}`);
+          await rmdir(candidate);
+        },
+        unlink: async candidate => {
+          if (cleaning) cleanupOperations.push(`unlink:${candidate}`);
+          await unlink(candidate);
+        },
+      }),
+    );
+    const staged = await new FileSystemStagingUnit(session).stage([artifact(target)], new AbortController().signal);
+    const foreign = artifact(join(root, 'foreign.html'));
+    cleaning = true;
+
+    const error = await captureError(new FileSystemCleanupUnit(session, 'recovery').cleanup([{ artifact: foreign }]));
+
+    expect(error).toBeInstanceOf(RecoveryUnitError);
+    expect(error).toMatchObject({ paths: [foreign.path], failures: [{ code: 'internal-invariant' }] });
+    expect(cleanupOperations).toEqual([]);
+    expect(await readdir(dirname(staged[0]!.stagingPath!))).toEqual(['stage']);
   });
 });
 

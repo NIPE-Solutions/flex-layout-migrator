@@ -7,6 +7,7 @@ import { AngularTemplateParser } from '../template/angular-template.parser';
 import { compareCodeUnits } from '../util/compare-code-units';
 
 export interface MigrationTransactionFileHandle {
+  chmod(mode: number): Promise<void>;
   writeFile(contents: string, encoding: BufferEncoding): Promise<void>;
   readFile(options: { readonly encoding: 'utf8' }): Promise<string>;
   stat(): Promise<MigrationTransactionStat>;
@@ -17,6 +18,7 @@ export interface MigrationTransactionFileHandle {
 export interface MigrationTransactionStat {
   readonly dev: number | bigint;
   readonly ino: number | bigint;
+  readonly mode: number | bigint;
   isDirectory(): boolean;
   isFile(): boolean;
   isSymbolicLink(): boolean;
@@ -85,6 +87,7 @@ export interface ObservedPresentState {
   readonly status: 'present';
   readonly contents: string;
   readonly identity: FileIdentity;
+  readonly mode: number;
 }
 
 export type ObservedState = { readonly status: 'absent' } | ObservedPresentState;
@@ -96,6 +99,7 @@ export interface RuntimeArtifact {
   readonly ownedFiles: OwnedFile[];
   readonly readHandles: Set<MigrationTransactionFileHandle>;
   originalIdentity?: FileIdentity;
+  originalMode?: number;
   namespace?: OwnedNamespace;
   stage?: OwnedFile;
   backup?: OwnedFile;
@@ -167,7 +171,10 @@ export class TransactionUnitSession {
         item = { artifact, directories, quarantines: [], ownedFiles: [], readHandles: new Set() };
         const current = await this.observePublic(item);
         if (!sameArtifactState(current, artifact.original)) throw this.concurrentModification(artifact.path);
-        if (current.status === 'present') item.originalIdentity = current.identity;
+        if (current.status === 'present') {
+          item.originalIdentity = current.identity;
+          item.originalMode = current.mode;
+        }
         context.items.push(item);
       } catch (error: unknown) {
         const closeFailures: unknown[] = [];
@@ -239,10 +246,11 @@ export class TransactionUnitSession {
 
   public async createOwnedFile(
     item: RuntimeArtifact,
-    name: string,
+    name: 'backup' | 'stage',
     contents: string,
     context: TransactionUnitContext,
     signal: AbortSignal,
+    mode?: number,
   ): Promise<OwnedFile> {
     await this.assertNamespace(item);
     const namespace = required(item.namespace);
@@ -253,11 +261,13 @@ export class TransactionUnitSession {
       preserve: false,
     };
     item.ownedFiles.push(owned);
+    item[name] = owned;
     await this.assertExpectedAbsent(owned.path, item.artifact.path);
     const handle = await this.operations.open(owned.path, 'wx');
     owned.exists = true;
     item.openHandle = handle;
     context.ownershipChanged();
+    if (mode !== undefined) await handle.chmod(mode);
     owned.identity = identity(await handle.stat());
     this.assertNotInterrupted(signal);
     await handle.writeFile(contents, 'utf8');
@@ -311,7 +321,7 @@ export class TransactionUnitSession {
       throw this.concurrentModification(item.artifact.path);
     }
     await this.assertParentChain(item, context);
-    return { status: 'present', contents, identity: beforeIdentity };
+    return { status: 'present', contents, identity: beforeIdentity, mode: fileMode(before) };
   }
 
   public async readOwnedFile(item: RuntimeArtifact, owned: OwnedFile): Promise<string> {
@@ -523,11 +533,21 @@ export class TransactionUnitSession {
 }
 
 export function runtimeArtifact(context: TransactionUnitContext, artifact: PlannedOutputArtifact): RuntimeArtifact {
-  return required(context.items.find(item => item.artifact === artifact));
+  const item = context.items.find(candidate => candidate.artifact === artifact);
+  if (item) return item;
+  throw new MigrationApplicationError(
+    'internal-invariant',
+    `Migration transaction journal contains an unknown artifact: ${artifact.path}`,
+    [artifact.path],
+  );
 }
 
 export function identity(stat: MigrationTransactionStat): FileIdentity {
   return { dev: String(stat.dev), ino: String(stat.ino) };
+}
+
+export function fileMode(stat: MigrationTransactionStat): number {
+  return Number(stat.mode) & 0o7777;
 }
 
 export function sameIdentity(left: FileIdentity, right: FileIdentity): boolean {
@@ -564,6 +584,10 @@ export function pathDepth(path: string): number {
 
 export function recoveryOutcome(paths: Iterable<string>, failures: readonly unknown[]): RecoveryOutcome {
   return { paths: sortedUnique(paths), failures: Object.freeze([...failures]) };
+}
+
+export function recoveryUnitError(error: unknown): RecoveryUnitError {
+  return new RecoveryUnitError(error instanceof MigrationApplicationError ? error.paths : [], [error]);
 }
 
 export function sortedUnique(paths: Iterable<string>): readonly string[] {

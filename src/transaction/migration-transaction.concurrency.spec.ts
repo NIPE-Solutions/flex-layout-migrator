@@ -781,6 +781,7 @@ function proxyHandle(
     sync: () => handle.sync(),
     writeFile: (contents, encoding) => handle.writeFile(contents, encoding),
     ...overrides,
+    chmod: overrides.chmod ?? (mode => handle.chmod(mode)),
   };
 }
 

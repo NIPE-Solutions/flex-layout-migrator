@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve, sep } from 'node:path';
 import { AnalyzeProjectStage } from '../pipeline/analyze/analyze-project.stage';
 import { analyzedProject } from '../pipeline/analyzed-project';
+import { ApplyProjectStage, type MigrationTransactionPort } from '../pipeline/apply/apply-project.stage';
 import {
   CurrentMigrationPipeline,
   type MigrationRunner,
@@ -10,6 +11,7 @@ import {
 } from '../pipeline/current-migration.pipeline';
 import type { DiscoverStage, RenderStage } from '../pipeline/migration-pipeline';
 import { projectManifest, type MigrationInvocation } from '../pipeline/project-manifest';
+import { ValidateProjectStage } from '../pipeline/validate/validate-project.stage';
 import type { MigrationReport } from '../report/migration-report';
 import type { TextOutput } from '../report/terminal.presenter';
 import { runCli, type CliOutput, type RunCliDependencies } from './run-cli';
@@ -209,12 +211,23 @@ describe('runCli', () => {
         return analyzedProject({ manifest, templates: [] });
       },
     };
-    const createMigrator = vi.fn<MigratorFactory>(() => ({
-      migrate: vi.fn(async () => Promise.reject(error)),
-    }));
+    const createMigrator = vi.fn<MigratorFactory>();
+    const transaction: MigrationTransactionPort = {
+      preflight: vi.fn(async () => Promise.reject(error)),
+      apply: vi.fn(async () => Promise.resolve()),
+    };
 
     const result = await run([rawInputPath, '--output', rawOutputPath, '--write', '--report', reportPath], {
-      createMigrationRunner: render => new CurrentMigrationPipeline(render, discover, analyze, createMigrator),
+      createMigrationRunner: render =>
+        new CurrentMigrationPipeline(
+          render,
+          discover,
+          analyze,
+          createMigrator,
+          Date.now,
+          new ValidateProjectStage(),
+          mode => new ApplyProjectStage(mode, transaction),
+        ),
     });
 
     expect(result).toEqual({ exitCode: 1, stdout: '', stderr: `Error: ${message}\n` });
@@ -222,6 +235,9 @@ describe('runCli', () => {
     expect(error.dest).toBe(canonicalDestination);
     expect(error.code).toBe('EACCES');
     expect(error.cause).toBe(cause);
+    expect(transaction.preflight).toHaveBeenCalledOnce();
+    expect(transaction.apply).not.toHaveBeenCalled();
+    expect(createMigrator).not.toHaveBeenCalled();
     await expect(access(reportPath)).rejects.toMatchObject({ code: 'ENOENT' });
   });
 

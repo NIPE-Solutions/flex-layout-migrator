@@ -6,6 +6,7 @@ import {
   TransactionUnitSession,
   identity,
   recoveryOutcome,
+  recoveryUnitError,
   required,
   runtimeArtifact,
   sameArtifactState,
@@ -33,10 +34,14 @@ export class FileSystemRollbackUnit implements RollbackUnit {
   }
 
   public async rollback(committed: readonly CommittedArtifact[]): Promise<readonly string[]> {
-    const failures = [...this.context.recoveryFailures];
-    for (const entry of committed) {
-      await this.restoreOriginal(runtimeArtifact(this.context, entry.artifact), failures);
+    let items: readonly RuntimeArtifact[];
+    try {
+      items = committed.map(entry => runtimeArtifact(this.context, entry.artifact));
+    } catch (error: unknown) {
+      throw recoveryUnitError(error);
     }
+    const failures = [...this.context.recoveryFailures];
+    for (const item of items) await this.restoreOriginal(item, failures);
     const paths = new Set<string>();
     for (const item of this.context.items) {
       const restored = await this.verifyOriginal(item, failures);
