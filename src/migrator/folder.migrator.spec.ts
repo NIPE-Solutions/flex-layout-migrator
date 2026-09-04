@@ -1,4 +1,4 @@
-import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { AdapterFactory } from '../adapter/adapter.factory';
@@ -6,10 +6,10 @@ import { AnalyzeProjectStage } from '../pipeline/analyze/analyze-project.stage';
 import { DiscoverProjectStage } from '../pipeline/discover/discover-project.stage';
 import { migrationInvocation } from '../pipeline/project-manifest';
 import { RenderProjectStage, type RenderTemplatePlanner } from '../pipeline/render/render-project.stage';
+import { ValidateProjectStage } from '../pipeline/validate/validate-project.stage';
 import { ConversionPlanner } from '../planner/conversion-planner';
-import { AngularTemplateParser } from '../template/angular-template.parser';
 import type { MigrationTransaction } from '../transaction/migration-transaction';
-import { Migrator, type MigratorDependencies } from './migrator';
+import { Migrator } from './migrator';
 
 describe('folder analyzed-project continuation', () => {
   let temporaryDirectory: string;
@@ -49,14 +49,9 @@ describe('folder analyzed-project continuation', () => {
     const rendered = await new RenderProjectStage(AdapterFactory.createSession('tailwind'), templatePlanner).run(
       analyzed,
     );
+    const validated = await new ValidateProjectStage().run(rendered);
 
-    const report = await new Migrator(
-      rendered,
-      () => 0,
-      transactionDouble(),
-      undefined,
-      continuationDependencies(),
-    ).migrate({ mode: 'plan' });
+    const report = await new Migrator(validated, () => 0, transactionDouble()).migrate({ mode: 'plan' });
 
     expect(manifest.templates.map(template => template.inputPath)).toEqual([
       join(inputFolder, 'Z', 'nested.html'),
@@ -82,8 +77,9 @@ describe('folder analyzed-project continuation', () => {
     const analyzed = await new AnalyzeProjectStage().run(manifest);
     const transaction = transactionDouble();
     const rendered = await new RenderProjectStage(AdapterFactory.createSession('tailwind')).run(analyzed);
+    const validated = await new ValidateProjectStage().run(rendered);
 
-    const report = await new Migrator(rendered, () => 0, transaction, undefined, continuationDependencies()).migrate({
+    const report = await new Migrator(validated, () => 0, transaction).migrate({
       mode: 'write',
     });
 
@@ -96,13 +92,6 @@ describe('folder analyzed-project continuation', () => {
     await expect(access(outputFolder)).rejects.toMatchObject({ code: 'ENOENT' });
   });
 });
-
-function continuationDependencies(): MigratorDependencies {
-  return {
-    destinationTemplates: { read: filePath => readFile(filePath, 'utf8') },
-    referenceParser: new AngularTemplateParser(),
-  };
-}
 
 function transactionDouble() {
   return {

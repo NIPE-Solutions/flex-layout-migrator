@@ -9,17 +9,17 @@ import { analyzedProject } from './analyzed-project';
 import { CurrentMigrationPipeline, type MigratorFactory } from './current-migration.pipeline';
 import type { DiscoveryFileSystem } from './discover/discovery-file-system.port';
 import { DiscoverProjectStage } from './discover/discover-project.stage';
-import type { AnalyzeStage, DiscoverStage, RenderStage } from './migration-pipeline';
+import type { AnalyzeStage, DiscoverStage, RenderStage, ValidateStage } from './migration-pipeline';
 import { migrationInvocation, projectManifest } from './project-manifest';
 import { renderedProject, type RenderedProject } from './rendered-project';
+import { validatedProjectPlan, type ValidatedProjectPlan } from './validated-project-plan';
 
 describe('CurrentMigrationPipeline', () => {
-  test('runs discover, analyze, render, then the rendered continuation exactly once', async () => {
+  test('runs discover, analyze, render, validate, then the validated continuation exactly once', async () => {
     const events: string[] = [];
     const callerOptions: MigrationOptions = {
       mode: 'write',
       responsiveImages: true,
-      stylesheetPath: 'styles/flex-layout.css',
       reportPath: 'reports/migration.json',
     };
     const invocation = migrationInvocation({
@@ -30,6 +30,7 @@ describe('CurrentMigrationPipeline', () => {
     const manifest = projectManifest({ invocation, templates: [] });
     const analyzed = analyzedProject({ manifest, templates: [] });
     const rendered = tailwindRendered(analyzed);
+    const validated = tailwindValidated(rendered);
     const expectedReport = report('delegated');
     const migrate = vi.fn((options?: MigrationOptions) => {
       events.push('migrate');
@@ -57,26 +58,42 @@ describe('CurrentMigrationPipeline', () => {
         return rendered;
       }),
     };
-    let receivedRendered: RenderedProject | undefined;
+    const validate: ValidateStage = {
+      run: vi.fn(async received => {
+        events.push('validate');
+        expect(received).toBe(rendered);
+        return validated;
+      }),
+    };
+    let receivedValidated: ValidatedProjectPlan | undefined;
     const createMigrator = vi.fn<MigratorFactory>(received => {
       events.push('create-continuation');
-      receivedRendered = received;
+      receivedValidated = received;
       return { migrate };
     });
 
-    const actualReport = await new CurrentMigrationPipeline(render, discover, analyze, createMigrator).run(invocation);
+    const actualReport = await new CurrentMigrationPipeline(
+      render,
+      discover,
+      analyze,
+      createMigrator,
+      Date.now,
+      validate,
+    ).run(invocation);
 
     expect(actualReport).toBe(expectedReport);
-    expect(events).toEqual(['discover', 'analyze', 'render', 'create-continuation', 'migrate']);
-    expect(receivedRendered).toBe(rendered);
+    expect(events).toEqual(['discover', 'analyze', 'render', 'validate', 'create-continuation', 'migrate']);
+    expect(receivedValidated).toBe(validated);
     expect(discover.run).toHaveBeenCalledOnce();
     expect(discover.run).toHaveBeenCalledWith(invocation);
     expect(analyze.run).toHaveBeenCalledOnce();
     expect(analyze.run).toHaveBeenCalledWith(manifest);
     expect(render.run).toHaveBeenCalledOnce();
     expect(render.run).toHaveBeenCalledWith(analyzed);
+    expect(validate.run).toHaveBeenCalledOnce();
+    expect(validate.run).toHaveBeenCalledWith(rendered);
     expect(createMigrator).toHaveBeenCalledOnce();
-    expect(createMigrator).toHaveBeenCalledWith(rendered);
+    expect(createMigrator).toHaveBeenCalledWith(validated);
     expect(migrate).toHaveBeenCalledOnce();
     expect(migrate).toHaveBeenCalledWith(invocation.options, {
       mapDestinationReadError: expect.any(Function),
@@ -157,9 +174,15 @@ describe('CurrentMigrationPipeline', () => {
         return rendered;
       }),
     };
-    const createMigrator = vi.fn<MigratorFactory>(receivedRendered => {
+    const validate: ValidateStage = {
+      run: vi.fn(async received => {
+        events.push('validate');
+        return tailwindValidated(received);
+      }),
+    };
+    const createMigrator = vi.fn<MigratorFactory>(receivedValidated => {
       events.push('create-continuation');
-      const migrator = new Migrator(receivedRendered, () => {
+      const migrator = new Migrator(receivedValidated, () => {
         throw new Error('Pipeline timing must replace the continuation-only clock.');
       });
       return {
@@ -172,9 +195,14 @@ describe('CurrentMigrationPipeline', () => {
       };
     });
 
-    const actualReport = await new CurrentMigrationPipeline(render, discover, analyze, createMigrator, now).run(
-      invocation,
-    );
+    const actualReport = await new CurrentMigrationPipeline(
+      render,
+      discover,
+      analyze,
+      createMigrator,
+      now,
+      validate,
+    ).run(invocation);
 
     expect(actualReport.durationMs).toBe(375);
     expect(events).toEqual([
@@ -182,6 +210,7 @@ describe('CurrentMigrationPipeline', () => {
       'discover',
       'analyze',
       'render',
+      'validate',
       'create-continuation',
       'migrate',
       'clock:1375',
@@ -262,6 +291,31 @@ describe('CurrentMigrationPipeline', () => {
       `EACCES: permission denied, open '${path.join(rawInputPath, 'nested', 'card.html')}'`,
     );
     expect(rejected.path).toBe(path.join(rawInputPath, 'nested', 'card.html'));
+    expect(createMigrator).not.toHaveBeenCalled();
+  });
+
+  test('preserves a validation rejection and prevents continuation creation', async () => {
+    const error = new Error('validation failed');
+    const invocation = migrationInvocation({
+      inputPath: 'input.html',
+      outputPath: 'output.html',
+      options: { mode: 'write' },
+    });
+    const manifest = projectManifest({ invocation, templates: [] });
+    const analyzed = analyzedProject({ manifest, templates: [] });
+    const rendered = tailwindRendered(analyzed);
+    const discover: DiscoverStage = { run: vi.fn(async () => manifest) };
+    const analyze: AnalyzeStage = { run: vi.fn(async () => analyzed) };
+    const render: RenderStage = { run: vi.fn(async () => rendered) };
+    const validate: ValidateStage = { run: vi.fn(async () => Promise.reject(error)) };
+    const createMigrator = vi.fn<MigratorFactory>();
+
+    await expect(
+      new CurrentMigrationPipeline(render, discover, analyze, createMigrator, Date.now, validate).run(invocation),
+    ).rejects.toBe(error);
+
+    expect(validate.run).toHaveBeenCalledOnce();
+    expect(validate.run).toHaveBeenCalledWith(rendered);
     expect(createMigrator).not.toHaveBeenCalled();
   });
 
@@ -518,5 +572,9 @@ function report(input: string): MigrationReport {
 }
 
 function tailwindRendered(analyzed: ReturnType<typeof analyzedProject>): RenderedProject {
-  return renderedProject({ analyzed, files: [], session: { target: 'tailwind' } });
+  return renderedProject({ analyzed, target: 'tailwind', files: [], session: { target: 'tailwind' } });
+}
+
+function tailwindValidated(rendered: RenderedProject): ValidatedProjectPlan {
+  return validatedProjectPlan({ rendered, plan: { target: 'tailwind', files: [], artifacts: [] } });
 }

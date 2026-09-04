@@ -7,12 +7,13 @@ import { AnalyzeProjectStage } from '../pipeline/analyze/analyze-project.stage';
 import { DiscoverProjectStage } from '../pipeline/discover/discover-project.stage';
 import { CurrentMigrationPipeline, type MigratorFactory } from '../pipeline/current-migration.pipeline';
 import { migrationInvocation } from '../pipeline/project-manifest';
-import { DefaultCompatibilityEditValidator } from '../pipeline/render/compatibility-edit.validator';
 import { RenderProjectStage, type RenderTemplatePlanner } from '../pipeline/render/render-project.stage';
+import { TemplateProposalValidator } from '../pipeline/validate/template-proposal.validator';
+import { ValidateProjectStage } from '../pipeline/validate/validate-project.stage';
 import { ConversionPlanner } from '../planner/conversion-planner';
 import { AngularTemplateParser } from '../template/angular-template.parser';
 import type { MigrationTransaction } from '../transaction/migration-transaction';
-import { Migrator, type MigratorDependencies } from './migrator';
+import { Migrator } from './migrator';
 
 describe('production analyzed-file handoff', () => {
   let temporaryDirectory: string;
@@ -66,17 +67,13 @@ describe('production analyzed-file handoff', () => {
         return readFile(filePath, 'utf8');
       },
     };
-    const dependencies: MigratorDependencies = {
-      destinationTemplates,
-      referenceParser: parser,
-    };
     const templatePlanner: RenderTemplatePlanner = {
       plan(template, renderer, options) {
         renderedSources.push(template.source);
         return planner.plan(template.source, template.parseResult.elements, template.inputs, renderer, options);
       },
     };
-    const validator = new DefaultCompatibilityEditValidator(
+    const validator = new TemplateProposalValidator(
       {
         parse(contents, fileName) {
           validationParses.push(fileName);
@@ -85,15 +82,20 @@ describe('production analyzed-file handoff', () => {
       },
       destinationTemplates,
     );
-    const render = new RenderProjectStage(session, templatePlanner, validator);
+    const render = new RenderProjectStage(session, templatePlanner);
+    const validate = new ValidateProjectStage(validator);
     const transaction = transactionDouble();
-    const createMigrator: MigratorFactory = rendered =>
-      new Migrator(rendered, () => 0, transaction, undefined, dependencies);
+    const createMigrator: MigratorFactory = validated => new Migrator(validated, () => 0, transaction);
     const invocation = migrationInvocation({ inputPath, outputPath, options: { mode: 'plan' } });
 
-    const report = await new CurrentMigrationPipeline(render, new DiscoverProjectStage(), analyze, createMigrator).run(
-      invocation,
-    );
+    const report = await new CurrentMigrationPipeline(
+      render,
+      new DiscoverProjectStage(),
+      analyze,
+      createMigrator,
+      Date.now,
+      validate,
+    ).run(invocation);
 
     expect(report).toMatchObject({
       application: { status: 'skipped', reason: 'plan-only' },

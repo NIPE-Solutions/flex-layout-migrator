@@ -41,9 +41,10 @@ const handoffImports = new Map<string, readonly string[]>([
       './analyzed-project',
       './project-manifest',
       '../adapter/css/css-artifact.model',
+      '../analyzer/conversion-result',
       '../breakpoint/breakpoint-catalog',
+      '../edit/source-edit',
       '../migrator/migration-application.error',
-      '../migrator/migration-plan',
       '../render/render-session',
       'node:path',
     ],
@@ -135,7 +136,7 @@ describe('enterprise pipeline shell dependency boundary', { timeout: wholeProjec
     expect(legacyAdapterSessionOwners).toEqual([]);
   });
 
-  test('keeps the current-pipeline facade to one Render handoff and migrate call without policy ownership', () => {
+  test('keeps the current-pipeline facade to one Render/Validate handoff and migrate call without policy ownership', () => {
     const inspection = sourceInspection(currentPipelinePath);
     const projectInspection = inspectTypeScriptProject([currentPipelinePath]);
     const forbiddenSymbols = [
@@ -143,7 +144,7 @@ describe('enterprise pipeline shell dependency boundary', { timeout: wholeProjec
       ...inspection.callExpressionNames,
       ...inspection.constructedExpressionNames,
     ].filter(identifier =>
-      /(?:directive|breakpoint|renderer|validat|reportbuilder|buildreport|filesystem|transaction|exitpolicy|resolveexitcode|presenter|writer)/iu.test(
+      /(?:directive|breakpoint|renderer|reportbuilder|buildreport|filesystem|transaction|exitpolicy|resolveexitcode|presenter|writer)/iu.test(
         identifier,
       ),
     );
@@ -155,7 +156,8 @@ describe('enterprise pipeline shell dependency boundary', { timeout: wholeProjec
         './discover/discover-project.stage',
         './invocation-error-path.mapper',
         './migration-pipeline',
-        './rendered-project',
+        './validate/validate-project.stage',
+        './validated-project-plan',
         '../migrator/migrator',
         '../migrator/migrator',
         '../report/migration-report',
@@ -169,6 +171,7 @@ describe('enterprise pipeline shell dependency boundary', { timeout: wholeProjec
       { sourcePath: currentPipelinePath, name: 'DiscoverProjectStage.run' },
       { sourcePath: currentPipelinePath, name: 'AnalyzeProjectStage.run' },
       { sourcePath: currentPipelinePath, name: 'RenderProjectStage.run' },
+      { sourcePath: currentPipelinePath, name: 'ValidateProjectStage.run' },
       { sourcePath: currentPipelinePath, name: 'Migrator.migrate' },
     ]);
   });
@@ -224,21 +227,39 @@ describe('enterprise pipeline shell dependency boundary', { timeout: wholeProjec
     });
     const rendered = renderedProject({
       analyzed,
+      target: 'css',
       files: [
         {
-          file: {
-            inputPath: manifest.templates[0]!.inputPath,
-            outputPath: manifest.templates[0]!.outputPath,
-            changed: false,
-            results: [],
-          },
+          inputPath: manifest.templates[0]!.inputPath,
+          outputPath: manifest.templates[0]!.outputPath,
+          edits: [],
+          results: [
+            {
+              status: 'parse-error',
+              fileName: manifest.templates[0]!.inputPath,
+              code: 'template-parse-error',
+              reason: 'incomplete start tag',
+              source: { start: 0, end: 4 },
+            },
+          ],
         },
       ],
       session: { target: 'css', rules: [] },
     });
     const validated = validatedProjectPlan({
       rendered,
-      plan: { target: 'css', files: [rendered.files[0]!.file], artifacts: [] },
+      plan: {
+        target: 'css',
+        files: [
+          {
+            inputPath: rendered.files[0]!.inputPath,
+            outputPath: rendered.files[0]!.outputPath,
+            changed: false,
+            results: rendered.files[0]!.results,
+          },
+        ],
+        artifacts: [],
+      },
       stylesheet: { path: stylesheetPath, change: 'unchanged' },
     });
     const result = await new MigrationPipeline(
@@ -266,8 +287,8 @@ describe('enterprise pipeline shell dependency boundary', { timeout: wholeProjec
       rendered,
       rendered.files,
       rendered.files[0]!,
-      rendered.files[0]!.file,
-      rendered.files[0]!.file.results,
+      rendered.files[0]!.edits,
+      rendered.files[0]!.results,
       rendered.session,
       rendered.session.rules,
       validated,
@@ -289,7 +310,7 @@ describe('enterprise pipeline shell dependency boundary', { timeout: wholeProjec
     expect(pipelinePaths.map(path => basename(path)).sort()).toEqual([
       'analyze-project.stage.ts',
       'analyzed-project.ts',
-      'compatibility-edit.validator.ts',
+      'css-reference.collector.ts',
       'current-migration.pipeline.ts',
       'discover-project.stage.ts',
       'discovery-file-system.port.ts',
@@ -302,7 +323,9 @@ describe('enterprise pipeline shell dependency boundary', { timeout: wholeProjec
       'rendered-project.ts',
       'template-input-analyzer.port.ts',
       'template-parser.port.ts',
+      'template-proposal.validator.ts',
       'template-source-reader.port.ts',
+      'validate-project.stage.ts',
       'validated-project-plan.ts',
     ]);
     expect(inspectTypeScriptProject(pipelinePaths).filesystemMutationCalls).toEqual([]);

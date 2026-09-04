@@ -169,6 +169,7 @@ export type SemanticAuthorityName =
   | 'AnalyzeProjectStage.run'
   | 'AngularTemplateParser.parse'
   | 'ChangedTemplateValidation.parse'
+  | 'CssReferenceCollector.collect'
   | 'CssReferenceParser.parse'
   | 'CurrentMigrationPipeline.run'
   | 'ConversionRenderer.eligibility'
@@ -187,7 +188,12 @@ export type SemanticAuthorityName =
   | 'IgnoreLibrary.createMatcher'
   | 'IgnoreMatcherFactory.load'
   | 'MigrationTransaction.apply'
+  | 'MigrationPathValidation.validate'
   | 'Migrator.migrate'
+  | 'SourceEditor.apply'
+  | 'StylesheetPlanner.plan'
+  | 'TemplateProposalValidator.validate'
+  | 'ValidateProjectStage.run'
   | 'OriginalTemplateParser.parse'
   | 'RenderProjectStage.run'
   | 'RenderSession.finalize'
@@ -2694,6 +2700,18 @@ const semanticAuthorityConfigs: readonly SemanticAuthorityConfig[] = [
     },
   },
   {
+    name: 'ValidateProjectStage.run',
+    methodName: 'run',
+    declarations: [
+      { sourcePathSuffix: '/pipeline/migration-pipeline.ts', containers: ['ValidateStage'] },
+      { sourcePathSuffix: '/pipeline/validate/validate-project.stage.ts', containers: ['ValidateProjectStage'] },
+    ],
+    concreteClass: {
+      exportedName: 'ValidateProjectStage',
+      sourcePathSuffix: '/pipeline/validate/validate-project.stage.ts',
+    },
+  },
+  {
     name: 'RenderSession.finalize',
     methodName: 'finalize',
     declarations: [
@@ -2707,7 +2725,7 @@ const semanticAuthorityConfigs: readonly SemanticAuthorityConfig[] = [
       { sourcePathSuffix: '/migrator/migrator.ts', containers: ['Migrator'] },
       {
         sourcePathSuffix: '/pipeline/current-migration.pipeline.ts',
-        containers: ['RenderedMigrationContinuation'],
+        containers: ['ValidatedMigrationContinuation'],
       },
     ],
     concreteClass: { exportedName: 'Migrator', sourcePathSuffix: '/migrator/migrator.ts' },
@@ -2775,6 +2793,54 @@ const semanticAuthorityConfigs: readonly SemanticAuthorityConfig[] = [
         containers: ['DestinationTemplateSource'],
       },
     ],
+  },
+  {
+    name: 'SourceEditor.apply',
+    methodName: 'apply',
+    declarations: [{ sourcePathSuffix: '/edit/source-editor.ts', containers: ['SourceEditor'] }],
+    concreteClass: { exportedName: 'SourceEditor', sourcePathSuffix: '/edit/source-editor.ts' },
+  },
+  {
+    name: 'MigrationPathValidation.validate',
+    methodName: 'validateMigrationPaths',
+    declarations: [{ sourcePathSuffix: '/migrator/migration-path.validator.ts' }],
+  },
+  {
+    name: 'TemplateProposalValidator.validate',
+    methodName: 'validate',
+    declarations: [
+      {
+        sourcePathSuffix: '/pipeline/validate/template-proposal.validator.ts',
+        containers: ['TemplateProposalValidator'],
+      },
+    ],
+    concreteClass: {
+      exportedName: 'TemplateProposalValidator',
+      sourcePathSuffix: '/pipeline/validate/template-proposal.validator.ts',
+    },
+  },
+  {
+    name: 'CssReferenceCollector.collect',
+    methodName: 'collect',
+    declarations: [
+      {
+        sourcePathSuffix: '/pipeline/validate/css-reference.collector.ts',
+        containers: ['CssReferenceCollector'],
+      },
+    ],
+    concreteClass: {
+      exportedName: 'CssReferenceCollector',
+      sourcePathSuffix: '/pipeline/validate/css-reference.collector.ts',
+    },
+  },
+  {
+    name: 'StylesheetPlanner.plan',
+    methodName: 'plan',
+    declarations: [{ sourcePathSuffix: '/migrator/stylesheet.planner.ts', containers: ['StylesheetPlanner'] }],
+    concreteClass: {
+      exportedName: 'StylesheetPlanner',
+      sourcePathSuffix: '/migrator/stylesheet.planner.ts',
+    },
   },
   {
     name: 'AngularTemplateParser.parse',
@@ -3159,6 +3225,15 @@ function semanticAuthorityMethodHint(
   if (ts.isPropertyAccessExpression(unwrapped) || ts.isElementAccessExpression(unwrapped)) {
     const name = resolvedMemberName(unwrapped, checker);
     if (name === 'call' || name === 'apply' || name === 'bind') {
+      const propertyNode = ts.isPropertyAccessExpression(unwrapped) ? unwrapped.name : unwrapped.argumentExpression;
+      const propertySymbol = propertyNode === undefined ? undefined : checker.getSymbolAtLocation(propertyNode);
+      if (
+        semanticAuthorityConfigs.some(
+          config => config.methodName === name && semanticAuthorityMethodSymbol(propertySymbol, config),
+        )
+      ) {
+        return name;
+      }
       return semanticAuthorityMethodHint(unwrapped.expression, checker, seenSymbols);
     }
     if (semanticAuthorityConfigs.some(config => config.methodName === name)) return name;
@@ -3248,12 +3323,15 @@ function contextualSemanticAuthorityName(
   const normalizedSourcePath = sourcePath.replaceAll('\\', '/');
   if (
     (normalizedSourcePath.endsWith('/migrator/analyzed-file.migrator.ts') ||
-      normalizedSourcePath.endsWith('/pipeline/render/compatibility-edit.validator.ts')) &&
+      normalizedSourcePath.endsWith('/pipeline/validate/template-proposal.validator.ts')) &&
     members.includes('validationParser')
   ) {
     return 'ChangedTemplateValidation.parse';
   }
-  if (normalizedSourcePath.endsWith('/migrator/migrator.ts') && members.includes('referenceParser')) {
+  if (
+    normalizedSourcePath.endsWith('/pipeline/validate/css-reference.collector.ts') &&
+    members.includes('referenceParser')
+  ) {
     return 'CssReferenceParser.parse';
   }
   if (normalizedSourcePath.endsWith('/pipeline/analyze/analyze-project.stage.ts') && members.includes('parser')) {

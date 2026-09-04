@@ -22,6 +22,8 @@ const flexRoot = join(productionRoot, 'flex');
 const pipelineRoot = join(productionRoot, 'pipeline');
 const discoverStagePath = join(pipelineRoot, 'discover', 'discover-project.stage.ts');
 const analyzeStagePath = join(pipelineRoot, 'analyze', 'analyze-project.stage.ts');
+const renderStagePath = join(pipelineRoot, 'render', 'render-project.stage.ts');
+const validateRoot = join(pipelineRoot, 'validate');
 const semanticRoot = join(productionRoot, 'semantic');
 const semanticRenderCoordinatorPath = join(productionRoot, 'planner', 'semantic-render.coordinator.ts');
 const atomicWriterPath = join(productionRoot, 'lib', 'atomic-file.writer.ts');
@@ -59,6 +61,7 @@ const productionGraphAuthorities = new Set([
   'MigrationTransaction.apply',
   'Migrator.migrate',
   'RenderProjectStage.run',
+  'ValidateProjectStage.run',
 ]);
 const filesystemOperationAuthorityNames = [
   'FileSystem.access',
@@ -130,7 +133,9 @@ const expectedProductionAuthorityGraph = [
   { source: 'pipeline/current-migration.pipeline.ts', authority: 'DiscoverProjectStage.run' },
   { source: 'pipeline/current-migration.pipeline.ts', authority: 'Migrator.migrate' },
   { source: 'pipeline/current-migration.pipeline.ts', authority: 'RenderProjectStage.run' },
+  { source: 'pipeline/current-migration.pipeline.ts', authority: 'ValidateProjectStage.run' },
   { source: 'pipeline/migration-pipeline.ts', authority: 'RenderProjectStage.run' },
+  { source: 'pipeline/migration-pipeline.ts', authority: 'ValidateProjectStage.run' },
 ] as const;
 const rogueProductionAuthorityCases = [
   {
@@ -989,6 +994,44 @@ describe('enterprise pipeline dependency boundary', { timeout: wholeProjectInspe
     ]);
   });
 
+  test('forbids validation authorities in Render and requires them under concrete Validate', () => {
+    const validationAuthorities = new Set<string>([
+      'ChangedTemplateValidation.parse',
+      'CssReferenceCollector.collect',
+      'CssReferenceParser.parse',
+      'DestinationTemplateSource.read',
+      'MigrationPathValidation.validate',
+      'SourceEditor.apply',
+      'StylesheetPlanner.plan',
+      'TemplateProposalValidator.validate',
+    ]);
+    const calls = productionSemanticAuthorities().filter(call => validationAuthorities.has(call.name));
+    const validateCalls = calls.filter(call => call.sourcePath.startsWith(`${validateRoot}/`));
+
+    expect(calls.filter(call => call.sourcePath === renderStagePath)).toEqual([]);
+    expect(
+      normalizedAuthoritySources(
+        calls.filter(call => !call.sourcePath.startsWith(`${validateRoot}/`)),
+        validationAuthorities,
+      ),
+    ).toEqual([
+      { source: 'image/picture.renderer.ts', authority: 'SourceEditor.apply' },
+      { source: 'migrator/analyzed-file.migrator.ts', authority: 'TemplateProposalValidator.validate' },
+    ]);
+    expect(normalizedAuthoritySources(validateCalls, validationAuthorities)).toEqual([
+      { source: 'pipeline/validate/css-reference.collector.ts', authority: 'CssReferenceParser.parse' },
+      { source: 'pipeline/validate/css-reference.collector.ts', authority: 'DestinationTemplateSource.read' },
+      { source: 'pipeline/validate/template-proposal.validator.ts', authority: 'ChangedTemplateValidation.parse' },
+      { source: 'pipeline/validate/template-proposal.validator.ts', authority: 'DestinationTemplateSource.read' },
+      { source: 'pipeline/validate/template-proposal.validator.ts', authority: 'SourceEditor.apply' },
+      { source: 'pipeline/validate/validate-project.stage.ts', authority: 'CssReferenceCollector.collect' },
+      { source: 'pipeline/validate/validate-project.stage.ts', authority: 'MigrationPathValidation.validate' },
+      { source: 'pipeline/validate/validate-project.stage.ts', authority: 'MigrationPathValidation.validate' },
+      { source: 'pipeline/validate/validate-project.stage.ts', authority: 'StylesheetPlanner.plan' },
+      { source: 'pipeline/validate/validate-project.stage.ts', authority: 'TemplateProposalValidator.validate' },
+    ]);
+  });
+
   test.each([
     ['TailwindRenderSession', 'TailwindRenderSession'],
     ['CssRenderSession', 'CssRenderSession'],
@@ -1437,7 +1480,6 @@ describe('enterprise pipeline dependency boundary', { timeout: wholeProjectInspe
       { source: 'migrator/migration-path.validator.ts', authority: 'FileSystem.acquire.stat' },
       { source: 'migrator/migration-path.validator.ts', authority: 'FileSystem.lstat' },
       { source: 'migrator/migration-path.validator.ts', authority: 'FileSystem.stat' },
-      { source: 'migrator/migrator.ts', authority: 'DestinationTemplateSource.read' },
       { source: 'migrator/stylesheet.planner.ts', authority: 'FileSystem.acquire.lstat' },
       { source: 'migrator/stylesheet.planner.ts', authority: 'FileSystem.acquire.readFile' },
       { source: 'migrator/stylesheet.planner.ts', authority: 'FileSystem.readFile' },
@@ -1451,7 +1493,8 @@ describe('enterprise pipeline dependency boundary', { timeout: wholeProjectInspe
         source: 'pipeline/discover/discover-project.stage.ts',
         authority: 'GitIgnoreHelper.acquire',
       },
-      { source: 'pipeline/render/compatibility-edit.validator.ts', authority: 'DestinationTemplateSource.read' },
+      { source: 'pipeline/validate/css-reference.collector.ts', authority: 'DestinationTemplateSource.read' },
+      { source: 'pipeline/validate/template-proposal.validator.ts', authority: 'DestinationTemplateSource.read' },
       { source: 'transaction/migration-transaction.ts', authority: 'FileSystem.acquire.access' },
       { source: 'transaction/migration-transaction.ts', authority: 'FileSystem.acquire.lstat' },
       { source: 'transaction/migration-transaction.ts', authority: 'FileSystem.acquire.open' },
@@ -1596,9 +1639,9 @@ describe('enterprise pipeline dependency boundary', { timeout: wholeProjectInspe
       { source: 'pipeline/analyze/analyze-project.stage.ts', authority: 'TemplateSourceReader.read' },
     ]);
     expect(parseCalls).toEqual([
-      { source: 'migrator/migrator.ts', authority: 'CssReferenceParser.parse' },
       { source: 'pipeline/analyze/analyze-project.stage.ts', authority: 'OriginalTemplateParser.parse' },
-      { source: 'pipeline/render/compatibility-edit.validator.ts', authority: 'ChangedTemplateValidation.parse' },
+      { source: 'pipeline/validate/css-reference.collector.ts', authority: 'CssReferenceParser.parse' },
+      { source: 'pipeline/validate/template-proposal.validator.ts', authority: 'ChangedTemplateValidation.parse' },
       { source: 'transaction/migration-transaction.ts', authority: 'StagedTemplateValidation.parse' },
     ]);
   });

@@ -3,8 +3,6 @@ import type { AdapterSessionResult, RenderSession } from '../../render/render-se
 import { TailwindRenderer } from '../../render/tailwind/tailwind.renderer';
 import { analyzedProject, type AnalyzedProject } from '../analyzed-project';
 import { projectManifest } from '../project-manifest';
-import { fileMigrationPlan, type FileMigrationPlan } from '../../migrator/migration-plan';
-import { MigrationApplicationError } from '../../migrator/migration-application.error';
 import type { RenderTemplatePlanner } from './render-project.stage';
 import { RenderProjectStage } from './render-project.stage';
 
@@ -18,35 +16,70 @@ describe('RenderProjectStage', () => {
         return { edits: [], results: [] };
       },
     };
-    const validate = vi.fn(async template => unchangedPlan(template.file.inputPath, template.file.outputPath));
     const finalize = vi.fn(() => ({ target: 'tailwind' as const }));
-    const stage = new RenderProjectStage(sessionDouble(finalize), planner, { validate });
+    const stage = new RenderProjectStage(sessionDouble(finalize), planner);
 
     const rendered = await stage.run(analyzed);
 
     expect(plannedPaths).toEqual(['/project/input/first.html', '/project/input/second.html']);
     expect(finalize).toHaveBeenCalledOnce();
-    expect(rendered.files.map(file => file.file.inputPath)).toEqual([
+    expect(rendered.files.map(file => file.inputPath)).toEqual([
       '/project/input/first.html',
       '/project/input/second.html',
     ]);
-    expect(validate).toHaveBeenCalledTimes(2);
     expect(Object.isFrozen(rendered)).toBe(true);
+  });
+
+  test('returns unresolved edit proposals without materializing template artifacts', async () => {
+    const edits = [{ range: { start: 0, end: 3 }, text: 'new', inputId: 'replacement' }];
+    const results = [
+      {
+        status: 'invalid' as const,
+        input: {
+          id: '/project/input/first.html:0',
+          fileName: '/project/input/first.html',
+          elementId: '0',
+          sourceName: 'fxLayout',
+          directive: 'fxLayout' as const,
+          value: 'row',
+          binding: 'literal' as const,
+          breakpoint: undefined,
+          source: { start: 0, end: 3 },
+          nameSource: { start: 0, end: 3 },
+        },
+        code: 'invalid-value' as const,
+        reason: 'fixture result',
+        suggestion: 'fixture suggestion',
+      },
+    ];
+    const planner: RenderTemplatePlanner = { plan: () => ({ edits, results }) };
+
+    const rendered = await new RenderProjectStage(
+      sessionDouble(vi.fn(() => ({ target: 'tailwind' as const }))),
+      planner,
+    ).run(parsedProject());
+
+    expect(rendered.files[0]).toEqual({
+      inputPath: '/project/input/first.html',
+      outputPath: '/project/output/first.html',
+      edits,
+      results,
+    });
+    expect(rendered.files[0]).not.toHaveProperty('file');
+    expect(rendered.files[0]).not.toHaveProperty('artifact');
+    expect(rendered.analyzed.templates[0]?.source).toBe('<div></div>');
   });
 
   test('preserves stored parse diagnostics without invoking semantic or target rendering', async () => {
     const analyzed = parseErrorProject();
     const planner = { plan: vi.fn() } as unknown as RenderTemplatePlanner;
-    const validate = vi.fn();
-    const stage = new RenderProjectStage(sessionDouble(vi.fn(() => ({ target: 'tailwind' as const }))), planner, {
-      validate,
-    });
+    const stage = new RenderProjectStage(sessionDouble(vi.fn(() => ({ target: 'tailwind' as const }))), planner);
 
     const rendered = await stage.run(analyzed);
 
     expect(planner.plan).not.toHaveBeenCalled();
-    expect(validate).not.toHaveBeenCalled();
-    expect(rendered.files[0]?.file.results).toEqual([
+    expect(rendered.files[0]?.edits).toEqual([]);
+    expect(rendered.files[0]?.results).toEqual([
       {
         status: 'parse-error',
         fileName: '/project/input/broken.html',
@@ -65,41 +98,22 @@ describe('RenderProjectStage', () => {
       },
     };
     const finalize = vi.fn(() => ({ target: 'tailwind' as const }));
-    const stage = new RenderProjectStage(sessionDouble(finalize), planner, { validate: vi.fn() });
+    const stage = new RenderProjectStage(sessionDouble(finalize), planner);
 
     await expect(stage.run(parsedProject())).rejects.toThrow(renderFailure);
 
     expect(finalize).not.toHaveBeenCalled();
   });
 
-  test('does not finalize when asynchronous edit validation rejects after an earlier template succeeds', async () => {
-    const validationFailure = new Error('generated template validation failed');
+  test('records the render target so Validate can reject a mismatched finalized session', async () => {
     const planner: RenderTemplatePlanner = { plan: () => ({ edits: [], results: [] }) };
-    const validate = vi
-      .fn()
-      .mockResolvedValueOnce(unchangedPlan('/project/input/first.html', '/project/output/first.html'))
-      .mockRejectedValueOnce(validationFailure);
-    const finalize = vi.fn(() => ({ target: 'tailwind' as const }));
-    const stage = new RenderProjectStage(sessionDouble(finalize), planner, { validate });
-
-    await expect(stage.run(parsedProject())).rejects.toThrow(validationFailure);
-
-    expect(validate).toHaveBeenCalledTimes(2);
-    expect(finalize).not.toHaveBeenCalled();
-  });
-
-  test('fails closed when finalization returns a different target from the session renderer', async () => {
-    const planner: RenderTemplatePlanner = { plan: () => ({ edits: [], results: [] }) };
-    const validate = vi.fn(async template => unchangedPlan(template.file.inputPath, template.file.outputPath));
     const finalize = vi.fn(() => ({ target: 'css' as const, rules: [] }));
-    const stage = new RenderProjectStage({ renderer: new TailwindRenderer(), finalize }, planner, { validate });
+    const stage = new RenderProjectStage({ renderer: new TailwindRenderer(), finalize }, planner);
 
-    await expect(stage.run(parsedProject())).rejects.toMatchObject({
-      name: MigrationApplicationError.name,
-      code: 'internal-invariant',
-      message: 'Render session finalized for target "css" but its renderer targets "tailwind".',
-      paths: [],
-    });
+    const rendered = await stage.run(parsedProject());
+
+    expect(rendered.target).toBe('tailwind');
+    expect(rendered.session.target).toBe('css');
     expect(finalize).toHaveBeenCalledOnce();
   });
 });
@@ -154,8 +168,4 @@ function parseErrorProject(): AnalyzedProject {
       },
     ],
   });
-}
-
-function unchangedPlan(inputPath: string, outputPath: string): FileMigrationPlan {
-  return fileMigrationPlan({ file: { inputPath, outputPath, changed: false, results: [] } });
 }

@@ -4,16 +4,18 @@ import { dirname, join } from 'node:path';
 import { AdapterFactory } from '../../src/adapter/adapter.factory';
 import { TemplateAnalyzer } from '../../src/analyzer/template.analyzer';
 import { ConversionPlanner } from '../../src/planner/conversion-planner';
-import { Migrator, type MigratorDependencies } from '../../src/migrator/migrator';
+import { Migrator } from '../../src/migrator/migrator';
 import type { MigrationMode } from '../../src/migrator/migration-mode';
 import { StylesheetPlanner } from '../../src/migrator/stylesheet.planner';
 import { AnalyzeProjectStage } from '../../src/pipeline/analyze/analyze-project.stage';
 import { DiscoverProjectStage } from '../../src/pipeline/discover/discover-project.stage';
 import { CurrentMigrationPipeline, type MigratorFactory } from '../../src/pipeline/current-migration.pipeline';
-import type { AnalyzeStage, DiscoverStage, RenderStage } from '../../src/pipeline/migration-pipeline';
+import type { AnalyzeStage, DiscoverStage, RenderStage, ValidateStage } from '../../src/pipeline/migration-pipeline';
 import { migrationInvocation } from '../../src/pipeline/project-manifest';
-import { DefaultCompatibilityEditValidator } from '../../src/pipeline/render/compatibility-edit.validator';
 import { RenderProjectStage, type RenderTemplatePlanner } from '../../src/pipeline/render/render-project.stage';
+import { CssReferenceCollector } from '../../src/pipeline/validate/css-reference.collector';
+import { TemplateProposalValidator } from '../../src/pipeline/validate/template-proposal.validator';
+import { ValidateProjectStage } from '../../src/pipeline/validate/validate-project.stage';
 import type { ConversionRenderer } from '../../src/render/conversion-renderer';
 import type { RenderSession } from '../../src/render/render-session';
 import { AngularTemplateParser } from '../../src/template/angular-template.parser';
@@ -265,10 +267,9 @@ async function executeMigration(
   const discover = countingDiscoverStage(counts);
   const analyze = countingAnalyzeStage(counts);
   const render = countingRenderStage(session, counts);
-  const dependencies = countingMigratorDependencies(counts);
-  const createMigrator: MigratorFactory = rendered =>
-    new Migrator(rendered, () => 0, transaction, stylesheetPlanner, dependencies);
-  await new CurrentMigrationPipeline(render, discover, analyze, createMigrator).run(
+  const validate = countingValidateStage(counts, stylesheetPlanner);
+  const createMigrator: MigratorFactory = validated => new Migrator(validated, () => 0, transaction);
+  await new CurrentMigrationPipeline(render, discover, analyze, createMigrator, () => 0, validate).run(
     migrationInvocation({
       inputPath: input,
       outputPath: output,
@@ -319,45 +320,9 @@ function countingAnalyzeStage(counts: MigrationWorkloadCounts): AnalyzeStage {
   );
 }
 
-function countingMigratorDependencies(counts: MigrationWorkloadCounts): MigratorDependencies {
-  const referenceParser = new AngularTemplateParser();
-  const readDestination = async (target: string): Promise<string> => {
-    const contents = await readFile(target, 'utf8');
-    evidenceFor(counts).destinationReadPaths.push(target);
-    return contents;
-  };
-  return {
-    destinationTemplates: { read: readDestination },
-    referenceParser: {
-      parse: (source, fileName) => {
-        evidenceFor(counts).referenceParsePaths.push(fileName);
-        return referenceParser.parse(source, fileName);
-      },
-    },
-  };
-}
-
 function countingRenderStage(session: RenderSession, counts: MigrationWorkloadCounts): RenderStage {
-  const parser = new AngularTemplateParser();
   const planner = new ConversionPlanner();
   const evidence = evidenceFor(counts);
-  const destinationTemplates = {
-    async read(target: string) {
-      const contents = await readFile(target, 'utf8');
-      evidence.destinationReadPaths.push(target);
-      return contents;
-    },
-  };
-  const validator = new DefaultCompatibilityEditValidator(
-    {
-      parse: (source, fileName) => {
-        counts.validationParses++;
-        evidence.validationParsePaths.push(fileName);
-        return parser.parse(source, fileName);
-      },
-    },
-    destinationTemplates,
-  );
   const templatePlanner: RenderTemplatePlanner = {
     plan(template, renderer, options) {
       evidence.semanticPlanningPasses++;
@@ -372,18 +337,59 @@ function countingRenderStage(session: RenderSession, counts: MigrationWorkloadCo
       return session.finalize();
     },
   };
-  const render = new RenderProjectStage(countedSession, templatePlanner, validator);
+  const render = new RenderProjectStage(countedSession, templatePlanner);
   return {
     async run(analyzed) {
       evidence.parsedTemplates += analyzed.templates.filter(template => template.status === 'parsed').length;
       const rendered = await render.run(analyzed);
       evidence.convertedFamilies += rendered.files
-        .flatMap(file => file.file.results)
+        .flatMap(file => file.results)
         .filter(result => result.status === 'converted').length;
-      evidence.changedTemplatePaths.push(
-        ...rendered.files.filter(file => file.file.changed).map(file => file.file.outputPath),
-      );
       return rendered;
+    },
+  };
+}
+
+function countingValidateStage(counts: MigrationWorkloadCounts, stylesheetPlanner: StylesheetPlanner): ValidateStage {
+  const validationParser = new AngularTemplateParser();
+  const referenceParser = new AngularTemplateParser();
+  const evidence = evidenceFor(counts);
+  const destinationTemplates = {
+    async read(target: string) {
+      const contents = await readFile(target, 'utf8');
+      evidence.destinationReadPaths.push(target);
+      return contents;
+    },
+  };
+  const validate = new ValidateProjectStage(
+    new TemplateProposalValidator(
+      {
+        parse(source, fileName) {
+          counts.validationParses++;
+          evidence.validationParsePaths.push(fileName);
+          return validationParser.parse(source, fileName);
+        },
+      },
+      destinationTemplates,
+    ),
+    new CssReferenceCollector(
+      {
+        parse(source, fileName) {
+          evidence.referenceParsePaths.push(fileName);
+          return referenceParser.parse(source, fileName);
+        },
+      },
+      destinationTemplates,
+    ),
+    stylesheetPlanner,
+  );
+  return {
+    async run(rendered) {
+      const validated = await validate.run(rendered);
+      evidence.changedTemplatePaths.push(
+        ...validated.plan.files.filter(file => file.changed).map(file => file.outputPath),
+      );
+      return validated;
     },
   };
 }

@@ -6,15 +6,24 @@ import type { OwnedCssReferences } from '../adapter/css/stylesheet/owned-stylesh
 import { AnalyzeProjectStage } from '../pipeline/analyze/analyze-project.stage';
 import { analyzedProject } from '../pipeline/analyzed-project';
 import { DiscoverProjectStage } from '../pipeline/discover/discover-project.stage';
-import { remapInvocationErrorPaths } from '../pipeline/invocation-error-path.mapper';
+import type { TemplateParser } from '../pipeline/analyze/template-parser.port';
 import { migrationInvocation, projectManifest } from '../pipeline/project-manifest';
 import { RenderProjectStage } from '../pipeline/render/render-project.stage';
+import { CssReferenceCollector } from '../pipeline/validate/css-reference.collector';
+import { TemplateProposalValidator } from '../pipeline/validate/template-proposal.validator';
+import { ValidateProjectStage } from '../pipeline/validate/validate-project.stage';
 import type { ConversionRenderer } from '../render/conversion-renderer';
 import type { RenderSession } from '../render/render-session';
 import { AngularTemplateParser } from '../template/angular-template.parser';
 import type { MigrationTransaction } from '../transaction/migration-transaction';
-import { Migrator, type MigrationOptions, type MigratorDependencies } from './migrator';
+import type { DestinationTemplateSource } from './destination-template-source';
+import { Migrator, type MigrationOptions } from './migrator';
 import type { StylesheetPlanner } from './stylesheet.planner';
+
+interface ValidationDependencies {
+  readonly destinationTemplates: DestinationTemplateSource;
+  readonly referenceParser: TemplateParser;
+}
 
 describe('Migrator', () => {
   let temporaryDirectory: string;
@@ -27,7 +36,7 @@ describe('Migrator', () => {
     await rm(temporaryDirectory, { recursive: true, force: true });
   });
 
-  test('builds validation and application work from the rendered handoff without rendering again', async () => {
+  test('builds application work from the canonical validated plan without rendering again', async () => {
     const inputPath = join(temporaryDirectory, 'input.html');
     const outputPath = join(temporaryDirectory, 'output.html');
     await writeFile(inputPath, '<div fxLayout="row"></div>', 'utf8');
@@ -38,8 +47,9 @@ describe('Migrator', () => {
     const session = countingRenderSession(tailwindSession(), () => renderCalls++);
     const rendered = await new RenderProjectStage(session).run(analyzed);
     const callsAfterRenderStage = renderCalls;
+    const validated = await new ValidateProjectStage().run(rendered);
 
-    const report = await new Migrator(rendered, () => 0, transactionDouble()).migrate({ mode: 'plan' });
+    const report = await new Migrator(validated, () => 0, transactionDouble()).migrate({ mode: 'plan' });
 
     expect(report.files).toEqual([
       {
@@ -70,13 +80,18 @@ describe('Migrator', () => {
     const stylesheetPlanner = {
       plan: vi.fn<StylesheetPlanner['plan']>().mockResolvedValue(undefined),
     };
-    const dependencies: MigratorDependencies = {
+    const dependencies: ValidationDependencies = {
       destinationTemplates: { read: readDestination },
       referenceParser: new AngularTemplateParser(),
     };
     const rendered = await new RenderProjectStage(AdapterFactory.createSession('css')).run(analyzed);
+    const validated = await new ValidateProjectStage(
+      new TemplateProposalValidator(new AngularTemplateParser(), dependencies.destinationTemplates),
+      new CssReferenceCollector(dependencies.referenceParser, dependencies.destinationTemplates),
+      stylesheetPlanner,
+    ).run(rendered);
 
-    await new Migrator(rendered, () => 0, transactionDouble(), stylesheetPlanner, dependencies).migrate({
+    await new Migrator(validated, () => 0, transactionDouble()).migrate({
       mode: 'plan',
       stylesheetPath,
     });
@@ -87,7 +102,7 @@ describe('Migrator', () => {
     expect(references.complete).toBe(true);
   });
 
-  test('maps an error only at a canonicalized distinct-destination source read boundary', async () => {
+  test('propagates an error only at a canonicalized distinct-destination source read boundary', async () => {
     const invocation = migrationInvocation({
       inputPath: 'relative-fixtures/input',
       outputPath: 'relative-fixtures/output',
@@ -117,26 +132,24 @@ describe('Migrator', () => {
       path: outputPath,
     });
     const destinationTemplates = { read: vi.fn(async () => Promise.reject(error)) };
-    const dependencies: MigratorDependencies = {
+    const dependencies: ValidationDependencies = {
       destinationTemplates,
       referenceParser: new AngularTemplateParser(),
     };
     const stylesheetPlanner = { plan: vi.fn<StylesheetPlanner['plan']>() };
     const rendered = await new RenderProjectStage(AdapterFactory.createSession('css')).run(analyzed);
-    const migrator = new Migrator(rendered, () => 0, transactionDouble(), stylesheetPlanner, dependencies);
-
-    const rejected = await rejectedNodeIoError(
-      migrator.migrate(invocation.options, {
-        mapDestinationReadError: candidate => remapInvocationErrorPaths(candidate, invocation),
-      }),
+    const validate = new ValidateProjectStage(
+      new TemplateProposalValidator(new AngularTemplateParser(), dependencies.destinationTemplates),
+      new CssReferenceCollector(dependencies.referenceParser, dependencies.destinationTemplates),
+      stylesheetPlanner,
     );
+
+    const rejected = await rejectedNodeIoError(validate.run(rendered));
 
     expect(rejected).toBe(error);
     expect(rejected).toBeInstanceOf(TypeError);
-    expect(rejected.message).toBe(
-      `EACCES: permission denied, open '${join(invocation.outputPath, 'nested', 'card.html')}'`,
-    );
-    expect(rejected.path).toBe(join(invocation.outputPath, 'nested', 'card.html'));
+    expect(rejected.message).toBe(message);
+    expect(rejected.path).toBe(outputPath);
     expect(rejected.code).toBe('EACCES');
     expect(rejected.cause).toBe(cause);
     expect(destinationTemplates.read).toHaveBeenCalledWith(outputPath);
@@ -853,7 +866,7 @@ function migrationFromPaths(
   now?: () => number,
   transaction?: Pick<MigrationTransaction, 'preflight' | 'apply'>,
   stylesheetPlanner?: Pick<StylesheetPlanner, 'plan'>,
-  dependencies?: MigratorDependencies,
+  dependencies?: ValidationDependencies,
 ): Pick<Migrator, 'migrate'> {
   return {
     async migrate(options: MigrationOptions = { mode: 'plan' }) {
@@ -861,7 +874,18 @@ function migrationFromPaths(
       const manifest = await new DiscoverProjectStage().run(invocation);
       const analyzed = await new AnalyzeProjectStage().run(manifest);
       const rendered = await new RenderProjectStage(session).run(analyzed);
-      return new Migrator(rendered, now, transaction, stylesheetPlanner, dependencies).migrate(options);
+      const templateValidator = new TemplateProposalValidator(
+        new AngularTemplateParser(),
+        dependencies?.destinationTemplates,
+      );
+      const cssReferences = new CssReferenceCollector(
+        dependencies?.referenceParser,
+        dependencies?.destinationTemplates,
+      );
+      const validated = await new ValidateProjectStage(templateValidator, cssReferences, stylesheetPlanner).run(
+        rendered,
+      );
+      return new Migrator(validated, now, transaction).migrate(options);
     },
   };
 }

@@ -2,7 +2,7 @@ import type { ConversionAdapter } from '../adapter/conversion-adapter';
 import type { ConversionResult } from '../analyzer/conversion-result';
 import type { TemplateParser } from '../pipeline/analyze/template-parser.port';
 import type { AnalyzedTemplate } from '../pipeline/analyzed-project';
-import { DefaultCompatibilityEditValidator } from '../pipeline/render/compatibility-edit.validator';
+import { TemplateProposalValidator } from '../pipeline/validate/template-proposal.validator';
 import { ConversionPlanner } from '../planner/conversion-planner';
 import { AngularTemplateParser } from '../template/angular-template.parser';
 import { fileMigrationResult, type FileMigrationOptions, type FileMigrationResult } from './file-migration-result';
@@ -45,10 +45,15 @@ export class AnalyzedFileMigrator {
       this.adapter,
       { responsiveImages: options.responsiveImages ?? false },
     );
-    return new DefaultCompatibilityEditValidator(
-      this.dependencies.validationParser,
-      this.destinationTemplates,
-    ).validate(this.template, conversionPlan);
+    return new TemplateProposalValidator(this.dependencies.validationParser, this.destinationTemplates).validate(
+      this.template,
+      {
+        inputPath: this.template.file.inputPath,
+        outputPath: this.template.file.outputPath,
+        edits: conversionPlan.edits,
+        results: conversionPlan.results,
+      },
+    );
   }
 
   private planResult(changed: boolean, results: readonly ConversionResult[]): FileMigrationPlan {

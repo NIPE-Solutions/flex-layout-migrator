@@ -203,6 +203,23 @@ describe('migration transaction architecture boundary', { timeout: wholeProjectI
     expect(migratorInspection.programConstructionCount).toBe(1);
   });
 
+  test('keeps validation, topology, reference collection, and stylesheet planning out of Migrator', () => {
+    const forbiddenAuthorities = new Set([
+      'ChangedTemplateValidation.parse',
+      'CssReferenceCollector.collect',
+      'CssReferenceParser.parse',
+      'DestinationTemplateSource.read',
+      'MigrationPathValidation.validate',
+      'SourceEditor.apply',
+      'StylesheetPlanner.plan',
+      'TemplateProposalValidator.validate',
+    ]);
+
+    expect(inspectSemanticAuthorityCalls([migratorPath]).filter(call => forbiddenAuthorities.has(call.name))).toEqual(
+      [],
+    );
+  });
+
   test('reserves AtomicFileWriter for the independent JSON report', () => {
     const consumers = productionTypeScriptFiles(productionRoot).filter(path =>
       inspectTypeScript(readFileSync(path, 'utf8'), path).moduleReferences.some(reference =>
