@@ -171,6 +171,10 @@ export type SemanticAuthorityName =
   | 'ChangedTemplateValidation.parse'
   | 'CssReferenceParser.parse'
   | 'CurrentMigrationPipeline.run'
+  | 'ConversionRenderer.eligibility'
+  | 'ConversionRenderer.record'
+  | 'ConversionRenderer.render'
+  | 'ConversionRenderer.resolveConflicts'
   | 'DestinationTemplateSource.read'
   | 'DiscoveryFileSystem.entries'
   | 'DiscoveryFileSystem.kind'
@@ -199,6 +203,22 @@ export interface SemanticAuthorityCall {
 export interface RuntimeDependencyFinding {
   readonly sourcePath: string;
   readonly dependencyPath: string;
+}
+
+interface TypeScriptProjectProgram {
+  readonly checker: ts.TypeChecker;
+  readonly program: ts.Program;
+  readonly rootPaths: ReadonlySet<string>;
+}
+
+export interface TypeScriptProjectInspectionSession {
+  readonly programConstructionCount: number;
+  inspectSemanticAuthorityCalls(): readonly SemanticAuthorityCall[];
+  inspectRuntimeDependencyClosure(): readonly RuntimeDependencyFinding[];
+  inspectDependencyClosure(): readonly RuntimeDependencyFinding[];
+  inspectRuntimeSymbolProvenance(): readonly RuntimeSymbolProvenance[];
+  inspectRuntimeExportSymbolProvenance(): readonly RuntimeExportSymbolProvenance[];
+  inspectRuntimeNamedDeclarationProvenance(symbolName: string): readonly RuntimeSymbolProvenance[];
 }
 
 /** A runtime import/export binding resolved to its declared symbol, including aliases and namespaces. */
@@ -603,7 +623,7 @@ export function inspectTypeScript(source: string, sourcePath: string): TypeScrip
 function createProjectProgram(
   sourcePaths: readonly string[],
   sourceOverrides: ReadonlyMap<string, string>,
-): { readonly checker: ts.TypeChecker; readonly program: ts.Program; readonly rootPaths: ReadonlySet<string> } {
+): TypeScriptProjectProgram {
   const normalizedOverrides = new Map(
     [...sourceOverrides].map(([sourcePath, source]) => [resolve(sourcePath), source] as const),
   );
@@ -2612,6 +2632,11 @@ interface SemanticAuthorityConfig {
 }
 
 const semanticAuthorityConfigs: readonly SemanticAuthorityConfig[] = [
+  ...(['eligibility', 'render', 'resolveConflicts', 'record'] as const).map(methodName => ({
+    name: `ConversionRenderer.${methodName}` as SemanticAuthorityName,
+    methodName,
+    declarations: [{ sourcePathSuffix: '/render/conversion-renderer.ts', containers: ['ConversionRenderer'] }],
+  })),
   {
     name: 'CurrentMigrationPipeline.run',
     methodName: 'run',
@@ -2669,7 +2694,9 @@ const semanticAuthorityConfigs: readonly SemanticAuthorityConfig[] = [
   {
     name: 'RenderSession.finalize',
     methodName: 'finalize',
-    declarations: [{ sourcePathSuffix: '/render/render-session.ts', containers: ['RenderSession'] }],
+    declarations: [
+      { sourcePathSuffix: '/render/render-session.ts', containers: ['RenderSession', 'SingleUseRenderSession'] },
+    ],
   },
   {
     name: 'Migrator.migrate',
@@ -4088,7 +4115,14 @@ export function inspectSemanticAuthorityCalls(
   sourcePaths: readonly string[],
   sourceOverrides: ReadonlyMap<string, string> = new Map(),
 ): readonly SemanticAuthorityCall[] {
-  const { checker, program, rootPaths } = createProjectProgram(sourcePaths, sourceOverrides);
+  return semanticAuthorityCallsFromProject(createProjectProgram(sourcePaths, sourceOverrides));
+}
+
+function semanticAuthorityCallsFromProject({
+  checker,
+  program,
+  rootPaths,
+}: TypeScriptProjectProgram): readonly SemanticAuthorityCall[] {
   inspectionRootPaths.set(program, rootPaths);
   const calls: SemanticAuthorityCall[] = [];
 
@@ -4145,12 +4179,39 @@ export function inspectRuntimeDependencyClosure(
   sourcePaths: readonly string[],
   sourceOverrides: ReadonlyMap<string, string> = new Map(),
 ): readonly RuntimeDependencyFinding[] {
-  const { program } = createProjectProgram(sourcePaths, sourceOverrides);
+  return dependencyClosureFromProject(
+    createProjectProgram(sourcePaths, sourceOverrides),
+    sourcePaths,
+    sourceOverrides,
+    true,
+  );
+}
+
+/** Resolves transitive local imports and exports, including type-only edges. */
+export function inspectDependencyClosure(
+  sourcePaths: readonly string[],
+  sourceOverrides: ReadonlyMap<string, string> = new Map(),
+): readonly RuntimeDependencyFinding[] {
+  return dependencyClosureFromProject(
+    createProjectProgram(sourcePaths, sourceOverrides),
+    sourcePaths,
+    sourceOverrides,
+    false,
+  );
+}
+
+function dependencyClosureFromProject(
+  { program }: TypeScriptProjectProgram,
+  sourcePaths: readonly string[],
+  sourceOverrides: ReadonlyMap<string, string>,
+  runtimeOnly: boolean,
+): readonly RuntimeDependencyFinding[] {
   const normalizedOverrides = new Map(
     [...sourceOverrides].map(([sourcePath, source]) => [resolve(sourcePath), source] as const),
   );
   const findings: RuntimeDependencyFinding[] = [];
   const seenFindings = new Set<string>();
+  const referencesByPath = new Map<string, readonly string[]>();
 
   function sourceText(sourcePath: string): string | undefined {
     return (
@@ -4176,7 +4237,14 @@ export function inspectRuntimeDependencyClosure(
       visited.add(currentSourcePath);
       const source = sourceText(currentSourcePath);
       if (source === undefined) return;
-      for (const reference of runtimeModuleReferences(source, currentSourcePath)) {
+      let references = referencesByPath.get(currentSourcePath);
+      if (references === undefined) {
+        references = runtimeOnly
+          ? runtimeModuleReferences(source, currentSourcePath)
+          : inspectTypeScript(source, currentSourcePath).moduleReferences;
+        referencesByPath.set(currentSourcePath, references);
+      }
+      for (const reference of references) {
         const dependencyPath = resolvedLocalDependency(reference, currentSourcePath);
         if (dependencyPath === undefined) continue;
         const key = `${sourcePath}\0${dependencyPath}`;
@@ -4217,12 +4285,60 @@ function runtimeSymbolsForBinding(
   return exports.flatMap(exported => runtimeSymbolsForBinding(exported, checker, nextSeen));
 }
 
+function runtimeNamedDeclarationProvenanceFromProject(
+  { checker, program, rootPaths }: TypeScriptProjectProgram,
+  symbolName: string,
+): readonly RuntimeSymbolProvenance[] {
+  const findings: RuntimeSymbolProvenance[] = [];
+  const seenFindings = new Set<string>();
+
+  for (const sourceFile of program.getSourceFiles()) {
+    const sourcePath = resolve(sourceFile.fileName);
+    if (!rootPaths.has(sourcePath)) continue;
+    function visit(node: ts.Node): void {
+      if (
+        (ts.isClassDeclaration(node) || ts.isFunctionDeclaration(node) || ts.isEnumDeclaration(node)) &&
+        node.name?.text === symbolName
+      ) {
+        const symbol = checker.getSymbolAtLocation(node.name);
+        if (symbol !== undefined) {
+          const canonical = canonicalRuntimeSymbol(symbol, checker);
+          const declaration = canonical.valueDeclaration ?? canonical.declarations?.[0];
+          if (declaration !== undefined) {
+            const finding = {
+              sourcePath,
+              symbolName: canonical.getName(),
+              declarationPath: resolve(declaration.getSourceFile().fileName),
+            };
+            const key = `${finding.sourcePath}\0${finding.symbolName}\0${finding.declarationPath}`;
+            if (!seenFindings.has(key)) {
+              seenFindings.add(key);
+              findings.push(finding);
+            }
+          }
+        }
+      }
+      ts.forEachChild(node, visit);
+    }
+    visit(sourceFile);
+  }
+
+  return findings;
+}
+
 /** Resolves runtime import and re-export bindings through aliases, barrels, and namespace imports. */
 export function inspectRuntimeSymbolProvenance(
   sourcePaths: readonly string[],
   sourceOverrides: ReadonlyMap<string, string> = new Map(),
 ): readonly RuntimeSymbolProvenance[] {
-  const { checker, program, rootPaths } = createProjectProgram(sourcePaths, sourceOverrides);
+  return runtimeSymbolProvenanceFromProject(createProjectProgram(sourcePaths, sourceOverrides));
+}
+
+function runtimeSymbolProvenanceFromProject({
+  checker,
+  program,
+  rootPaths,
+}: TypeScriptProjectProgram): readonly RuntimeSymbolProvenance[] {
   const findings: RuntimeSymbolProvenance[] = [];
   const seenFindings = new Set<string>();
 
@@ -4294,7 +4410,14 @@ export function inspectRuntimeExportSymbolProvenance(
   sourcePaths: readonly string[],
   sourceOverrides: ReadonlyMap<string, string> = new Map(),
 ): readonly RuntimeExportSymbolProvenance[] {
-  const { checker, program, rootPaths } = createProjectProgram(sourcePaths, sourceOverrides);
+  return runtimeExportSymbolProvenanceFromProject(createProjectProgram(sourcePaths, sourceOverrides));
+}
+
+function runtimeExportSymbolProvenanceFromProject({
+  checker,
+  program,
+  rootPaths,
+}: TypeScriptProjectProgram): readonly RuntimeExportSymbolProvenance[] {
   const findings: RuntimeExportSymbolProvenance[] = [];
   const seenFindings = new Set<string>();
 
@@ -4333,6 +4456,62 @@ export function inspectRuntimeExportSymbolProvenance(
   }
 
   return findings;
+}
+
+/** Lazily shares one immutable TypeScript Program across related architecture inspections. */
+export function createTypeScriptProjectInspectionSession(
+  sourcePaths: readonly string[],
+  sourceOverrides: ReadonlyMap<string, string> = new Map(),
+): TypeScriptProjectInspectionSession {
+  let project: TypeScriptProjectProgram | undefined;
+  let programConstructionCount = 0;
+  let semanticAuthorities: readonly SemanticAuthorityCall[] | undefined;
+  let runtimeDependencies: readonly RuntimeDependencyFinding[] | undefined;
+  let dependencies: readonly RuntimeDependencyFinding[] | undefined;
+  let runtimeSymbols: readonly RuntimeSymbolProvenance[] | undefined;
+  let runtimeExports: readonly RuntimeExportSymbolProvenance[] | undefined;
+  const runtimeNamedDeclarations = new Map<string, readonly RuntimeSymbolProvenance[]>();
+  const sharedProject = (): TypeScriptProjectProgram => {
+    if (project === undefined) {
+      project = createProjectProgram(sourcePaths, sourceOverrides);
+      programConstructionCount += 1;
+    }
+    return project;
+  };
+
+  return {
+    get programConstructionCount() {
+      return programConstructionCount;
+    },
+    inspectSemanticAuthorityCalls() {
+      semanticAuthorities ??= semanticAuthorityCallsFromProject(sharedProject());
+      return semanticAuthorities;
+    },
+    inspectRuntimeDependencyClosure() {
+      runtimeDependencies ??= dependencyClosureFromProject(sharedProject(), sourcePaths, sourceOverrides, true);
+      return runtimeDependencies;
+    },
+    inspectDependencyClosure() {
+      dependencies ??= dependencyClosureFromProject(sharedProject(), sourcePaths, sourceOverrides, false);
+      return dependencies;
+    },
+    inspectRuntimeSymbolProvenance() {
+      runtimeSymbols ??= runtimeSymbolProvenanceFromProject(sharedProject());
+      return runtimeSymbols;
+    },
+    inspectRuntimeExportSymbolProvenance() {
+      runtimeExports ??= runtimeExportSymbolProvenanceFromProject(sharedProject());
+      return runtimeExports;
+    },
+    inspectRuntimeNamedDeclarationProvenance(symbolName: string) {
+      let findings = runtimeNamedDeclarations.get(symbolName);
+      if (findings === undefined) {
+        findings = runtimeNamedDeclarationProvenanceFromProject(sharedProject(), symbolName);
+        runtimeNamedDeclarations.set(symbolName, findings);
+      }
+      return findings;
+    },
+  };
 }
 
 export function productionTypeScriptFiles(directory: string): readonly string[] {

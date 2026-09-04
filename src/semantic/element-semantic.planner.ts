@@ -1,5 +1,4 @@
 import type { LocatedFlexLayoutInput } from '../analyzer/flex-layout-attribute.analyzer';
-import type { PlannedConversion } from '../adapter/conversion-adapter';
 import { BreakpointCatalog, type BreakpointClassification } from '../breakpoint/breakpoint-catalog';
 import type { BreakpointMigrationConfig } from '../config/breakpoint-migration-config';
 import { planFlexAlignSemantics } from '../flex/flex-align.semantic';
@@ -12,7 +11,6 @@ import { planLayoutAlignment } from '../flex/layout-align.semantic';
 import { planLayoutGapSemantics } from '../flex/layout-gap.semantic';
 import { parseLayout } from '../flex/layout.semantic';
 import { parseGridValue } from '../grid/grid-value.parser';
-import type { ConversionRenderer } from '../render/conversion-renderer';
 import { templateAttributeKeys } from '../template/template-attribute';
 import type { TemplateAttribute } from '../template/template.model';
 import type { SemanticConversionContext } from './conversion-context';
@@ -30,15 +28,14 @@ import {
   type DirectiveFamily,
   type ResolvedSemanticPlan,
   type ResolvedSemanticValue,
+  type SemanticDependencyPlan,
+  type SemanticPlanningPlan,
   type SemanticActivation,
-  type VisibilitySemantics,
+  type UnresolvedSemanticPlan,
 } from './semantic-plan';
 import { type SourcePropertyEvidence, unknownSourcePropertyEvidence } from './source-property-evidence';
 import { VisibilityStatePlanner } from './visibility/visibility-state.planner';
 import { parseVisibilityValue } from './visibility/visibility-value.parser';
-
-type UnresolvedConversion = Exclude<PlannedConversion, { readonly status: 'converted' }>;
-type SemanticPlanningPlan = ResolvedSemanticPlan | UnresolvedConversion;
 
 const flexItemDirectives = new Set<LocatedFlexLayoutInput['directive']>(['fxFlex', 'fxGrow', 'fxShrink']);
 const visibilityDirectives = new Set<LocatedFlexLayoutInput['directive']>(['fxShow', 'fxHide']);
@@ -100,7 +97,7 @@ const defaultSemanticBreakpointConfig: BreakpointMigrationConfig = {
   printWithBreakpoints: [],
 };
 
-function invalid(input: LocatedFlexLayoutInput): UnresolvedConversion {
+function invalid(input: LocatedFlexLayoutInput): UnresolvedSemanticPlan {
   return {
     status: 'invalid',
     input,
@@ -110,7 +107,7 @@ function invalid(input: LocatedFlexLayoutInput): UnresolvedConversion {
   };
 }
 
-function dynamicBinding(input: LocatedFlexLayoutInput, extended = false): UnresolvedConversion {
+function dynamicBinding(input: LocatedFlexLayoutInput, extended = false): UnresolvedSemanticPlan {
   return {
     status: 'review',
     input,
@@ -122,7 +119,7 @@ function dynamicBinding(input: LocatedFlexLayoutInput, extended = false): Unreso
   };
 }
 
-function contextUnverified(input: LocatedFlexLayoutInput, reason: string): UnresolvedConversion {
+function contextUnverified(input: LocatedFlexLayoutInput, reason: string): UnresolvedSemanticPlan {
   return {
     status: 'review',
     input,
@@ -132,7 +129,7 @@ function contextUnverified(input: LocatedFlexLayoutInput, reason: string): Unres
   };
 }
 
-function displayContextUnverified(input: LocatedFlexLayoutInput): UnresolvedConversion {
+function displayContextUnverified(input: LocatedFlexLayoutInput): UnresolvedSemanticPlan {
   return {
     status: 'review',
     input,
@@ -142,28 +139,12 @@ function displayContextUnverified(input: LocatedFlexLayoutInput): UnresolvedConv
   };
 }
 
-function visibilityContextUnverified(input: LocatedFlexLayoutInput): UnresolvedConversion {
-  return {
-    status: 'review',
-    input,
-    code: 'context-unverified',
-    reason: 'Another member of this visibility family is unresolved.',
-    suggestion: 'Migrate the complete visibility family together manually.',
-  };
-}
-
-function responsivePrecedenceUnverified(
-  input: LocatedFlexLayoutInput,
-  target: ConversionRenderer['target'],
-): UnresolvedConversion {
+function responsivePrecedenceUnverified(input: LocatedFlexLayoutInput): UnresolvedSemanticPlan {
   return {
     status: 'review',
     input,
     code: 'responsive-precedence-unverified',
-    reason:
-      target === 'css'
-        ? 'Overlapping responsive ranges emit different CSS declarations for the same directive family.'
-        : 'Overlapping responsive ranges emit different utilities for the same directive family.',
+    reason: 'Overlapping responsive ranges emit different target outputs for the same directive family.',
     suggestion: 'Simplify the overlapping declarations or migrate this directive family manually.',
   };
 }
@@ -171,7 +152,7 @@ function responsivePrecedenceUnverified(
 function unresolvedBreakpoint(
   input: LocatedFlexLayoutInput,
   classification: Exclude<BreakpointClassification, { readonly kind: 'verified' }>,
-): UnresolvedConversion {
+): UnresolvedSemanticPlan {
   if (classification.kind === 'custom') {
     return {
       status: 'review',
@@ -208,7 +189,7 @@ function staticLayoutContext(attributes: readonly TemplateAttribute[]): string |
 function activation(
   input: LocatedFlexLayoutInput,
   catalog: BreakpointCatalog,
-): SemanticActivation | UnresolvedConversion {
+): SemanticActivation | UnresolvedSemanticPlan {
   if (input.breakpoint === undefined) return { kind: 'base' };
   const classification = catalog.classify(input.breakpoint);
   return classification.kind === 'verified'
@@ -240,44 +221,25 @@ function sameSemanticOutput(left: SemanticPlanningPlan, right: SemanticPlanningP
   );
 }
 
-function rendererEligibility(
-  renderer: ConversionRenderer,
-  input: LocatedFlexLayoutInput,
-): UnresolvedConversion | undefined {
-  const eligibility = renderer.eligibility(input);
-  if (eligibility?.status === 'converted') {
-    throw new Error('Renderer eligibility must not emit target output');
-  }
-  return eligibility;
-}
-
-function semanticPolicy(
-  renderer: ConversionRenderer,
-  catalog: BreakpointCatalog,
-): SemanticTargetPolicy<SemanticPlanningPlan> {
+function semanticPolicy(catalog: BreakpointCatalog): SemanticTargetPolicy<SemanticPlanningPlan> {
   return {
     emptyPlan: input => resolved(input, { kind: 'empty' }),
-    targetEligibility: input => rendererEligibility(renderer, input),
+    targetEligibility: () => undefined,
     validateActivation: plan => {
       if (plan.status !== 'converted') return plan;
       const plannedActivation = activation(plan.input, catalog);
       return 'status' in plannedActivation ? plannedActivation : plan;
     },
     isTargetEligibilityFailure: plan =>
-      plan.status !== 'converted' &&
-      (plan.code === 'target-unsupported' ||
-        plan.code === 'breakpoint-unverified' ||
-        plan.code === 'custom-breakpoint'),
+      plan.status !== 'converted' && (plan.code === 'breakpoint-unverified' || plan.code === 'custom-breakpoint'),
     sameOutput: sameSemanticOutput,
     contextUnverified,
     contextualOutputUnverified: input =>
       contextUnverified(
         input,
-        renderer.target === 'css'
-          ? 'This directive emits different declarations across its active responsive layout contexts.'
-          : 'This directive emits different utilities across its active responsive layout contexts.',
+        'This directive emits different target outputs across its active responsive layout contexts.',
       ),
-    responsivePrecedenceUnverified: input => responsivePrecedenceUnverified(input, renderer.target),
+    responsivePrecedenceUnverified,
     decorate: plan => {
       if (plan.status !== 'converted') return plan;
       const plannedActivation = activation(plan.input, catalog);
@@ -367,16 +329,23 @@ function configuredPrintOwner(
 }
 
 export class ElementSemanticPlanner {
-  constructor(private readonly breakpointConfig?: BreakpointMigrationConfig) {}
+  constructor(
+    private readonly breakpointConfig?: BreakpointMigrationConfig,
+    private readonly sourcePropertyEvidence: SourcePropertyEvidence = unknownSourcePropertyEvidence,
+  ) {}
 
   plan(
     inputs: readonly LocatedFlexLayoutInput[],
     context: SemanticConversionContext,
-    renderer: ConversionRenderer,
-  ): readonly PlannedConversion[] {
+    options: {
+      readonly breakpointConfig?: BreakpointMigrationConfig;
+      readonly sourcePropertyEvidence?: SourcePropertyEvidence;
+    } = {},
+  ): readonly SemanticPlanningPlan[] {
     const completeContext = { ...context, inputs };
-    const catalog = this.catalog(renderer);
-    const responsive = new ResponsiveFamilyPlanner(catalog, semanticPolicy(renderer, catalog));
+    const catalog = this.catalog(options.breakpointConfig);
+    const sourceEvidence = options.sourcePropertyEvidence ?? this.sourcePropertyEvidence;
+    const responsive = new ResponsiveFamilyPlanner(catalog, semanticPolicy(catalog));
     const visibilityInputs = inputs.filter(input => visibilityDirectives.has(input.directive));
     const extendedInputs = inputs.filter(input => extendedDirectives.has(input.directive));
     const ordinaryInputs = inputs.filter(
@@ -384,36 +353,29 @@ export class ElementSemanticPlanner {
     );
 
     const initial = [
-      ...responsive.plan(ordinaryInputs, completeContext, (input, itemContext) =>
-        this.planOne(input, itemContext, renderer),
-      ),
-      ...this.planVisibility(visibilityInputs, renderer, catalog),
-      ...this.planExtendedFamilies(extendedInputs, completeContext, renderer, catalog),
+      ...responsive.plan(ordinaryInputs, completeContext, (input, itemContext) => this.planOne(input, itemContext)),
+      ...this.planVisibility(visibilityInputs, catalog),
+      ...this.planExtendedFamilies(extendedInputs, completeContext, catalog, sourceEvidence),
     ];
     const initialById = new Map(initial.map(plan => [plan.input.id, plan]));
     let closed: readonly SemanticPlanningPlan[] = inputs.map(
-      input => initialById.get(input.id) ?? this.planOne(input, completeContext, renderer),
+      input => initialById.get(input.id) ?? this.planOne(input, completeContext),
     );
-    closed = this.closeResponsiveDependencies(closed, completeContext, renderer, responsive);
-    closed = this.closeDisplayDependencies(closed, renderer.target);
-    closed = this.closeResponsiveDependencies(closed, completeContext, renderer, responsive);
-    closed = this.closeDisplayDependencies(closed, renderer.target);
+    closed = this.closeResponsiveDependencies(closed, completeContext, responsive);
+    closed = this.closeResponsiveDependencies(closed, completeContext, responsive);
     closed = this.closeGridContainerDependencies(closed);
     closed = this.assignGridDisplayOwnership(closed);
-    closed = new SemanticFamilyCompositionPlanner(
-      catalog,
-      renderer.sourcePropertyEvidence ?? unknownSourcePropertyEvidence,
-    ).compose(closed, completeContext);
+    closed = new SemanticFamilyCompositionPlanner(catalog, sourceEvidence).compose(closed, completeContext);
 
-    return closed.map(plan => (plan.status === 'converted' ? renderer.render(plan, completeContext) : plan));
+    return closed;
   }
 
-  closeDependencies(
-    plans: readonly PlannedConversion[],
+  closeDependencies<TConverted extends { readonly status: 'converted'; readonly input: LocatedFlexLayoutInput }>(
+    plans: readonly SemanticDependencyPlan<TConverted>[],
     context: SemanticConversionContext,
-    plansByInputId: ReadonlyMap<string, PlannedConversion>,
+    plansByInputId: ReadonlyMap<string, SemanticDependencyPlan<TConverted>>,
     sourceEvidence: SourcePropertyEvidence = unknownSourcePropertyEvidence,
-  ): readonly PlannedConversion[] {
+  ): readonly SemanticDependencyPlan<TConverted>[] {
     let closed = this.closeRenderedFamilies(plans);
     closed = this.closeRenderedDisplayDependencies(closed, sourceEvidence);
     closed = this.closeRenderedFamilies(closed);
@@ -422,13 +384,20 @@ export class ElementSemanticPlanner {
     return this.closeGridParentDependencies(closed, context, plansByInputId);
   }
 
-  private planOne(
-    input: LocatedFlexLayoutInput,
-    context: SemanticConversionContext,
-    renderer: ConversionRenderer,
-  ): SemanticPlanningPlan {
-    const eligibility = rendererEligibility(renderer, input);
-    if (eligibility) return eligibility;
+  closeSiblingFamilies<TConverted extends { readonly status: 'converted'; readonly input: LocatedFlexLayoutInput }>(
+    plans: readonly SemanticDependencyPlan<TConverted>[],
+  ): readonly SemanticDependencyPlan<TConverted>[] {
+    return this.closeRenderedFamilies(plans);
+  }
+
+  closeDisplayDependencies<TConverted extends { readonly status: 'converted'; readonly input: LocatedFlexLayoutInput }>(
+    plans: readonly SemanticDependencyPlan<TConverted>[],
+    sourceEvidence: SourcePropertyEvidence = unknownSourcePropertyEvidence,
+  ): readonly SemanticDependencyPlan<TConverted>[] {
+    return this.closeRenderedDisplayDependencies(plans, sourceEvidence);
+  }
+
+  private planOne(input: LocatedFlexLayoutInput, context: SemanticConversionContext): SemanticPlanningPlan {
     if (input.binding === 'property') return dynamicBinding(input);
 
     if (input.directive === 'fxLayout') {
@@ -468,7 +437,7 @@ export class ElementSemanticPlanner {
       status: 'unsupported',
       input,
       code: 'target-unsupported',
-      reason: `The ${renderer.target === 'css' ? 'CSS' : 'Tailwind'} target does not support ${input.directive}.`,
+      reason: `No shared semantic family supports ${input.directive}.`,
       suggestion: 'Keep the directive and migrate it manually.',
     };
   }
@@ -541,19 +510,11 @@ export class ElementSemanticPlanner {
 
   private planVisibility(
     inputs: readonly LocatedFlexLayoutInput[],
-    renderer: ConversionRenderer,
     catalog: BreakpointCatalog,
   ): readonly SemanticPlanningPlan[] {
-    const eligibility = new Map(inputs.map(input => [input.id, rendererEligibility(renderer, input)]));
-    if ([...eligibility.values()].some(plan => plan !== undefined)) {
-      return inputs.map(input => eligibility.get(input.id) ?? visibilityContextUnverified(input));
-    }
-
     const familyPlan = new VisibilityStatePlanner(catalog).plan(inputs);
     if (familyPlan.status === 'unresolved') {
-      return familyPlan.plans.map(plan =>
-        plan.status === 'converted' ? visibilityContextUnverified(plan.input) : plan,
-      );
+      return familyPlan.plans;
     }
     const states = familyPlan.states.map(state => ({ intent: state.intent, activation: state.activation }));
     const owner = familyPlan.states[0]?.input.id;
@@ -566,12 +527,11 @@ export class ElementSemanticPlanner {
   private planExtendedFamilies(
     inputs: readonly LocatedFlexLayoutInput[],
     context: SemanticConversionContext,
-    renderer: ConversionRenderer,
     catalog: BreakpointCatalog,
+    sourceEvidence: SourcePropertyEvidence,
   ): readonly SemanticPlanningPlan[] {
     const plansById = new Map<string, SemanticPlanningPlan>();
     const familyPlanner = new ExtendedFamilyPlanner(catalog);
-    const sourceEvidence = renderer.sourcePropertyEvidence ?? unknownSourcePropertyEvidence;
     const semanticPlanner = new ExtendedSemanticPlanner(sourceEvidence);
 
     for (const family of ['extended-class', 'extended-style'] as const) {
@@ -581,18 +541,6 @@ export class ElementSemanticPlanner {
           : extendedStyleDirectives.has(input.directive),
       );
       if (!familyInputs.length) continue;
-      const eligibility = new Map(familyInputs.map(input => [input.id, rendererEligibility(renderer, input)]));
-      if ([...eligibility.values()].some(plan => plan !== undefined)) {
-        for (const input of familyInputs) {
-          plansById.set(
-            input.id,
-            eligibility.get(input.id) ??
-              contextUnverified(input, 'Another member of this responsive family is unresolved.'),
-          );
-        }
-        continue;
-      }
-
       if (family === 'extended-class') {
         const familyPlan = familyPlanner.plan<SemanticResponsiveClassValue>({
           kind: 'class',
@@ -607,23 +555,13 @@ export class ElementSemanticPlanner {
         });
         if (familyPlan.status === 'unresolved') {
           for (const plan of familyPlan.plans) {
-            plansById.set(
-              plan.input.id,
-              plan.status === 'converted'
-                ? contextUnverified(plan.input, 'Another member of this responsive family is unresolved.')
-                : plan,
-            );
+            plansById.set(plan.input.id, plan);
           }
           continue;
         }
         if (decision.status === 'unresolved') {
           for (const plan of decision.plans) {
-            plansById.set(
-              plan.input.id,
-              plan.status === 'converted'
-                ? contextUnverified(plan.input, 'Another member of this responsive family is unresolved.')
-                : plan,
-            );
+            plansById.set(plan.input.id, plan);
           }
           continue;
         }
@@ -662,23 +600,13 @@ export class ElementSemanticPlanner {
       });
       if (familyPlan.status === 'unresolved') {
         for (const plan of familyPlan.plans) {
-          plansById.set(
-            plan.input.id,
-            plan.status === 'converted'
-              ? contextUnverified(plan.input, 'Another member of this responsive family is unresolved.')
-              : plan,
-          );
+          plansById.set(plan.input.id, plan);
         }
         continue;
       }
       if (decision.status === 'unresolved') {
         for (const plan of decision.plans) {
-          plansById.set(
-            plan.input.id,
-            plan.status === 'converted'
-              ? contextUnverified(plan.input, 'Another member of this responsive family is unresolved.')
-              : plan,
-          );
+          plansById.set(plan.input.id, plan);
         }
         continue;
       }
@@ -705,7 +633,6 @@ export class ElementSemanticPlanner {
   private closeResponsiveDependencies(
     plans: readonly SemanticPlanningPlan[],
     context: SemanticConversionContext,
-    renderer: ConversionRenderer,
     responsive: ResponsiveFamilyPlanner<SemanticPlanningPlan>,
   ): readonly SemanticPlanningPlan[] {
     const responsiveInputs = plans.map(plan => plan.input).filter(input => !extendedDirectives.has(input.directive));
@@ -713,36 +640,10 @@ export class ElementSemanticPlanner {
     const closed = responsive.closeDependencies(
       responsiveInputs,
       context,
-      (input, itemContext) => current.get(input.id) ?? this.planOne(input, itemContext, renderer),
+      (input, itemContext) => current.get(input.id) ?? this.planOne(input, itemContext),
     );
     const closedById = new Map(closed.map(plan => [plan.input.id, plan]));
     return plans.map(plan => closedById.get(plan.input.id) ?? plan);
-  }
-
-  private closeDisplayDependencies(
-    plans: readonly SemanticPlanningPlan[],
-    target: ConversionRenderer['target'],
-  ): readonly SemanticPlanningPlan[] {
-    if (target === 'tailwind') return plans;
-    const layoutPlans = plans.filter(plan => plan.input.directive === 'fxLayout');
-    const visibilityPlans = plans.filter(plan => visibilityDirectives.has(plan.input.directive));
-    const authorityPlans: readonly SemanticPlanningPlan[] = [];
-    const visibilityIsNoOp =
-      visibilityPlans.length > 0 &&
-      visibilityPlans.every(
-        plan =>
-          plan.status === 'converted' &&
-          plan.family === 'visibility' &&
-          (plan.value as VisibilitySemantics).states.every(state => state.intent === 'shown'),
-      );
-    if ((!layoutPlans.length && !authorityPlans.length) || !visibilityPlans.length || visibilityIsNoOp) return plans;
-    if (![...layoutPlans, ...visibilityPlans, ...authorityPlans].some(plan => plan.status !== 'converted'))
-      return plans;
-
-    const affected = new Set([...layoutPlans, ...visibilityPlans, ...authorityPlans].map(plan => plan.input.id));
-    return plans.map(plan =>
-      plan.status === 'converted' && affected.has(plan.input.id) ? displayContextUnverified(plan.input) : plan,
-    );
   }
 
   private closeGridContainerDependencies(plans: readonly SemanticPlanningPlan[]): readonly SemanticPlanningPlan[] {
@@ -777,8 +678,10 @@ export class ElementSemanticPlanner {
     );
   }
 
-  private closeRenderedFamilies(plans: readonly PlannedConversion[]): readonly PlannedConversion[] {
-    const groups = new Map<DirectiveFamily, PlannedConversion[]>();
+  private closeRenderedFamilies<
+    TConverted extends { readonly status: 'converted'; readonly input: LocatedFlexLayoutInput },
+  >(plans: readonly SemanticDependencyPlan<TConverted>[]): readonly SemanticDependencyPlan<TConverted>[] {
+    const groups = new Map<DirectiveFamily, SemanticDependencyPlan<TConverted>[]>();
     for (const plan of plans) {
       const family = directiveFamily(plan.input.directive);
       if (!family) continue;
@@ -809,10 +712,12 @@ export class ElementSemanticPlanner {
     return closed;
   }
 
-  private closeRenderedDisplayDependencies(
-    plans: readonly PlannedConversion[],
+  private closeRenderedDisplayDependencies<
+    TConverted extends { readonly status: 'converted'; readonly input: LocatedFlexLayoutInput },
+  >(
+    plans: readonly SemanticDependencyPlan<TConverted>[],
     evidence: SourcePropertyEvidence,
-  ): readonly PlannedConversion[] {
+  ): readonly SemanticDependencyPlan<TConverted>[] {
     const layoutPlans = plans.filter(plan => plan.input.directive === 'fxLayout');
     const visibilityPlans = plans.filter(plan => visibilityDirectives.has(plan.input.directive));
     const authorityPlans = plans.filter(
@@ -833,16 +738,18 @@ export class ElementSemanticPlanner {
     );
   }
 
-  private closeParentLayoutDependencies(
-    plans: readonly PlannedConversion[],
+  private closeParentLayoutDependencies<
+    TConverted extends { readonly status: 'converted'; readonly input: LocatedFlexLayoutInput },
+  >(
+    plans: readonly SemanticDependencyPlan<TConverted>[],
     context: SemanticConversionContext,
-    plansByInputId: ReadonlyMap<string, PlannedConversion>,
-  ): readonly PlannedConversion[] {
+    plansByInputId: ReadonlyMap<string, SemanticDependencyPlan<TConverted>>,
+  ): readonly SemanticDependencyPlan<TConverted>[] {
     if (!plans.some(plan => parentLayoutDependentDirectives.has(plan.input.directive))) return plans;
     const parentContextInputs = context.parentInputs.filter(input => localLayoutDirectives.has(input.directive));
     const knownParentPlans = parentContextInputs
       .map(input => plansByInputId.get(input.id))
-      .filter((plan): plan is PlannedConversion => plan !== undefined);
+      .filter((plan): plan is SemanticDependencyPlan<TConverted> => plan !== undefined);
     if (!knownParentPlans.some(plan => plan.status !== 'converted')) return plans;
     return plans.map(plan =>
       plan.status === 'converted' && parentLayoutDependentDirectives.has(plan.input.directive)
@@ -851,11 +758,13 @@ export class ElementSemanticPlanner {
     );
   }
 
-  private closeGridParentDependencies(
-    plans: readonly PlannedConversion[],
+  private closeGridParentDependencies<
+    TConverted extends { readonly status: 'converted'; readonly input: LocatedFlexLayoutInput },
+  >(
+    plans: readonly SemanticDependencyPlan<TConverted>[],
     context: SemanticConversionContext,
-    plansByInputId: ReadonlyMap<string, PlannedConversion>,
-  ): readonly PlannedConversion[] {
+    plansByInputId: ReadonlyMap<string, SemanticDependencyPlan<TConverted>>,
+  ): readonly SemanticDependencyPlan<TConverted>[] {
     if (!plans.some(plan => gridChildDirectives.has(plan.input.directive))) return plans;
     const parentGridInputs = context.parentInputs.filter(
       input => gridContainerDirectives.has(input.directive) || input.directive === 'gdInline',
@@ -873,7 +782,7 @@ export class ElementSemanticPlanner {
     );
   }
 
-  private catalog(renderer: ConversionRenderer): BreakpointCatalog {
-    return new BreakpointCatalog(this.breakpointConfig ?? renderer.breakpointConfig ?? defaultSemanticBreakpointConfig);
+  private catalog(override?: BreakpointMigrationConfig): BreakpointCatalog {
+    return new BreakpointCatalog(this.breakpointConfig ?? override ?? defaultSemanticBreakpointConfig);
   }
 }

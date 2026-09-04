@@ -66,7 +66,7 @@ const slice3WorkloadRows = [
 const slice4InventoryRows = [
   ['Production TypeScript files', '122', '165'],
   ['Runtime dependency entries', '5', '5'],
-  ['Static internal and runtime external or built-in module edges', '416', '621'],
+  ['Static internal and runtime external or built-in module edges', '416', '619'],
   ['Known policy owners', '6', '6'],
 ] as const;
 
@@ -84,8 +84,17 @@ const renderLifecycleRows = [
   ['Single-file Tailwind write', '1', '1', '1', '1'],
   ['Two-file CSS folder plan', '2', '2', '2', '1'],
   ['Two-file CSS folder write', '2', '2', '2', '1'],
-  ['Unchanged Tailwind rerun', '1', '1', '0', '1'],
-  ['Unchanged CSS folder rerun', '2', '2', '0', '1'],
+  ['Unchanged Tailwind rerun', '1', '1', '1', '1'],
+  ['Unchanged CSS folder rerun', '2', '2', '2', '1'],
+] as const;
+
+const targetRenderRows = [
+  ['Single-file Tailwind plan', '1', '1'],
+  ['Single-file Tailwind write', '1', '1'],
+  ['Two-file CSS folder plan', '2', '2'],
+  ['Two-file CSS folder write', '2', '2'],
+  ['Unchanged Tailwind rerun', '1', '1'],
+  ['Unchanged CSS folder rerun', '2', '2'],
 ] as const;
 
 const policyOwnerRows = [
@@ -256,6 +265,7 @@ describe('enterprise architecture baseline documentation contract', () => {
       'Behavior oracle',
       'Workload counters',
       'Render lifecycle counters',
+      'Target render counters',
       'Inventory evidence',
       'Policy owners',
       'Benchmark method',
@@ -271,6 +281,7 @@ describe('enterprise architecture baseline documentation contract', () => {
     expect(markdown).toMatch(/npm: `\d+\.\d+\.\d+`/u);
     expect(tableRows(markdown, 'Workload counters')).toEqual(slice3WorkloadRows);
     expect(tableRows(markdown, 'Render lifecycle counters')).toEqual(renderLifecycleRows);
+    expect(tableRows(markdown, 'Target render counters')).toEqual(targetRenderRows);
     expect(tableRows(markdown, 'Inventory evidence')).toEqual(slice4InventoryRows);
     expect(tableRows(markdown, 'Policy owners')).toEqual(slice4PolicyOwnerRows);
     expect(tableRows(markdown, 'Benchmark results').map(row => row[0])).toEqual([

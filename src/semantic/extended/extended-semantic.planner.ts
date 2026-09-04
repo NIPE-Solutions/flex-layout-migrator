@@ -1,10 +1,10 @@
 import type { LocatedFlexLayoutInput } from '../../analyzer/flex-layout-attribute.analyzer';
-import type { PlannedConversion } from '../../adapter/conversion-adapter';
 import { templateAttributeKeys } from '../../template/template-attribute';
 import type { TemplateAttribute } from '../../template/template.model';
 import { cssPropertiesOverlap } from '../css-property-ownership';
 import { parseLiteralStyleDeclarations } from '../literal-style-declaration';
 import type { SourceClassTokenEvidence, SourcePropertyEvidence } from '../source-property-evidence';
+import type { UnresolvedSemanticPlan } from '../semantic-plan';
 import type { ExtendedFamilyPlan, ExtendedResponsiveState } from './responsive-class.model';
 import { parseLiteralResponsiveClassValue, type SemanticResponsiveClassValue } from './responsive-class-value.parser';
 import type { ResponsiveStyleValue } from './responsive-style.model';
@@ -34,7 +34,7 @@ export type ExtendedSemanticPlan =
       readonly ownerInputId?: string;
       readonly retainedTokens: readonly SourceClassTokenEvidence[];
     }
-  | { readonly status: 'unresolved'; readonly plans: readonly PlannedConversion[] };
+  | { readonly status: 'unresolved'; readonly plans: readonly UnresolvedSemanticPlan[] };
 
 type AnyExtendedState =
   ExtendedResponsiveState<SemanticResponsiveClassValue> | ExtendedResponsiveState<ResponsiveStyleValue>;
@@ -90,7 +90,7 @@ function diagnostic(
   code: 'bound-class' | 'class-conflict' | 'tailwind-candidate-unverified' | 'style-value-unverified',
   reason: string,
   suggestion: string,
-): PlannedConversion {
+): UnresolvedSemanticPlan {
   return { status: 'review', input, code, reason, suggestion };
 }
 

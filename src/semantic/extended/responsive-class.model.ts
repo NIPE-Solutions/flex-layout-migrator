@@ -1,6 +1,6 @@
 import type { LocatedFlexLayoutInput } from '../../analyzer/flex-layout-attribute.analyzer';
 import type { BreakpointDefinition } from '../../breakpoint/breakpoint-catalog';
-import type { PlannedConversion } from '../../adapter/conversion-adapter';
+import type { UnresolvedSemanticPlan } from '../semantic-plan';
 
 export interface ResponsiveClassValue {
   readonly tokens: readonly string[];
@@ -20,7 +20,7 @@ export type ExtendedResponsiveKind = 'class' | 'style';
 
 export type ExtendedFamilyPlan<T> =
   | { readonly status: 'converted'; readonly states: readonly ExtendedResponsiveState<T>[] }
-  | { readonly status: 'unresolved'; readonly plans: readonly PlannedConversion[] };
+  | { readonly status: 'unresolved'; readonly plans: readonly UnresolvedSemanticPlan[] };
 
 export interface ExtendedFamilyPlanRequest<T> {
   readonly kind: ExtendedResponsiveKind;

@@ -1,6 +1,5 @@
 import type { LocatedFlexLayoutInput } from '../analyzer/flex-layout-attribute.analyzer';
 import { mediaRangesIntersect, type BreakpointCatalog, type MediaRange } from '../breakpoint/breakpoint-catalog';
-import type { PlannedConversion } from '../adapter/conversion-adapter';
 import type { FlexFillSemantics } from '../flex/flex-fill.semantic';
 import type { FlexItemSemantics } from '../flex/flex-item.semantic';
 import type { FlexOffsetSemantics } from '../flex/flex-offset.semantic';
@@ -17,14 +16,14 @@ import {
   type ExtendedClassSemantics,
   type ExtendedStyleSemantics,
   type ResolvedSemanticPlan,
+  type UnresolvedSemanticPlan,
   type SemanticActivation,
   type SuppressedSemanticEffect,
   type VisibilitySemantics,
 } from './semantic-plan';
 import { type SourceClassTokenEvidence, type SourcePropertyEvidence } from './source-property-evidence';
 
-type UnresolvedConversion = Exclude<PlannedConversion, { readonly status: 'converted' }>;
-export type SemanticCompositionPlan = ResolvedSemanticPlan | UnresolvedConversion;
+export type SemanticCompositionPlan = ResolvedSemanticPlan | UnresolvedSemanticPlan;
 
 type PropertyAuthority = 'source-class' | 'source-inline' | 'semantic-replacement';
 
@@ -128,7 +127,7 @@ function propertiesEqual(left: readonly string[], right: readonly string[]): boo
   return left.length === right.length && left.every((property, index) => property === right[index]);
 }
 
-function contextUnverified(input: LocatedFlexLayoutInput, reason: string): UnresolvedConversion {
+function contextUnverified(input: LocatedFlexLayoutInput, reason: string): UnresolvedSemanticPlan {
   return {
     status: 'review',
     input,
@@ -138,7 +137,7 @@ function contextUnverified(input: LocatedFlexLayoutInput, reason: string): Unres
   };
 }
 
-function generatedOwnershipUnverified(input: LocatedFlexLayoutInput): UnresolvedConversion {
+function generatedOwnershipUnverified(input: LocatedFlexLayoutInput): UnresolvedSemanticPlan {
   return {
     status: 'review',
     input,
@@ -148,7 +147,7 @@ function generatedOwnershipUnverified(input: LocatedFlexLayoutInput): Unresolved
   };
 }
 
-function displayRestorationUnverified(input: LocatedFlexLayoutInput, reason: string): UnresolvedConversion {
+function displayRestorationUnverified(input: LocatedFlexLayoutInput, reason: string): UnresolvedSemanticPlan {
   return {
     status: 'review',
     input,
@@ -158,7 +157,7 @@ function displayRestorationUnverified(input: LocatedFlexLayoutInput, reason: str
   };
 }
 
-function partialDisplayContextUnverified(input: LocatedFlexLayoutInput): UnresolvedConversion {
+function partialDisplayContextUnverified(input: LocatedFlexLayoutInput): UnresolvedSemanticPlan {
   return {
     status: 'review',
     input,
@@ -470,7 +469,7 @@ function addSuppression(plan: ResolvedSemanticPlan, effect: PropertyEffect): Res
 function updatePlans(
   plans: readonly SemanticCompositionPlan[],
   unsafeFamilies: ReadonlySet<DirectiveFamily>,
-  diagnostic: (input: LocatedFlexLayoutInput) => UnresolvedConversion,
+  diagnostic: (input: LocatedFlexLayoutInput) => UnresolvedSemanticPlan,
   suppressed: readonly PropertyEffect[] = [],
 ): readonly SemanticCompositionPlan[] {
   const suppressedByPlan = new Map<string, PropertyEffect[]>();

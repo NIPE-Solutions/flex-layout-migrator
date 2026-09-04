@@ -2,10 +2,10 @@ import { readFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 
 import {
+  createTypeScriptProjectInspectionSession,
   inspectTypeScript,
   inspectTypeScriptProject,
   inspectSemanticAuthorityCalls,
-  inspectRuntimeSymbolProvenance,
   productionTypeScriptFiles,
   type TypeScriptInspection,
   type TypeScriptProjectInspection,
@@ -183,20 +183,24 @@ describe('migration transaction architecture boundary', { timeout: wholeProjectI
   });
 
   test('keeps Migrator downstream of semantic planning, rendering, and render-session finalization', () => {
-    const forbiddenRuntimeSymbols = inspectRuntimeSymbolProvenance([migratorPath]).filter(symbol =>
-      [
-        join(productionRoot, 'semantic'),
-        join(productionRoot, 'render'),
-        join(productionRoot, 'planner', 'conversion-planner.ts'),
-        join(productionRoot, 'adapter', 'conversion-adapter.session.ts'),
-      ].some(namespace => symbol.declarationPath === namespace || symbol.declarationPath.startsWith(`${namespace}/`)),
-    );
-    const renderAuthorities = inspectSemanticAuthorityCalls([migratorPath]).filter(
-      call => call.name === 'RenderProjectStage.run' || call.name === 'RenderSession.finalize',
-    );
+    const migratorInspection = createTypeScriptProjectInspectionSession([migratorPath]);
+    const forbiddenRuntimeSymbols = migratorInspection
+      .inspectRuntimeSymbolProvenance()
+      .filter(symbol =>
+        [
+          join(productionRoot, 'semantic'),
+          join(productionRoot, 'render'),
+          join(productionRoot, 'planner', 'conversion-planner.ts'),
+          join(productionRoot, 'adapter', 'conversion-adapter.session.ts'),
+        ].some(namespace => symbol.declarationPath === namespace || symbol.declarationPath.startsWith(`${namespace}/`)),
+      );
+    const renderAuthorities = migratorInspection
+      .inspectSemanticAuthorityCalls()
+      .filter(call => call.name === 'RenderProjectStage.run' || call.name === 'RenderSession.finalize');
 
     expect(forbiddenRuntimeSymbols).toEqual([]);
     expect(renderAuthorities).toEqual([]);
+    expect(migratorInspection.programConstructionCount).toBe(1);
   });
 
   test('reserves AtomicFileWriter for the independent JSON report', () => {

@@ -115,9 +115,7 @@ describe('VisibilityStatePlanner', () => {
     if (result.status !== 'unresolved') throw new Error('Expected the visibility family to be unresolved.');
     expect(result.plans).toHaveLength(members.length);
     expect(result.plans.every(item => item.status === 'review')).toBe(true);
-    expect(
-      result.plans.every(item => item.status !== 'converted' && item.code === 'responsive-precedence-unverified'),
-    ).toBe(true);
+    expect(result.plans.every(item => item.code === 'responsive-precedence-unverified')).toBe(true);
     expect(result.plans.map(item => item.input.id)).toEqual([
       'fixture:fxShow',
       'fixture:fxShow.sm',
@@ -144,9 +142,7 @@ describe('VisibilityStatePlanner', () => {
     expect(result).toMatchObject({ status: 'unresolved' });
     if (result.status !== 'unresolved') throw new Error('Expected the visibility family to be unresolved.');
     expect(result.plans).toHaveLength(2);
-    expect(
-      result.plans.every(item => item.status !== 'converted' && item.code === 'responsive-precedence-unverified'),
-    ).toBe(true);
+    expect(result.plans.every(item => item.code === 'responsive-precedence-unverified')).toBe(true);
   });
 
   test('normalizes mixed fxShow and fxHide declarations before comparing their intent', () => {

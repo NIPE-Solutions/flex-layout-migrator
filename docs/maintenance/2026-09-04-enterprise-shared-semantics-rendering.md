@@ -37,7 +37,7 @@ The existing scenario names and counter columns remain unchanged. Original templ
 
 ## Render lifecycle counters
 
-The production counter harness records one semantic planning pass for every parsed template, one target-render call for every converted family, and one target-session finalization per invocation. Unchanged reruns still plan each parsed template, but produce no converted family and require no generated-template validation parse.
+The production counter harness records one semantic planning pass for every parsed template, one target-render call for every converted family, and one target-session finalization per invocation. An unchanged rerun means the newly rendered proposal already matches the destination; it still resolves and renders each source family and validates each generated template before the transaction determines that no project write is needed.
 
 | Scenario                   | Parsed templates | Semantic planning passes | Validation parses | Session finalizations |
 | -------------------------- | ---------------: | -----------------------: | ----------------: | --------------------: |
@@ -45,8 +45,8 @@ The production counter harness records one semantic planning pass for every pars
 | Single-file Tailwind write |                1 |                        1 |                 1 |                     1 |
 | Two-file CSS folder plan   |                2 |                        2 |                 2 |                     1 |
 | Two-file CSS folder write  |                2 |                        2 |                 2 |                     1 |
-| Unchanged Tailwind rerun   |                1 |                        1 |                 0 |                     1 |
-| Unchanged CSS folder rerun |                2 |                        2 |                 0 |                     1 |
+| Unchanged Tailwind rerun   |                1 |                        1 |                 1 |                     1 |
+| Unchanged CSS folder rerun |                2 |                        2 |                 2 |                     1 |
 
 ## Target render counters
 
@@ -56,8 +56,8 @@ The production counter harness records one semantic planning pass for every pars
 | Single-file Tailwind write |                  1 |              1 |
 | Two-file CSS folder plan   |                  2 |              2 |
 | Two-file CSS folder write  |                  2 |              2 |
-| Unchanged Tailwind rerun   |                  0 |              0 |
-| Unchanged CSS folder rerun |                  0 |              0 |
+| Unchanged Tailwind rerun   |                  1 |              1 |
+| Unchanged CSS folder rerun |                  2 |              2 |
 
 Stored original parse failures bypass semantic planning, target rendering, and changed-template validation. A render or asynchronous validation rejection prevents session finalization.
 
@@ -69,7 +69,7 @@ Generated with `npm run architecture:inventory -- --json <temporary-path>` from 
 | ------------------------------------------------------------- | ---------------: | ------: |
 | Production TypeScript files                                   |              122 |     165 |
 | Runtime dependency entries                                    |                5 |       5 |
-| Static internal and runtime external or built-in module edges |              416 |     621 |
+| Static internal and runtime external or built-in module edges |              416 |     619 |
 | Known policy owners                                           |                6 |       6 |
 
 The file and edge increases are the immutable stage handoffs, Discover/Analyze/Render stages and ports, shared semantic planners, target renderers, compatibility validation boundary, and structural safeguards delivered through Slices 2–4. Slice 4 deletes the superseded adapter responsive-family barrel. It adds no runtime dependency or Changeset; `ignore` remains the single known undeclared runtime import reserved for Slice 8.
@@ -85,7 +85,7 @@ The file and edge increases are the immutable stage handoffs, Discover/Analyze/R
 | semantic planning         | `src/semantic/element-semantic.planner.ts`  | `ElementSemanticPlanner`  |
 | transaction recovery      | `src/transaction/migration-transaction.ts`  | `MigrationTransaction`    |
 
-Resolved-symbol architecture checks additionally prove that the responsive owner above is canonical through runtime exports and aliases, semantic modules have no target or side-effect dependency, only `RenderProjectStage` calls `RenderSession.finalize`, and `Migrator` has no runtime semantic, rendering, conversion-planner, or adapter-session import.
+Resolved-symbol architecture checks additionally prove that the responsive owner above is the only canonical declaration through direct declarations, runtime exports, barrels, and aliases; semantic modules have no type or runtime dependency on targets or side-effect layers; renderer eligibility, render, conflict, and record calls stay in the external coordinator; only `RenderProjectStage` calls interface or concrete render-session finalization; and `Migrator` has no runtime semantic, rendering, conversion-planner, or adapter-session import. Related inspections share one immutable TypeScript Program per scenario, with deterministic construction-count assertions preserving fixture isolation.
 
 ## Benchmark method
 

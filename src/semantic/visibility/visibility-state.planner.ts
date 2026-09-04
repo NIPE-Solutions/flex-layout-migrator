@@ -4,21 +4,21 @@ import {
   mediaDefinitionsIntersect,
   type BreakpointClassification,
 } from '../../breakpoint/breakpoint-catalog';
-import type { PlannedConversion } from '../../adapter/conversion-adapter';
+import type { UnresolvedSemanticPlan } from '../semantic-plan';
 import type { VisibilityState } from './visibility.model';
 import { parseVisibilityValue } from './visibility-value.parser';
 
 export type VisibilityFamilyPlan =
   | { readonly status: 'converted'; readonly states: readonly VisibilityState[] }
-  | { readonly status: 'unresolved'; readonly plans: readonly PlannedConversion[] };
+  | { readonly status: 'unresolved'; readonly plans: readonly UnresolvedSemanticPlan[] };
 
 type ClassifiedMember =
   | { readonly input: LocatedFlexLayoutInput; readonly state: VisibilityState }
-  | { readonly input: LocatedFlexLayoutInput; readonly plan: PlannedConversion };
+  | { readonly input: LocatedFlexLayoutInput; readonly plan: UnresolvedSemanticPlan };
 
 type ClassifiedState = Extract<ClassifiedMember, { readonly state: VisibilityState }>;
 
-function dynamicBinding(input: LocatedFlexLayoutInput): PlannedConversion {
+function dynamicBinding(input: LocatedFlexLayoutInput): UnresolvedSemanticPlan {
   return {
     status: 'review',
     input,
@@ -31,7 +31,7 @@ function dynamicBinding(input: LocatedFlexLayoutInput): PlannedConversion {
 function unresolvedBreakpoint(
   input: LocatedFlexLayoutInput,
   classification: Exclude<BreakpointClassification, { readonly kind: 'verified' }>,
-): PlannedConversion {
+): UnresolvedSemanticPlan {
   if (classification.kind === 'custom') {
     return {
       status: 'review',
@@ -55,7 +55,7 @@ function unresolvedBreakpoint(
   };
 }
 
-function contextUnverified(input: LocatedFlexLayoutInput): PlannedConversion {
+function contextUnverified(input: LocatedFlexLayoutInput): UnresolvedSemanticPlan {
   return {
     status: 'review',
     input,
@@ -65,7 +65,7 @@ function contextUnverified(input: LocatedFlexLayoutInput): PlannedConversion {
   };
 }
 
-function responsivePrecedenceUnverified(input: LocatedFlexLayoutInput): PlannedConversion {
+function responsivePrecedenceUnverified(input: LocatedFlexLayoutInput): UnresolvedSemanticPlan {
   return {
     status: 'review',
     input,

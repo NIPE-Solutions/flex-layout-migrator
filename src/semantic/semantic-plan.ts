@@ -132,6 +132,23 @@ export interface ResolvedSemanticPlan {
   readonly emitGridDisplay?: boolean;
 }
 
+/** A target-free diagnostic produced while resolving semantic meaning and dependencies. */
+export interface UnresolvedSemanticPlan {
+  readonly status: 'review' | 'invalid' | 'unsupported';
+  readonly input: LocatedFlexLayoutInput;
+  readonly code: DiagnosticCode;
+  readonly reason: string;
+  readonly suggestion: string;
+}
+
+/** The complete target-independent outcome of semantic planning. */
+export type SemanticPlanningPlan = ResolvedSemanticPlan | UnresolvedSemanticPlan;
+
+/** Lets dependency closure operate on semantic plans before rendering and target plans afterward. */
+export type SemanticDependencyPlan<
+  TConverted extends { readonly status: 'converted'; readonly input: LocatedFlexLayoutInput },
+> = TConverted | UnresolvedSemanticPlan;
+
 const familyByDirective = new Map<LocatedFlexLayoutInput['directive'], DirectiveFamily>([
   ['fxLayout', 'layout'],
   ['fxLayoutGap', 'layout-gap'],

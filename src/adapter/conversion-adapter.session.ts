@@ -1,7 +1,7 @@
 import type { LocatedFlexLayoutInput } from '../analyzer/flex-layout-attribute.analyzer';
 import type { BreakpointMigrationConfig } from '../config/breakpoint-migration-config';
 import type { ConversionRenderer } from '../render/conversion-renderer';
-import { TailwindRenderSession, type AdapterSessionResult, type RenderSession } from '../render/render-session';
+import { TailwindRenderSession, type RenderSession } from '../render/render-session';
 import type { ConversionAdapter, ConversionContext, PlannedConversion } from './conversion-adapter';
 import { TailwindAdapter } from './tailwind/tailwind.adapter';
 
@@ -84,25 +84,11 @@ export function sessionBoundAdapter(
 }
 
 /** @deprecated Use TailwindRenderSession. */
-export class TailwindAdapterSession implements ConversionAdapterSession {
-  readonly renderer: ConversionRenderer;
+export class TailwindAdapterSession extends TailwindRenderSession implements ConversionAdapterSession {
   readonly adapter: CompatibilityConversionAdapter;
-  private readonly delegate: TailwindRenderSession;
-  private finalized = false;
 
   constructor(config: BreakpointMigrationConfig = { orientationBreakpoints: false }) {
-    this.delegate = new TailwindRenderSession(config);
-    this.renderer = this.delegate.renderer;
+    super(config);
     this.adapter = sessionBoundAdapter(new TailwindAdapter(this.renderer), () => this.assertActive());
-  }
-
-  finalize(): AdapterSessionResult {
-    if (this.finalized) throw new Error('Render session already finalized');
-    this.finalized = true;
-    return this.delegate.finalize();
-  }
-
-  private assertActive(): void {
-    if (this.finalized) throw new Error('Render session is finalized');
   }
 }

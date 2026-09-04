@@ -3,6 +3,9 @@ import type { ConversionContext, PlannedConversion } from '../adapter/conversion
 import type { ConversionRenderer } from '../render/conversion-renderer';
 import type { SemanticConversionContext } from '../semantic/conversion-context';
 import { ElementSemanticPlanner } from '../semantic/element-semantic.planner';
+import type { ResolvedSemanticPlan, UnresolvedSemanticPlan } from '../semantic/semantic-plan';
+
+type TargetDiagnostic = Exclude<PlannedConversion, { readonly status: 'converted' }>;
 
 const familyContextDirectives = new Set<LocatedFlexLayoutInput['directive']>([
   'fxShow',
@@ -49,7 +52,10 @@ export class SemanticRenderCoordinator {
 
   constructor(
     readonly renderer: ConversionRenderer,
-    semanticPlanner: ElementSemanticPlanner = new ElementSemanticPlanner(renderer.breakpointConfig),
+    semanticPlanner: ElementSemanticPlanner = new ElementSemanticPlanner(
+      renderer.breakpointConfig,
+      renderer.sourcePropertyEvidence,
+    ),
   ) {
     this.semanticPlanner = semanticPlanner;
   }
@@ -61,7 +67,7 @@ export class SemanticRenderCoordinator {
     const plan = this.planElement(inputs, semanticContext, false).find(candidate => candidate.input.id === input.id);
     if (!plan) throw new Error(`${this.renderer.target} renderer did not plan input ${input.id}`);
     const result = reason !== undefined && plan.status === 'converted' ? contextUnverified(input, reason) : plan;
-    this.renderer.record([result]);
+    this.record([result]);
     return result;
   }
 
@@ -71,10 +77,26 @@ export class SemanticRenderCoordinator {
     record = true,
   ): readonly PlannedConversion[] {
     const semanticContext = completeContext(context, inputs);
-    const plans = this.semanticPlanner.plan(inputs, semanticContext, this.renderer);
-    const resolved = this.renderer.resolveConflicts(plans, semanticContext);
-    if (record) this.renderer.record(resolved);
+    const semanticPlans = this.semanticPlanner.plan(inputs, semanticContext, {
+      breakpointConfig: this.renderer.breakpointConfig,
+      sourcePropertyEvidence: this.renderer.sourcePropertyEvidence,
+    });
+    const targetReady = semanticPlans.map(plan => this.applyTargetEligibility(plan));
+    const familyClosed = this.semanticPlanner.closeSiblingFamilies(targetReady);
+    const locallyClosed =
+      this.renderer.target === 'css'
+        ? this.semanticPlanner.closeDisplayDependencies(familyClosed, this.renderer.sourcePropertyEvidence)
+        : familyClosed;
+    const rendered = locallyClosed.map(plan =>
+      plan.status === 'converted' ? this.renderer.render(plan, semanticContext) : plan,
+    );
+    const resolved = this.renderer.resolveConflicts(rendered, semanticContext);
+    if (record) this.record(resolved);
     return resolved;
+  }
+
+  record(plans: readonly PlannedConversion[]): void {
+    this.renderer.record(plans);
   }
 
   resolveClassConflicts(
@@ -111,5 +133,33 @@ export class SemanticRenderCoordinator {
       plansByInputId,
       this.renderer.sourcePropertyEvidence,
     );
+  }
+
+  private applyTargetEligibility(
+    plan: ResolvedSemanticPlan | UnresolvedSemanticPlan,
+  ): ResolvedSemanticPlan | TargetDiagnostic {
+    const eligibility = this.renderer.eligibility(plan.input);
+    if (eligibility?.status === 'converted') throw new Error('Renderer eligibility must not emit target output');
+    if (eligibility !== undefined) return eligibility;
+    if (plan.status === 'converted') return plan;
+    if (plan.reason === 'Overlapping responsive ranges emit different target outputs for the same directive family.') {
+      return {
+        ...plan,
+        reason:
+          this.renderer.target === 'css'
+            ? 'Overlapping responsive ranges emit different CSS declarations for the same directive family.'
+            : 'Overlapping responsive ranges emit different utilities for the same directive family.',
+      };
+    }
+    if (plan.reason === 'This directive emits different target outputs across its active responsive layout contexts.') {
+      return {
+        ...plan,
+        reason:
+          this.renderer.target === 'css'
+            ? 'This directive emits different declarations across its active responsive layout contexts.'
+            : 'This directive emits different utilities across its active responsive layout contexts.',
+      };
+    }
+    return plan;
   }
 }

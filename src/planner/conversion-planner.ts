@@ -190,7 +190,7 @@ export class ConversionPlanner {
       for (const input of imageInputs) plansByInputId.set(input.id, { ...familyFailure, input });
     }
 
-    renderer.record(
+    coordinator.record(
       inputs.map(input => plansByInputId.get(input.id)).filter((plan): plan is PlannedConversion => plan !== undefined),
     );
 

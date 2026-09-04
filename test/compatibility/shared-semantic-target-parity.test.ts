@@ -4,11 +4,11 @@ import type { CssDeclaration } from '../../src/adapter/css/css-artifact.model';
 import { CssArtifactRegistry } from '../../src/adapter/css/css-artifact.registry';
 import type { BreakpointMigrationConfig } from '../../src/config/breakpoint-migration-config';
 import type { CssLength } from '../../src/flex/css-length';
+import { SemanticRenderCoordinator } from '../../src/planner/semantic-render.coordinator';
 import type { ConversionRenderer } from '../../src/render/conversion-renderer';
 import { CssRenderer } from '../../src/render/css/css.renderer';
 import { TailwindRenderer } from '../../src/render/tailwind/tailwind.renderer';
 import type { SemanticConversionContext } from '../../src/semantic/conversion-context';
-import { ElementSemanticPlanner } from '../../src/semantic/element-semantic.planner';
 import type { ResolvedSemanticPlan } from '../../src/semantic/semantic-plan';
 import type { SourcePropertyEvidence } from '../../src/semantic/source-property-evidence';
 import type { TemplateElement } from '../../src/template/template.model';
@@ -372,7 +372,7 @@ class RecordingRenderer implements ConversionRenderer {
 
 function planWith(renderer: ConversionRenderer, inputs: readonly LocatedFlexLayoutInput[], subjectId: string) {
   const recording = new RecordingRenderer(renderer);
-  const results = new ElementSemanticPlanner().plan(inputs, semanticContext(inputs), recording);
+  const results = new SemanticRenderCoordinator(recording).planElement(inputs, semanticContext(inputs), false);
   const result = results.find(candidate => candidate.input.id === subjectId);
   const semantic = recording.rendered.find(candidate => candidate.input.id === subjectId);
   if (result === undefined || semantic === undefined)
@@ -385,7 +385,7 @@ function planAndResolve(
   context: SemanticConversionContext,
   renderer: ConversionRenderer,
 ): readonly PlannedConversion[] {
-  return renderer.resolveConflicts(new ElementSemanticPlanner().plan(inputs, context, renderer), context);
+  return new SemanticRenderCoordinator(renderer).planElement(inputs, context, false);
 }
 
 function cssDeclarations(result: PlannedConversion, registry: CssArtifactRegistry): readonly CssDeclaration[] {

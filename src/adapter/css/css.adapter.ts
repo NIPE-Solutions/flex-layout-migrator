@@ -21,25 +21,11 @@ export class CssAdapter extends RendererBackedConversionAdapter {
 }
 
 /** @deprecated Use CssRenderSession. */
-export class CssAdapterSession implements ConversionAdapterSession {
-  readonly renderer: ConversionRenderer;
+export class CssAdapterSession extends CssRenderSession implements ConversionAdapterSession {
   readonly adapter: CompatibilityConversionAdapter;
-  private readonly delegate: CssRenderSession;
-  private finalized = false;
 
   constructor(config: BreakpointMigrationConfig = { orientationBreakpoints: false }) {
-    this.delegate = new CssRenderSession(config);
-    this.renderer = this.delegate.renderer;
+    super(config);
     this.adapter = sessionBoundAdapter(new CssAdapter(this.renderer), () => this.assertActive());
-  }
-
-  finalize() {
-    if (this.finalized) throw new Error('Render session already finalized');
-    this.finalized = true;
-    return this.delegate.finalize();
-  }
-
-  private assertActive(): void {
-    if (this.finalized) throw new Error('Render session is finalized');
   }
 }
