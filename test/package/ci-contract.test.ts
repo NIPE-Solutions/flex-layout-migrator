@@ -134,6 +134,9 @@ describe('continuous integration', () => {
     const testJob = workflow.jobs.test;
 
     expect(testJob.steps).toContainEqual({ run: 'npm run test:coverage' });
+    expect(testJob.steps).toContainEqual({
+      run: 'git fetch --no-tags origin 41c0714bca3ec09470e25efde0f30b6bc96cc0ac',
+    });
     expect(
       testJob.steps.filter(
         (step: { uses?: string }) => step.uses === 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1',

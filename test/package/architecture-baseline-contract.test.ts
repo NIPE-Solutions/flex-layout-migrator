@@ -652,9 +652,10 @@ describe('enterprise architecture baseline documentation contract', () => {
       descriptor.files.map(file => [file.path, file.size.toLocaleString('en-US')]),
     );
     expect(markdown).toContain(
-      `reported exactly ${descriptor.entryCount} files, a ${descriptor.size.toLocaleString('en-US')}-byte tarball, ` +
-        `a ${descriptor.unpackedSize.toLocaleString('en-US')}-byte unpacked size, and no bundled dependencies`,
+      `reported exactly ${descriptor.entryCount} files with a ` +
+        `${descriptor.unpackedSize.toLocaleString('en-US')}-byte unpacked size and no bundled dependencies`,
     );
+    expect(markdown).toContain('The locally observed compressed tarball size was 264,268 bytes');
   }, 30_000);
 
   test('recomputes tracked benchmark summaries and compares only byte-identical workloads with Slice 1', async () => {
