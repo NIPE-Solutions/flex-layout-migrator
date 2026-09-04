@@ -4463,6 +4463,8 @@ export function createTypeScriptProjectInspectionSession(
   sourcePaths: readonly string[],
   sourceOverrides: ReadonlyMap<string, string> = new Map(),
 ): TypeScriptProjectInspectionSession {
+  const isolatedSourcePaths = [...sourcePaths];
+  const isolatedSourceOverrides = new Map(sourceOverrides);
   let project: TypeScriptProjectProgram | undefined;
   let programConstructionCount = 0;
   let semanticAuthorities: readonly SemanticAuthorityCall[] | undefined;
@@ -4473,7 +4475,7 @@ export function createTypeScriptProjectInspectionSession(
   const runtimeNamedDeclarations = new Map<string, readonly RuntimeSymbolProvenance[]>();
   const sharedProject = (): TypeScriptProjectProgram => {
     if (project === undefined) {
-      project = createProjectProgram(sourcePaths, sourceOverrides);
+      project = createProjectProgram(isolatedSourcePaths, isolatedSourceOverrides);
       programConstructionCount += 1;
     }
     return project;
@@ -4488,11 +4490,21 @@ export function createTypeScriptProjectInspectionSession(
       return semanticAuthorities;
     },
     inspectRuntimeDependencyClosure() {
-      runtimeDependencies ??= dependencyClosureFromProject(sharedProject(), sourcePaths, sourceOverrides, true);
+      runtimeDependencies ??= dependencyClosureFromProject(
+        sharedProject(),
+        isolatedSourcePaths,
+        isolatedSourceOverrides,
+        true,
+      );
       return runtimeDependencies;
     },
     inspectDependencyClosure() {
-      dependencies ??= dependencyClosureFromProject(sharedProject(), sourcePaths, sourceOverrides, false);
+      dependencies ??= dependencyClosureFromProject(
+        sharedProject(),
+        isolatedSourcePaths,
+        isolatedSourceOverrides,
+        false,
+      );
       return dependencies;
     },
     inspectRuntimeSymbolProvenance() {

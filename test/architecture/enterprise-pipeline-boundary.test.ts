@@ -952,6 +952,14 @@ describe('enterprise pipeline dependency boundary', { timeout: wholeProjectInspe
     isolated.inspectSemanticAuthorityCalls();
     isolated.inspectRuntimeSymbolProvenance();
     expect(isolated.programConstructionCount).toBe(1);
+
+    const isolatedPath = join(productionRoot, '__architecture-fixture__', 'isolated-program.ts');
+    const mutableOverrides = new Map([[isolatedPath, 'export class OriginalOwner {}']]);
+    const snapshotted = createTypeScriptProjectInspectionSession([isolatedPath], mutableOverrides);
+    mutableOverrides.set(isolatedPath, 'export class MutatedOwner {}');
+    expect(snapshotted.inspectRuntimeNamedDeclarationProvenance('OriginalOwner')).toHaveLength(1);
+    expect(snapshotted.inspectRuntimeNamedDeclarationProvenance('MutatedOwner')).toEqual([]);
+    expect(snapshotted.programConstructionCount).toBe(1);
   });
 
   test('makes RenderProjectStage the sole caller of RenderSession finalization', () => {
