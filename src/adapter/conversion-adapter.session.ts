@@ -1,21 +1,22 @@
 import type { BreakpointMigrationConfig } from '../config/breakpoint-migration-config';
-import type { OwnedCssRule } from './css/css-artifact.model';
+import type { ConversionRenderer } from '../render/conversion-renderer';
+import { TailwindRenderSession, type AdapterSessionResult, type RenderSession } from '../render/render-session';
 import type { ConversionAdapter, ConversionContext, PlannedConversion } from './conversion-adapter';
 import { TailwindAdapter } from './tailwind/tailwind.adapter';
 
-export interface ConversionAdapterSession {
-  readonly adapter: ConversionAdapter;
-  finalize(): AdapterSessionResult;
-}
+export type { AdapterSessionResult } from '../render/render-session';
 
-export type AdapterSessionResult =
-  { readonly target: 'tailwind' } | { readonly target: 'css'; readonly rules: readonly OwnedCssRule[] };
+/** @deprecated Use RenderSession. */
+export interface ConversionAdapterSession extends RenderSession {
+  readonly adapter: ConversionAdapter;
+}
 
 type AdapterInput = Parameters<ConversionAdapter['plan']>[0];
 
 export function sessionBoundAdapter(adapter: ConversionAdapter, assertActive: () => void): ConversionAdapter {
   return Object.freeze({
     name: adapter.name,
+    target: adapter.target,
     plan(input: AdapterInput, context: ConversionContext): PlannedConversion {
       assertActive();
       return adapter.plan(input, context);
@@ -43,24 +44,51 @@ export function sessionBoundAdapter(adapter: ConversionAdapter, assertActive: ()
       assertActive();
       adapter.acceptPlans?.(plans);
     },
+    eligibility(input: Parameters<ConversionRenderer['eligibility']>[0]) {
+      assertActive();
+      return adapter.eligibility(input);
+    },
+    render(
+      plan: Parameters<ConversionRenderer['render']>[0],
+      context: Parameters<ConversionRenderer['render']>[1],
+    ) {
+      assertActive();
+      return adapter.render(plan, context);
+    },
+    resolveConflicts(
+      plans: Parameters<ConversionRenderer['resolveConflicts']>[0],
+      context: Parameters<ConversionRenderer['resolveConflicts']>[1],
+    ) {
+      assertActive();
+      return adapter.resolveConflicts(plans, context);
+    },
+    record(plans: Parameters<ConversionRenderer['record']>[0]) {
+      assertActive();
+      adapter.record(plans);
+    },
   });
 }
 
+/** @deprecated Use TailwindRenderSession. */
 export class TailwindAdapterSession implements ConversionAdapterSession {
+  readonly renderer: ConversionRenderer;
   readonly adapter: ConversionAdapter;
+  private readonly delegate: TailwindRenderSession;
   private finalized = false;
 
   constructor(config: BreakpointMigrationConfig = { orientationBreakpoints: false }) {
-    this.adapter = sessionBoundAdapter(new TailwindAdapter(config), () => this.assertActive());
+    this.delegate = new TailwindRenderSession(config);
+    this.renderer = this.delegate.renderer;
+    this.adapter = sessionBoundAdapter(new TailwindAdapter(this.renderer), () => this.assertActive());
   }
 
   finalize(): AdapterSessionResult {
-    if (this.finalized) throw new Error('Adapter session already finalized');
+    if (this.finalized) throw new Error('Render session already finalized');
     this.finalized = true;
-    return Object.freeze({ target: 'tailwind' as const });
+    return this.delegate.finalize();
   }
 
   private assertActive(): void {
-    if (this.finalized) throw new Error('Adapter session is finalized');
+    if (this.finalized) throw new Error('Render session is finalized');
   }
 }

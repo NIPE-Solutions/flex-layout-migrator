@@ -1,6 +1,7 @@
-import { TailwindAdapter } from '../adapter/tailwind/tailwind.adapter';
 import { TemplateAnalyzer } from '../analyzer/template.analyzer';
 import { SourceEditor } from '../edit/source-editor';
+import { TailwindRenderer } from '../render/tailwind/tailwind.renderer';
+import { ElementSemanticPlanner } from '../semantic/element-semantic.planner';
 import { AngularTemplateParser } from '../template/angular-template.parser';
 import { ConversionPlanner } from './conversion-planner';
 
@@ -8,7 +9,14 @@ function migrate(source: string, options: { responsiveImages: boolean } = { resp
   const parsed = new AngularTemplateParser().parse(source, 'fixture.html');
   if (parsed.status !== 'parsed') throw new Error('Expected fixture to parse');
   const inputs = new TemplateAnalyzer().analyze('fixture.html', parsed.elements);
-  const plan = new ConversionPlanner().plan(source, parsed.elements, inputs, new TailwindAdapter(), options);
+  const plan = new ConversionPlanner().plan(
+    source,
+    parsed.elements,
+    inputs,
+    new TailwindRenderer(),
+    options,
+    new ElementSemanticPlanner(),
+  );
   const edited = new SourceEditor().apply(source, plan.edits);
   if (edited.status !== 'applied') throw new Error('Expected edits to be valid');
   return { ...plan, output: edited.output };

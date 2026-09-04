@@ -1,6 +1,7 @@
 import type { DiagnosticCode } from '../analyzer/conversion-result';
 import type { LocatedFlexLayoutInput } from '../analyzer/flex-layout-attribute.analyzer';
 import type { SemanticConversionContext } from '../semantic/conversion-context';
+import type { ConversionRenderer } from '../render/conversion-renderer';
 
 /** Adapter-call compatibility context; responsive planning receives the complete semantic context. */
 export interface ConversionContext extends Partial<SemanticConversionContext> {
@@ -23,7 +24,8 @@ export type PlannedConversion =
       readonly suggestion: string;
     };
 
-export interface ConversionAdapter {
+/** @deprecated Use ConversionRenderer. Remove after Slice 8 compatibility cleanup. */
+export interface ConversionAdapter extends ConversionRenderer {
   readonly name: 'css' | 'tailwind';
   plan(input: LocatedFlexLayoutInput, context: ConversionContext): PlannedConversion;
   planElement?(inputs: readonly LocatedFlexLayoutInput[], context: ConversionContext): readonly PlannedConversion[];

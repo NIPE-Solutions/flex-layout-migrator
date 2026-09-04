@@ -595,7 +595,6 @@ const filesystemPluralProvenanceOverrides = new Map([
   ...filesystemPluralProvenanceCases.map(fixture => [fixture.sourcePath, fixture.source] as const),
 ]);
 const expectedRendererRelativePaths = [
-  'adapter/css/css.adapter.ts',
   'adapter/css/flex/flex-align.css-renderer.ts',
   'adapter/css/flex/flex-fill.css-renderer.ts',
   'adapter/css/flex/flex-item.css-renderer.ts',
@@ -605,8 +604,10 @@ const expectedRendererRelativePaths = [
   'adapter/css/flex/layout-gap.css-renderer.ts',
   'adapter/css/flex/layout.css-renderer.ts',
   'adapter/tailwind/grid/tailwind-grid.renderer.ts',
-  'adapter/tailwind/tailwind.adapter.ts',
   'image/picture.renderer.ts',
+  'render/conversion-renderer.ts',
+  'render/css/css.renderer.ts',
+  'render/tailwind/tailwind.renderer.ts',
 ] as const;
 const rendererPaths = expectedRendererRelativePaths.map(path => join(productionRoot, path));
 const discoveredLeafRendererPaths = productionTypeScriptFiles(productionRoot).filter(path =>
