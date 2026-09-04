@@ -4,9 +4,9 @@ This report records the Slice 4 semantic-policy and production Render cutover fr
 
 ## Commit
 
-Commit captured: `a5ff9ce5bd63b0f1d156e424654745429f352f8a`
+Commit captured: `5edbdc39413eae37fe0d4bdf608df6e9e02e84a1`
 
-The inventory and benchmark were regenerated from the committed Task 5 fix-round implementation above. The subsequent evidence commit changes no production source, architecture assertion, or benchmark workload.
+The inventory and benchmark were regenerated from the committed final-fix implementation above. The subsequent evidence commit changes only this evidence and its documentation contract, with no production source, architecture boundary assertion, or benchmark workload change.
 
 ## Environment
 
@@ -21,6 +21,8 @@ The inventory and benchmark were regenerated from the committed Task 5 fix-round
 The Slice 4 route retains the established packaged `dist/cli.js` parity matrix across Tailwind, native CSS, responsive-image, plan, write, and unchanged-rerun cases. The completion gate reruns that public oracle and the packaged CLI checks. Exact terminal output, JSON reports, exit status, template bytes, stylesheet bytes, and repeat-write stability remain binding.
 
 The new table-driven target-parity contract sends identical located inputs and element context through `ElementSemanticPlanner` and both real renderers. It asserts exact shared semantics and established output for `fxLayout`, `fxLayoutGap`, `fxLayoutAlign`, `fxFlex`, `fxGrow`, `fxShrink`, `fxFlexAlign`, `fxFlexFill`, `fxFill`, `fxFlexOffset`, and `fxFlexOrder`. Separate rows retain complete diagnostics for Grid, visibility, responsive class/style, orientation, print, custom breakpoints, dynamic bindings, Tailwind class conflicts, and CSS limitations.
+
+Final-fix contracts additionally prove that `fxFlex="auto"` and `fxFlex="none"` retain exact Tailwind and CSS output under row-to-column responsive parent contexts while constrained axis-dependent sizing remains preserved for review. Renderer and conflict outcomes now fail closed on cardinality, order, ID, or object-identity corruption; Render rejects a finalized target mismatch; and Tailwind rejects mismatched or unhandled semantic-family dispatch instead of falling through to Grid.
 
 ## Workload counters
 
@@ -63,16 +65,16 @@ Stored original parse failures bypass semantic planning, target rendering, and c
 
 ## Inventory evidence
 
-Generated with `npm run architecture:inventory -- --json <temporary-path>` from the Task 5 implementation tree. The inventory is Git-tracked production TypeScript, excludes specifications, and uses the TypeScript AST for import edges and declared policy symbols.
+Generated with `npm run architecture:inventory -- --json <temporary-path>` from the final-fix implementation tree. The inventory is Git-tracked production TypeScript, excludes specifications, and uses the TypeScript AST for import edges and declared policy symbols.
 
 | Measure                                                       | Slice 1 baseline | Slice 4 |
 | ------------------------------------------------------------- | ---------------: | ------: |
 | Production TypeScript files                                   |              122 |     164 |
 | Runtime dependency entries                                    |                5 |       5 |
-| Static internal and runtime external or built-in module edges |              416 |     611 |
+| Static internal and runtime external or built-in module edges |              416 |     614 |
 | Known policy owners                                           |                6 |       6 |
 
-The file and edge increases are the immutable stage handoffs, Discover/Analyze/Render stages and ports, shared semantic planners, target renderers, compatibility validation boundary, and structural safeguards delivered through Slices 2–4. Slice 4 deletes the superseded adapter responsive-family barrel and the unreachable Tailwind responsive-policy facade that runtime-exported the old owner name. It adds no runtime dependency or Changeset; `ignore` remains the single known undeclared runtime import reserved for Slice 8.
+The file and edge increases are the immutable stage handoffs, Discover/Analyze/Render stages and ports, shared semantic planners, target renderers, compatibility validation boundary, and structural safeguards delivered through Slices 2–4. The final fix adds three internal edges from the semantic/render coordinator, Tailwind renderer, and Render stage to the existing `MigrationApplicationError` invariant type. Slice 4 deletes the superseded adapter responsive-family barrel and the unreachable Tailwind responsive-policy facade that runtime-exported the old owner name. It adds no runtime dependency or Changeset; `ignore` remains the single known undeclared runtime import reserved for Slice 8.
 
 ## Policy owners
 
@@ -95,22 +97,22 @@ Timings are observational. The result is mixed relative to the Slice 1 medians, 
 
 ## Benchmark results
 
-Generated at `2026-09-04T11:45:33.734Z`. Millisecond and peak-RSS values are machine-specific observations.
+Generated at `2026-09-04T12:31:56.685Z`. Millisecond and peak-RSS values are machine-specific observations.
 
-| Scenario                | Recorded milliseconds                                                                           |            Median |            Minimum |            Maximum |                 MAD | Recorded peak RSS bytes                          |
-| ----------------------- | ----------------------------------------------------------------------------------------------- | ----------------: | -----------------: | -----------------: | ------------------: | ------------------------------------------------ |
-| `single-tailwind-plan`  | 97.126083; 99.30850000000001; 95.518708; 93.39712500000002; 95.248333                           |         95.518708 |  93.39712500000002 |  99.30850000000001 |  1.6073749999999905 | 97632256; 97566720; 96354304; 96010240; 96763904 |
-| `multi-tailwind-plan`   | 112.48354099999995; 109.38633300000004; 112.04370799999992; 110.30037500000003; 110.70425       |         110.70425 | 109.38633300000004 | 112.48354099999995 |  1.3179169999999658 | 99827712; 98484224; 99008512; 98205696; 98353152 |
-| `multi-native-css-plan` | 100.90091700000016; 98.89208299999996; 98.92816700000003; 100.87916599999994; 99.24849999999992 | 99.24849999999992 |  98.89208299999996 | 100.90091700000016 |  0.3564169999999649 | 95911936; 95535104; 95469568; 97107968; 95109120 |
-| `unchanged-write`       | 86.41325000000029; 87.46341699999994; 86.06412500000033; 86.22512499999993; 86.93970799999988   | 86.41325000000029 |  86.06412500000033 |  87.46341699999994 | 0.34912499999995816 | 93683712; 92815360; 93061120; 93372416; 94142464 |
+| Scenario                | Recorded milliseconds                                                                             |             Median |            Minimum |            Maximum |                 MAD | Recorded peak RSS bytes                          |
+| ----------------------- | ------------------------------------------------------------------------------------------------- | -----------------: | -----------------: | -----------------: | ------------------: | ------------------------------------------------ |
+| `single-tailwind-plan`  | 97.743167; 99.14045800000002; 97.39083299999999; 97.06450000000001; 96.50495799999999             |  97.39083299999999 |  96.50495799999999 |  99.14045800000002 | 0.35233400000001325 | 96993280; 97337344; 97189888; 97697792; 97058816 |
+| `multi-tailwind-plan`   | 112.93066599999997; 113.09474999999998; 111.03362500000003; 112.1829580000001; 112.45912500000009 | 112.45912500000009 | 111.03362500000003 | 113.09474999999998 |  0.4715409999998883 | 91602944; 99844096; 98910208; 98779136; 98467840 |
+| `multi-native-css-plan` | 99.76391699999999; 98.92445799999996; 105.999458; 103.17354100000011; 100.57841699999994          | 100.57841699999994 |  98.92445799999996 |         105.999458 |  1.6539589999999862 | 96174080; 96387072; 98353152; 97042432; 96288768 |
+| `unchanged-write`       | 90.57349999999997; 89.03783399999975; 129.38504199999988; 99.37716699999964; 88.41279099999974    |  90.57349999999997 |  88.41279099999974 | 129.38504199999988 |  2.1607090000002245 | 93814784; 94765056; 89423872; 97910784; 94568448 |
 
 ## Architecture-test timing
 
 The architecture suite is measured separately from the product scenarios.
 
-| Command                                                                                          | Recorded milliseconds                                                                       |             Median |      Minimum |            Maximum |               MAD |
-| ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------- | -----------------: | -----------: | -----------------: | ----------------: |
-| `node node_modules/vitest/vitest.mjs run test/architecture/enterprise-pipeline-boundary.test.ts` | 30018.390459; 31619.712459000002; 31486.310666999998; 30926.492541999993; 30744.83054200001 | 30926.492541999993 | 30018.390459 | 31619.712459000002 | 559.8181250000052 |
+| Command                                                                                          | Recorded milliseconds                                                                             |             Median |            Minimum |           Maximum |                MAD |
+| ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------- | -----------------: | -----------------: | ----------------: | -----------------: |
+| `node node_modules/vitest/vitest.mjs run test/architecture/enterprise-pipeline-boundary.test.ts` | 30382.167417000004; 30587.986249999994; 30606.75916700001; 29984.019333000004; 30450.554541999998 | 30450.554541999998 | 29984.019333000004 | 30606.75916700001 | 137.43170799999643 |
 
 ## Ownership transition
 
