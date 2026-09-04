@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This program restructures the version 2 migration engine around explicit project stages after the Tailwind, native CSS, responsive-image, transaction, and CLI boundaries have been proven in production code. The rewrite improves maintainability and measurable throughput without changing supported migrations or public behavior.
+This program restructures the version 2 migration engine around explicit project stages after the Tailwind, native CSS, responsive-image, transaction, and CLI boundaries have been proven in production code. The rewrite improves maintainability and makes throughput measurable without changing supported migrations or public behavior.
 
 The target pipeline is:
 
@@ -192,6 +192,8 @@ The runtime dependency gate now requires a bijection between production external
 ### 9. Final structural and performance report
 
 Run full verification, package checks, dependency and license audits, the complete benchmark corpus, and output parity comparison. Document before/after module responsibilities, file sizes, dependency changes, parse/read/write counters, timing distributions, and any deliberately retained debt.
+
+Implemented and evidenced in `docs/maintenance/2026-09-04-enterprise-architecture-final.md`. The completed production route is `CLI -> Discover -> Analyze -> Render -> Validate -> Apply -> Presentation`. Final inventory, dependency/license, deterministic workload, package, public parity, and unchanged-corpus benchmark evidence are published there. The measurements support no repeatable performance-improvement claim; independent whole-branch review remains the pull-request gate.
 
 ## Testing and review
 

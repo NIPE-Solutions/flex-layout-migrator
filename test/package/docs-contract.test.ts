@@ -50,6 +50,15 @@ function expectCurrentBetaBoundaries(readme: string): void {
 }
 
 describe('maintainer documentation', () => {
+  it('marks the enterprise architecture roadmap complete with final evidence', async () => {
+    const architecture = await readRepositoryFile('docs/architecture/enterprise-architecture-rewrite.md');
+
+    expect(architecture).toContain('### 9. Final structural and performance report');
+    expect(architecture).toContain('Implemented and evidenced');
+    expect(architecture).toContain('docs/maintenance/2026-09-04-enterprise-architecture-final.md');
+    expect(architecture).toContain('CLI -> Discover -> Analyze -> Render -> Validate -> Apply -> Presentation');
+  });
+
   it('provides contribution, security, support, and governance files', async () => {
     const required = [
       '.github/CODEOWNERS',
