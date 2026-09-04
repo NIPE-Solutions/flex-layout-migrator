@@ -2,10 +2,11 @@ import { Command, CommanderError, InvalidArgumentError, Option } from 'commander
 import * as path from 'node:path';
 import packageJson from '../../package.json' with { type: 'json' };
 import { AdapterFactory } from '../adapter/adapter.factory';
-import type { ConversionAdapterSession } from '../adapter/conversion-adapter.session';
 import { logger } from '../logger';
 import { CurrentMigrationPipeline, type MigrationRunner } from '../pipeline/current-migration.pipeline';
+import type { RenderStage } from '../pipeline/migration-pipeline';
 import { migrationInvocation } from '../pipeline/project-manifest';
+import { RenderProjectStage } from '../pipeline/render/render-project.stage';
 import { JsonReportWriter } from '../report/json-report.writer';
 import { TerminalPresenter, type TextOutput } from '../report/terminal.presenter';
 import { getErrorMessage } from '../util/error.util';
@@ -34,7 +35,7 @@ export interface CliOutput {
 }
 
 export interface RunCliDependencies {
-  readonly createMigrationRunner?: (session: ConversionAdapterSession) => MigrationRunner;
+  readonly createMigrationRunner?: (render: RenderStage) => MigrationRunner;
 }
 
 const processOutput: CliOutput = {
@@ -116,14 +117,15 @@ export async function runCli(
         options.printWithBreakpoints === undefined
           ? undefined
           : parsePrintWithBreakpoints(options.printWithBreakpoints, options.orientationBreakpoints);
-      const session = AdapterFactory.createSession(options.target, {
+      const session = AdapterFactory.createRenderSession(options.target, {
         orientationBreakpoints: options.orientationBreakpoints,
         printWithBreakpoints,
       });
+      const render = new RenderProjectStage(session);
       const migrationRunner =
         dependencies.createMigrationRunner === undefined
-          ? new CurrentMigrationPipeline(session)
-          : dependencies.createMigrationRunner(session);
+          ? new CurrentMigrationPipeline(render)
+          : dependencies.createMigrationRunner(render);
       const report = await migrationRunner.run(
         migrationInvocation({
           inputPath: input,

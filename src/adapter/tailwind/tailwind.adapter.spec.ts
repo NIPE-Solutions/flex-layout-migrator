@@ -261,6 +261,30 @@ describe('TailwindAdapter', () => {
     });
   });
 
+  test('emits configured print fallback through the deprecated single-input plan path', () => {
+    const md = input({
+      id: 'fixture:md',
+      sourceName: 'fxLayout.md',
+      breakpoint: 'md',
+      value: 'column',
+    });
+
+    expect(
+      new TailwindAdapter({ orientationBreakpoints: false, printWithBreakpoints: ['md'] }).plan(md, { element }),
+    ).toEqual({
+      status: 'converted',
+      input: md,
+      classNames: [
+        '[@media_screen_and_(min-width:_960px)_and_(max-width:_1279.98px)]:flex',
+        '[@media_screen_and_(min-width:_960px)_and_(max-width:_1279.98px)]:flex-col',
+        '[@media_screen_and_(min-width:_960px)_and_(max-width:_1279.98px)]:box-border',
+        '[@media_print]:flex',
+        '[@media_print]:flex-col',
+        '[@media_print]:box-border',
+      ],
+    });
+  });
+
   test('lets an explicit print value override configured responsive fallbacks', () => {
     const md = input({ id: 'fixture:md', sourceName: 'fxLayout.md', breakpoint: 'md', value: 'column' });
     const print = input({ id: 'fixture:print', sourceName: 'fxLayout.print', breakpoint: 'print', value: 'row' });

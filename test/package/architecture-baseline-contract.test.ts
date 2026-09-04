@@ -3,6 +3,10 @@ import { describe, expect, test } from 'vitest';
 
 const baselineUrl = new URL('../../docs/maintenance/2026-09-03-enterprise-architecture-baseline.md', import.meta.url);
 const slice3Url = new URL('../../docs/maintenance/2026-09-03-enterprise-discovery-analysis.md', import.meta.url);
+const slice4Url = new URL(
+  '../../docs/maintenance/2026-09-04-enterprise-shared-semantics-rendering.md',
+  import.meta.url,
+);
 
 const requiredSections = [
   'Commit',
@@ -57,6 +61,40 @@ const slice3WorkloadRows = [
   ['Two-file CSS folder write', '1', '2', '2', '2', '2', '2', '0', '3'],
   ['Unchanged Tailwind rerun', '1', '1', '1', '1', '1', '1', '0', '0'],
   ['Unchanged CSS folder rerun', '1', '2', '2', '2', '2', '2', '1', '0'],
+] as const;
+
+const slice4InventoryRows = [
+  ['Production TypeScript files', '122', '164'],
+  ['Runtime dependency entries', '5', '5'],
+  ['Static internal and runtime external or built-in module edges', '416', '614'],
+  ['Known policy owners', '6', '6'],
+] as const;
+
+const slice4PolicyOwnerRows = [
+  ['artifact identity', 'src/adapter/css/css-artifact.registry.ts', 'CssArtifactRegistry'],
+  ['breakpoint classification', 'src/breakpoint/breakpoint-catalog.ts', 'BreakpointCatalog'],
+  ['diagnostics', 'src/analyzer/conversion-result.ts', 'DiagnosticCode'],
+  ['responsive precedence', 'src/semantic/responsive-family.planner.ts', 'ResponsiveFamilyPlanner'],
+  ['semantic planning', 'src/semantic/element-semantic.planner.ts', 'ElementSemanticPlanner'],
+  ['transaction recovery', 'src/transaction/migration-transaction.ts', 'MigrationTransaction'],
+] as const;
+
+const renderLifecycleRows = [
+  ['Single-file Tailwind plan', '1', '1', '1', '1'],
+  ['Single-file Tailwind write', '1', '1', '1', '1'],
+  ['Two-file CSS folder plan', '2', '2', '2', '1'],
+  ['Two-file CSS folder write', '2', '2', '2', '1'],
+  ['Unchanged Tailwind rerun', '1', '1', '1', '1'],
+  ['Unchanged CSS folder rerun', '2', '2', '2', '1'],
+] as const;
+
+const targetRenderRows = [
+  ['Single-file Tailwind plan', '1', '1'],
+  ['Single-file Tailwind write', '1', '1'],
+  ['Two-file CSS folder plan', '2', '2'],
+  ['Two-file CSS folder write', '2', '2'],
+  ['Unchanged Tailwind rerun', '1', '1'],
+  ['Unchanged CSS folder rerun', '2', '2'],
 ] as const;
 
 const policyOwnerRows = [
@@ -215,6 +253,47 @@ describe('enterprise architecture baseline documentation contract', () => {
     ]);
     expect(tableRows(markdown, 'Architecture-test timing')[0]?.[1]?.split('; ')).toHaveLength(5);
     expect(markdown).toContain('Timings are observational');
+    expect(wallClockThresholdSegments(markdown)).toEqual([]);
+  });
+
+  test('publishes Slice 4 semantic, renderer, lifecycle, inventory, and benchmark evidence', async () => {
+    const markdown = await readFile(slice4Url, 'utf8');
+
+    for (const section of [
+      'Commit',
+      'Environment',
+      'Behavior oracle',
+      'Workload counters',
+      'Render lifecycle counters',
+      'Target render counters',
+      'Inventory evidence',
+      'Policy owners',
+      'Benchmark method',
+      'Benchmark results',
+      'Architecture-test timing',
+      'Ownership transition',
+      'Retained compatibility',
+    ]) {
+      expect(markdown).toContain(`## ${section}`);
+    }
+    expect(markdown).toMatch(/Commit captured: `[0-9a-f]{40}`/u);
+    expect(markdown).toMatch(/Node\.js: `v\d+\.\d+\.\d+`/u);
+    expect(markdown).toMatch(/npm: `\d+\.\d+\.\d+`/u);
+    expect(tableRows(markdown, 'Workload counters')).toEqual(slice3WorkloadRows);
+    expect(tableRows(markdown, 'Render lifecycle counters')).toEqual(renderLifecycleRows);
+    expect(tableRows(markdown, 'Target render counters')).toEqual(targetRenderRows);
+    expect(tableRows(markdown, 'Inventory evidence')).toEqual(slice4InventoryRows);
+    expect(tableRows(markdown, 'Policy owners')).toEqual(slice4PolicyOwnerRows);
+    expect(tableRows(markdown, 'Benchmark results').map(row => row[0])).toEqual([
+      'single-tailwind-plan',
+      'multi-tailwind-plan',
+      'multi-native-css-plan',
+      'unchanged-write',
+    ]);
+    expect(tableRows(markdown, 'Benchmark results').every(row => row[1]?.split('; ').length === 5)).toBe(true);
+    expect(tableRows(markdown, 'Architecture-test timing')[0]?.[1]?.split('; ')).toHaveLength(5);
+    expect(markdown).toContain('Timings are observational');
+    expect(markdown).toContain('No repeatable median improvement is claimed');
     expect(wallClockThresholdSegments(markdown)).toEqual([]);
   });
 

@@ -5,9 +5,12 @@ import { basename, join, relative } from 'node:path';
 import { describe, expect, test } from 'vitest';
 
 import {
+  createTypeScriptProjectInspectionSession,
   inspectTypeScript,
   inspectTypeScriptProject,
   inspectRuntimeDependencyClosure,
+  inspectRuntimeExportSymbolProvenance,
+  inspectRuntimeSymbolProvenance,
   inspectSemanticAuthorityCalls,
   moduleReferenceContainsPath,
   productionTypeScriptFiles,
@@ -19,13 +22,29 @@ const flexRoot = join(productionRoot, 'flex');
 const pipelineRoot = join(productionRoot, 'pipeline');
 const discoverStagePath = join(pipelineRoot, 'discover', 'discover-project.stage.ts');
 const analyzeStagePath = join(pipelineRoot, 'analyze', 'analyze-project.stage.ts');
+const semanticRoot = join(productionRoot, 'semantic');
+const semanticRenderCoordinatorPath = join(productionRoot, 'planner', 'semantic-render.coordinator.ts');
 const atomicWriterPath = join(productionRoot, 'lib', 'atomic-file.writer.ts');
 const migratorPath = join(productionRoot, 'migrator', 'migrator.ts');
+const conversionAdapterPath = join(productionRoot, 'adapter', 'conversion-adapter.ts');
 const destinationTemplateSourcePath = join(productionRoot, 'migrator', 'destination-template-source.ts');
 const stylesheetPlannerPath = join(productionRoot, 'migrator', 'stylesheet.planner.ts');
+const legacyResponsiveFamilyPlannerPath = join(productionRoot, 'adapter', 'responsive-family.planner.ts');
+const semanticResponsiveFamilyPlannerSpecPath = join(productionRoot, 'semantic', 'responsive-family.planner.spec.ts');
 const roguePath = join(productionRoot, '__architecture-fixture__', 'rogue.ts');
 const wholeProjectInspectionTimeout = 60_000;
 const productionPaths = productionTypeScriptFiles(productionRoot);
+const semanticPaths = productionTypeScriptFiles(semanticRoot);
+const productionInspection = createTypeScriptProjectInspectionSession(productionPaths);
+const semanticInspection = createTypeScriptProjectInspectionSession(semanticPaths);
+const adapterPlannerPaths = productionTypeScriptFiles(join(productionRoot, 'adapter')).filter(path =>
+  basename(path).endsWith('.planner.ts'),
+);
+const targetResponsiveRangeOwnerPaths = [
+  'adapter/tailwind/extended/extended-display-composition.planner.ts',
+  'adapter/tailwind/extended/generated-property-composition.planner.ts',
+  'adapter/tailwind/visibility/display-composition.planner.ts',
+].map(path => join(productionRoot, path));
 let cachedProductionSemanticAuthorities: ReturnType<typeof inspectSemanticAuthorityCalls> | undefined;
 let cachedRogueProductionSemanticAuthorities: ReturnType<typeof inspectSemanticAuthorityCalls> | undefined;
 let cachedGitIgnoreBarrelAuthorities: ReturnType<typeof inspectSemanticAuthorityCalls> | undefined;
@@ -39,6 +58,7 @@ const productionGraphAuthorities = new Set([
   'DiscoverProjectStage.run',
   'MigrationTransaction.apply',
   'Migrator.migrate',
+  'RenderProjectStage.run',
 ]);
 const filesystemOperationAuthorityNames = [
   'FileSystem.access',
@@ -109,6 +129,8 @@ const expectedProductionAuthorityGraph = [
   { source: 'pipeline/current-migration.pipeline.ts', authority: 'AnalyzeProjectStage.run' },
   { source: 'pipeline/current-migration.pipeline.ts', authority: 'DiscoverProjectStage.run' },
   { source: 'pipeline/current-migration.pipeline.ts', authority: 'Migrator.migrate' },
+  { source: 'pipeline/current-migration.pipeline.ts', authority: 'RenderProjectStage.run' },
+  { source: 'pipeline/migration-pipeline.ts', authority: 'RenderProjectStage.run' },
 ] as const;
 const rogueProductionAuthorityCases = [
   {
@@ -576,7 +598,6 @@ const filesystemPluralProvenanceOverrides = new Map([
   ...filesystemPluralProvenanceCases.map(fixture => [fixture.sourcePath, fixture.source] as const),
 ]);
 const expectedRendererRelativePaths = [
-  'adapter/css/css.adapter.ts',
   'adapter/css/flex/flex-align.css-renderer.ts',
   'adapter/css/flex/flex-fill.css-renderer.ts',
   'adapter/css/flex/flex-item.css-renderer.ts',
@@ -586,8 +607,11 @@ const expectedRendererRelativePaths = [
   'adapter/css/flex/layout-gap.css-renderer.ts',
   'adapter/css/flex/layout.css-renderer.ts',
   'adapter/tailwind/grid/tailwind-grid.renderer.ts',
-  'adapter/tailwind/tailwind.adapter.ts',
   'image/picture.renderer.ts',
+  'render/conversion-renderer.ts',
+  'render/css/css.renderer.ts',
+  'render/tailwind/extended-responsive.renderer.ts',
+  'render/tailwind/tailwind.renderer.ts',
 ] as const;
 const rendererPaths = expectedRendererRelativePaths.map(path => join(productionRoot, path));
 const discoveredLeafRendererPaths = productionTypeScriptFiles(productionRoot).filter(path =>
@@ -671,7 +695,7 @@ function normalizedAuthoritySources(
 }
 
 function productionSemanticAuthorities(): ReturnType<typeof inspectSemanticAuthorityCalls> {
-  cachedProductionSemanticAuthorities ??= inspectSemanticAuthorityCalls(productionPaths);
+  cachedProductionSemanticAuthorities ??= productionInspection.inspectSemanticAuthorityCalls();
   return cachedProductionSemanticAuthorities;
 }
 
@@ -737,6 +761,268 @@ describe('enterprise pipeline dependency boundary', { timeout: wholeProjectInspe
     expect(normalizedAuthoritySources(productionSemanticAuthorities(), productionGraphAuthorities)).toEqual(
       expectedProductionAuthorityGraph,
     );
+  });
+
+  test('keeps responsive-family runtime exports owned only by the target-neutral semantic module', () => {
+    const owners = [
+      ...new Set(
+        [
+          ...productionInspection.inspectRuntimeNamedDeclarationProvenance('ResponsiveFamilyPlanner'),
+          ...productionInspection
+            .inspectRuntimeExportSymbolProvenance()
+            .filter(symbol => symbol.exportedName === 'ResponsiveFamilyPlanner'),
+        ].map(symbol => relative(productionRoot, symbol.declarationPath).replaceAll('\\', '/')),
+      ),
+    ].sort();
+
+    expect(owners).toEqual(['semantic/responsive-family.planner.ts']);
+  });
+
+  test('detects a second adapter declaration of the canonical responsive-family owner', () => {
+    const adapterOwnerPath = join(productionRoot, '__architecture-fixture__', 'adapter-responsive-owner.ts');
+    const hiddenOwnerPath = join(productionRoot, '__architecture-fixture__', 'hidden-adapter-responsive-owner.ts');
+    const barrelPath = join(productionRoot, '__architecture-fixture__', 'responsive-owner-barrel.ts');
+    const overrides = new Map([
+      [adapterOwnerPath, 'export class ResponsiveFamilyPlanner {}'],
+      [hiddenOwnerPath, 'class ResponsiveFamilyPlanner {} void ResponsiveFamilyPlanner;'],
+      [
+        barrelPath,
+        "export { ResponsiveFamilyPlanner as SharedResponsiveFamilyPlanner } from './adapter-responsive-owner.js';",
+      ],
+    ]);
+    const inspection = createTypeScriptProjectInspectionSession(
+      [adapterOwnerPath, hiddenOwnerPath, barrelPath],
+      overrides,
+    );
+    const owners = [
+      ...new Set(
+        inspection
+          .inspectRuntimeNamedDeclarationProvenance('ResponsiveFamilyPlanner')
+          .map(symbol => symbol.declarationPath),
+      ),
+    ];
+
+    expect(owners).toEqual([adapterOwnerPath, hiddenOwnerPath]);
+  });
+
+  test('retains an exported owner name while resolving a differently named adapter implementation', () => {
+    const adapterImplementationPath = join(
+      productionRoot,
+      '__architecture-fixture__',
+      'adapter-responsive-implementation.ts',
+    );
+    const barrelPath = join(productionRoot, '__architecture-fixture__', 'responsive-owner-alias.ts');
+    const inspection = createTypeScriptProjectInspectionSession(
+      [barrelPath],
+      new Map([
+        [adapterImplementationPath, 'export class AdapterResponsiveImplementation {}'],
+        [
+          barrelPath,
+          "export { AdapterResponsiveImplementation as ResponsiveFamilyPlanner } from './adapter-responsive-implementation.js';",
+        ],
+      ]),
+    );
+
+    expect(inspection.inspectRuntimeExportSymbolProvenance()).toContainEqual({
+      sourcePath: barrelPath,
+      exportedName: 'ResponsiveFamilyPlanner',
+      symbolName: 'AdapterResponsiveImplementation',
+      declarationPath: adapterImplementationPath,
+    });
+    expect(inspection.programConstructionCount).toBe(1);
+  });
+
+  test('keeps the deprecated ConversionAdapter type free of semantic orchestration hooks', () => {
+    const inspection = inspectTypeScript(readFileSync(conversionAdapterPath, 'utf8'), conversionAdapterPath);
+
+    expect(
+      inspection.declaredMethodNames.filter(name =>
+        ['planElement', 'closePlanDependencies', 'acceptPlans'].includes(name),
+      ),
+    ).toEqual([]);
+  });
+
+  test('does not treat a type-only responsive compatibility alias as runtime ownership', () => {
+    const aliasPath = join(productionRoot, '__architecture-fixture__', 'responsive-type-only.alias.ts');
+    const findings = inspectRuntimeExportSymbolProvenance(
+      [aliasPath],
+      new Map([
+        [
+          aliasPath,
+          "export type { ResponsiveFamilyPlanner as SharedResponsiveFamilyPlanner } from '../semantic/responsive-family.planner.js';",
+        ],
+      ]),
+    );
+
+    expect(findings.filter(symbol => symbol.symbolName === 'ResponsiveFamilyPlanner')).toEqual([]);
+  });
+
+  test('resolves runtime responsive aliases and barrels to the one semantic declaration', () => {
+    const barrelPath = join(productionRoot, '__architecture-fixture__', 'responsive-runtime-barrel.ts');
+    const aliasPath = join(productionRoot, '__architecture-fixture__', 'responsive-runtime-alias.ts');
+    const unrelatedPath = join(productionRoot, '__architecture-fixture__', 'unrelated-responsive-owner.ts');
+    const findings = inspectRuntimeExportSymbolProvenance(
+      [barrelPath, aliasPath, unrelatedPath],
+      new Map([
+        [barrelPath, "export * from '../semantic/responsive-family.planner.js';"],
+        [
+          aliasPath,
+          "export { ResponsiveFamilyPlanner as SharedResponsiveFamilyPlanner } from './responsive-runtime-barrel.js';",
+        ],
+        [unrelatedPath, 'export class ResponsiveFamilyPlannerCompatibility {}'],
+      ]),
+    );
+
+    expect([
+      ...new Set(
+        findings
+          .filter(symbol => symbol.symbolName === 'ResponsiveFamilyPlanner')
+          .map(symbol => symbol.declarationPath),
+      ),
+    ]).toEqual([join(semanticRoot, 'responsive-family.planner.ts')]);
+  });
+
+  test('keeps semantic production modules independent from targets and side-effect layers', () => {
+    const forbiddenLocalDependencies = semanticInspection
+      .inspectDependencyClosure()
+      .filter(finding =>
+        [
+          join(productionRoot, 'adapter'),
+          join(productionRoot, 'render'),
+          join(productionRoot, 'edit'),
+          join(productionRoot, 'report'),
+          join(productionRoot, 'transaction'),
+        ].some(namespace => finding.dependencyPath === namespace || finding.dependencyPath.startsWith(`${namespace}/`)),
+      );
+    const filesystemImports = semanticPaths.flatMap(path =>
+      runtimeModuleReferences(readFileSync(path, 'utf8'), path).filter(reference =>
+        /^(?:node:)?fs(?:\/|$)/u.test(reference),
+      ),
+    );
+
+    expect(forbiddenLocalDependencies).toEqual([]);
+    expect(filesystemImports).toEqual([]);
+  });
+
+  test('includes type-only and barrel edges in the semantic dependency boundary', () => {
+    const typeOnlyPath = join(productionRoot, '__architecture-fixture__', 'semantic-type-only.ts');
+    const barrelPath = join(productionRoot, '__architecture-fixture__', 'semantic-type-barrel.ts');
+    const overrides = new Map([
+      [typeOnlyPath, "import type { PlannedConversion } from './semantic-type-barrel.js'; void 0;"],
+      [barrelPath, "export type { PlannedConversion } from '../adapter/conversion-adapter.js';"],
+    ]);
+    const inspection = createTypeScriptProjectInspectionSession([typeOnlyPath], overrides);
+    const findings = inspection.inspectDependencyClosure();
+
+    expect(findings.map(finding => finding.dependencyPath)).toContain(
+      join(productionRoot, 'adapter', 'conversion-adapter.ts'),
+    );
+    expect(inspection.inspectRuntimeDependencyClosure()).toEqual([]);
+    expect(inspection.programConstructionCount).toBe(1);
+  });
+
+  test('keeps target execution calls outside target-neutral semantic modules', () => {
+    const targetAuthorities = new Set([
+      'ConversionRenderer.eligibility',
+      'ConversionRenderer.render',
+      'ConversionRenderer.resolveConflicts',
+      'ConversionRenderer.record',
+    ]);
+
+    expect(normalizedAuthoritySources(semanticInspection.inspectSemanticAuthorityCalls(), targetAuthorities)).toEqual(
+      [],
+    );
+    expect(
+      new Set(
+        inspectSemanticAuthorityCalls([semanticRenderCoordinatorPath])
+          .filter(call => targetAuthorities.has(call.name))
+          .map(call => call.name),
+      ),
+    ).toEqual(targetAuthorities);
+  });
+
+  test('does not classify lookalike renderer methods as target execution authority', () => {
+    const source = `
+      interface ReportRenderer {
+        eligibility(input: unknown): void;
+        render(input: unknown): void;
+        resolveConflicts(input: unknown): void;
+        record(input: unknown): void;
+      }
+      declare const renderer: ReportRenderer;
+      renderer.eligibility(undefined);
+      renderer.render(undefined);
+      renderer.resolveConflicts(undefined);
+      renderer.record(undefined);
+    `;
+
+    expect(fixtureSemanticAuthorities(source).filter(name => name.startsWith('ConversionRenderer.'))).toEqual([]);
+  });
+
+  test('constructs one immutable TypeScript Program per shared architecture scenario', () => {
+    semanticInspection.inspectDependencyClosure();
+    semanticInspection.inspectSemanticAuthorityCalls();
+    productionInspection.inspectRuntimeExportSymbolProvenance();
+    productionInspection.inspectSemanticAuthorityCalls();
+
+    expect(semanticInspection.programConstructionCount).toBe(1);
+    expect(productionInspection.programConstructionCount).toBe(1);
+
+    const isolated = createTypeScriptProjectInspectionSession([semanticRenderCoordinatorPath]);
+    expect(isolated.programConstructionCount).toBe(0);
+    isolated.inspectSemanticAuthorityCalls();
+    isolated.inspectRuntimeSymbolProvenance();
+    expect(isolated.programConstructionCount).toBe(1);
+
+    const isolatedPath = join(productionRoot, '__architecture-fixture__', 'isolated-program.ts');
+    const mutableOverrides = new Map([[isolatedPath, 'export class OriginalOwner {}']]);
+    const snapshotted = createTypeScriptProjectInspectionSession([isolatedPath], mutableOverrides);
+    mutableOverrides.set(isolatedPath, 'export class MutatedOwner {}');
+    expect(snapshotted.inspectRuntimeNamedDeclarationProvenance('OriginalOwner')).toHaveLength(1);
+    expect(snapshotted.inspectRuntimeNamedDeclarationProvenance('MutatedOwner')).toEqual([]);
+    expect(snapshotted.programConstructionCount).toBe(1);
+  });
+
+  test('makes RenderProjectStage the sole caller of RenderSession finalization', () => {
+    expect(normalizedAuthoritySources(productionSemanticAuthorities(), new Set(['RenderSession.finalize']))).toEqual([
+      { source: 'pipeline/render/render-project.stage.ts', authority: 'RenderSession.finalize' },
+    ]);
+  });
+
+  test.each([
+    ['TailwindRenderSession', 'TailwindRenderSession'],
+    ['CssRenderSession', 'CssRenderSession'],
+    ['aliased TailwindRenderSession', 'TailwindRenderSession as ConcreteSession'],
+  ])('recognizes direct %s finalization as canonical RenderSession authority', (_label, importBinding) => {
+    const constructedName = importBinding.includes(' as ') ? 'ConcreteSession' : importBinding;
+    expect(
+      fixtureSemanticAuthorities(
+        `import { ${importBinding} } from '../render/render-session.js'; new ${constructedName}().finalize();`,
+      ),
+    ).toContain('RenderSession.finalize');
+  });
+
+  test.each([
+    {
+      label: 'test-double interface',
+      source:
+        'interface RenderSessionDouble { finalize(): void } declare const session: RenderSessionDouble; session.finalize();',
+    },
+    {
+      label: 'compatibility-shaped alias',
+      source:
+        'type CompatibilitySession = { finalize(): void }; declare const session: CompatibilitySession; session.finalize();',
+    },
+    {
+      label: 'unrelated class method',
+      source: 'class ReportBuilder { finalize(): void {} } new ReportBuilder().finalize();',
+    },
+    {
+      label: 'type-only session import',
+      source: "import type { RenderSession } from '../render/render-session.js'; type Session = RenderSession; void 0;",
+    },
+  ])('does not classify a $label as RenderSession finalization authority', ({ source }) => {
+    expect(fixtureSemanticAuthorities(source).filter(name => name === 'RenderSession.finalize')).toEqual([]);
   });
 
   test.each(rogueProductionAuthorityCases)(
@@ -1145,7 +1431,6 @@ describe('enterprise pipeline dependency boundary', { timeout: wholeProjectInspe
       { source: 'lib/gitignore.helper.ts', authority: 'FileSystem.readFile' },
       { source: 'lib/gitignore.helper.ts', authority: 'IgnoreLibrary.acquire' },
       { source: 'lib/gitignore.helper.ts', authority: 'IgnoreLibrary.createMatcher' },
-      { source: 'migrator/analyzed-file.migrator.ts', authority: 'DestinationTemplateSource.read' },
       { source: 'migrator/destination-template-source.ts', authority: 'FileSystem.acquire.readFile' },
       { source: 'migrator/destination-template-source.ts', authority: 'FileSystem.readFile' },
       { source: 'migrator/migration-path.validator.ts', authority: 'FileSystem.acquire.lstat' },
@@ -1166,6 +1451,7 @@ describe('enterprise pipeline dependency boundary', { timeout: wholeProjectInspe
         source: 'pipeline/discover/discover-project.stage.ts',
         authority: 'GitIgnoreHelper.acquire',
       },
+      { source: 'pipeline/render/compatibility-edit.validator.ts', authority: 'DestinationTemplateSource.read' },
       { source: 'transaction/migration-transaction.ts', authority: 'FileSystem.acquire.access' },
       { source: 'transaction/migration-transaction.ts', authority: 'FileSystem.acquire.lstat' },
       { source: 'transaction/migration-transaction.ts', authority: 'FileSystem.acquire.open' },
@@ -1181,6 +1467,87 @@ describe('enterprise pipeline dependency boundary', { timeout: wholeProjectInspe
       );
 
       expect(targetImport, relative(process.cwd(), path)).toBeUndefined();
+    }
+  });
+
+  test('reserves adapter responsive range ownership for target-specific composition planners', () => {
+    const responsiveRangeSymbols = inspectRuntimeSymbolProvenance(adapterPlannerPaths).filter(
+      symbol =>
+        symbol.declarationPath.endsWith('/breakpoint/breakpoint-catalog.ts') &&
+        ['BreakpointCatalog', 'mediaDefinitionsIntersect', 'mediaRangesIntersect'].includes(symbol.symbolName),
+    );
+    const owners = new Map<string, Set<string>>();
+    for (const symbol of responsiveRangeSymbols) {
+      const names = owners.get(symbol.sourcePath) ?? new Set<string>();
+      names.add(symbol.symbolName);
+      owners.set(symbol.sourcePath, names);
+    }
+
+    expect(
+      [...owners.entries()]
+        .filter(
+          ([, names]) =>
+            names.has('BreakpointCatalog') &&
+            (names.has('mediaDefinitionsIntersect') || names.has('mediaRangesIntersect')),
+        )
+        .map(([sourcePath]) => sourcePath)
+        .sort(),
+    ).toEqual([...targetResponsiveRangeOwnerPaths].sort());
+  });
+
+  test.each([
+    [
+      'named imports',
+      "import { BreakpointCatalog, mediaDefinitionsIntersect } from '../breakpoint/breakpoint-catalog.js';",
+    ],
+    ['namespace import', "import * as breakpoints from '../breakpoint/breakpoint-catalog.js'; void breakpoints;"],
+    [
+      're-export alias',
+      "export { BreakpointCatalog as Catalog, mediaRangesIntersect as intersects } from '../breakpoint/breakpoint-catalog.js';",
+    ],
+  ])('detects responsive range ownership through %s', (_label, source) => {
+    const symbols = inspectRuntimeSymbolProvenance(
+      [legacyResponsiveFamilyPlannerPath],
+      new Map([[legacyResponsiveFamilyPlannerPath, source]]),
+    );
+
+    expect(symbols.map(symbol => symbol.symbolName)).toEqual(
+      expect.arrayContaining(['BreakpointCatalog', expect.stringMatching(/^media.*Intersect$/u)]),
+    );
+  });
+
+  test('allows type-only responsive range imports as a negative control', () => {
+    const symbols = inspectRuntimeSymbolProvenance(
+      [legacyResponsiveFamilyPlannerPath],
+      new Map([
+        [
+          legacyResponsiveFamilyPlannerPath,
+          "import type { BreakpointCatalog, mediaDefinitionsIntersect } from '../breakpoint/breakpoint-catalog.js';",
+        ],
+      ]),
+    );
+
+    expect(symbols).toEqual([]);
+  });
+
+  test('keeps target-neutral responsive behavior owned by the semantic planner suite', () => {
+    const semanticCases = [
+      'routes ngClass/class and ngStyle/style as two complete extended families',
+      'converts a base member and a verified responsive override atomically',
+      'converts different utilities in disjoint responsive ranges',
+      'converts identical utilities in overlapping responsive ranges',
+      'preserves the complete family when overlapping ranges emit different utilities',
+      'preserves the complete family when one member is dynamic',
+      'groups fxFlex, fxGrow, and fxShrink as one flex-item family',
+      'groups fxFlexFill and fxFill as one flex-fill family',
+      'retains dynamic-binding diagnostics when responsive context is also unresolved',
+      'closes fxShow and fxHide as one visibility family without replanning their semantics',
+      'retains intrinsic visibility diagnostics when dynamic closure preserves the family',
+    ];
+    const semanticSpec = readFileSync(semanticResponsiveFamilyPlannerSpecPath, 'utf8');
+
+    for (const testName of semanticCases) {
+      expect(semanticSpec).toContain(testName);
     }
   });
 
@@ -1229,9 +1596,9 @@ describe('enterprise pipeline dependency boundary', { timeout: wholeProjectInspe
       { source: 'pipeline/analyze/analyze-project.stage.ts', authority: 'TemplateSourceReader.read' },
     ]);
     expect(parseCalls).toEqual([
-      { source: 'migrator/analyzed-file.migrator.ts', authority: 'ChangedTemplateValidation.parse' },
       { source: 'migrator/migrator.ts', authority: 'CssReferenceParser.parse' },
       { source: 'pipeline/analyze/analyze-project.stage.ts', authority: 'OriginalTemplateParser.parse' },
+      { source: 'pipeline/render/compatibility-edit.validator.ts', authority: 'ChangedTemplateValidation.parse' },
       { source: 'transaction/migration-transaction.ts', authority: 'StagedTemplateValidation.parse' },
     ]);
   });

@@ -8,7 +8,7 @@ import type { TemplateParser } from '../pipeline/analyze/template-parser.port';
 import { AnalyzedFileMigrator, type AnalyzedFileMigratorDependencies } from './analyzed-file.migrator';
 
 describe('AnalyzedFileMigrator', () => {
-  test('renders parsed analysis without rereading, reparsing, or reanalyzing original source', async () => {
+  test('renders parsed analysis through compatibility edit validation without rereading or reparsing original source', async () => {
     const analyzed = parsedAnalysis(
       '<div fxLayout="row"></div>',
       '/project/templates/../card.html',

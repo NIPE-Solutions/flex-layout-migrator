@@ -11,8 +11,8 @@ const policySymbols = Object.freeze([
   ['artifact identity', 'CssArtifactRegistry'],
   ['breakpoint classification', 'BreakpointCatalog'],
   ['diagnostics', 'DiagnosticCode'],
-  ['responsive precedence', 'SharedResponsiveFamilyPlanner'],
-  ['semantic planning', 'ConversionPlanner'],
+  ['responsive precedence', 'ResponsiveFamilyPlanner'],
+  ['semantic planning', 'ElementSemanticPlanner'],
   ['transaction recovery', 'MigrationTransaction'],
 ]);
 

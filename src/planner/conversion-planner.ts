@@ -1,4 +1,4 @@
-import type { ConversionAdapter, ConversionContext, PlannedConversion } from '../adapter/conversion-adapter';
+import type { PlannedConversion } from '../adapter/conversion-adapter';
 import type { ConversionResult } from '../analyzer/conversion-result';
 import type { LocatedFlexLayoutInput } from '../analyzer/flex-layout-attribute.analyzer';
 import type { SourceEdit } from '../edit/source-edit';
@@ -8,6 +8,10 @@ import { appendLiteralClassNames } from '../edit/html-attribute-value';
 import { ResponsiveImagePlanner } from '../image/responsive-image.planner';
 import type { ResponsiveImagePlan } from '../image/responsive-image.model';
 import { PictureRenderer } from '../image/picture.renderer';
+import type { ConversionRenderer } from '../render/conversion-renderer';
+import type { SemanticConversionContext } from '../semantic/conversion-context';
+import { ElementSemanticPlanner } from '../semantic/element-semantic.planner';
+import { SemanticRenderCoordinator } from './semantic-render.coordinator';
 
 export interface FilePlan {
   readonly edits: readonly SourceEdit[];
@@ -85,9 +89,11 @@ export class ConversionPlanner {
     source: string,
     elements: readonly TemplateElement[],
     inputs: readonly LocatedFlexLayoutInput[],
-    adapter: ConversionAdapter,
+    renderer: ConversionRenderer,
     options: ConversionPlanningOptions = { responsiveImages: false },
+    semanticPlanner: ElementSemanticPlanner = new ElementSemanticPlanner(renderer.breakpointConfig),
   ): FilePlan {
+    const coordinator = new SemanticRenderCoordinator(renderer, semanticPlanner);
     const elementById = new Map(elements.map(element => [element.id, element]));
     const inputsByElementId = new Map<string, LocatedFlexLayoutInput[]>();
     for (const input of inputs) {
@@ -99,7 +105,7 @@ export class ConversionPlanner {
     const results: ConversionResult[] = [];
     const plansByInputId = new Map<string, PlannedConversion>();
     const plansByElementId = new Map<string, readonly PlannedConversion[]>();
-    const contextsByElementId = new Map<string, ConversionContext>();
+    const contextsByElementId = new Map<string, SemanticConversionContext>();
     const imagePlansByElementId = new Map<string, ResponsiveImagePlan>();
 
     for (const element of elements) {
@@ -110,7 +116,7 @@ export class ConversionPlanner {
       const parent = element.parentId ? elementById.get(element.parentId) : undefined;
       const literalClass = literalClassAttribute(element);
       const existingClassNames = literalClass?.value.split(/\s+/).filter(Boolean) ?? [];
-      const context: ConversionContext = {
+      const context: SemanticConversionContext = {
         element,
         inputs: elementInputs,
         existingClassNames,
@@ -119,28 +125,24 @@ export class ConversionPlanner {
           ? { parent, parentInputs: inputsByElementId.get(parent.id) ?? [] }
           : { parentInputs: [] as readonly LocatedFlexLayoutInput[] }),
       };
-      let plans =
-        adapter.planElement?.(elementInputs, context) ?? elementInputs.map(input => adapter.plan(input, context));
+      let plans = coordinator.planElement(elementInputs, context, false);
       const hasBoundClass = element.attributes.some(isBoundClassAttribute);
       if (hasBoundClass) {
         plans = plans.map(plan =>
           plan.status === 'converted' && plan.classNames.length > 0 ? boundClassBlocked(plan.input) : plan,
         );
       }
-      plans = adapter.resolveClassConflicts?.(plans, existingClassNames) ?? plans;
       contextsByElementId.set(element.id, context);
       plansByElementId.set(element.id, plans);
       for (const planned of plans) plansByInputId.set(planned.input.id, planned);
     }
 
-    if (adapter.closePlanDependencies) {
-      for (const element of elements) {
-        const plans = plansByElementId.get(element.id);
-        const context = contextsByElementId.get(element.id);
-        if (!plans || !context) continue;
-        const closedPlans = adapter.closePlanDependencies(plans, context, plansByInputId);
-        for (const planned of closedPlans) plansByInputId.set(planned.input.id, planned);
-      }
+    for (const element of elements) {
+      const plans = plansByElementId.get(element.id);
+      const context = contextsByElementId.get(element.id);
+      if (!plans || !context) continue;
+      const closedPlans = coordinator.closeDependencies(plans, context, plansByInputId);
+      for (const planned of closedPlans) plansByInputId.set(planned.input.id, planned);
     }
 
     for (const element of elements) {
@@ -188,7 +190,7 @@ export class ConversionPlanner {
       for (const input of imageInputs) plansByInputId.set(input.id, { ...familyFailure, input });
     }
 
-    adapter.acceptPlans?.(
+    coordinator.record(
       inputs.map(input => plansByInputId.get(input.id)).filter((plan): plan is PlannedConversion => plan !== undefined),
     );
 

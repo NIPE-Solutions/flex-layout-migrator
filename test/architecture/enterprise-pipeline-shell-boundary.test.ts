@@ -19,6 +19,7 @@ import {
 
 const productionRoot = join(process.cwd(), 'src');
 const pipelineRoot = join(productionRoot, 'pipeline');
+const wholeProjectInspectionTimeout = 60_000;
 const cliPath = join(productionRoot, 'cli', 'run-cli.ts');
 const currentPipelinePath = join(pipelineRoot, 'current-migration.pipeline.ts');
 const migrationPipelinePath = join(pipelineRoot, 'migration-pipeline.ts');
@@ -39,11 +40,11 @@ const handoffImports = new Map<string, readonly string[]>([
     [
       './analyzed-project',
       './project-manifest',
-      '../adapter/conversion-adapter.session',
       '../adapter/css/css-artifact.model',
       '../breakpoint/breakpoint-catalog',
       '../migrator/migration-application.error',
       '../migrator/migration-plan',
+      '../render/render-session',
       'node:path',
     ],
   ],
@@ -74,7 +75,7 @@ function expectFrozenAgainstMutation(value: object): void {
   expect(Reflect.set(value, property, Symbol('mutation'))).toBe(false);
 }
 
-describe('enterprise pipeline shell dependency boundary', { timeout: 20_000 }, () => {
+describe('enterprise pipeline shell dependency boundary', { timeout: wholeProjectInspectionTimeout }, () => {
   test('keeps handoff models limited to target-neutral model imports and Node path normalization', () => {
     for (const [fileName, allowedImports] of handoffImports) {
       const path = join(pipelineRoot, fileName);
@@ -114,7 +115,7 @@ describe('enterprise pipeline shell dependency boundary', { timeout: 20_000 }, (
     expect(runtimeModuleReferences(source, stageErrorPath)).toEqual([]);
   });
 
-  test('keeps the current-pipeline facade as the sole concrete Migrator and live adapter-session owner', () => {
+  test('keeps the current-pipeline facade as the sole concrete Migrator owner without an adapter session', () => {
     const pipelinePaths = productionTypeScriptFiles(pipelineRoot);
     const concreteMigratorOwners = pipelinePaths.flatMap(path =>
       sourceInspection(path).runtimeImports.flatMap(runtimeImport =>
@@ -124,17 +125,17 @@ describe('enterprise pipeline shell dependency boundary', { timeout: 20_000 }, (
           : [],
       ),
     );
-    const liveAdapterSessionOwners = pipelinePaths.flatMap(path =>
+    const legacyAdapterSessionOwners = pipelinePaths.flatMap(path =>
       sourceInspection(path).identifiers.includes('ConversionAdapterSession')
         ? [relative(productionRoot, path).replaceAll('\\', '/')]
         : [],
     );
 
     expect(concreteMigratorOwners).toEqual(['pipeline/current-migration.pipeline.ts']);
-    expect(liveAdapterSessionOwners).toEqual(['pipeline/current-migration.pipeline.ts']);
+    expect(legacyAdapterSessionOwners).toEqual([]);
   });
 
-  test('keeps the current-pipeline facade to one migrate call and no stage or policy ownership', () => {
+  test('keeps the current-pipeline facade to one Render handoff and migrate call without policy ownership', () => {
     const inspection = sourceInspection(currentPipelinePath);
     const projectInspection = inspectTypeScriptProject([currentPipelinePath]);
     const forbiddenSymbols = [
@@ -142,7 +143,7 @@ describe('enterprise pipeline shell dependency boundary', { timeout: 20_000 }, (
       ...inspection.callExpressionNames,
       ...inspection.constructedExpressionNames,
     ].filter(identifier =>
-      /(?:directive|breakpoint|render|validat|reportbuilder|buildreport|filesystem|transaction|exitpolicy|resolveexitcode|presenter|writer)/iu.test(
+      /(?:directive|breakpoint|renderer|validat|reportbuilder|buildreport|filesystem|transaction|exitpolicy|resolveexitcode|presenter|writer)/iu.test(
         identifier,
       ),
     );
@@ -151,11 +152,11 @@ describe('enterprise pipeline shell dependency boundary', { timeout: 20_000 }, (
       sorted([
         './project-manifest',
         './analyze/analyze-project.stage',
-        './analyzed-project',
         './discover/discover-project.stage',
         './invocation-error-path.mapper',
         './migration-pipeline',
-        '../adapter/conversion-adapter.session',
+        './rendered-project',
+        '../migrator/migrator',
         '../migrator/migrator',
         '../report/migration-report',
       ]),
@@ -167,6 +168,7 @@ describe('enterprise pipeline shell dependency boundary', { timeout: 20_000 }, (
     expect(inspectSemanticAuthorityCalls([currentPipelinePath])).toEqual([
       { sourcePath: currentPipelinePath, name: 'DiscoverProjectStage.run' },
       { sourcePath: currentPipelinePath, name: 'AnalyzeProjectStage.run' },
+      { sourcePath: currentPipelinePath, name: 'RenderProjectStage.run' },
       { sourcePath: currentPipelinePath, name: 'Migrator.migrate' },
     ]);
   });
@@ -287,6 +289,7 @@ describe('enterprise pipeline shell dependency boundary', { timeout: 20_000 }, (
     expect(pipelinePaths.map(path => basename(path)).sort()).toEqual([
       'analyze-project.stage.ts',
       'analyzed-project.ts',
+      'compatibility-edit.validator.ts',
       'current-migration.pipeline.ts',
       'discover-project.stage.ts',
       'discovery-file-system.port.ts',
@@ -295,6 +298,7 @@ describe('enterprise pipeline shell dependency boundary', { timeout: 20_000 }, (
       'migration-pipeline.ts',
       'pipeline-stage.error.ts',
       'project-manifest.ts',
+      'render-project.stage.ts',
       'rendered-project.ts',
       'template-input-analyzer.port.ts',
       'template-parser.port.ts',

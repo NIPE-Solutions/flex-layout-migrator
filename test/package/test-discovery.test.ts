@@ -26,6 +26,14 @@ describe('Vitest discovery', () => {
       ]),
     );
   });
+
+  it('discovers the top-level shared semantic target parity contract', async () => {
+    const config = await readFile(new URL('../../vitest.config.ts', import.meta.url), 'utf8');
+    const compatibilityTests = await testPaths(new URL('../compatibility/', import.meta.url));
+
+    expect(config).toContain("'test/**/*.test.ts'");
+    expect(compatibilityTests).toContain('test/compatibility/shared-semantic-target-parity.test.ts');
+  });
 });
 
 async function specificationPaths(directory: URL): Promise<readonly string[]> {
@@ -33,6 +41,17 @@ async function specificationPaths(directory: URL): Promise<readonly string[]> {
     (await readdir(directory, { withFileTypes: true })).map(async entry => {
       if (entry.isDirectory()) return specificationPaths(new URL(`${entry.name}/`, directory));
       if (!entry.isFile() || !entry.name.endsWith('.spec.ts')) return [];
+      return [relative(process.cwd(), fileURLToPath(new URL(entry.name, directory))).replaceAll('\\', '/')];
+    }),
+  );
+  return nested.flat().sort();
+}
+
+async function testPaths(directory: URL): Promise<readonly string[]> {
+  const nested = await Promise.all(
+    (await readdir(directory, { withFileTypes: true })).map(async entry => {
+      if (entry.isDirectory()) return testPaths(new URL(`${entry.name}/`, directory));
+      if (!entry.isFile() || !entry.name.endsWith('.test.ts')) return [];
       return [relative(process.cwd(), fileURLToPath(new URL(entry.name, directory))).replaceAll('\\', '/')];
     }),
   );

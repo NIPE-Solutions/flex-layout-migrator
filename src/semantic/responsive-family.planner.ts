@@ -5,32 +5,10 @@ import {
   mediaRangesIntersect,
   type MediaRange,
 } from '../breakpoint/breakpoint-catalog';
-import type { ConversionContext } from './conversion-adapter';
+import type { SemanticConversionContext } from './conversion-context';
+import { directiveFamily, type DirectiveFamily } from './semantic-plan';
 
-export type DirectiveFamily =
-  | 'layout'
-  | 'layout-gap'
-  | 'layout-align'
-  | 'flex-item'
-  | 'flex-align'
-  | 'flex-fill'
-  | 'flex-offset'
-  | 'flex-order'
-  | 'visibility'
-  | 'extended-class'
-  | 'extended-style'
-  | 'grid-align-columns'
-  | 'grid-align-rows'
-  | 'grid-area'
-  | 'grid-areas'
-  | 'grid-auto'
-  | 'grid-column'
-  | 'grid-columns'
-  | 'grid-gap'
-  | 'grid-align'
-  | 'grid-inline'
-  | 'grid-row'
-  | 'grid-rows';
+export type { DirectiveFamily } from './semantic-plan';
 
 export interface ResponsiveOrchestrationPlan {
   readonly status: 'converted' | 'review' | 'unsupported' | 'invalid';
@@ -39,16 +17,16 @@ export interface ResponsiveOrchestrationPlan {
 
 export type ResponsivePlanOne<TPlan extends ResponsiveOrchestrationPlan> = (
   input: LocatedFlexLayoutInput,
-  context: ConversionContext,
+  context: SemanticConversionContext,
 ) => TPlan;
 
 export type ResponsivePlanExtendedFamily<TPlan extends ResponsiveOrchestrationPlan> = (
   family: 'extended-class' | 'extended-style',
   inputs: readonly LocatedFlexLayoutInput[],
-  context: ConversionContext,
+  context: SemanticConversionContext,
 ) => readonly TPlan[];
 
-export interface ResponsiveFamilyPolicy<TPlan extends ResponsiveOrchestrationPlan> {
+export interface SemanticTargetPolicy<TPlan extends ResponsiveOrchestrationPlan> {
   emptyPlan(input: LocatedFlexLayoutInput): TPlan;
   targetEligibility(input: LocatedFlexLayoutInput): TPlan | undefined;
   validateActivation(plan: TPlan): TPlan;
@@ -60,38 +38,6 @@ export interface ResponsiveFamilyPolicy<TPlan extends ResponsiveOrchestrationPla
   decorate(plan: TPlan): TPlan;
   addPrintFallback(plan: TPlan): TPlan;
 }
-
-const familyByDirective = new Map<LocatedFlexLayoutInput['directive'], DirectiveFamily>([
-  ['fxLayout', 'layout'],
-  ['fxLayoutGap', 'layout-gap'],
-  ['fxLayoutAlign', 'layout-align'],
-  ['fxFlex', 'flex-item'],
-  ['fxGrow', 'flex-item'],
-  ['fxShrink', 'flex-item'],
-  ['fxFlexAlign', 'flex-align'],
-  ['fxFlexFill', 'flex-fill'],
-  ['fxFill', 'flex-fill'],
-  ['fxFlexOffset', 'flex-offset'],
-  ['fxFlexOrder', 'flex-order'],
-  ['fxShow', 'visibility'],
-  ['fxHide', 'visibility'],
-  ['class', 'extended-class'],
-  ['ngClass', 'extended-class'],
-  ['style', 'extended-style'],
-  ['ngStyle', 'extended-style'],
-  ['gdAlignColumns', 'grid-align-columns'],
-  ['gdAlignRows', 'grid-align-rows'],
-  ['gdArea', 'grid-area'],
-  ['gdAreas', 'grid-areas'],
-  ['gdAuto', 'grid-auto'],
-  ['gdColumn', 'grid-column'],
-  ['gdColumns', 'grid-columns'],
-  ['gdGap', 'grid-gap'],
-  ['gdGridAlign', 'grid-align'],
-  ['gdInline', 'grid-inline'],
-  ['gdRow', 'grid-row'],
-  ['gdRows', 'grid-rows'],
-]);
 
 const localLayoutDependents = new Set<DirectiveFamily>(['layout-gap', 'layout-align']);
 const parentLayoutDependents = new Set<DirectiveFamily>(['flex-item', 'flex-offset']);
@@ -167,15 +113,15 @@ function rangesCover(target: NumericRange, ranges: readonly NumericRange[]): boo
   return coveredUntil >= target.max;
 }
 
-export class SharedResponsiveFamilyPlanner<TPlan extends ResponsiveOrchestrationPlan> {
+export class ResponsiveFamilyPlanner<TPlan extends ResponsiveOrchestrationPlan> {
   constructor(
     private readonly catalog: BreakpointCatalog,
-    private readonly policy: ResponsiveFamilyPolicy<TPlan>,
+    private readonly policy: SemanticTargetPolicy<TPlan>,
   ) {}
 
   plan(
     inputs: readonly LocatedFlexLayoutInput[],
-    context: ConversionContext,
+    context: SemanticConversionContext,
     planOne: ResponsivePlanOne<TPlan>,
     planExtendedFamily?: ResponsivePlanExtendedFamily<TPlan>,
   ): readonly TPlan[] {
@@ -184,7 +130,7 @@ export class SharedResponsiveFamilyPlanner<TPlan extends ResponsiveOrchestration
 
   closeDependencies(
     inputs: readonly LocatedFlexLayoutInput[],
-    context: ConversionContext,
+    context: SemanticConversionContext,
     planOne: ResponsivePlanOne<TPlan>,
   ): readonly TPlan[] {
     return this.planWithDependencies(inputs, context, planOne, false, false);
@@ -192,7 +138,7 @@ export class SharedResponsiveFamilyPlanner<TPlan extends ResponsiveOrchestration
 
   private planWithDependencies(
     inputs: readonly LocatedFlexLayoutInput[],
-    context: ConversionContext,
+    context: SemanticConversionContext,
     planOne: ResponsivePlanOne<TPlan>,
     decorate: boolean,
     validateResponsivePrecedence: boolean,
@@ -201,7 +147,7 @@ export class SharedResponsiveFamilyPlanner<TPlan extends ResponsiveOrchestration
     const groups = new Map<DirectiveFamily, LocatedFlexLayoutInput[]>();
     const ungrouped: LocatedFlexLayoutInput[] = [];
     for (const input of inputs) {
-      const family = familyByDirective.get(input.directive);
+      const family = directiveFamily(input.directive);
       if (!family) {
         ungrouped.push(input);
         continue;
@@ -211,27 +157,25 @@ export class SharedResponsiveFamilyPlanner<TPlan extends ResponsiveOrchestration
       groups.set(family, members);
     }
 
-    const completeContext: ConversionContext = { ...context, inputs };
+    const completeContext: SemanticConversionContext = { ...context, inputs };
     const rawPlansByFamily = new Map<DirectiveFamily, readonly TPlan[]>();
     const layoutInputs = groups.get('layout') ?? [];
     const layoutPlans = this.planFamily(layoutInputs, completeContext, planOne, validateResponsivePrecedence);
     if (layoutInputs.length) rawPlansByFamily.set('layout', layoutPlans);
 
-    const parentLayoutInputs = context.parentInputs?.filter(input => input.directive === 'fxLayout');
-    const parentLayoutSafe =
-      parentLayoutInputs === undefined ||
-      this.isLayoutContextSafe(
-        context.parentInputs ?? [],
-        {
-          ...context,
-          element: context.parent ?? context.element,
-          inputs: context.parentInputs,
-          parent: undefined,
-          parentInputs: undefined,
-        },
-        planOne,
-        validateResponsivePrecedence,
-      );
+    const parentLayoutInputs = context.parentInputs.filter(input => input.directive === 'fxLayout');
+    const parentLayoutSafe = this.isLayoutContextSafe(
+      context.parentInputs,
+      {
+        ...context,
+        element: context.parent ?? context.element,
+        inputs: context.parentInputs,
+        parent: undefined,
+        parentInputs: [],
+      },
+      planOne,
+      validateResponsivePrecedence,
+    );
     const localLayoutSafe = layoutPlans.every(plan => plan.status === 'converted');
 
     for (const [family, familyInputs] of groups) {
@@ -262,7 +206,7 @@ export class SharedResponsiveFamilyPlanner<TPlan extends ResponsiveOrchestration
           ? this.planContextualFamily(
               familyInputs,
               completeContext,
-              parentLayoutInputs ?? [],
+              parentLayoutInputs,
               'activeParentLayout',
               planOne,
               validateResponsivePrecedence,
@@ -361,7 +305,7 @@ export class SharedResponsiveFamilyPlanner<TPlan extends ResponsiveOrchestration
 
   private planContextualFamily(
     inputs: readonly LocatedFlexLayoutInput[],
-    context: ConversionContext,
+    context: SemanticConversionContext,
     layoutInputs: readonly LocatedFlexLayoutInput[],
     contextKey: 'activeLayout' | 'activeParentLayout',
     planOne: ResponsivePlanOne<TPlan>,
@@ -370,7 +314,11 @@ export class SharedResponsiveFamilyPlanner<TPlan extends ResponsiveOrchestration
     const semanticPlans = inputs.map(input => {
       const breakpointPlan = this.planBreakpoint(input, context, planOne);
       if (breakpointPlan.status !== 'converted') return breakpointPlan;
-      const layoutValues = this.layoutValuesFor(input, inputs, layoutInputs);
+      const explicitLayout = context[contextKey];
+      const layoutValues =
+        layoutInputs.length === 0 && explicitLayout !== undefined
+          ? [explicitLayout]
+          : this.layoutValuesFor(input, inputs, layoutInputs);
       if (!layoutValues.length) {
         return this.policy.contextUnverified(input, 'The active responsive layout cannot be resolved for this input.');
       }
@@ -388,7 +336,7 @@ export class SharedResponsiveFamilyPlanner<TPlan extends ResponsiveOrchestration
 
   private isLayoutContextSafe(
     inputs: readonly LocatedFlexLayoutInput[],
-    context: ConversionContext,
+    context: SemanticConversionContext,
     planOne: ResponsivePlanOne<TPlan>,
     validateResponsivePrecedence: boolean,
   ): boolean {
@@ -416,7 +364,7 @@ export class SharedResponsiveFamilyPlanner<TPlan extends ResponsiveOrchestration
 
   private planBlockedContextFamily(
     inputs: readonly LocatedFlexLayoutInput[],
-    context: ConversionContext,
+    context: SemanticConversionContext,
     planOne: ResponsivePlanOne<TPlan>,
     reason: string,
     preserveExistingDiagnostics = false,
@@ -433,7 +381,7 @@ export class SharedResponsiveFamilyPlanner<TPlan extends ResponsiveOrchestration
 
   private planBreakpoint(
     input: LocatedFlexLayoutInput,
-    context: ConversionContext,
+    context: SemanticConversionContext,
     planOne: ResponsivePlanOne<TPlan>,
   ): TPlan {
     const eligibility = this.policy.targetEligibility(input);
@@ -481,7 +429,7 @@ export class SharedResponsiveFamilyPlanner<TPlan extends ResponsiveOrchestration
 
   private planFamily(
     inputs: readonly LocatedFlexLayoutInput[],
-    context: ConversionContext,
+    context: SemanticConversionContext,
     planOne: ResponsivePlanOne<TPlan>,
     validateResponsivePrecedence: boolean,
   ): readonly TPlan[] {
@@ -548,7 +496,7 @@ export class SharedResponsiveFamilyPlanner<TPlan extends ResponsiveOrchestration
 
   private planOneWithEligibility(
     input: LocatedFlexLayoutInput,
-    context: ConversionContext,
+    context: SemanticConversionContext,
     planOne: ResponsivePlanOne<TPlan>,
   ): TPlan {
     return this.policy.targetEligibility(input) ?? planOne(input, context);

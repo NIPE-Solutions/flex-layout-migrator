@@ -1,15 +1,12 @@
 import * as path from 'node:path';
-import type { ConversionAdapter } from '../adapter/conversion-adapter';
-import type { ConversionAdapterSession } from '../adapter/conversion-adapter.session';
 import type { OwnedCssReferences } from '../adapter/css/stylesheet/owned-stylesheet.merger';
 import type { TemplateParser } from '../pipeline/analyze/template-parser.port';
-import type { AnalyzedProject, AnalyzedTemplate } from '../pipeline/analyzed-project';
+import type { RenderedProject } from '../pipeline/rendered-project';
 import type { MigrationApplication, MigrationReport } from '../report/migration-report';
 import { MigrationReportBuilder, type StylesheetMigrationResult } from '../report/migration-report.builder';
 import { AngularTemplateParser } from '../template/angular-template.parser';
 import { templateAttributeKeys } from '../template/template-attribute';
 import { MigrationTransaction } from '../transaction/migration-transaction';
-import { AnalyzedFileMigrator } from './analyzed-file.migrator';
 import { nodeDestinationTemplateSource, type DestinationTemplateSource } from './destination-template-source';
 import type { MigrationMode } from './migration-mode';
 import { MigrationApplicationError } from './migration-application.error';
@@ -30,25 +27,20 @@ export interface MigrationExecutionContext {
   readonly startedAt?: number;
 }
 
-export type AnalyzedFileMigratorFactory = (
-  adapter: ConversionAdapter,
-  template: AnalyzedTemplate,
-  destinationTemplates: DestinationTemplateSource,
-) => Pick<AnalyzedFileMigrator, 'plan'>;
-
 export interface MigratorDependencies {
   readonly destinationTemplates: DestinationTemplateSource;
   readonly referenceParser: TemplateParser;
-  readonly createFileMigrator: AnalyzedFileMigratorFactory;
 }
+
+export type MigrationTransactionPort = Pick<MigrationTransaction, 'preflight' | 'apply'>;
+export type StylesheetPlannerPort = Pick<StylesheetPlanner, 'plan'>;
 
 export class Migrator {
   constructor(
-    private readonly session: ConversionAdapterSession,
-    private readonly analyzed: AnalyzedProject,
+    private readonly rendered: RenderedProject,
     private readonly now: () => number = Date.now,
-    private readonly transaction: Pick<MigrationTransaction, 'preflight' | 'apply'> = new MigrationTransaction(),
-    private readonly stylesheetPlanner: Pick<StylesheetPlanner, 'plan'> = new StylesheetPlanner(),
+    private readonly transaction: MigrationTransactionPort = new MigrationTransaction(),
+    private readonly stylesheetPlanner: StylesheetPlannerPort = new StylesheetPlanner(),
     private readonly dependencies: MigratorDependencies = defaultMigratorDependencies(),
   ) {}
 
@@ -64,23 +56,7 @@ export class Migrator {
       this.dependencies.destinationTemplates,
       execution.mapDestinationReadError,
     );
-    const destinationTemplates =
-      execution.mapDestinationReadError === undefined
-        ? this.dependencies.destinationTemplates
-        : Object.freeze({ read: readDestinationTemplate });
-    const filePlans: FileMigrationPlan[] = [];
-    for (const template of this.analyzed.templates) {
-      const analyzedFileMigrator = this.dependencies.createFileMigrator(
-        this.session.adapter,
-        template,
-        destinationTemplates,
-      );
-      filePlans.push(
-        await analyzedFileMigrator.plan({
-          responsiveImages: options.responsiveImages ?? false,
-        }),
-      );
-    }
+    const filePlans = this.rendered.files;
 
     // Validate all selected destinations before reference collection reads a
     // distinct output. A collision can otherwise make that path unopenable.
@@ -90,10 +66,7 @@ export class Migrator {
       reportPath: options.reportPath,
     });
 
-    const sessionResult = this.session.finalize();
-    if (sessionResult.target !== this.session.adapter.name) {
-      throw new MigrationApplicationError('internal-invariant', 'Adapter session target changed during migration.');
-    }
+    const sessionResult = this.rendered.session;
 
     let stylesheetArtifact: PlannedOutputArtifact | undefined;
     let stylesheetResult: StylesheetMigrationResult | undefined;
@@ -137,8 +110,8 @@ export class Migrator {
     }
 
     return new MigrationReportBuilder().build(
-      this.analyzed.manifest.invocation.inputPath,
-      this.analyzed.manifest.invocation.outputPath,
+      this.rendered.analyzed.manifest.invocation.inputPath,
+      this.rendered.analyzed.manifest.invocation.outputPath,
       sessionResult.target,
       options.mode,
       application,
@@ -149,10 +122,10 @@ export class Migrator {
   }
 
   private validateOptions(options: MigrationOptions): void {
-    if (this.session.adapter.name === 'css' && options.stylesheetPath === undefined) {
+    if (this.rendered.session.target === 'css' && options.stylesheetPath === undefined) {
       throw new MigrationApplicationError('invalid-configuration', '--target css requires --stylesheet <path>.');
     }
-    if (this.session.adapter.name === 'tailwind' && options.stylesheetPath !== undefined) {
+    if (this.rendered.session.target === 'tailwind' && options.stylesheetPath !== undefined) {
       throw new MigrationApplicationError('invalid-configuration', '--stylesheet can only be used with --target css.', [
         options.stylesheetPath,
       ]);
@@ -165,7 +138,7 @@ export class Migrator {
   ): Promise<OwnedCssReferences> {
     const templates = await Promise.all(
       filePlans.map(async (filePlan, index) => {
-        const analyzedTemplate = this.analyzed.templates[index];
+        const analyzedTemplate = this.rendered.analyzed.templates[index];
         if (analyzedTemplate === undefined) {
           throw new MigrationApplicationError(
             'internal-invariant',
@@ -248,8 +221,6 @@ function defaultMigratorDependencies(): MigratorDependencies {
   return {
     destinationTemplates: nodeDestinationTemplateSource,
     referenceParser: new AngularTemplateParser(),
-    createFileMigrator: (adapter, template, destinationTemplates) =>
-      new AnalyzedFileMigrator(adapter, template, undefined, destinationTemplates),
   };
 }
 

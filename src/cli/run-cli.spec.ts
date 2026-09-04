@@ -1,7 +1,6 @@
 import { access, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve, sep } from 'node:path';
-import type { ConversionAdapterSession } from '../adapter/conversion-adapter.session';
 import { AnalyzeProjectStage } from '../pipeline/analyze/analyze-project.stage';
 import { analyzedProject } from '../pipeline/analyzed-project';
 import {
@@ -9,7 +8,7 @@ import {
   type MigrationRunner,
   type MigratorFactory,
 } from '../pipeline/current-migration.pipeline';
-import type { DiscoverStage } from '../pipeline/migration-pipeline';
+import type { DiscoverStage, RenderStage } from '../pipeline/migration-pipeline';
 import { projectManifest, type MigrationInvocation } from '../pipeline/project-manifest';
 import type { MigrationReport } from '../report/migration-report';
 import type { TextOutput } from '../report/terminal.presenter';
@@ -74,7 +73,7 @@ describe('runCli', () => {
       },
       files: [],
     };
-    const sessions: ConversionAdapterSession[] = [];
+    const renderStages: RenderStage[] = [];
     const invocations: MigrationInvocation[] = [];
     const stdout = new MemoryOutput();
     const stderr = new MemoryOutput();
@@ -83,8 +82,8 @@ describe('runCli', () => {
       ['node', 'flex-layout-codemod', input, '--output', outputPath, '--responsive-images', '--report', reportPath],
       { stdout, stderr },
       {
-        createMigrationRunner(session): MigrationRunner {
-          sessions.push(session);
+        createMigrationRunner(render): MigrationRunner {
+          renderStages.push(render);
           return {
             run(invocation) {
               invocations.push(invocation);
@@ -95,8 +94,14 @@ describe('runCli', () => {
       },
     );
 
-    expect(sessions).toHaveLength(1);
-    expect(sessions[0]?.adapter.name).toBe('tailwind');
+    expect(renderStages).toHaveLength(1);
+    const rendered = await renderStages[0]?.run(
+      analyzedProject({
+        manifest: projectManifest({ invocation: invocations[0]!, templates: [] }),
+        templates: [],
+      }),
+    );
+    expect(rendered?.session.target).toBe('tailwind');
     expect(invocations).toHaveLength(1);
     expect(invocations[0]).toEqual({
       inputPath: input,
@@ -164,7 +169,7 @@ describe('runCli', () => {
     const createMigrator = vi.fn<MigratorFactory>();
 
     const result = await run([rawInputPath, '--report', reportPath], {
-      createMigrationRunner: session => new CurrentMigrationPipeline(session, discover, analyze, createMigrator),
+      createMigrationRunner: render => new CurrentMigrationPipeline(render, discover, analyze, createMigrator),
     });
 
     expect(result).toEqual({
@@ -209,7 +214,7 @@ describe('runCli', () => {
     }));
 
     const result = await run([rawInputPath, '--output', rawOutputPath, '--write', '--report', reportPath], {
-      createMigrationRunner: session => new CurrentMigrationPipeline(session, discover, analyze, createMigrator),
+      createMigrationRunner: render => new CurrentMigrationPipeline(render, discover, analyze, createMigrator),
     });
 
     expect(result).toEqual({ exitCode: 1, stdout: '', stderr: `Error: ${message}\n` });

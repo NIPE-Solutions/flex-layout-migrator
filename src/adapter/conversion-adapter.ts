@@ -1,16 +1,11 @@
 import type { DiagnosticCode } from '../analyzer/conversion-result';
 import type { LocatedFlexLayoutInput } from '../analyzer/flex-layout-attribute.analyzer';
-import type { TemplateAttribute, TemplateElement } from '../template/template.model';
+import type { SemanticConversionContext } from '../semantic/conversion-context';
+import type { ConversionRenderer } from '../render/conversion-renderer';
 
-export interface ConversionContext {
-  readonly element: TemplateElement;
-  readonly parent?: TemplateElement;
-  readonly inputs?: readonly LocatedFlexLayoutInput[];
-  readonly parentInputs?: readonly LocatedFlexLayoutInput[];
-  readonly activeLayout?: string;
-  readonly activeParentLayout?: string;
-  readonly existingClassNames?: readonly string[];
-  readonly attributeEvidence?: readonly TemplateAttribute[];
+/** Adapter-call compatibility context; responsive planning receives the complete semantic context. */
+export interface ConversionContext extends Partial<SemanticConversionContext> {
+  readonly element: SemanticConversionContext['element'];
 }
 
 export type PlannedConversion =
@@ -29,18 +24,12 @@ export type PlannedConversion =
       readonly suggestion: string;
     };
 
-export interface ConversionAdapter {
+/** @deprecated Use ConversionRenderer. Remove after Slice 8 compatibility cleanup. */
+export interface ConversionAdapter extends ConversionRenderer {
   readonly name: 'css' | 'tailwind';
   plan(input: LocatedFlexLayoutInput, context: ConversionContext): PlannedConversion;
-  planElement?(inputs: readonly LocatedFlexLayoutInput[], context: ConversionContext): readonly PlannedConversion[];
   resolveClassConflicts?(
     plans: readonly PlannedConversion[],
     existingClassNames: readonly string[],
   ): readonly PlannedConversion[];
-  closePlanDependencies?(
-    plans: readonly PlannedConversion[],
-    context: ConversionContext,
-    plansByInputId: ReadonlyMap<string, PlannedConversion>,
-  ): readonly PlannedConversion[];
-  acceptPlans?(plans: readonly PlannedConversion[]): void;
 }

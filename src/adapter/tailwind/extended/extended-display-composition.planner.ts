@@ -115,7 +115,10 @@ function ownsOnlyDisplay(descriptor: TailwindUtilityDescriptor): boolean {
   return descriptor.cssProperties.length === 1 && descriptor.cssProperties[0]?.toLowerCase() === 'display';
 }
 
-function contextUnverified(input: LocatedFlexLayoutInput, reason: string): PlannedConversion {
+function contextUnverified(
+  input: LocatedFlexLayoutInput,
+  reason: string,
+): Exclude<PlannedConversion, { readonly status: 'converted' }> {
   return {
     status: 'review',
     input,

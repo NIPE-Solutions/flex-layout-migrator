@@ -95,6 +95,7 @@ export interface TypeScriptInspection {
   readonly constructedExpressionNames: readonly string[];
   readonly parameters: readonly InspectedParameter[];
   readonly declaredPropertyNames: readonly string[];
+  readonly declaredMethodNames: readonly string[];
   readonly runtimeImports: readonly InspectedRuntimeImport[];
   readonly exportedFunctions: readonly InspectedExportedFunction[];
 }
@@ -170,6 +171,10 @@ export type SemanticAuthorityName =
   | 'ChangedTemplateValidation.parse'
   | 'CssReferenceParser.parse'
   | 'CurrentMigrationPipeline.run'
+  | 'ConversionRenderer.eligibility'
+  | 'ConversionRenderer.record'
+  | 'ConversionRenderer.render'
+  | 'ConversionRenderer.resolveConflicts'
   | 'DestinationTemplateSource.read'
   | 'DiscoveryFileSystem.entries'
   | 'DiscoveryFileSystem.kind'
@@ -184,6 +189,8 @@ export type SemanticAuthorityName =
   | 'MigrationTransaction.apply'
   | 'Migrator.migrate'
   | 'OriginalTemplateParser.parse'
+  | 'RenderProjectStage.run'
+  | 'RenderSession.finalize'
   | 'StagedTemplateValidation.parse'
   | 'TemplateInputAnalyzer.analyze'
   | 'TemplateSourceReader.read';
@@ -196,6 +203,34 @@ export interface SemanticAuthorityCall {
 export interface RuntimeDependencyFinding {
   readonly sourcePath: string;
   readonly dependencyPath: string;
+}
+
+interface TypeScriptProjectProgram {
+  readonly checker: ts.TypeChecker;
+  readonly program: ts.Program;
+  readonly rootPaths: ReadonlySet<string>;
+}
+
+export interface TypeScriptProjectInspectionSession {
+  readonly programConstructionCount: number;
+  inspectSemanticAuthorityCalls(): readonly SemanticAuthorityCall[];
+  inspectRuntimeDependencyClosure(): readonly RuntimeDependencyFinding[];
+  inspectDependencyClosure(): readonly RuntimeDependencyFinding[];
+  inspectRuntimeSymbolProvenance(): readonly RuntimeSymbolProvenance[];
+  inspectRuntimeExportSymbolProvenance(): readonly RuntimeExportSymbolProvenance[];
+  inspectRuntimeNamedDeclarationProvenance(symbolName: string): readonly RuntimeSymbolProvenance[];
+}
+
+/** A runtime import/export binding resolved to its declared symbol, including aliases and namespaces. */
+export interface RuntimeSymbolProvenance {
+  readonly sourcePath: string;
+  readonly symbolName: string;
+  readonly declarationPath: string;
+}
+
+/** A runtime value exported by a module, retaining its public name while resolving its declaration. */
+export interface RuntimeExportSymbolProvenance extends RuntimeSymbolProvenance {
+  readonly exportedName: string;
 }
 
 type FilesystemProvenance = '*' | string;
@@ -259,7 +294,9 @@ function expressionName(expression: ts.Expression): string | undefined {
   return undefined;
 }
 
-function declarationPropertyName(node: ts.PropertyDeclaration | ts.PropertySignature): string | undefined {
+function declarationPropertyName(
+  node: ts.PropertyDeclaration | ts.PropertySignature | ts.MethodDeclaration | ts.MethodSignature,
+): string | undefined {
   const name = node.name;
   return ts.isIdentifier(name) || ts.isStringLiteralLike(name) || ts.isNumericLiteral(name) ? name.text : undefined;
 }
@@ -480,6 +517,7 @@ export function inspectTypeScript(source: string, sourcePath: string): TypeScrip
   const constructedExpressionNames: string[] = [];
   const parameters: InspectedParameter[] = [];
   const declaredPropertyNames: string[] = [];
+  const declaredMethodNames: string[] = [];
   const runtimeImports: InspectedRuntimeImport[] = [];
   const exportedFunctions: InspectedExportedFunction[] = [];
 
@@ -525,6 +563,10 @@ export function inspectTypeScript(source: string, sourcePath: string): TypeScrip
     if (ts.isPropertyDeclaration(node) || ts.isPropertySignature(node)) {
       const name = declarationPropertyName(node);
       if (name !== undefined) declaredPropertyNames.push(name);
+    }
+    if (ts.isMethodDeclaration(node) || ts.isMethodSignature(node)) {
+      const name = declarationPropertyName(node);
+      if (name !== undefined) declaredMethodNames.push(name);
     }
     if (ts.isImportDeclaration(node)) runtimeImports.push(...runtimeImportBindings(node));
 
@@ -574,6 +616,7 @@ export function inspectTypeScript(source: string, sourcePath: string): TypeScrip
     constructedExpressionNames,
     parameters,
     declaredPropertyNames,
+    declaredMethodNames,
     runtimeImports,
     exportedFunctions,
   };
@@ -582,7 +625,7 @@ export function inspectTypeScript(source: string, sourcePath: string): TypeScrip
 function createProjectProgram(
   sourcePaths: readonly string[],
   sourceOverrides: ReadonlyMap<string, string>,
-): { readonly checker: ts.TypeChecker; readonly program: ts.Program; readonly rootPaths: ReadonlySet<string> } {
+): TypeScriptProjectProgram {
   const normalizedOverrides = new Map(
     [...sourceOverrides].map(([sourcePath, source]) => [resolve(sourcePath), source] as const),
   );
@@ -2591,6 +2634,11 @@ interface SemanticAuthorityConfig {
 }
 
 const semanticAuthorityConfigs: readonly SemanticAuthorityConfig[] = [
+  ...(['eligibility', 'render', 'resolveConflicts', 'record'] as const).map(methodName => ({
+    name: `ConversionRenderer.${methodName}` as SemanticAuthorityName,
+    methodName,
+    declarations: [{ sourcePathSuffix: '/render/conversion-renderer.ts', containers: ['ConversionRenderer'] }],
+  })),
   {
     name: 'CurrentMigrationPipeline.run',
     methodName: 'run',
@@ -2634,9 +2682,34 @@ const semanticAuthorityConfigs: readonly SemanticAuthorityConfig[] = [
     },
   },
   {
+    name: 'RenderProjectStage.run',
+    methodName: 'run',
+    declarations: [
+      { sourcePathSuffix: '/pipeline/migration-pipeline.ts', containers: ['RenderStage'] },
+      { sourcePathSuffix: '/pipeline/render/render-project.stage.ts', containers: ['RenderProjectStage'] },
+    ],
+    concreteClass: {
+      exportedName: 'RenderProjectStage',
+      sourcePathSuffix: '/pipeline/render/render-project.stage.ts',
+    },
+  },
+  {
+    name: 'RenderSession.finalize',
+    methodName: 'finalize',
+    declarations: [
+      { sourcePathSuffix: '/render/render-session.ts', containers: ['RenderSession', 'SingleUseRenderSession'] },
+    ],
+  },
+  {
     name: 'Migrator.migrate',
     methodName: 'migrate',
-    declarations: [{ sourcePathSuffix: '/migrator/migrator.ts', containers: ['Migrator'] }],
+    declarations: [
+      { sourcePathSuffix: '/migrator/migrator.ts', containers: ['Migrator'] },
+      {
+        sourcePathSuffix: '/pipeline/current-migration.pipeline.ts',
+        containers: ['RenderedMigrationContinuation'],
+      },
+    ],
     concreteClass: { exportedName: 'Migrator', sourcePathSuffix: '/migrator/migrator.ts' },
   },
   {
@@ -3173,7 +3246,11 @@ function contextualSemanticAuthorityName(
   const reflected = reflectedApplyInvocation(expression, checker, program, new Set());
   const members = semanticMemberNames(reflected?.target ?? expression.expression, checker);
   const normalizedSourcePath = sourcePath.replaceAll('\\', '/');
-  if (normalizedSourcePath.endsWith('/migrator/analyzed-file.migrator.ts') && members.includes('validationParser')) {
+  if (
+    (normalizedSourcePath.endsWith('/migrator/analyzed-file.migrator.ts') ||
+      normalizedSourcePath.endsWith('/pipeline/render/compatibility-edit.validator.ts')) &&
+    members.includes('validationParser')
+  ) {
     return 'ChangedTemplateValidation.parse';
   }
   if (normalizedSourcePath.endsWith('/migrator/migrator.ts') && members.includes('referenceParser')) {
@@ -4040,7 +4117,14 @@ export function inspectSemanticAuthorityCalls(
   sourcePaths: readonly string[],
   sourceOverrides: ReadonlyMap<string, string> = new Map(),
 ): readonly SemanticAuthorityCall[] {
-  const { checker, program, rootPaths } = createProjectProgram(sourcePaths, sourceOverrides);
+  return semanticAuthorityCallsFromProject(createProjectProgram(sourcePaths, sourceOverrides));
+}
+
+function semanticAuthorityCallsFromProject({
+  checker,
+  program,
+  rootPaths,
+}: TypeScriptProjectProgram): readonly SemanticAuthorityCall[] {
   inspectionRootPaths.set(program, rootPaths);
   const calls: SemanticAuthorityCall[] = [];
 
@@ -4097,12 +4181,39 @@ export function inspectRuntimeDependencyClosure(
   sourcePaths: readonly string[],
   sourceOverrides: ReadonlyMap<string, string> = new Map(),
 ): readonly RuntimeDependencyFinding[] {
-  const { program } = createProjectProgram(sourcePaths, sourceOverrides);
+  return dependencyClosureFromProject(
+    createProjectProgram(sourcePaths, sourceOverrides),
+    sourcePaths,
+    sourceOverrides,
+    true,
+  );
+}
+
+/** Resolves transitive local imports and exports, including type-only edges. */
+export function inspectDependencyClosure(
+  sourcePaths: readonly string[],
+  sourceOverrides: ReadonlyMap<string, string> = new Map(),
+): readonly RuntimeDependencyFinding[] {
+  return dependencyClosureFromProject(
+    createProjectProgram(sourcePaths, sourceOverrides),
+    sourcePaths,
+    sourceOverrides,
+    false,
+  );
+}
+
+function dependencyClosureFromProject(
+  { program }: TypeScriptProjectProgram,
+  sourcePaths: readonly string[],
+  sourceOverrides: ReadonlyMap<string, string>,
+  runtimeOnly: boolean,
+): readonly RuntimeDependencyFinding[] {
   const normalizedOverrides = new Map(
     [...sourceOverrides].map(([sourcePath, source]) => [resolve(sourcePath), source] as const),
   );
   const findings: RuntimeDependencyFinding[] = [];
   const seenFindings = new Set<string>();
+  const referencesByPath = new Map<string, readonly string[]>();
 
   function sourceText(sourcePath: string): string | undefined {
     return (
@@ -4128,7 +4239,14 @@ export function inspectRuntimeDependencyClosure(
       visited.add(currentSourcePath);
       const source = sourceText(currentSourcePath);
       if (source === undefined) return;
-      for (const reference of runtimeModuleReferences(source, currentSourcePath)) {
+      let references = referencesByPath.get(currentSourcePath);
+      if (references === undefined) {
+        references = runtimeOnly
+          ? runtimeModuleReferences(source, currentSourcePath)
+          : inspectTypeScript(source, currentSourcePath).moduleReferences;
+        referencesByPath.set(currentSourcePath, references);
+      }
+      for (const reference of references) {
         const dependencyPath = resolvedLocalDependency(reference, currentSourcePath);
         if (dependencyPath === undefined) continue;
         const key = `${sourcePath}\0${dependencyPath}`;
@@ -4143,6 +4261,272 @@ export function inspectRuntimeDependencyClosure(
   }
 
   return findings;
+}
+
+function canonicalRuntimeSymbol(
+  symbol: ts.Symbol,
+  checker: ts.TypeChecker,
+  seenSymbols: ReadonlySet<ts.Symbol> = new Set(),
+): ts.Symbol {
+  if ((symbol.flags & ts.SymbolFlags.Alias) === 0 || seenSymbols.has(symbol)) return symbol;
+  const aliased = checker.getAliasedSymbol(symbol);
+  return aliased === symbol ? symbol : canonicalRuntimeSymbol(aliased, checker, new Set(seenSymbols).add(symbol));
+}
+
+function runtimeSymbolsForBinding(
+  symbol: ts.Symbol,
+  checker: ts.TypeChecker,
+  seenSymbols: ReadonlySet<ts.Symbol> = new Set(),
+): readonly ts.Symbol[] {
+  const canonical = canonicalRuntimeSymbol(symbol, checker, seenSymbols);
+  if (seenSymbols.has(canonical)) return [];
+  const nextSeen = new Set(seenSymbols).add(canonical);
+  if ((canonical.flags & (ts.SymbolFlags.ValueModule | ts.SymbolFlags.NamespaceModule)) === 0) return [canonical];
+  const exports = checker.getExportsOfModule(canonical);
+  if (exports.length === 0) return [canonical];
+  return exports.flatMap(exported => runtimeSymbolsForBinding(exported, checker, nextSeen));
+}
+
+function runtimeNamedDeclarationProvenanceFromProject(
+  { checker, program, rootPaths }: TypeScriptProjectProgram,
+  symbolName: string,
+): readonly RuntimeSymbolProvenance[] {
+  const findings: RuntimeSymbolProvenance[] = [];
+  const seenFindings = new Set<string>();
+
+  for (const sourceFile of program.getSourceFiles()) {
+    const sourcePath = resolve(sourceFile.fileName);
+    if (!rootPaths.has(sourcePath)) continue;
+    function visit(node: ts.Node): void {
+      if (
+        (ts.isClassDeclaration(node) || ts.isFunctionDeclaration(node) || ts.isEnumDeclaration(node)) &&
+        node.name?.text === symbolName
+      ) {
+        const symbol = checker.getSymbolAtLocation(node.name);
+        if (symbol !== undefined) {
+          const canonical = canonicalRuntimeSymbol(symbol, checker);
+          const declaration = canonical.valueDeclaration ?? canonical.declarations?.[0];
+          if (declaration !== undefined) {
+            const finding = {
+              sourcePath,
+              symbolName: canonical.getName(),
+              declarationPath: resolve(declaration.getSourceFile().fileName),
+            };
+            const key = `${finding.sourcePath}\0${finding.symbolName}\0${finding.declarationPath}`;
+            if (!seenFindings.has(key)) {
+              seenFindings.add(key);
+              findings.push(finding);
+            }
+          }
+        }
+      }
+      ts.forEachChild(node, visit);
+    }
+    visit(sourceFile);
+  }
+
+  return findings;
+}
+
+/** Resolves runtime import and re-export bindings through aliases, barrels, and namespace imports. */
+export function inspectRuntimeSymbolProvenance(
+  sourcePaths: readonly string[],
+  sourceOverrides: ReadonlyMap<string, string> = new Map(),
+): readonly RuntimeSymbolProvenance[] {
+  return runtimeSymbolProvenanceFromProject(createProjectProgram(sourcePaths, sourceOverrides));
+}
+
+function runtimeSymbolProvenanceFromProject({
+  checker,
+  program,
+  rootPaths,
+}: TypeScriptProjectProgram): readonly RuntimeSymbolProvenance[] {
+  const findings: RuntimeSymbolProvenance[] = [];
+  const seenFindings = new Set<string>();
+
+  function record(sourcePath: string, symbol: ts.Symbol | undefined): void {
+    if (symbol === undefined) return;
+    for (const resolved of runtimeSymbolsForBinding(symbol, checker)) {
+      const declaration = resolved.valueDeclaration ?? resolved.declarations?.[0];
+      if (declaration === undefined) continue;
+      const finding = {
+        sourcePath,
+        symbolName: resolved.getName(),
+        declarationPath: resolve(declaration.getSourceFile().fileName),
+      };
+      const key = `${finding.sourcePath}\0${finding.symbolName}\0${finding.declarationPath}`;
+      if (seenFindings.has(key)) continue;
+      seenFindings.add(key);
+      findings.push(finding);
+    }
+  }
+
+  function recordModuleExports(sourcePath: string, moduleSpecifier: ts.Expression): void {
+    record(sourcePath, checker.getSymbolAtLocation(moduleSpecifier));
+  }
+
+  for (const sourceFile of program.getSourceFiles()) {
+    const sourcePath = resolve(sourceFile.fileName);
+    if (!rootPaths.has(sourcePath)) continue;
+
+    function visit(node: ts.Node): void {
+      if (ts.isImportDeclaration(node)) {
+        const clause = node.importClause;
+        if (clause === undefined || clause.isTypeOnly) {
+          ts.forEachChild(node, visit);
+          return;
+        }
+        if (clause.name !== undefined) record(sourcePath, checker.getSymbolAtLocation(clause.name));
+        if (clause.namedBindings !== undefined) {
+          if (ts.isNamespaceImport(clause.namedBindings)) {
+            record(sourcePath, checker.getSymbolAtLocation(clause.namedBindings.name));
+          } else {
+            for (const binding of clause.namedBindings.elements) {
+              if (!binding.isTypeOnly) record(sourcePath, checker.getSymbolAtLocation(binding.name));
+            }
+          }
+        }
+      } else if (ts.isExportDeclaration(node) && !node.isTypeOnly) {
+        const exportClause = node.exportClause;
+        if (exportClause === undefined && node.moduleSpecifier !== undefined) {
+          recordModuleExports(sourcePath, node.moduleSpecifier);
+        } else if (exportClause !== undefined && ts.isNamedExports(exportClause)) {
+          for (const binding of exportClause.elements) {
+            if (!binding.isTypeOnly) record(sourcePath, checker.getSymbolAtLocation(binding.name));
+          }
+        }
+      } else if (ts.isImportEqualsDeclaration(node) && !node.isTypeOnly) {
+        record(sourcePath, checker.getSymbolAtLocation(node.name));
+      }
+      ts.forEachChild(node, visit);
+    }
+
+    visit(sourceFile);
+  }
+
+  return findings;
+}
+
+/** Resolves each root module's runtime exports through aliases and barrels to canonical value declarations. */
+export function inspectRuntimeExportSymbolProvenance(
+  sourcePaths: readonly string[],
+  sourceOverrides: ReadonlyMap<string, string> = new Map(),
+): readonly RuntimeExportSymbolProvenance[] {
+  return runtimeExportSymbolProvenanceFromProject(createProjectProgram(sourcePaths, sourceOverrides));
+}
+
+function runtimeExportSymbolProvenanceFromProject({
+  checker,
+  program,
+  rootPaths,
+}: TypeScriptProjectProgram): readonly RuntimeExportSymbolProvenance[] {
+  const findings: RuntimeExportSymbolProvenance[] = [];
+  const seenFindings = new Set<string>();
+
+  for (const sourceFile of program.getSourceFiles()) {
+    const sourcePath = resolve(sourceFile.fileName);
+    if (!rootPaths.has(sourcePath)) continue;
+    const moduleSymbol = checker.getSymbolAtLocation(sourceFile);
+    if (moduleSymbol === undefined) continue;
+
+    for (const exported of checker.getExportsOfModule(moduleSymbol)) {
+      const declarations = exported.declarations ?? [];
+      if (
+        declarations.length > 0 &&
+        declarations.every(
+          declaration =>
+            ts.isExportSpecifier(declaration) &&
+            (declaration.isTypeOnly ||
+              (ts.isExportDeclaration(declaration.parent.parent) && declaration.parent.parent.isTypeOnly)),
+        )
+      ) {
+        continue;
+      }
+      const resolved = canonicalRuntimeSymbol(exported, checker);
+      const declaration = resolved.valueDeclaration;
+      if (declaration === undefined) continue;
+      const finding = {
+        sourcePath,
+        exportedName: exported.getName(),
+        symbolName: resolved.getName(),
+        declarationPath: resolve(declaration.getSourceFile().fileName),
+      };
+      const key = `${finding.sourcePath}\0${finding.exportedName}\0${finding.symbolName}\0${finding.declarationPath}`;
+      if (seenFindings.has(key)) continue;
+      seenFindings.add(key);
+      findings.push(finding);
+    }
+  }
+
+  return findings;
+}
+
+/** Lazily shares one immutable TypeScript Program across related architecture inspections. */
+export function createTypeScriptProjectInspectionSession(
+  sourcePaths: readonly string[],
+  sourceOverrides: ReadonlyMap<string, string> = new Map(),
+): TypeScriptProjectInspectionSession {
+  const isolatedSourcePaths = [...sourcePaths];
+  const isolatedSourceOverrides = new Map(sourceOverrides);
+  let project: TypeScriptProjectProgram | undefined;
+  let programConstructionCount = 0;
+  let semanticAuthorities: readonly SemanticAuthorityCall[] | undefined;
+  let runtimeDependencies: readonly RuntimeDependencyFinding[] | undefined;
+  let dependencies: readonly RuntimeDependencyFinding[] | undefined;
+  let runtimeSymbols: readonly RuntimeSymbolProvenance[] | undefined;
+  let runtimeExports: readonly RuntimeExportSymbolProvenance[] | undefined;
+  const runtimeNamedDeclarations = new Map<string, readonly RuntimeSymbolProvenance[]>();
+  const sharedProject = (): TypeScriptProjectProgram => {
+    if (project === undefined) {
+      project = createProjectProgram(isolatedSourcePaths, isolatedSourceOverrides);
+      programConstructionCount += 1;
+    }
+    return project;
+  };
+
+  return {
+    get programConstructionCount() {
+      return programConstructionCount;
+    },
+    inspectSemanticAuthorityCalls() {
+      semanticAuthorities ??= semanticAuthorityCallsFromProject(sharedProject());
+      return semanticAuthorities;
+    },
+    inspectRuntimeDependencyClosure() {
+      runtimeDependencies ??= dependencyClosureFromProject(
+        sharedProject(),
+        isolatedSourcePaths,
+        isolatedSourceOverrides,
+        true,
+      );
+      return runtimeDependencies;
+    },
+    inspectDependencyClosure() {
+      dependencies ??= dependencyClosureFromProject(
+        sharedProject(),
+        isolatedSourcePaths,
+        isolatedSourceOverrides,
+        false,
+      );
+      return dependencies;
+    },
+    inspectRuntimeSymbolProvenance() {
+      runtimeSymbols ??= runtimeSymbolProvenanceFromProject(sharedProject());
+      return runtimeSymbols;
+    },
+    inspectRuntimeExportSymbolProvenance() {
+      runtimeExports ??= runtimeExportSymbolProvenanceFromProject(sharedProject());
+      return runtimeExports;
+    },
+    inspectRuntimeNamedDeclarationProvenance(symbolName: string) {
+      let findings = runtimeNamedDeclarations.get(symbolName);
+      if (findings === undefined) {
+        findings = runtimeNamedDeclarationProvenanceFromProject(sharedProject(), symbolName);
+        runtimeNamedDeclarations.set(symbolName, findings);
+      }
+      return findings;
+    },
+  };
 }
 
 export function productionTypeScriptFiles(directory: string): readonly string[] {
