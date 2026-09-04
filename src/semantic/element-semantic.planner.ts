@@ -1,13 +1,5 @@
 import type { LocatedFlexLayoutInput } from '../analyzer/flex-layout-attribute.analyzer';
 import type { PlannedConversion } from '../adapter/conversion-adapter';
-import { ExtendedFamilyPlanner } from '../adapter/tailwind/extended/extended-family.planner';
-import { ExtendedResponsivePlanner } from '../adapter/tailwind/extended/extended-responsive.planner';
-import { parseResponsiveClassValue } from '../adapter/tailwind/extended/responsive-class-value.parser';
-import type { ResponsiveClassValue } from '../adapter/tailwind/extended/responsive-class.model';
-import { parseResponsiveStyleValue } from '../adapter/tailwind/extended/responsive-style-value.parser';
-import type { ResponsiveStyleValue } from '../adapter/tailwind/extended/responsive-style.model';
-import { TailwindCandidateClassifier } from '../adapter/tailwind/extended/tailwind-candidate-classifier';
-import { VisibilityStatePlanner } from '../adapter/tailwind/visibility/visibility-state.planner';
 import {
   BreakpointCatalog,
   type BreakpointClassification,
@@ -27,7 +19,17 @@ import type { ConversionRenderer } from '../render/conversion-renderer';
 import { templateAttributeKeys } from '../template/template-attribute';
 import type { TemplateAttribute } from '../template/template.model';
 import type { SemanticConversionContext } from './conversion-context';
+import { cssPropertiesOverlap } from './css-property-ownership';
+import { ExtendedFamilyPlanner } from './extended/extended-family.planner';
+import { ExtendedSemanticPlanner } from './extended/extended-semantic.planner';
+import {
+  parseResponsiveClassValue,
+  type SemanticResponsiveClassValue,
+} from './extended/responsive-class-value.parser';
+import type { ResponsiveStyleValue } from './extended/responsive-style.model';
+import { parseResponsiveStyleValue } from './extended/responsive-style-value.parser';
 import { SemanticFamilyCompositionPlanner } from './semantic-family-composition.planner';
+import { parseLiteralStyleDeclarations } from './literal-style-declaration';
 import { ResponsiveFamilyPlanner, type SemanticTargetPolicy } from './responsive-family.planner';
 import {
   directiveFamily,
@@ -37,6 +39,12 @@ import {
   type SemanticActivation,
   type VisibilitySemantics,
 } from './semantic-plan';
+import {
+  type SourcePropertyEvidence,
+  unknownSourcePropertyEvidence,
+} from './source-property-evidence';
+import { VisibilityStatePlanner } from './visibility/visibility-state.planner';
+import { parseVisibilityValue } from './visibility/visibility-value.parser';
 
 type UnresolvedConversion = Exclude<PlannedConversion, { readonly status: 'converted' }>;
 type SemanticPlanningPlan = ResolvedSemanticPlan | UnresolvedConversion;
@@ -292,8 +300,9 @@ function semanticPolicy(
   };
 }
 
-function equalClassValues(left: ResponsiveClassValue, right: ResponsiveClassValue): boolean {
-  return left.tokens.length === right.tokens.length && left.tokens.every((token, index) => token === right.tokens[index]);
+function equalClassValues(left: SemanticResponsiveClassValue, right: SemanticResponsiveClassValue): boolean {
+  return left.tokens.length === right.tokens.length &&
+    left.tokens.every((token, index) => token.source === right.tokens[index]?.source);
 }
 
 function equalStyleValues(left: ResponsiveStyleValue, right: ResponsiveStyleValue): boolean {
@@ -307,24 +316,22 @@ function equalStyleValues(left: ResponsiveStyleValue, right: ResponsiveStyleValu
   );
 }
 
-function extendedMayControlDisplay(input: LocatedFlexLayoutInput): boolean {
-  if (extendedStyleDirectives.has(input.directive)) return /(?:^|;)\s*display\s*:/iu.test(input.value);
-  const displayUtilities = new Set([
-    'hidden',
-    'block',
-    'inline',
-    'inline-block',
-    'flex',
-    'inline-flex',
-    'grid',
-    'inline-grid',
-    'contents',
-    'table',
-    'list-item',
-  ]);
-  return input.value.split(/\s+/u).some(token => {
-    if (token.includes('[display:')) return true;
-    return displayUtilities.has(token.split(':').at(-1)?.replace(/^!/u, '').replace(/!$/u, '') ?? '');
+function extendedMayControlDisplay(
+  input: LocatedFlexLayoutInput,
+  evidence: SourcePropertyEvidence,
+): boolean {
+  if (input.binding !== 'literal') return true;
+  if (extendedStyleDirectives.has(input.directive)) {
+    const parsed = parseLiteralStyleDeclarations(input.value);
+    return parsed.status === 'unverified' || parsed.declarations.some(declaration =>
+      cssPropertiesOverlap(declaration.property, 'display'),
+    );
+  }
+  return input.value.split(/\s+/u).filter(Boolean).some(token => {
+    const classification = evidence.classifyClassToken(token);
+    return classification.status === 'unverified' || classification.evidence.properties.some(property =>
+      cssPropertiesOverlap(property, 'display'),
+    );
   });
 }
 
@@ -365,20 +372,6 @@ function configuredPrintOwner(
 export class ElementSemanticPlanner {
   constructor(private readonly breakpointConfig?: BreakpointMigrationConfig) {}
 
-  planInput(
-    input: LocatedFlexLayoutInput,
-    context: SemanticConversionContext,
-    renderer: ConversionRenderer,
-  ): PlannedConversion {
-    const catalog = this.catalog(renderer);
-    const plan = this.planOne(input, context, renderer);
-    if (plan.status !== 'converted') return plan;
-    const plannedActivation = activation(input, catalog);
-    return 'status' in plannedActivation
-      ? plannedActivation
-      : renderer.render({ ...plan, activations: [plannedActivation] }, context);
-  }
-
   plan(
     inputs: readonly LocatedFlexLayoutInput[],
     context: SemanticConversionContext,
@@ -410,9 +403,10 @@ export class ElementSemanticPlanner {
     closed = this.closeDisplayDependencies(closed, renderer.target);
     closed = this.closeGridContainerDependencies(closed);
     closed = this.assignGridDisplayOwnership(closed);
-    if (renderer.target === 'tailwind') {
-      closed = new SemanticFamilyCompositionPlanner(catalog).compose(closed, completeContext);
-    }
+    closed = new SemanticFamilyCompositionPlanner(
+      catalog,
+      renderer.sourcePropertyEvidence ?? unknownSourcePropertyEvidence,
+    ).compose(closed, completeContext);
 
     return closed.map(plan =>
       plan.status === 'converted' ? renderer.render(plan, completeContext) : plan,
@@ -423,11 +417,12 @@ export class ElementSemanticPlanner {
     plans: readonly PlannedConversion[],
     context: SemanticConversionContext,
     plansByInputId: ReadonlyMap<string, PlannedConversion>,
+    sourceEvidence: SourcePropertyEvidence = unknownSourcePropertyEvidence,
   ): readonly PlannedConversion[] {
     let closed = this.closeRenderedFamilies(plans);
-    closed = this.closeRenderedDisplayDependencies(closed);
+    closed = this.closeRenderedDisplayDependencies(closed, sourceEvidence);
     closed = this.closeRenderedFamilies(closed);
-    closed = this.closeRenderedDisplayDependencies(closed);
+    closed = this.closeRenderedDisplayDependencies(closed, sourceEvidence);
     closed = this.closeParentLayoutDependencies(closed, context, plansByInputId);
     return this.closeGridParentDependencies(closed, context, plansByInputId);
   }
@@ -586,9 +581,9 @@ export class ElementSemanticPlanner {
     catalog: BreakpointCatalog,
   ): readonly SemanticPlanningPlan[] {
     const plansById = new Map<string, SemanticPlanningPlan>();
-    const classifier = new TailwindCandidateClassifier();
     const familyPlanner = new ExtendedFamilyPlanner(catalog);
-    const responsivePlanner = new ExtendedResponsivePlanner();
+    const sourceEvidence = renderer.sourcePropertyEvidence ?? unknownSourcePropertyEvidence;
+    const semanticPlanner = new ExtendedSemanticPlanner(sourceEvidence);
 
     for (const family of ['extended-class', 'extended-style'] as const) {
       const familyInputs = inputs.filter(input =>
@@ -606,16 +601,15 @@ export class ElementSemanticPlanner {
       }
 
       if (family === 'extended-class') {
-        const familyPlan = familyPlanner.plan<ResponsiveClassValue>({
+        const familyPlan = familyPlanner.plan<SemanticResponsiveClassValue>({
           kind: 'class',
           inputs: familyInputs,
-          valueParser: input => parseResponsiveClassValue(input, classifier),
+          valueParser: input => parseResponsiveClassValue(input, sourceEvidence),
           equals: equalClassValues,
         });
-        const decision = responsivePlanner.plan({
+        const decision = semanticPlanner.plan({
           kind: 'class',
           familyPlan,
-          existingClassNames: [],
           attributes: context.attributeEvidence,
         });
         if (familyPlan.status === 'unresolved') {
@@ -648,14 +642,14 @@ export class ElementSemanticPlanner {
           ],
           tokens: state.value.tokens,
         }));
-        const decisionsById = new Map(decision.plans.map(plan => [plan.input.id, plan]));
         for (const input of familyInputs) {
-          const itemDecision = decisionsById.get(input.id);
           plansById.set(input.id, {
             ...resolved(input, {
               kind: 'extended-class',
-              emit: itemDecision?.status === 'converted' && itemDecision.classNames.length > 0,
-              retainedTokens: itemDecision?.status === 'converted' ? (itemDecision.retainedClassNames ?? []) : [],
+              emit: decision.ownerInputId === input.id,
+              retainedTokens: decision.ownerInputId === undefined && input.id === familyPlan.states[0]?.input.id
+                ? decision.retainedTokens
+                : [],
               states,
             }),
             activations: [],
@@ -667,13 +661,12 @@ export class ElementSemanticPlanner {
       const familyPlan = familyPlanner.plan<ResponsiveStyleValue>({
         kind: 'style',
         inputs: familyInputs,
-        valueParser: parseResponsiveStyleValue,
+        valueParser: input => parseResponsiveStyleValue(input, sourceEvidence),
         equals: equalStyleValues,
       });
-      const decision = responsivePlanner.plan({
+      const decision = semanticPlanner.plan({
         kind: 'style',
         familyPlan,
-        existingClassNames: [],
         attributes: context.attributeEvidence,
       });
       if (familyPlan.status === 'unresolved') {
@@ -706,13 +699,11 @@ export class ElementSemanticPlanner {
         ],
         declarations: state.value.declarations,
       }));
-      const decisionsById = new Map(decision.plans.map(plan => [plan.input.id, plan]));
       for (const input of familyInputs) {
-        const itemDecision = decisionsById.get(input.id);
         plansById.set(input.id, {
           ...resolved(input, {
             kind: 'extended-style',
-            emit: itemDecision?.status === 'converted' && itemDecision.classNames.length > 0,
+            emit: decision.ownerInputId === input.id,
             states,
           }),
           activations: [],
@@ -833,18 +824,23 @@ export class ElementSemanticPlanner {
     return closed;
   }
 
-  private closeRenderedDisplayDependencies(plans: readonly PlannedConversion[]): readonly PlannedConversion[] {
+  private closeRenderedDisplayDependencies(
+    plans: readonly PlannedConversion[],
+    evidence: SourcePropertyEvidence,
+  ): readonly PlannedConversion[] {
     const layoutPlans = plans.filter(plan => plan.input.directive === 'fxLayout');
     const visibilityPlans = plans.filter(plan => visibilityDirectives.has(plan.input.directive));
     const authorityPlans = plans.filter(
       plan =>
         displayAuthorityDirectives.has(plan.input.directive) &&
-        (extendedMayControlDisplay(plan.input) ||
+        (extendedMayControlDisplay(plan.input, evidence) ||
           (plan.status !== 'converted' && extendedClassDirectives.has(plan.input.directive))),
     );
     const visibilityIsNoOp =
       visibilityPlans.length > 0 &&
-      visibilityPlans.every(plan => plan.status === 'converted' && plan.classNames.length === 0);
+      visibilityPlans.every(
+        plan => plan.status === 'converted' && parseVisibilityValue(plan.input) === 'shown',
+      );
     if ((!layoutPlans.length && !authorityPlans.length) || !visibilityPlans.length || visibilityIsNoOp) return plans;
     if (![...layoutPlans, ...visibilityPlans, ...authorityPlans].some(plan => plan.status !== 'converted')) return plans;
     const affected = new Set([...layoutPlans, ...visibilityPlans, ...authorityPlans].map(plan => plan.input.id));

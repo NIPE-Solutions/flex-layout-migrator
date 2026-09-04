@@ -10,6 +10,7 @@ import type { LayoutAlignmentSemantics } from '../flex/layout-align.semantic';
 import type { LayoutGapSemantics } from '../flex/layout-gap.semantic';
 import type { LayoutSemantics } from '../flex/layout.semantic';
 import type { GridSemanticPlan } from '../grid/grid-semantic.model';
+import type { SourceClassTokenEvidence } from './source-property-evidence';
 
 export type DirectiveFamily =
   | 'layout'
@@ -69,14 +70,14 @@ export interface VisibilitySemanticState {
 
 export interface ExtendedClassSemanticState {
   readonly activations: readonly SemanticActivation[];
-  readonly tokens: readonly string[];
+  readonly tokens: readonly SourceClassTokenEvidence[];
 }
 
 export interface ExtendedClassSemantics {
   readonly kind: 'extended-class';
   readonly emit: boolean;
   readonly states: readonly ExtendedClassSemanticState[];
-  readonly retainedTokens: readonly string[];
+  readonly retainedTokens: readonly SourceClassTokenEvidence[];
 }
 
 export interface ExtendedStyleDeclaration {

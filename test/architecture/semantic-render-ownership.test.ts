@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { describe, expect, test } from 'vitest';
@@ -10,6 +10,14 @@ const sourceRoot = join(process.cwd(), 'src');
 function runtimeModules(relativePath: string): readonly string[] {
   const path = join(sourceRoot, relativePath);
   return inspectTypeScript(readFileSync(path, 'utf8'), path).runtimeImports.map(item => item.moduleReference);
+}
+
+function productionTypeScriptFiles(root: string): readonly string[] {
+  return readdirSync(root, { withFileTypes: true }).flatMap(entry => {
+    const path = join(root, entry.name);
+    if (entry.isDirectory()) return productionTypeScriptFiles(path);
+    return entry.isFile() && entry.name.endsWith('.ts') && !entry.name.endsWith('.spec.ts') ? [path] : [];
+  });
 }
 
 describe('semantic/render ownership', () => {
@@ -55,6 +63,39 @@ describe('semantic/render ownership', () => {
     expect(coordinatorModules).not.toEqual(
       expect.arrayContaining([expect.stringContaining('tailwind-output.coordinator')]),
     );
+  });
+
+  test('keeps semantic production code independent from target adapters and renderers', () => {
+    for (const path of productionTypeScriptFiles(join(sourceRoot, 'semantic'))) {
+      const inspection = inspectTypeScript(readFileSync(path, 'utf8'), path);
+      const targetDependency = inspection.runtimeImports.find(
+        item => item.moduleReference.includes('/adapter/') || /\/render\/(?:tailwind|css)/u.test(item.moduleReference),
+      );
+
+      expect(targetDependency, path).toBeUndefined();
+      expect(
+        inspection.identifiers.filter(identifier =>
+          [
+            'classNames',
+            'ExtendedResponsiveEmitter',
+            'TailwindCandidateClassifier',
+            'describeTailwindDisplay',
+            'describeTailwindUtility',
+            'emitClass',
+            'emitStyle',
+          ].includes(identifier),
+        ),
+        path,
+      ).toEqual([]);
+    }
+  });
+
+  test('keeps target candidate emission out of the deprecated extended planner', () => {
+    const path = join(sourceRoot, 'adapter/tailwind/extended/extended-responsive.planner.ts');
+    const inspection = inspectTypeScript(readFileSync(path, 'utf8'), path);
+
+    expect(inspection.runtimeImports.map(item => item.moduleReference)).not.toContain('./extended-responsive.emitter');
+    expect(inspection.identifiers).not.toContain('classNames');
   });
 
   test('uses semantic-plan as the only directive-family identity owner', () => {

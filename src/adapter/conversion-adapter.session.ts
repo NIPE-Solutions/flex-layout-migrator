@@ -18,6 +18,7 @@ export function sessionBoundAdapter(adapter: ConversionAdapter, assertActive: ()
     name: adapter.name,
     target: adapter.target,
     breakpointConfig: adapter.breakpointConfig,
+    sourcePropertyEvidence: adapter.sourcePropertyEvidence,
     plan(input: AdapterInput, context: ConversionContext): PlannedConversion {
       assertActive();
       return adapter.plan(input, context);

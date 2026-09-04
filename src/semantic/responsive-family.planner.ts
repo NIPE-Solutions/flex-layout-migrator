@@ -314,7 +314,10 @@ export class ResponsiveFamilyPlanner<TPlan extends ResponsiveOrchestrationPlan> 
     const semanticPlans = inputs.map(input => {
       const breakpointPlan = this.planBreakpoint(input, context, planOne);
       if (breakpointPlan.status !== 'converted') return breakpointPlan;
-      const layoutValues = this.layoutValuesFor(input, inputs, layoutInputs);
+      const explicitLayout = context[contextKey];
+      const layoutValues = layoutInputs.length === 0 && explicitLayout !== undefined
+        ? [explicitLayout]
+        : this.layoutValuesFor(input, inputs, layoutInputs);
       if (!layoutValues.length) {
         return this.policy.contextUnverified(input, 'The active responsive layout cannot be resolved for this input.');
       }

@@ -40,10 +40,8 @@ const adapterPlannerPaths = productionTypeScriptFiles(join(productionRoot, 'adap
 );
 const targetResponsiveRangeOwnerPaths = [
   'adapter/tailwind/extended/extended-display-composition.planner.ts',
-  'adapter/tailwind/extended/extended-family.planner.ts',
   'adapter/tailwind/extended/generated-property-composition.planner.ts',
   'adapter/tailwind/visibility/display-composition.planner.ts',
-  'adapter/tailwind/visibility/visibility-state.planner.ts',
 ].map(path => join(productionRoot, path));
 let cachedProductionSemanticAuthorities: ReturnType<typeof inspectSemanticAuthorityCalls> | undefined;
 let cachedRogueProductionSemanticAuthorities: ReturnType<typeof inspectSemanticAuthorityCalls> | undefined;
@@ -607,6 +605,7 @@ const expectedRendererRelativePaths = [
   'image/picture.renderer.ts',
   'render/conversion-renderer.ts',
   'render/css/css.renderer.ts',
+  'render/tailwind/extended-responsive.renderer.ts',
   'render/tailwind/tailwind.renderer.ts',
 ] as const;
 const rendererPaths = expectedRendererRelativePaths.map(path => join(productionRoot, path));

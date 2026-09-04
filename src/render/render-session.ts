@@ -20,6 +20,7 @@ export function sessionBoundRenderer(
   return Object.freeze({
     target: renderer.target,
     breakpointConfig: renderer.breakpointConfig,
+    sourcePropertyEvidence: renderer.sourcePropertyEvidence,
     eligibility(input: Parameters<ConversionRenderer['eligibility']>[0]) {
       assertActive();
       return renderer.eligibility(input);

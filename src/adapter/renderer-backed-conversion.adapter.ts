@@ -9,12 +9,14 @@ export class RendererBackedConversionAdapter implements ConversionAdapter {
   readonly name: 'css' | 'tailwind';
   readonly target: 'css' | 'tailwind';
   readonly breakpointConfig;
+  readonly sourcePropertyEvidence;
   private readonly coordinator: SemanticRenderCoordinator;
 
   constructor(protected readonly delegate: ConversionRenderer) {
     this.name = delegate.target;
     this.target = delegate.target;
     this.breakpointConfig = delegate.breakpointConfig;
+    this.sourcePropertyEvidence = delegate.sourcePropertyEvidence;
     this.coordinator = new SemanticRenderCoordinator(delegate);
   }
 

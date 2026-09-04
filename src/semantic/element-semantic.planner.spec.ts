@@ -2,6 +2,7 @@ import type { LocatedFlexLayoutInput } from '../analyzer/flex-layout-attribute.a
 import { CssArtifactRegistry } from '../adapter/css/css-artifact.registry';
 import type { CssDeclaration, CssSemanticFamily } from '../adapter/css/css-artifact.model';
 import type { PlannedConversion } from '../adapter/conversion-adapter';
+import { TailwindSourcePropertyEvidence } from '../evidence/tailwind-source-property.evidence';
 import { CssRenderer } from '../render/css/css.renderer';
 import type { ConversionRenderer } from '../render/conversion-renderer';
 import { TailwindRenderer } from '../render/tailwind/tailwind.renderer';
@@ -47,11 +48,13 @@ function context(inputs: readonly LocatedFlexLayoutInput[]): SemanticConversionC
 
 class RecordingRenderer implements ConversionRenderer {
   readonly target: 'tailwind' | 'css';
+  readonly sourcePropertyEvidence;
   readonly renderedFamilies: DirectiveFamily[] = [];
   readonly renderedPlans: ResolvedSemanticPlan[] = [];
 
   constructor(private readonly delegate?: ConversionRenderer) {
     this.target = delegate?.target ?? 'tailwind';
+    this.sourcePropertyEvidence = delegate?.sourcePropertyEvidence ?? new TailwindSourcePropertyEvidence();
   }
 
   eligibility(member: LocatedFlexLayoutInput): PlannedConversion | undefined {
@@ -208,7 +211,10 @@ describe('ElementSemanticPlanner', () => {
         states: [
           {
             activations: [expect.objectContaining({ kind: 'media' })],
-            tokens: ['block', 'flex-row'],
+            tokens: [
+              expect.objectContaining({ source: 'block', properties: ['display'] }),
+              expect.objectContaining({ source: 'flex-row', properties: ['flex-direction'] }),
+            ],
           },
         ],
       },

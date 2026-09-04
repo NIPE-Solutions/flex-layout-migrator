@@ -10,6 +10,7 @@ import type { LayoutGapSemantics } from '../../flex/layout-gap.semantic';
 import type { LayoutSemantics } from '../../flex/layout.semantic';
 import type { GridSemanticPlan } from '../../grid/grid-semantic.model';
 import type { PlannedConversion } from '../../adapter/conversion-adapter';
+import { TailwindSourcePropertyEvidence } from '../../evidence/tailwind-source-property.evidence';
 import { renderFlexAlign } from '../../adapter/tailwind/directives/flex-align.strategy';
 import { renderFlexFill } from '../../adapter/tailwind/directives/flex-fill.strategy';
 import { renderFlexItem } from '../../adapter/tailwind/directives/flex-item.strategy';
@@ -105,6 +106,7 @@ function compatibleVisibilityClasses(
 export class TailwindRenderer implements ConversionRenderer {
   readonly target = 'tailwind' as const;
   readonly breakpointConfig: BreakpointMigrationConfig;
+  readonly sourcePropertyEvidence = new TailwindSourcePropertyEvidence();
   private readonly responsiveEmitter = new ResponsiveVariantEmitter();
   private readonly visibilityEmitter = new VisibilityEmitter();
   private readonly extendedEmitter = new ExtendedResponsiveEmitter();
@@ -284,7 +286,7 @@ export class TailwindRenderer implements ConversionRenderer {
                 return this.extendedEmitter.emitClass({
                   input: plan.input,
                   activation: itemActivation,
-                  value: { tokens: state.tokens },
+                  value: { tokens: state.tokens.map(token => token.source) },
                 });
               }),
             ),
@@ -295,7 +297,9 @@ export class TailwindRenderer implements ConversionRenderer {
       status: 'converted',
       input: plan.input,
       classNames: this.applySemanticSuppressions(classNames, plan),
-      ...(value.retainedTokens.length > 0 ? { retainedClassNames: value.retainedTokens } : {}),
+      ...(value.retainedTokens.length > 0
+        ? { retainedClassNames: value.retainedTokens.map(token => token.source) }
+        : {}),
     };
   }
 

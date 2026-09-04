@@ -13,6 +13,8 @@ import type { LayoutSemantics } from '../flex/layout.semantic';
 import type { GridSemanticPlan } from '../grid/grid-semantic.model';
 import { templateAttributeKeys } from '../template/template-attribute';
 import type { SemanticConversionContext } from './conversion-context';
+import { cssPropertiesOverlap, cssPropertyOwnershipCovers } from './css-property-ownership';
+import { literalStyleMayControlDisplay, parseLiteralStyleDeclarations } from './literal-style-declaration';
 import {
   directiveFamily,
   type DirectiveFamily,
@@ -23,13 +25,10 @@ import {
   type SuppressedSemanticEffect,
   type VisibilitySemantics,
 } from './semantic-plan';
-import { TailwindCandidateClassifier } from '../adapter/tailwind/extended/tailwind-candidate-classifier';
-import { cssPropertiesOverlap, cssPropertyOwnershipCovers } from '../adapter/tailwind/extended/css-property-ownership';
 import {
-  describeTailwindDisplay,
-  type TailwindDisplayUtility,
-} from '../adapter/tailwind/tailwind-class-conflict';
-import { literalStyleMayControlDisplay, parseLiteralStyleDeclarations } from '../adapter/tailwind/visibility/literal-style-display';
+  type SourceClassTokenEvidence,
+  type SourcePropertyEvidence,
+} from './source-property-evidence';
 
 type UnresolvedConversion = Exclude<PlannedConversion, { readonly status: 'converted' }>;
 export type SemanticCompositionPlan = ResolvedSemanticPlan | UnresolvedConversion;
@@ -321,7 +320,7 @@ function ordinaryPropertyGroups(plan: ResolvedSemanticPlan): readonly { properti
   }
 }
 
-function semanticEffects(plan: ResolvedSemanticPlan, classifier: TailwindCandidateClassifier): readonly PropertyEffect[] {
+function semanticEffects(plan: ResolvedSemanticPlan): readonly PropertyEffect[] {
   if (plan.family === 'visibility') return [];
   if (plan.family === 'extended-class') {
     const value = plan.value as ExtendedClassSemantics;
@@ -329,29 +328,25 @@ function semanticEffects(plan: ResolvedSemanticPlan, classifier: TailwindCandida
       ? value.states.flatMap((state, stateIndex) =>
           state.activations.flatMap(activation =>
             state.tokens.flatMap((token, tokenIndex) => {
-              const classification = classifier.classify(token);
-              if (classification.status !== 'verified' || classification.descriptor.cssProperties.length === 0) {
-                return [];
-              }
-              const display = describeTailwindDisplay(token);
-              const controlsDisplay = classification.descriptor.cssProperties.some(property =>
+              if (token.properties.length === 0) return [];
+              const controlsDisplay = token.properties.some(property =>
                 cssPropertiesOverlap(property, 'display'),
               );
               return [
                 makeEffect(
                   plan,
                   activation,
-                  classification.descriptor.cssProperties,
-                  `class:${stateIndex}:${tokenIndex}:${token}`,
+                  token.properties,
+                  `class:${stateIndex}:${tokenIndex}:${token.source}`,
                   {
-                    important: classification.descriptor.important,
+                    important: token.important,
                     suppressible: true,
                     display:
-                      display === undefined
+                      token.display === undefined
                         ? controlsDisplay
                           ? { intent: 'unverified' }
                           : undefined
-                        : displayIntent(display.utility),
+                        : displayIntent(token.display),
                   },
                 ),
               ];
@@ -360,22 +355,20 @@ function semanticEffects(plan: ResolvedSemanticPlan, classifier: TailwindCandida
         )
       : [];
     const retained = value.retainedTokens.flatMap((token, tokenIndex) => {
-      const classification = classifier.classify(token);
-      if (classification.status !== 'verified' || classification.descriptor.cssProperties.length === 0) return [];
-      const display = describeTailwindDisplay(token);
-      const controlsDisplay = classification.descriptor.cssProperties.some(property =>
+      if (token.properties.length === 0) return [];
+      const controlsDisplay = token.properties.some(property =>
         cssPropertiesOverlap(property, 'display'),
       );
       return [
-        makeEffect(plan, { kind: 'base' }, classification.descriptor.cssProperties, `retained:${tokenIndex}:${token}`, {
-          important: classification.descriptor.important,
+        makeEffect(plan, { kind: 'base' }, token.properties, `retained:${tokenIndex}:${token.source}`, {
+          important: token.important,
           retained: true,
           display:
-            display === undefined
+            token.display === undefined
               ? controlsDisplay
                 ? { intent: 'unverified' }
                 : undefined
-              : displayIntent(display.utility),
+              : displayIntent(token.display),
         }),
       ];
     });
@@ -416,7 +409,7 @@ function semanticEffects(plan: ResolvedSemanticPlan, classifier: TailwindCandida
 function sourceAuthorities(
   plans: readonly SemanticCompositionPlan[],
   catalog: BreakpointCatalog,
-  classifier: TailwindCandidateClassifier,
+  evidence: SourcePropertyEvidence,
 ): readonly SourceAuthority[] {
   const authorities: SourceAuthority[] = [];
   for (const plan of plans) {
@@ -435,10 +428,10 @@ function sourceAuthorities(
     }
     if (family === 'extended-class') {
       const tokens = input.value.split(/[\t\n\f\r ]+/u).filter(Boolean);
-      const classifications = tokens.map(token => classifier.classify(token));
+      const classifications = tokens.map(token => evidence.classifyClassToken(token));
       const properties = classifications.some(item => item.status === 'unverified')
         ? undefined
-        : classifications.flatMap(item => (item.status === 'verified' ? item.descriptor.cssProperties : []));
+        : classifications.flatMap(item => (item.status === 'verified' ? item.evidence.properties : []));
       authorities.push({
         input,
         family,
@@ -518,24 +511,25 @@ function attributeControlsDisplay(attribute: SemanticConversionContext['attribut
   );
 }
 
-function plainBaseDisplay(descriptor: TailwindDisplayUtility): boolean {
-  return descriptor.activation.kind === 'base' && !descriptor.important && descriptor.token === descriptor.utility;
+function plainBaseDisplay(descriptor: SourceClassTokenEvidence): boolean {
+  return descriptor.activation.kind === 'base' && !descriptor.important && descriptor.display === descriptor.source;
 }
 
 /** Resolves cross-family CSS ownership while values are still target-free semantic plans. */
 export class SemanticFamilyCompositionPlanner {
-  private readonly classifier = new TailwindCandidateClassifier();
-
-  constructor(private readonly catalog: BreakpointCatalog) {}
+  constructor(
+    private readonly catalog: BreakpointCatalog,
+    private readonly evidence: SourcePropertyEvidence,
+  ) {}
 
   compose(
     inputPlans: readonly SemanticCompositionPlan[],
     context: SemanticConversionContext,
   ): readonly SemanticCompositionPlan[] {
     const allEffects = inputPlans.flatMap(plan =>
-      plan.status === 'converted' ? semanticEffects(plan, this.classifier) : [],
+      plan.status === 'converted' ? semanticEffects(plan) : [],
     );
-    const sources = sourceAuthorities(inputPlans, this.catalog, this.classifier);
+    const sources = sourceAuthorities(inputPlans, this.catalog, this.evidence);
     let plans = this.composeGeneratedProperties(inputPlans, allEffects, sources);
     plans = this.composeExtendedDisplayWithLayout(plans, allEffects, sources);
     return this.composeVisibility(plans, allEffects, sources, context);
@@ -843,8 +837,8 @@ export class SemanticFamilyCompositionPlanner {
 
     effects = this.activeEffects(plans, allEffects);
     const existingDisplays = context.existingClassNames
-      .map(describeTailwindDisplay)
-      .filter((item): item is TailwindDisplayUtility => item !== undefined);
+      .map(className => this.evidence.classifyClassToken(className))
+      .flatMap(item => item.status === 'verified' && item.evidence.display !== undefined ? [item.evidence] : []);
     const responsiveStyleIsUnresolved = sources.some(source => {
       const current = plans.find(plan => plan.input.id === source.input.id);
       return source.family === 'extended-style' && current?.status !== 'converted' && source.mayControlDisplay;
@@ -853,7 +847,7 @@ export class SemanticFamilyCompositionPlanner {
     let displayReason =
       responsiveStyleIsUnresolved || context.attributeEvidence.some(attributeControlsDisplay)
         ? 'A literal or bound style may control the element display value.'
-        : existingDisplays.some(item => item.utility === 'hidden') && hasEffectiveShownRange
+        : existingDisplays.some(item => item.display === 'hidden') && hasEffectiveShownRange
           ? 'The visible display value cannot be proven from one unambiguous source.'
           : undefined;
 
@@ -901,8 +895,8 @@ export class SemanticFamilyCompositionPlanner {
     });
     const existingRestoration = (() => {
       const descriptor = existingDisplays.length === 1 ? existingDisplays[0] : undefined;
-      return descriptor !== undefined && plainBaseDisplay(descriptor) && restorationDisplays.has(descriptor.utility)
-        ? descriptor.utility
+      return descriptor !== undefined && plainBaseDisplay(descriptor) && descriptor.display !== undefined && restorationDisplays.has(descriptor.display)
+        ? descriptor.display
         : undefined;
     })();
     const shownOverrides = baseIsHidden
@@ -971,7 +965,10 @@ export class SemanticFamilyCompositionPlanner {
       if (visibilityIds.has(plan.input.id)) {
         return {
           ...plan,
-          value: { ...(plan.value as VisibilitySemantics), restorationDisplay },
+          value: {
+            ...(plan.value as VisibilitySemantics),
+            ...(restorationDisplay === undefined ? {} : { restorationDisplay }),
+          },
         };
       }
       return layoutSuppressions

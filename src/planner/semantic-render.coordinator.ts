@@ -61,13 +61,11 @@ export class SemanticRenderCoordinator {
     const inputs = context.inputs?.length ? context.inputs : [input];
     const semanticContext = completeContext(context, inputs);
     const reason = standaloneContextReason(this.renderer, input);
-    const plan =
-      reason === undefined
-        ? this.semanticPlanner.planInput(input, semanticContext, this.renderer)
-        : this.planElement(inputs, semanticContext).find(candidate => candidate.input.id === input.id);
+    const plan = this.planElement(inputs, semanticContext, false).find(candidate => candidate.input.id === input.id);
     if (!plan) throw new Error(`${this.renderer.target} renderer did not plan input ${input.id}`);
-    this.renderer.record([plan]);
-    return reason !== undefined && plan.status === 'converted' ? contextUnverified(input, reason) : plan;
+    const result = reason !== undefined && plan.status === 'converted' ? contextUnverified(input, reason) : plan;
+    this.renderer.record([result]);
+    return result;
   }
 
   planElement(
@@ -111,6 +109,7 @@ export class SemanticRenderCoordinator {
       plans,
       completeContext(context, plans.map(plan => plan.input)),
       plansByInputId,
+      this.renderer.sourcePropertyEvidence,
     );
   }
 }
