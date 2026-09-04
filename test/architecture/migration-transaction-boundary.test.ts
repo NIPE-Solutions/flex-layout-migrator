@@ -7,15 +7,28 @@ import {
   inspectTypeScriptProject,
   inspectSemanticAuthorityCalls,
   productionTypeScriptFiles,
+  resolvedConstructorParameterMethodParameters,
+  resolvedConstructorParameterNestedProperties,
+  resolvedConstructorParameterProperties,
+  resolvedTypeProperties,
+  runtimeModuleReferences,
   type TypeScriptInspection,
   type TypeScriptProjectInspection,
 } from './typescript-boundary';
 
 const productionRoot = join(process.cwd(), 'src');
 const transactionRoot = join(productionRoot, 'transaction');
+const migrationTransactionPath = join(transactionRoot, 'migration-transaction.ts');
+const transactionUnitPaths = [
+  join(transactionRoot, 'staging.unit.ts'),
+  join(transactionRoot, 'commit.unit.ts'),
+  join(transactionRoot, 'rollback.unit.ts'),
+  join(transactionRoot, 'cleanup.unit.ts'),
+];
+const applyProjectStagePath = join(productionRoot, 'pipeline', 'apply', 'apply-project.stage.ts');
 const adapterRoot = join(productionRoot, 'adapter');
 const migratorRoot = join(productionRoot, 'migrator');
-const migratorPath = join(migratorRoot, 'migrator.ts');
+const migrationRunnerPath = join(productionRoot, 'pipeline', 'migration-runner.ts');
 const reportRoot = join(productionRoot, 'report');
 const atomicFileWriterPath = join(productionRoot, 'lib', 'atomic-file.writer.ts');
 const jsonReportWriterPath = join(productionRoot, 'report', 'json-report.writer.ts');
@@ -172,35 +185,265 @@ describe('migration transaction architecture boundary', { timeout: wholeProjectI
     wholeProjectInspectionTimeout,
   );
 
-  test('keeps FileMigrator and FolderMigrator free of direct writes and AtomicFileWriter usage', () => {
-    for (const fileName of ['file.migrator.ts', 'folder.migrator.ts']) {
-      const path = join(migratorRoot, fileName);
-      expect(
-        forbiddenMigratorMutation(inspectTypeScript(readFileSync(path, 'utf8'), path)),
-        relative(process.cwd(), path),
-      ).toBeUndefined();
-    }
+  test('makes concrete Apply the sole production caller of transaction application', () => {
+    expect(transactionApplyCalls(new Map(), productionTypeScriptFiles(productionRoot))).toEqual([
+      { sourcePath: applyProjectStagePath, name: 'apply' },
+    ]);
   });
 
-  test('keeps Migrator downstream of semantic planning, rendering, and render-session finalization', () => {
-    const migratorInspection = createTypeScriptProjectInspectionSession([migratorPath]);
-    const forbiddenRuntimeSymbols = migratorInspection
+  test('keeps node filesystem mechanics out of the transaction coordinator', () => {
+    const inspection = inspectTypeScript(readFileSync(migrationTransactionPath, 'utf8'), migrationTransactionPath);
+
+    expect(inspection.moduleReferences.filter(reference => reference.startsWith('node:fs'))).toEqual([]);
+    expect(inspectProject(new Map(), [migrationTransactionPath]).filesystemMutationCalls).toEqual([]);
+  });
+
+  test('limits focused transaction-unit runtime consumption to the transaction coordinator', () => {
+    const consumers = productionTypeScriptFiles(productionRoot).flatMap(sourcePath => {
+      const references = runtimeModuleReferences(readFileSync(sourcePath, 'utf8'), sourcePath);
+      return references.some(reference =>
+        /(?:staging|commit|rollback|cleanup)\.unit(?:\.[cm]?[jt]s)?$/u.test(reference),
+      )
+        ? [sourcePath]
+        : [];
+    });
+
+    expect(productionTypeScriptFiles(transactionRoot)).toEqual(expect.arrayContaining(transactionUnitPaths));
+    expect(consumers).toEqual([migrationTransactionPath]);
+  });
+
+  test.each([
+    [
+      'staging',
+      'FileSystemStagingUnit',
+      [
+        'assertDirectoryExpectation',
+        'assertDirectoryIdentity',
+        'assertExpectedAbsent',
+        'assertExpectedDirectory',
+        'assertNotInterrupted',
+        'assertParentChain',
+        'concurrentModification',
+        'createStageFile',
+        'journal',
+        'lstat',
+        'mkdir',
+        'readOwnedFile',
+        'validateStagedTemplate',
+      ],
+    ],
+    [
+      'commit',
+      'FileSystemCommitUnit',
+      [
+        'assertExpectedAbsent',
+        'assertNamespace',
+        'assertNotInterrupted',
+        'assertOwnedIdentity',
+        'assertParentChain',
+        'concurrentModification',
+        'createBackupFile',
+        'journal',
+        'link',
+        'lstatOrAbsent',
+        'observePublic',
+        'ownershipFailure',
+        'readOwnedFile',
+        'rename',
+      ],
+    ],
+    [
+      'rollback',
+      'FileSystemRollbackUnit',
+      [
+        'assertExpectedAbsent',
+        'assertNamespace',
+        'assertParentChain',
+        'journal',
+        'link',
+        'lstatOrAbsent',
+        'observePublic',
+        'readOwnedFile',
+        'rename',
+      ],
+    ],
+    [
+      'cleanup',
+      'FileSystemCleanupUnit',
+      [
+        'assertNamespace',
+        'closeOpenHandle',
+        'closeReadHandles',
+        'journal',
+        'lstat',
+        'lstatOrAbsent',
+        'observePublic',
+        'rmdir',
+        'unlink',
+      ],
+    ],
+  ] as const)('gives the %s unit only its resolved phase capability port', (unit, className, expected) => {
+    const sourcePath = join(transactionRoot, `${unit}.unit.ts`);
+
+    expect(resolvedConstructorParameterProperties(sourcePath, className)).toEqual(expected);
+    expect(
+      inspectTypeScript(readFileSync(sourcePath, 'utf8'), sourcePath).moduleReferences.filter(reference =>
+        /transaction-unit\.session(?:\.[cm]?[jt]s)?$/u.test(reference),
+      ),
+    ).toEqual([]);
+  });
+
+  test.each([
+    [
+      'staging',
+      'FileSystemStagingUnit',
+      [
+        'addCreatedDirectoryPublicPath',
+        'artifacts',
+        'confirmCreatedDirectory',
+        'confirmNamespace',
+        'createdDirectory',
+        'prepare',
+        'recordCreatedDirectory',
+        'recordNamespace',
+        'recordUnconfirmedEntry',
+      ],
+    ],
+    [
+      'commit',
+      'FileSystemCommitUnit',
+      [
+        'addQuarantine',
+        'artifact',
+        'artifacts',
+        'confirmOwnedFile',
+        'recordInstalledIdentity',
+        'recordRecoveryFailure',
+        'setOwnedFilePreserved',
+      ],
+    ],
+    [
+      'rollback',
+      'FileSystemRollbackUnit',
+      [
+        'addQuarantine',
+        'artifact',
+        'artifacts',
+        'confirmOwnedFile',
+        'recordRestored',
+        'recordRestoredIdentity',
+        'recoveryFailures',
+        'setOwnedFilePreserved',
+      ],
+    ],
+    [
+      'cleanup',
+      'FileSystemCleanupUnit',
+      [
+        'artifact',
+        'artifacts',
+        'createdDirectories',
+        'finishArtifactCleanup',
+        'markCreatedDirectoryAbsent',
+        'markNamespaceAbsent',
+        'markOwnedFileAbsent',
+        'restored',
+        'unconfirmedEntries',
+      ],
+    ],
+  ] as const)('exposes only %s phase-scoped journal commands and immutable views', (unit, className, expected) => {
+    const sourcePath = join(transactionRoot, `${unit}.unit.ts`);
+
+    expect(resolvedConstructorParameterNestedProperties(sourcePath, className, 'journal')).toEqual(expected);
+  });
+
+  test.each([
+    ['staging', 'FileSystemStagingUnit', 'createStageFile', 'StagingArtifactView'],
+    ['commit', 'FileSystemCommitUnit', 'createBackupFile', 'CommitArtifactView'],
+  ] as const)('gives %s a phase-specific owned-file creation signature', (unit, className, method, view) => {
+    expect(
+      resolvedConstructorParameterMethodParameters(join(transactionRoot, `${unit}.unit.ts`), className, method),
+    ).toEqual([
+      { name: 'item', type: view },
+      { name: 'contents', type: 'string' },
+      { name: 'signal', type: 'AbortSignal' },
+      { name: 'mode', type: 'number | undefined' },
+    ]);
+  });
+
+  test.each([
+    ['StagingArtifactView', ['artifact', 'directories', 'originalMode', 'stagingPath']],
+    [
+      'CommitArtifactView',
+      ['artifact', 'backup', 'installedIdentity', 'namespace', 'originalIdentity', 'quarantines', 'stage'],
+    ],
+    [
+      'RollbackArtifactView',
+      ['artifact', 'backup', 'installedIdentity', 'namespace', 'originalIdentity', 'restoredIdentity', 'stage'],
+    ],
+    [
+      'CleanupArtifactView',
+      ['artifact', 'backupPath', 'directories', 'namespace', 'originalIdentity', 'ownedFiles', 'restoredIdentity'],
+    ],
+  ] as const)('keeps the resolved %s surface phase-limited', (typeName, expected) => {
+    expect(resolvedTypeProperties(join(transactionRoot, 'transaction-unit.ports.ts'), typeName)).toEqual(expected);
+  });
+
+  test('keeps obsolete migrator mutation facades out of production', () => {
+    const migratorPaths = productionTypeScriptFiles(migratorRoot).map(path => relative(migratorRoot, path));
+
+    expect(migratorPaths).not.toEqual(
+      expect.arrayContaining([
+        'analyzed-file.migrator.ts',
+        'base.migrator.ts',
+        'file.migrator.ts',
+        'folder.migrator.ts',
+      ]),
+    );
+  });
+
+  test('keeps MigrationRunner downstream of semantic planning, rendering, and render-session finalization', () => {
+    const runnerInspection = createTypeScriptProjectInspectionSession([migrationRunnerPath]);
+    const forbiddenRuntimeSymbols = runnerInspection
       .inspectRuntimeSymbolProvenance()
       .filter(symbol =>
         [
           join(productionRoot, 'semantic'),
           join(productionRoot, 'render'),
           join(productionRoot, 'planner', 'conversion-planner.ts'),
-          join(productionRoot, 'adapter', 'conversion-adapter.session.ts'),
         ].some(namespace => symbol.declarationPath === namespace || symbol.declarationPath.startsWith(`${namespace}/`)),
       );
-    const renderAuthorities = migratorInspection
+    const renderAuthorities = runnerInspection
       .inspectSemanticAuthorityCalls()
       .filter(call => call.name === 'RenderProjectStage.run' || call.name === 'RenderSession.finalize');
 
     expect(forbiddenRuntimeSymbols).toEqual([]);
     expect(renderAuthorities).toEqual([]);
-    expect(migratorInspection.programConstructionCount).toBe(1);
+    expect(runnerInspection.programConstructionCount).toBe(1);
+  });
+
+  test('keeps validation, topology, reference collection, and stylesheet planning out of MigrationRunner', () => {
+    const forbiddenAuthorities = new Set([
+      'ChangedTemplateValidation.parse',
+      'CssReferenceCollector.collect',
+      'CssReferenceParser.parse',
+      'DestinationTemplateSource.read',
+      'MigrationPathValidation.validate',
+      'SourceEditor.apply',
+      'StylesheetPlanner.plan',
+      'TemplateProposalValidator.validate',
+    ]);
+
+    expect(
+      inspectSemanticAuthorityCalls([migrationRunnerPath]).filter(call => forbiddenAuthorities.has(call.name)),
+    ).toEqual([]);
+  });
+
+  test('keeps direct transaction application authority out of MigrationRunner', () => {
+    const inspection = inspectProject(new Map(), [migrationRunnerPath]);
+
+    expect(inspection.transactionApplyCalls).toEqual([]);
+    expect(inspection.filesystemMutationCalls).toEqual([]);
   });
 
   test('reserves AtomicFileWriter for the independent JSON report', () => {
@@ -589,23 +832,10 @@ describe('migration transaction architecture boundary', { timeout: wholeProjectI
     ]);
   });
 
-  test('detects a presenter invoking canonical Migrator#migrate in write mode', () => {
-    const presenter = join(projectFixtureRoot, 'migrator.presenter.ts');
+  test('detects a caller invoking canonical MigrationRunner#run in write mode', () => {
+    const presenter = join(projectFixtureRoot, 'migration-runner.presenter.ts');
     const source = `
-      import { Migrator as Coordinator } from '../migrator/migrator.js';
-      declare const migrator: Coordinator;
-      void migrator.migrate({ mode: 'write' });
-    `;
-
-    expect(projectWriteAuthorityCalls(new Map([[presenter, source]]), [presenter])).toEqual([
-      { sourcePath: presenter, name: 'migrate' },
-    ]);
-  });
-
-  test('detects a caller invoking canonical CurrentMigrationPipeline#run in write mode', () => {
-    const presenter = join(projectFixtureRoot, 'current-pipeline.presenter.ts');
-    const source = `
-      import { CurrentMigrationPipeline as Runner } from '../pipeline/current-migration.pipeline.js';
+      import { MigrationRunner as Runner } from '../pipeline/migration-runner.js';
       declare const runner: Runner;
       void runner.run({ inputPath: 'input.html', outputPath: 'output.html', options: { mode: 'write' } });
     `;
@@ -615,11 +845,11 @@ describe('migration transaction architecture boundary', { timeout: wholeProjectI
     ]);
   });
 
-  test('treats the canonical MigrationRunner port as current-pipeline write authority', () => {
-    const presenter = join(projectFixtureRoot, 'migration-runner-port.presenter.ts');
+  test('treats a type-only canonical MigrationRunner as project-write authority', () => {
+    const presenter = join(projectFixtureRoot, 'migration-runner-type.presenter.ts');
     const source = `
-      import type { MigrationRunner as RunnerPort } from '../pipeline/current-migration.pipeline.js';
-      declare const runner: RunnerPort;
+      import type { MigrationRunner as Runner } from '../pipeline/migration-runner.js';
+      declare const runner: Runner;
       void runner.run({ inputPath: 'input.html', outputPath: 'output.html', options: { mode: 'write' } });
     `;
 
@@ -628,15 +858,15 @@ describe('migration transaction architecture boundary', { timeout: wholeProjectI
     ]);
   });
 
-  test('follows the canonical MigrationRunner port through a re-exported type alias', () => {
-    const barrel = join(projectFixtureRoot, 'migration-runner-port.index.ts');
-    const presenter = join(projectFixtureRoot, 'aliased-migration-runner-port.presenter.ts');
+  test('follows MigrationRunner through a re-exported type alias', () => {
+    const barrel = join(projectFixtureRoot, 'migration-runner.index.ts');
+    const presenter = join(projectFixtureRoot, 'aliased-migration-runner.presenter.ts');
     const sources = new Map([
-      [barrel, "export type { MigrationRunner as RunnerPort } from '../pipeline/current-migration.pipeline.js';"],
+      [barrel, "export type { MigrationRunner as RunnerPort } from '../pipeline/migration-runner.js';"],
       [
         presenter,
         `
-          import type { RunnerPort as ImportedPort } from './migration-runner-port.index.js';
+          import type { RunnerPort as ImportedPort } from './migration-runner.index.js';
           declare const runner: ImportedPort;
           void runner.run({ inputPath: 'input.html', outputPath: 'output.html', options: { mode: 'write' } });
         `,
@@ -652,7 +882,7 @@ describe('migration transaction architecture boundary', { timeout: wholeProjectI
   ])('fails closed for canonical MigrationRunner invocation through %s', (_label, methodDeclaration) => {
     const presenter = join(projectFixtureRoot, 'computed-migration-runner-port.presenter.ts');
     const source = `
-      import type { MigrationRunner as RunnerPort } from '../pipeline/current-migration.pipeline.js';
+      import type { MigrationRunner as RunnerPort } from '../pipeline/migration-runner.js';
       declare const runner: RunnerPort;
       ${methodDeclaration}
       void runner[method]({ inputPath: 'input.html', outputPath: 'output.html', options: { mode: 'write' } });
@@ -672,10 +902,10 @@ describe('migration transaction architecture boundary', { timeout: wholeProjectI
       'aliased bound callable',
       "const execute = runner.run.bind(runner); const run = execute; void run({ inputPath: 'input.html', outputPath: 'output.html', options: { mode: 'write' } });",
     ],
-  ])('detects canonical current-pipeline write authority through a %s', (_label, invocation) => {
-    const presenter = join(projectFixtureRoot, 'bound-current-pipeline.presenter.ts');
+  ])('detects canonical MigrationRunner write authority through a %s', (_label, invocation) => {
+    const presenter = join(projectFixtureRoot, 'bound-migration-runner.presenter.ts');
     const source = `
-      import { CurrentMigrationPipeline as Runner } from '../pipeline/current-migration.pipeline.js';
+      import { MigrationRunner as Runner } from '../pipeline/migration-runner.js';
       declare const runner: Runner;
       ${invocation}
     `;
@@ -685,15 +915,15 @@ describe('migration transaction architecture boundary', { timeout: wholeProjectI
     ]);
   });
 
-  test('follows current-pipeline write authority through a re-export alias', () => {
-    const barrel = join(projectFixtureRoot, 'current-pipeline.index.ts');
-    const presenter = join(projectFixtureRoot, 'barrel-current-pipeline.presenter.ts');
+  test('follows MigrationRunner write authority through a re-export alias', () => {
+    const barrel = join(projectFixtureRoot, 'migration-runner.index.ts');
+    const presenter = join(projectFixtureRoot, 'barrel-migration-runner.presenter.ts');
     const sources = new Map([
-      [barrel, "export { CurrentMigrationPipeline as Runner } from '../pipeline/current-migration.pipeline.js';"],
+      [barrel, "export { MigrationRunner as Runner } from '../pipeline/migration-runner.js';"],
       [
         presenter,
         `
-          import { Runner as ImportedRunner } from './current-pipeline.index.js';
+          import { Runner as ImportedRunner } from './migration-runner.index.js';
           declare const runner: ImportedRunner;
           void runner.run({ inputPath: 'input.html', outputPath: 'output.html', options: { mode: 'write' } });
         `,
@@ -707,19 +937,19 @@ describe('migration transaction architecture boundary', { timeout: wholeProjectI
     [
       'dynamic import',
       `
-        const { CurrentMigrationPipeline: Runner } = await import('../pipeline/current-migration.pipeline.js');
-        const runner = new Runner(undefined as never);
+        const { MigrationRunner: Runner } = await import('../pipeline/migration-runner.js');
+        const runner = new Runner(undefined as never, undefined as never, undefined as never);
       `,
     ],
     [
       'CommonJS require',
       `
-        const { CurrentMigrationPipeline: Runner } = require('../pipeline/current-migration.pipeline.js');
-        const runner = new Runner(undefined);
+        const { MigrationRunner: Runner } = require('../pipeline/migration-runner.js');
+        const runner = new Runner(undefined, undefined, undefined);
       `,
     ],
-  ])('detects canonical current-pipeline write authority acquired through %s', (_label, setup) => {
-    const presenter = join(projectFixtureRoot, 'runtime-current-pipeline.presenter.ts');
+  ])('detects canonical MigrationRunner write authority acquired through %s', (_label, setup) => {
+    const presenter = join(projectFixtureRoot, 'runtime-migration-runner.presenter.ts');
     const source = `
       async function present() {
         ${setup}
@@ -732,10 +962,10 @@ describe('migration transaction architecture boundary', { timeout: wholeProjectI
     ]);
   });
 
-  test('fails closed for a mutable current-pipeline invocation', () => {
-    const presenter = join(projectFixtureRoot, 'mutable-current-pipeline.presenter.ts');
+  test('fails closed for a mutable MigrationRunner invocation', () => {
+    const presenter = join(projectFixtureRoot, 'mutable-migration-runner.presenter.ts');
     const source = `
-      import { CurrentMigrationPipeline as Runner } from '../pipeline/current-migration.pipeline.js';
+      import { MigrationRunner as Runner } from '../pipeline/migration-runner.js';
       declare const runner: Runner;
       const invocation = { inputPath: 'input.html', outputPath: 'output.html', options: { mode: 'plan' } };
       void runner.run(invocation);
@@ -746,10 +976,10 @@ describe('migration transaction architecture boundary', { timeout: wholeProjectI
     ]);
   });
 
-  test('allows an immutable explicit plan through the current pipeline without granting write authority', () => {
-    const presenter = join(projectFixtureRoot, 'plan-current-pipeline.presenter.ts');
+  test('allows an immutable explicit plan through MigrationRunner without granting write authority', () => {
+    const presenter = join(projectFixtureRoot, 'plan-migration-runner.presenter.ts');
     const source = `
-      import { CurrentMigrationPipeline as Runner } from '../pipeline/current-migration.pipeline.js';
+      import { MigrationRunner as Runner } from '../pipeline/migration-runner.js';
       declare const runner: Runner;
       const invocation = {
         inputPath: 'input.html',
@@ -774,8 +1004,8 @@ describe('migration transaction architecture boundary', { timeout: wholeProjectI
     [
       'a same-named local class',
       `
-        class CurrentMigrationPipeline { run(invocation: { options: { mode: 'write' } }): void {} }
-        new CurrentMigrationPipeline().run({ options: { mode: 'write' } });
+        class MigrationRunner { run(invocation: { options: { mode: 'write' } }): void {} }
+        new MigrationRunner().run({ options: { mode: 'write' } });
       `,
     ],
     [
@@ -795,213 +1025,8 @@ describe('migration transaction architecture boundary', { timeout: wholeProjectI
         previewer[method]({ options: { mode: 'write' } });
       `,
     ],
-  ])('does not confuse %s with current-pipeline write authority', (_label, source) => {
-    const presenter = join(projectFixtureRoot, 'unrelated-current-pipeline.presenter.ts');
-
-    expect(projectWriteAuthorityCalls(new Map([[presenter, source]]), [presenter])).toEqual([]);
-  });
-
-  test.each([
-    ['direct bound callable', "const run = migrator.migrate.bind(migrator, { mode: 'write' }); void run();"],
-    [
-      'aliased bound callable',
-      "const run = migrator.migrate.bind(migrator, { mode: 'write' }); const execute = run; void execute();",
-    ],
-    [
-      'bound receiver with final-call options',
-      "const run = migrator.migrate.bind(migrator); void run({ mode: 'write' });",
-    ],
-  ])('detects canonical write-mode migration through a %s', (_label, invocation) => {
-    const presenter = join(projectFixtureRoot, 'bound-migrator.presenter.ts');
-    const source = `
-      import { Migrator as Coordinator } from '../migrator/migrator.js';
-      declare const migrator: Coordinator;
-      ${invocation}
-    `;
-
-    expect(projectWriteAuthorityCalls(new Map([[presenter, source]]), [presenter])).toEqual([
-      { sourcePath: presenter, name: 'migrate' },
-    ]);
-  });
-
-  test('follows bound write-mode migration arguments through a re-export and barrel alias', () => {
-    const helper = join(projectFixtureRoot, 'bound-migrator.helper.ts');
-    const barrel = join(projectFixtureRoot, 'bound-migrator.index.ts');
-    const presenter = join(projectFixtureRoot, 'bound-migrator-import.presenter.ts');
-    const sources = new Map([
-      [
-        helper,
-        `
-          import { Migrator as Coordinator } from '../migrator/migrator.js';
-          declare const migrator: Coordinator;
-          export const runWrite = migrator.migrate.bind(migrator, { mode: 'write' });
-        `,
-      ],
-      [barrel, "export { runWrite as execute } from './bound-migrator.helper.js';"],
-      [presenter, "import { execute as run } from './bound-migrator.index.js'; void run();"],
-    ]);
-
-    expect(projectWriteAuthorityCalls(sources, [presenter])).toEqual([{ sourcePath: presenter, name: 'migrate' }]);
-  });
-
-  test('uses bound options before final-call arguments when deciding whether migration can write', () => {
-    const presenter = join(projectFixtureRoot, 'bound-plan-migrator.presenter.ts');
-    const source = `
-      import { Migrator as Coordinator } from '../migrator/migrator.js';
-      declare const migrator: Coordinator;
-      const run = migrator.migrate.bind(migrator, { mode: 'plan' });
-      void run({ mode: 'write' });
-    `;
-
-    expect(projectWriteAuthorityCalls(new Map([[presenter, source]]), [presenter])).toEqual([]);
-  });
-
-  test.each([
-    [
-      'a reassigned mutable option',
-      "const options = { mode: 'plan' }; options.mode = 'write'; void migrator.migrate(options);",
-    ],
-    ['a mutable const initializer', "const options = { mode: 'plan' }; void migrator.migrate(options);"],
-    ['a mutable let initializer', "let options = { mode: 'plan' }; void migrator.migrate(options);"],
-  ])('fails closed for %s', (_label, invocation) => {
-    const presenter = join(projectFixtureRoot, 'mutable-options-migrator.presenter.ts');
-    const source = `
-      import { Migrator as Coordinator } from '../migrator/migrator.js';
-      declare const migrator: Coordinator;
-      ${invocation}
-    `;
-
-    expect(projectWriteAuthorityCalls(new Map([[presenter, source]]), [presenter])).toEqual([
-      { sourcePath: presenter, name: 'migrate' },
-    ]);
-  });
-
-  test('preserves explicit plan precision for an immutable const-asserted option', () => {
-    const presenter = join(projectFixtureRoot, 'immutable-options-migrator.presenter.ts');
-    const source = `
-      import { Migrator as Coordinator } from '../migrator/migrator.js';
-      declare const migrator: Coordinator;
-      const options = { mode: 'plan' } as const;
-      void migrator.migrate(options);
-    `;
-
-    expect(projectWriteAuthorityCalls(new Map([[presenter, source]]), [presenter])).toEqual([]);
-  });
-
-  test('preserves explicit plan precision when a trailing inline spread provably has no mode', () => {
-    const presenter = join(projectFixtureRoot, 'unrelated-spread-migrator.presenter.ts');
-    const source = `
-      import { Migrator as Coordinator } from '../migrator/migrator.js';
-      declare const migrator: Coordinator;
-      void migrator.migrate({ mode: 'plan', ...{ responsiveImages: true } });
-    `;
-
-    expect(projectWriteAuthorityCalls(new Map([[presenter, source]]), [presenter])).toEqual([]);
-  });
-
-  test.each([
-    ['a trailing spread that sets write mode', "void migrator.migrate({ mode: 'plan', ...{ mode: 'write' } });"],
-    [
-      'a trailing spread with a computed mode field',
-      "void migrator.migrate({ mode: 'plan', ...{ ['mode']: 'write' } });",
-    ],
-    [
-      'a trailing spread with a dynamic computed field',
-      "declare const field: string; void migrator.migrate({ mode: 'plan', ...{ [field]: true } });",
-    ],
-    [
-      'a trailing spread with unknown fields',
-      "declare const overrides: Record<string, unknown>; void migrator.migrate({ mode: 'plan', ...overrides });",
-    ],
-  ])('fails closed for %s', (_label, invocation) => {
-    const presenter = join(projectFixtureRoot, 'unsafe-spread-migrator.presenter.ts');
-    const source = `
-      import { Migrator as Coordinator } from '../migrator/migrator.js';
-      declare const migrator: Coordinator;
-      ${invocation}
-    `;
-
-    expect(projectWriteAuthorityCalls(new Map([[presenter, source]]), [presenter])).toEqual([
-      { sourcePath: presenter, name: 'migrate' },
-    ]);
-  });
-
-  test.each([
-    ['an explicit plan', "void migrator.migrate({ mode: 'plan' });"],
-    ['the default plan', 'void migrator.migrate();'],
-  ])('allows a presenter to request %s without acquiring project-write authority', (_label, invocation) => {
-    const presenter = join(projectFixtureRoot, 'plan-migrator.presenter.ts');
-    const source = `
-      import { Migrator as Coordinator } from '../migrator/migrator.js';
-      declare const migrator: Coordinator;
-      ${invocation}
-    `;
-
-    expect(projectWriteAuthorityCalls(new Map([[presenter, source]]), [presenter])).toEqual([]);
-  });
-
-  test('follows canonical write-mode migration through barrel and import aliases', () => {
-    const barrel = join(projectFixtureRoot, 'migrator.index.ts');
-    const presenter = join(projectFixtureRoot, 'barrel-migrator.presenter.ts');
-    const sources = new Map([
-      [barrel, "export { Migrator as Coordinator } from '../migrator/migrator.js';"],
-      [
-        presenter,
-        `
-          import { Coordinator as ImportedCoordinator } from './migrator.index.js';
-          declare const migrator: ImportedCoordinator;
-          void migrator.migrate({ mode: 'write' });
-        `,
-      ],
-    ]);
-
-    expect(projectWriteAuthorityCalls(sources, [presenter])).toEqual([{ sourcePath: presenter, name: 'migrate' }]);
-  });
-
-  test.each([
-    [
-      'dynamic import',
-      `
-        const { Migrator: Coordinator } = await import('../migrator/migrator.js');
-        const migrator = new Coordinator(undefined as never, 'input.html', 'output.html');
-      `,
-    ],
-    [
-      'CommonJS require',
-      `
-        const { Migrator: Coordinator } = require('../migrator/migrator.js');
-        const migrator = new Coordinator(undefined, 'input.html', 'output.html');
-      `,
-    ],
-  ])('detects canonical write-mode migration acquired through %s', (_label, setup) => {
-    const presenter = join(projectFixtureRoot, 'runtime-migrator.presenter.ts');
-    const source = `
-      async function present() {
-        ${setup}
-        await migrator.migrate({ mode: 'write' });
-      }
-    `;
-
-    expect(projectWriteAuthorityCalls(new Map([[presenter, source]]), [presenter])).toEqual([
-      { sourcePath: presenter, name: 'migrate' },
-    ]);
-  });
-
-  test.each([
-    [
-      'an unrelated migrate method',
-      `
-        interface Previewer { migrate(options: { mode: 'write' }): void }
-        declare const previewer: Previewer;
-        previewer.migrate({ mode: 'write' });
-      `,
-    ],
-    [
-      'an unused type-only Migrator import',
-      "import type { Migrator } from '../migrator/migrator.js'; export type DeferredMigrator = Migrator;",
-    ],
-  ])('does not confuse %s with project-write authority', (_label, source) => {
-    const presenter = join(projectFixtureRoot, 'unrelated-migrator.presenter.ts');
+  ])('does not confuse %s with MigrationRunner write authority', (_label, source) => {
+    const presenter = join(projectFixtureRoot, 'unrelated-migration-runner.presenter.ts');
 
     expect(projectWriteAuthorityCalls(new Map([[presenter, source]]), [presenter])).toEqual([]);
   });
@@ -1333,10 +1358,10 @@ describe('migration transaction architecture boundary', { timeout: wholeProjectI
     expect(projectWriteAuthorityCalls(sources, [presenter])).toEqual([{ sourcePath: presenter, name: 'apply' }]);
   });
 
-  test('detects a computed Migrator.migrate target through a re-exported Reflect.apply alias', () => {
+  test('detects a computed MigrationRunner.run target through a re-exported Reflect.apply alias', () => {
     const helper = join(projectFixtureRoot, 'reflect-apply.helper.ts');
     const barrel = join(projectFixtureRoot, 'reflect-apply.index.ts');
-    const presenter = join(projectFixtureRoot, 'reflected-migrator.presenter.ts');
+    const presenter = join(projectFixtureRoot, 'reflected-migration-runner.presenter.ts');
     const sources = new Map([
       [helper, 'export const invokeReflect = Reflect.apply;'],
       [barrel, "export { invokeReflect as invoke } from './reflect-apply.helper.js';"],
@@ -1344,27 +1369,31 @@ describe('migration transaction architecture boundary', { timeout: wholeProjectI
         presenter,
         `
           import { invoke as invokeReflect } from './reflect-apply.index.js';
-          import { Migrator as Coordinator } from '../migrator/migrator.js';
-          declare const migrator: Coordinator;
-          const method = 'migrate' as const;
-          void invokeReflect(migrator[method], migrator, [{ mode: 'write' }]);
+          import { MigrationRunner as Runner } from '../pipeline/migration-runner.js';
+          declare const runner: Runner;
+          const method = 'run' as const;
+          void invokeReflect(runner[method], runner, [{
+            inputPath: 'input.html',
+            outputPath: 'output.html',
+            options: { mode: 'write' },
+          }]);
         `,
       ],
     ]);
 
-    expect(projectWriteAuthorityCalls(sources, [presenter])).toEqual([{ sourcePath: presenter, name: 'migrate' }]);
+    expect(projectWriteAuthorityCalls(sources, [presenter])).toEqual([{ sourcePath: presenter, name: 'run' }]);
   });
 
   test.each([
     [
-      'CurrentMigrationPipeline class',
+      'MigrationRunner class',
       `
-        import { CurrentMigrationPipeline as Runner } from '../pipeline/current-migration.pipeline.js';
+        import { MigrationRunner as Runner } from '../pipeline/migration-runner.js';
         declare const runner: Runner;
       `,
     ],
     [
-      're-exported MigrationRunner port',
+      're-exported MigrationRunner type',
       `
         import type { RunnerPort as Runner } from './reflected-runner.index.js';
         declare const runner: Runner;
@@ -1374,7 +1403,7 @@ describe('migration transaction architecture boundary', { timeout: wholeProjectI
     const barrel = join(projectFixtureRoot, 'reflected-runner.index.ts');
     const presenter = join(projectFixtureRoot, 'reflected-runner.presenter.ts');
     const sources = new Map([
-      [barrel, "export type { MigrationRunner as RunnerPort } from '../pipeline/current-migration.pipeline.js';"],
+      [barrel, "export type { MigrationRunner as RunnerPort } from '../pipeline/migration-runner.js';"],
       [
         presenter,
         `
@@ -1411,20 +1440,6 @@ describe('migration transaction architecture boundary', { timeout: wholeProjectI
       `,
     },
     {
-      label: 'Migrator.migrate',
-      name: 'migrate' as const,
-      reflectedCall: `
-        void Reflect.apply(migrator.migrate.call, migrator.migrate, [migrator, { mode: 'write' }]);
-      `,
-      setup: `
-        import { Migrator } from '../migrator/migrator.js';
-        declare const migrator: Migrator;
-        const target = migrator.migrate;
-        const receiver = migrator;
-        const values = [{ mode: 'write' as const }];
-      `,
-    },
-    {
       label: 'MigrationRunner.run',
       name: 'run' as const,
       reflectedCall: `
@@ -1435,7 +1450,7 @@ describe('migration transaction architecture boundary', { timeout: wholeProjectI
         }]);
       `,
       setup: `
-        import type { MigrationRunner } from '../pipeline/current-migration.pipeline.js';
+        import type { MigrationRunner } from '../pipeline/migration-runner.js';
         declare const runner: MigrationRunner;
         const target = runner.run;
         const receiver = runner;
@@ -1495,17 +1510,9 @@ describe('migration transaction architecture boundary', { timeout: wholeProjectI
 
   test.each([
     [
-      'Migrator plan',
-      `
-        import { Migrator as Coordinator } from '../migrator/migrator.js';
-        declare const migrator: Coordinator;
-        void Reflect.apply(migrator.migrate, migrator, [{ mode: 'plan' }]);
-      `,
-    ],
-    [
       'MigrationRunner plan',
       `
-        import type { MigrationRunner as Runner } from '../pipeline/current-migration.pipeline.js';
+        import type { MigrationRunner as Runner } from '../pipeline/migration-runner.js';
         declare const runner: Runner;
         void Reflect.apply(runner.run, runner, [{
           inputPath: 'input.html',
@@ -1515,29 +1522,9 @@ describe('migration transaction architecture boundary', { timeout: wholeProjectI
       `,
     ],
     [
-      'nested Migrator plan',
-      `
-        import { Migrator as Coordinator } from '../migrator/migrator.js';
-        declare const migrator: Coordinator;
-        void Reflect.apply.call(undefined, migrator.migrate, migrator, [{ mode: 'plan' }]);
-      `,
-    ],
-    [
-      'nested-call-target Migrator plan',
-      `
-        import { Migrator as Coordinator } from '../migrator/migrator.js';
-        declare const migrator: Coordinator;
-        void Reflect.apply(
-          migrator.migrate.call,
-          migrator.migrate,
-          [migrator, { mode: 'plan' }],
-        );
-      `,
-    ],
-    [
       'prebound MigrationRunner plan',
       `
-        import type { MigrationRunner as Runner } from '../pipeline/current-migration.pipeline.js';
+        import type { MigrationRunner as Runner } from '../pipeline/migration-runner.js';
         declare const runner: Runner;
         const invoke = Reflect.apply.bind(undefined, runner.run, runner);
         void invoke([{
@@ -1565,11 +1552,15 @@ describe('migration transaction architecture boundary', { timeout: wholeProjectI
     [
       'locally shadowed Reflect object',
       `
-        import { Migrator as Coordinator } from '../migrator/migrator.js';
-        declare const migrator: Coordinator;
+        import { MigrationRunner as Runner } from '../pipeline/migration-runner.js';
+        declare const runner: Runner;
         const Reflect = { apply: (target: Function, receiver: unknown, values: unknown[]) =>
           target.apply(receiver, values) };
-        void Reflect.apply(migrator.migrate, migrator, [{ mode: 'write' }]);
+        void Reflect.apply(runner.run, runner, [{
+          inputPath: 'input.html',
+          outputPath: 'output.html',
+          options: { mode: 'write' },
+        }]);
       `,
     ],
     [

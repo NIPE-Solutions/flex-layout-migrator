@@ -1,6 +1,6 @@
 import { mediaRangesIntersect, type MediaRange } from '../../breakpoint/breakpoint-catalog';
 import { analyzeTailwindArbitrarySyntax } from './tailwind-arbitrary-syntax';
-import { cssPropertiesOverlap } from './extended/css-property-ownership';
+import { cssPropertiesOverlap } from '../../semantic/css-property-ownership';
 import {
   isPinnedTailwindColorToken,
   tailwindArbitraryBackgroundKind,

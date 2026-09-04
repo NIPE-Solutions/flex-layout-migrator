@@ -1,4 +1,4 @@
-import type { MigrationApplication } from '../report/migration-report';
+import type { AppliedProject } from './applied-project';
 import type { AnalyzedProject } from './analyzed-project';
 import { PipelineStageError } from './pipeline-stage.error';
 import type { MigrationInvocation, ProjectManifest } from './project-manifest';
@@ -20,21 +20,15 @@ export interface RenderStage {
 }
 
 export interface ValidateStage {
+  prevalidate(invocation: MigrationInvocation): Promise<void>;
   run(rendered: RenderedProject): Promise<ValidatedProjectPlan>;
 }
 
-export interface ApplyStageResult {
-  readonly application: MigrationApplication;
-}
-
 export interface ApplyStage {
-  run(plan: ValidatedProjectPlan): Promise<ApplyStageResult>;
+  run(plan: ValidatedProjectPlan): Promise<AppliedProject>;
 }
 
-export interface MigrationPipelineResult {
-  readonly validated: ValidatedProjectPlan;
-  readonly application: MigrationApplication;
-}
+export type MigrationPipelineResult = AppliedProject;
 
 export class MigrationPipeline {
   constructor(
@@ -46,13 +40,14 @@ export class MigrationPipeline {
   ) {}
 
   public async run(invocation: MigrationInvocation): Promise<MigrationPipelineResult> {
+    await this.validate.prevalidate(invocation);
     const manifest = await runStage('discover', () => this.discover.run(invocation));
     const analyzed = await runStage('analyze', () => this.analyze.run(manifest));
     const rendered = await runStage('render', () => this.render.run(analyzed));
     const validated = await runStage('validate', () => this.validate.run(rendered));
     const applied = await runStage('apply', () => this.apply.run(validated));
 
-    return Object.freeze({ validated, application: Object.freeze({ ...applied.application }) });
+    return applied;
   }
 }
 

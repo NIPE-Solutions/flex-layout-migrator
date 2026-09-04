@@ -1,4 +1,4 @@
-import type { PlannedConversion } from '../adapter/conversion-adapter';
+import type { PlannedConversion } from '../render/conversion-renderer';
 import type { LocatedFlexLayoutInput } from '../analyzer/flex-layout-attribute.analyzer';
 import type { DiagnosticCode } from '../analyzer/conversion-result';
 import { ORIENTATION_BREAKPOINTS } from '../analyzer/flex-layout.catalog';

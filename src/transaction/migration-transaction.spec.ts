@@ -93,9 +93,150 @@ describe('MigrationTransaction', () => {
   test('does no filesystem work for a plan without artifacts', async () => {
     const operations = throwingOperations();
     const transaction = new MigrationTransaction(operations);
+    const emptyPlan = plan();
 
-    await expect(transaction.preflight(plan())).resolves.toBeUndefined();
-    await expect(transaction.apply(plan())).resolves.toBeUndefined();
+    await expect(transaction.preflight(emptyPlan)).resolves.toBeUndefined();
+    await expect(transaction.apply(emptyPlan)).resolves.toBeUndefined();
+  });
+
+  test('rejects a changed plan identity after preflight before any project mutation', async () => {
+    const target = join(directory, 'card.html');
+    const originalPlan = plan([template(target, absent(), present('<div>after</div>'))]);
+    const changedIdentity = migrationPlan({
+      target: originalPlan.target,
+      files: originalPlan.files,
+      artifacts: originalPlan.artifacts,
+    });
+    const mutations: string[] = [];
+    const operations: MigrationTransactionOperations = {
+      ...nodeOperations,
+      link: async (source, destination) => {
+        mutations.push(`link:${source}:${destination}`);
+        await link(source, destination);
+      },
+      mkdir: async (candidate, options) => {
+        mutations.push(`mkdir:${candidate}`);
+        await mkdir(candidate, options);
+      },
+      rename: async (source, destination) => {
+        mutations.push(`rename:${source}:${destination}`);
+        await rename(source, destination);
+      },
+      unlink: async candidate => {
+        mutations.push(`unlink:${candidate}`);
+        await unlink(candidate);
+      },
+    };
+    const transaction = new MigrationTransaction(operations);
+    await transaction.preflight(originalPlan);
+
+    await expect(transaction.apply(changedIdentity)).rejects.toMatchObject({
+      code: 'internal-invariant',
+      paths: [target],
+    });
+    expect(mutations).toEqual([]);
+    await expect(access(target)).rejects.toMatchObject({ code: 'ENOENT' });
+    expect(await invocationResidue(directory)).toEqual([]);
+  });
+
+  test('rejects changed plan contents after preflight before any project mutation', async () => {
+    const target = join(directory, 'card.html');
+    const proposed = { status: 'present' as const, contents: '<div>after</div>' };
+    const mutablePlan: MigrationPlan = {
+      target: 'tailwind',
+      files: [],
+      artifacts: [{ kind: 'template', path: target, original: absent(), proposed }],
+    };
+    const mutations: string[] = [];
+    const transaction = new MigrationTransaction({
+      ...nodeOperations,
+      mkdir: async (candidate, options) => {
+        mutations.push(`mkdir:${candidate}`);
+        await mkdir(candidate, options);
+      },
+    });
+    await transaction.preflight(mutablePlan);
+    proposed.contents = '<div>changed after preflight</div>';
+
+    await expect(transaction.apply(mutablePlan)).rejects.toMatchObject({
+      code: 'internal-invariant',
+      paths: [target],
+    });
+    expect(mutations).toEqual([]);
+    await expect(access(target)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  test('invalidates an earlier seal when a later preflight fails', async () => {
+    const target = join(directory, 'card.html');
+    const originalPlan = plan([template(target, absent(), present('<div>after</div>'))]);
+    const invalidPlan = migrationPlan({
+      target: 'tailwind',
+      artifacts: [],
+      files: [
+        fileMigrationResult({
+          inputPath: join(directory, 'broken.html'),
+          outputPath: target,
+          changed: false,
+          results: [
+            {
+              status: 'parse-error',
+              fileName: join(directory, 'broken.html'),
+              code: 'template-parse-error',
+              reason: 'Unexpected closing tag',
+              source: { start: 0, end: 1 },
+            },
+          ],
+        }),
+      ],
+    });
+    const transaction = new MigrationTransaction();
+    await transaction.preflight(originalPlan);
+
+    await expect(transaction.preflight(invalidPlan)).rejects.toMatchObject({ code: 'internal-invariant' });
+    await expect(transaction.apply(originalPlan)).rejects.toMatchObject({ code: 'internal-invariant' });
+    await expect(access(target)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  test('rejects an overlapping preflight and lets only the active owner publish its seal', async () => {
+    const firstTarget = join(directory, 'first.html');
+    const secondTarget = join(directory, 'second.html');
+    const firstPlan = plan([template(firstTarget, absent(), present('<div>first</div>'))]);
+    const secondPlan = plan([template(secondTarget, absent(), present('<div>second</div>'))]);
+    let releaseFirst!: () => void;
+    let markFirstBlocked!: () => void;
+    const firstBlocked = new Promise<void>(resolve => {
+      markFirstBlocked = resolve;
+    });
+    const release = new Promise<void>(resolve => {
+      releaseFirst = resolve;
+    });
+    let blocked = false;
+    const operations: MigrationTransactionOperations = {
+      ...nodeOperations,
+      lstat: async candidate => {
+        if (candidate === firstTarget && !blocked) {
+          blocked = true;
+          markFirstBlocked();
+          await release;
+        }
+        return nodeOperations.lstat(candidate);
+      },
+    };
+    const transaction = new MigrationTransaction(operations);
+    const firstPreflight = transaction.preflight(firstPlan);
+    await firstBlocked;
+
+    await expect(transaction.preflight(secondPlan)).rejects.toMatchObject({
+      code: 'internal-invariant',
+      message: 'Migration transaction cannot preflight while another preflight is active.',
+      paths: [secondTarget],
+    });
+    releaseFirst();
+    await firstPreflight;
+    await expect(transaction.apply(secondPlan)).rejects.toMatchObject({ code: 'internal-invariant' });
+    await expect(transaction.apply(firstPlan)).resolves.toBeUndefined();
+    expect(await readFile(firstTarget, 'utf8')).toBe('<div>first</div>');
+    await expect(access(secondTarget)).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
   test('defensively rejects a plan containing a template parse error', async () => {
@@ -228,7 +369,7 @@ describe('MigrationTransaction', () => {
     };
 
     await expect(
-      new MigrationTransaction(operations).apply(
+      new PreflightedMigrationTransaction(operations).apply(
         plan([
           template(first, present('first before'), present('<div>first after</div>')),
           template(second, present('second before'), present('<div>second after</div>')),
@@ -262,7 +403,7 @@ describe('MigrationTransaction', () => {
       },
     };
 
-    await new MigrationTransaction(operations).apply(
+    await new PreflightedMigrationTransaction(operations).apply(
       plan([template(target, present('before'), present('<div>after</div>'))]),
     );
 
@@ -290,7 +431,9 @@ describe('MigrationTransaction', () => {
     await writeFile(target, 'before', 'utf8');
 
     await expect(
-      new MigrationTransaction().apply(plan([template(target, present('before'), present('<span fxLayout="row" />'))])),
+      new PreflightedMigrationTransaction().apply(
+        plan([template(target, present('before'), present('<span fxLayout="row" />'))]),
+      ),
     ).rejects.toMatchObject({ code: 'internal-invariant', paths: [target] });
 
     expect(await readFile(target, 'utf8')).toBe('before');
@@ -304,7 +447,7 @@ describe('MigrationTransaction', () => {
     await writeFile(replaced, 'old template', 'utf8');
     await writeFile(removed, 'old stylesheet', 'utf8');
 
-    await new MigrationTransaction().apply(
+    await new PreflightedMigrationTransaction().apply(
       plan([
         template(created, absent(), present('<div>created</div>')),
         template(replaced, present('old template'), present('<div>replaced</div>')),
@@ -329,7 +472,7 @@ describe('MigrationTransaction', () => {
       },
     };
 
-    await new MigrationTransaction(operations).apply(
+    await new PreflightedMigrationTransaction(operations).apply(
       plan(targets.map(target => template(target, absent(), present(`<div>${basename(target)}</div>`)))),
     );
 
@@ -348,7 +491,7 @@ describe('MigrationTransaction', () => {
       const failure = new Error(`failed ${operation} ${occurrence}`);
       const operations = operationsFailingRename(operation, occurrence, failure);
 
-      await expect(new MigrationTransaction(operations).apply(fixture.plan)).rejects.toMatchObject({
+      await expect(new PreflightedMigrationTransaction(operations).apply(fixture.plan)).rejects.toMatchObject({
         code: 'transaction-io',
         cause: failure,
       });
@@ -367,7 +510,9 @@ describe('MigrationTransaction', () => {
       const harness = namedFailureOperations(label, failure, recoveryOrder);
       const registrar = new FakeSignalRegistrar();
 
-      const caught = await captureError(new MigrationTransaction(harness.operations, registrar).apply(fixture.plan));
+      const caught = await captureError(
+        new PreflightedMigrationTransaction(harness.operations, registrar).apply(fixture.plan),
+      );
 
       expect(caught).toMatchObject({
         code: 'transaction-io',
@@ -384,7 +529,7 @@ describe('MigrationTransaction', () => {
       expect(await invocationResidue(directory)).toEqual([]);
       expect(registrar.activeRegistrations).toBe(0);
 
-      await new MigrationTransaction().apply(fixture.plan);
+      await new PreflightedMigrationTransaction().apply(fixture.plan);
 
       expect(await snapshot(fixture.paths)).toEqual(fixture.appliedSnapshot);
       expect(await invocationResidue(directory)).toEqual([]);
@@ -399,7 +544,9 @@ describe('MigrationTransaction', () => {
       const registrar = new FakeSignalRegistrar();
       const harness = namedFailureOperations(label, failure);
 
-      const caught = await captureError(new MigrationTransaction(harness.operations, registrar).apply(fixture.plan));
+      const caught = await captureError(
+        new PreflightedMigrationTransaction(harness.operations, registrar).apply(fixture.plan),
+      );
 
       expect(caught).toMatchObject({
         code: 'transaction-io',
@@ -420,7 +567,7 @@ describe('MigrationTransaction', () => {
     const fixture = await transactionFixture(directory);
     const harness = namedFailureOperations();
 
-    await new MigrationTransaction(harness.operations).apply(fixture.plan);
+    await new PreflightedMigrationTransaction(harness.operations).apply(fixture.plan);
 
     expect(harness.trace).toEqual(expectedOperationTrace);
     expect(harness.failureCount()).toBe(0);
@@ -446,7 +593,7 @@ describe('MigrationTransaction', () => {
       },
     };
 
-    const caught = await captureError(new MigrationTransaction(operations, registrar).apply(fixture.plan));
+    const caught = await captureError(new PreflightedMigrationTransaction(operations, registrar).apply(fixture.plan));
 
     expect(caught).toMatchObject({ code: 'transaction-io', paths: [createPath], cause: initiatingError });
     expect(await readFile(createPath, 'utf8')).toBe('<div>create after</div>');
@@ -475,7 +622,7 @@ describe('MigrationTransaction', () => {
     };
 
     const caught = await captureError(
-      new MigrationTransaction(operations).apply(
+      new PreflightedMigrationTransaction(operations).apply(
         plan([template(target, present('before'), present('<div>after</div>'))]),
       ),
     );
@@ -498,7 +645,7 @@ describe('MigrationTransaction', () => {
     };
 
     await expect(
-      new MigrationTransaction(operations).apply(
+      new PreflightedMigrationTransaction(operations).apply(
         plan([template(target, present('before'), present('<div>after</div>'))]),
       ),
     ).rejects.toMatchObject({ code: 'transaction-io', paths: [target], cause: cleanupError });
@@ -518,7 +665,7 @@ describe('MigrationTransaction', () => {
       },
     };
 
-    await expect(new MigrationTransaction(operations, registrar).apply(fixture.plan)).rejects.toMatchObject({
+    await expect(new PreflightedMigrationTransaction(operations, registrar).apply(fixture.plan)).rejects.toMatchObject({
       code: 'transaction-interrupted',
       paths: [],
     });
@@ -537,6 +684,7 @@ describe('MigrationTransaction', () => {
         const handle = await open(candidate, flags);
         if (basename(candidate) !== 'stage') return handle;
         return {
+          chmod: mode => handle.chmod(mode),
           writeFile: async (contents, encoding) => {
             await handle.writeFile(contents, encoding);
             registrar.interrupt('SIGTERM');
@@ -550,7 +698,7 @@ describe('MigrationTransaction', () => {
     };
 
     await expect(
-      new MigrationTransaction(operations, registrar).apply(
+      new PreflightedMigrationTransaction(operations, registrar).apply(
         plan([template(target, absent(), present('<div>after</div>'))]),
       ),
     ).rejects.toMatchObject({ code: 'transaction-interrupted', paths: [] });
@@ -563,6 +711,13 @@ describe('MigrationTransaction', () => {
 
 function plan(artifacts: MigrationPlan['artifacts'] = []): MigrationPlan {
   return migrationPlan({ target: 'tailwind', files: [], artifacts });
+}
+
+class PreflightedMigrationTransaction extends MigrationTransaction {
+  public override async apply(plan: MigrationPlan): Promise<void> {
+    await this.preflight(plan);
+    await super.apply(plan);
+  }
 }
 
 function template(
@@ -613,6 +768,7 @@ function recordingHandle(
 ): MigrationTransactionFileHandle {
   const name = basename(path);
   return {
+    chmod: mode => handle.chmod(mode),
     writeFile: async (contents, encoding) => {
       events.push(`write:${name}`);
       await handle.writeFile(contents, encoding);
@@ -756,6 +912,7 @@ function namedFailureOperations(
       if (flags === 'wx' && kind !== undefined) attempt(`${owner(target)} ${kind} open`);
       const handle = await open(target, flags);
       return {
+        chmod: mode => handle.chmod(mode),
         writeFile: async (contents, encoding) => {
           if (flags === 'wx' && kind !== undefined) attempt(`${owner(target)} ${kind} writeFile`);
           await handle.writeFile(contents, encoding);

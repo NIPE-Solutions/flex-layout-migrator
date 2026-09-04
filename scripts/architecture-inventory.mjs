@@ -167,6 +167,12 @@ export function inventoryProject(input) {
       status: importedBy.length > 0 ? 'used' : 'unused',
     };
   });
+  const runtimeDependencyViolations = runtimeDependencies.flatMap(dependency => {
+    if (dependency.declared === null) return [{ name: dependency.name, issue: 'undeclared-import' }];
+    if (dependency.importedBy.length === 0) return [{ name: dependency.name, issue: 'unused-declaration' }];
+    if (dependency.resolved === null) return [{ name: dependency.name, issue: 'unresolved-declaration' }];
+    return [];
+  });
 
   const productionFiles = files.map(file => ({ path: file.path, lines: physicalLineCount(file.source) }));
   const largestFiles = [...productionFiles]
@@ -175,8 +181,38 @@ export function inventoryProject(input) {
   const policyOwners = policySymbols.flatMap(([policy, symbol]) =>
     inspections.filter(file => file.symbols.has(symbol)).map(file => ({ policy, module: file.path, symbol })),
   );
+  const productionEntrypoint = 'src/main.ts';
+  const relativeTargets = new Map();
+  for (const edge of moduleEdges) {
+    if (edge.kind !== 'relative' || !knownPaths.has(edge.to)) continue;
+    const targets = relativeTargets.get(edge.from) ?? new Set();
+    targets.add(edge.to);
+    relativeTargets.set(edge.from, targets);
+  }
+  const reachable = new Set();
+  const pending = knownPaths.has(productionEntrypoint) ? [productionEntrypoint] : [];
+  while (pending.length > 0) {
+    const current = pending.pop();
+    if (current === undefined || reachable.has(current)) continue;
+    reachable.add(current);
+    for (const target of relativeTargets.get(current) ?? []) {
+      if (!reachable.has(target)) pending.push(target);
+    }
+  }
+  const reachableProductionModules = [...reachable].sort(compareCodeUnits);
+  const unreachableProductionModules = [...knownPaths].filter(path => !reachable.has(path)).sort(compareCodeUnits);
 
-  return { productionFiles, runtimeDependencies, largestFiles, moduleEdges, policyOwners };
+  return {
+    productionEntrypoint,
+    reachableProductionModules,
+    unreachableProductionModules,
+    productionFiles,
+    runtimeDependencies,
+    runtimeDependencyViolations,
+    largestFiles,
+    moduleEdges,
+    policyOwners,
+  };
 }
 
 function parseOutputPath(argv) {

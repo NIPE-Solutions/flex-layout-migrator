@@ -190,9 +190,12 @@ describe('JsonReportWriter', () => {
       0,
       [],
     );
+    const application = report.application;
 
     await expect(new JsonReportWriter(writer).write('report.json', report)).rejects.toThrow('report failed');
     expect(writer.write).toHaveBeenCalledOnce();
+    expect(report.application).toBe(application);
+    expect(report.application).toEqual({ status: 'applied' });
   });
 
   test('revalidates a protected stylesheet alias immediately before writing the report', async () => {

@@ -1,11 +1,14 @@
 import type { LocatedFlexLayoutInput } from '../../../analyzer/flex-layout-attribute.analyzer';
-import type { PlannedConversion } from '../../conversion-adapter';
-import { ExtendedFamilyPlanner } from './extended-family.planner';
-import type { ResponsiveClassValue, ResponsiveClassValueResult } from './responsive-class.model';
-import { parseResponsiveClassValue } from './responsive-class-value.parser';
-import { parseResponsiveStyleValue } from './responsive-style-value.parser';
-import type { ResponsiveStyleValue } from './responsive-style.model';
-import { TailwindCandidateClassifier } from './tailwind-candidate-classifier';
+import type { PlannedConversion } from '../../../render/conversion-renderer';
+import { ExtendedFamilyPlanner } from '../../../semantic/extended/extended-family.planner';
+import type {
+  ResponsiveClassValue,
+  ResponsiveClassValueResult,
+} from '../../../semantic/extended/responsive-class.model';
+import { TailwindSourcePropertyEvidence } from '../../../evidence/tailwind-source-property.evidence';
+import { parseResponsiveClassValue } from '../../../semantic/extended/responsive-class-value.parser';
+import { parseResponsiveStyleValue } from '../../../semantic/extended/responsive-style-value.parser';
+import type { ResponsiveStyleValue } from '../../../semantic/extended/responsive-style.model';
 
 function input(
   sourceName: string,
@@ -31,7 +34,7 @@ function input(
   };
 }
 
-const classifier = new TailwindCandidateClassifier();
+const evidence = new TailwindSourcePropertyEvidence();
 
 function equalClassValues(left: ResponsiveClassValue, right: ResponsiveClassValue): boolean {
   return (
@@ -43,7 +46,12 @@ function plan(inputs: readonly LocatedFlexLayoutInput[]) {
   return new ExtendedFamilyPlanner().plan<ResponsiveClassValue>({
     kind: 'class',
     inputs,
-    valueParser: (member): ResponsiveClassValueResult => parseResponsiveClassValue(member, classifier),
+    valueParser: (member): ResponsiveClassValueResult => {
+      const result = parseResponsiveClassValue(member, evidence);
+      return result.status === 'parsed'
+        ? { status: 'parsed', value: { tokens: result.value.tokens.map(token => token.source) } }
+        : result;
+    },
     equals: equalClassValues,
   });
 }
@@ -63,7 +71,7 @@ function planStyle(inputs: readonly LocatedFlexLayoutInput[]) {
   return new ExtendedFamilyPlanner().plan<ResponsiveStyleValue>({
     kind: 'style',
     inputs,
-    valueParser: parseResponsiveStyleValue,
+    valueParser: member => parseResponsiveStyleValue(member, evidence),
     equals: equalStyleValues,
   });
 }

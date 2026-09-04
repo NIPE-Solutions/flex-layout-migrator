@@ -1,15 +1,21 @@
 import * as path from 'node:path';
 import type { OwnedCssRule } from '../adapter/css/css-artifact.model';
+import type { ConversionResult } from '../analyzer/conversion-result';
 import type { LocatedFlexLayoutInput } from '../analyzer/flex-layout-attribute.analyzer';
-import type { FileMigrationPlan, MigrationPlan } from '../migrator/migration-plan';
+import type { MigrationPlan } from '../migrator/migration-plan';
 import { MigrationApplicationError } from '../migrator/migration-application.error';
-import type { MigrationOptions } from '../migrator/migrator';
 import type { StylesheetMigrationResult } from '../report/migration-report.builder';
 import type { TemplateParseResult } from '../template/template.model';
 import type { AdapterSessionResult } from '../render/render-session';
 import { analyzedProject, type AnalyzedProject, type AnalyzedTemplate } from './analyzed-project';
-import { migrationInvocation, projectManifest, type ManifestTemplate, type ProjectManifest } from './project-manifest';
-import { renderedProject, type RenderedProject } from './rendered-project';
+import {
+  migrationInvocation,
+  projectManifest,
+  type ManifestTemplate,
+  type MigrationOptions,
+  type ProjectManifest,
+} from './project-manifest';
+import { renderedProject, type RenderedProject, type RenderedTemplateFile } from './rendered-project';
 import { validatedProjectPlan } from './validated-project-plan';
 
 function manifestFor(inputPath = 'templates/card.html', outputPath = 'generated/card.html'): ProjectManifest {
@@ -84,14 +90,12 @@ function parsedProject(manifest = manifestFor()): AnalyzedProject {
   });
 }
 
-function rawFilePlan(inputPath: string, outputPath: string): FileMigrationPlan {
+function rawRenderedFile(inputPath: string, outputPath: string): RenderedTemplateFile {
   return {
-    file: {
-      inputPath,
-      outputPath,
-      changed: false,
-      results: [],
-    },
+    inputPath,
+    outputPath,
+    edits: [],
+    results: [],
   };
 }
 
@@ -117,9 +121,16 @@ function renderedCssProject(): RenderedProject {
       templates: [{ inputPath: 'templates/card.html', outputPath: 'generated/card.html' }],
     }),
   );
+  if (analyzed.templates[0]?.status !== 'parsed') throw new Error('Expected a parsed template fixture.');
   return renderedProject({
     analyzed,
-    files: [rawFilePlan(analyzed.manifest.templates[0]!.inputPath, analyzed.manifest.templates[0]!.outputPath)],
+    target: 'css',
+    files: [
+      {
+        ...rawRenderedFile(analyzed.manifest.templates[0]!.inputPath, analyzed.manifest.templates[0]!.outputPath),
+        results: [convertedResult(analyzed.templates[0].inputs[0]!)],
+      },
+    ],
     session: { target: 'css', rules: [cssRule()] },
   });
 }
@@ -430,29 +441,28 @@ describe('pipeline handoff factories', () => {
     }
   });
 
-  test('owns rendered file plans and CSS session rules through immutable copies', () => {
+  test('owns rendered file proposals and CSS session rules through immutable copies', () => {
     const analyzed = parsedProject();
-    const results: NonNullable<FileMigrationPlan['file']['results']>[number][] = [];
-    const files: FileMigrationPlan[] = [
+    if (analyzed.templates[0]?.status !== 'parsed') throw new Error('Expected a parsed template fixture.');
+    const results: ConversionResult[] = [convertedResult(analyzed.templates[0].inputs[0]!)];
+    const files: RenderedTemplateFile[] = [
       {
-        file: {
-          inputPath: analyzed.manifest.templates[0]!.inputPath,
-          outputPath: analyzed.manifest.templates[0]!.outputPath,
-          changed: false,
-          results,
-        },
+        inputPath: analyzed.manifest.templates[0]!.inputPath,
+        outputPath: analyzed.manifest.templates[0]!.outputPath,
+        edits: [],
+        results,
       },
     ];
     const rule = cssRule();
     const rules = [rule];
     const session: AdapterSessionResult = { target: 'css', rules };
 
-    const rendered = renderedProject({ analyzed, files, session });
+    const rendered = renderedProject({ analyzed, target: 'css', files, session });
 
     expect(Object.isFrozen(rendered)).toBe(true);
     expect(Object.isFrozen(rendered.files)).toBe(true);
     expect(Object.isFrozen(rendered.files[0])).toBe(true);
-    expect(Object.isFrozen(rendered.files[0]!.file.results)).toBe(true);
+    expect(Object.isFrozen(rendered.files[0]!.results)).toBe(true);
     expect(Object.isFrozen(rendered.session)).toBe(true);
     expect(rendered.session.target).toBe('css');
     if (rendered.session.target !== 'css') throw new Error('Expected a CSS session.');
@@ -470,7 +480,7 @@ describe('pipeline handoff factories', () => {
     });
     rules.pop();
     expect(rendered.files).toHaveLength(1);
-    expect(rendered.files[0]!.file.results).toHaveLength(0);
+    expect(rendered.files[0]!.results).toHaveLength(1);
     expect(rendered.session.rules).toHaveLength(1);
   });
 
@@ -480,8 +490,9 @@ describe('pipeline handoff factories', () => {
     captureInternalInvariant(() =>
       renderedProject({
         analyzed,
+        target: 'tailwind',
         files: [
-          rawFilePlan(
+          rawRenderedFile(
             analyzed.manifest.templates[0]!.inputPath,
             analyzed.manifest.templates[0]!.outputPath.replace('card.html', 'Card.html'),
           ),
@@ -495,10 +506,16 @@ describe('pipeline handoff factories', () => {
     const manifest = twoTemplateManifest();
     const analyzed = analyzedProject({
       manifest,
-      templates: manifest.templates.map(file => parseErrorTemplate(file)),
+      templates: manifest.templates.map(file => ({
+        status: 'parsed' as const,
+        file,
+        source: '<div></div>',
+        parseResult: { status: 'parsed' as const, elements: [] },
+        inputs: [],
+      })),
     });
-    const first = rawFilePlan(manifest.templates[0]!.inputPath, manifest.templates[0]!.outputPath);
-    const second = rawFilePlan(manifest.templates[1]!.inputPath, manifest.templates[1]!.outputPath);
+    const first = rawRenderedFile(manifest.templates[0]!.inputPath, manifest.templates[0]!.outputPath);
+    const second = rawRenderedFile(manifest.templates[1]!.inputPath, manifest.templates[1]!.outputPath);
     const malformedSequences = [
       { name: 'omission', files: [first] },
       { name: 'duplicate', files: [first, first] },
@@ -508,7 +525,7 @@ describe('pipeline handoff factories', () => {
 
     for (const scenario of malformedSequences) {
       const error = captureInternalInvariant(() =>
-        renderedProject({ analyzed, files: scenario.files, session: { target: 'tailwind' } }),
+        renderedProject({ analyzed, target: 'tailwind', files: scenario.files, session: { target: 'tailwind' } }),
       );
       expect(error.message, scenario.name).toBe(
         'Rendered project files must match its analyzed templates one-to-one and in the same order.',
@@ -516,49 +533,180 @@ describe('pipeline handoff factories', () => {
     }
   });
 
-  test('canonicalizes rendered file identities without dropping results or template artifacts', () => {
+  test('requires stored parse failures to remain edit-free with their original diagnostics', () => {
+    const manifest = manifestFor();
+    const analyzed = analyzedProject({
+      manifest,
+      templates: [parseErrorTemplate(manifest.templates[0]!)],
+    });
+    const originalResult = {
+      status: 'parse-error' as const,
+      fileName: manifest.templates[0]!.inputPath,
+      code: 'template-parse-error' as const,
+      reason: 'incomplete start tag',
+      source: { start: 0, end: 4 },
+    };
+    const malformedFiles: readonly RenderedTemplateFile[] = [
+      {
+        ...manifest.templates[0]!,
+        edits: [{ range: { start: 0, end: 1 }, text: '', inputId: 'invalid' }],
+        results: [originalResult],
+      },
+      {
+        ...manifest.templates[0]!,
+        edits: [],
+        results: [{ ...originalResult, reason: 'different diagnostic' }],
+      },
+    ];
+
+    for (const file of malformedFiles) {
+      const error = captureInternalInvariant(() =>
+        renderedProject({ analyzed, target: 'tailwind', files: [file], session: { target: 'tailwind' } }),
+      );
+      expect(error.message).toBe(
+        'Rendered parse-error files must be edit-free and preserve their analyzed diagnostics exactly.',
+      );
+    }
+  });
+
+  test.each([
+    {
+      name: 'omitted result',
+      results: (inputs: readonly LocatedFlexLayoutInput[]) => [convertedResult(inputs[0]!)].slice(0, 0),
+    },
+    {
+      name: 'extra result',
+      results: (inputs: readonly LocatedFlexLayoutInput[]) => [
+        convertedResult(inputs[0]!),
+        convertedResult(inputs[1]!),
+        convertedResult(inputs[1]!),
+      ],
+    },
+    {
+      name: 'duplicate input ID',
+      results: (inputs: readonly LocatedFlexLayoutInput[]) => [
+        convertedResult(inputs[0]!),
+        convertedResult(inputs[0]!),
+      ],
+    },
+    {
+      name: 'reordered input IDs',
+      results: (inputs: readonly LocatedFlexLayoutInput[]) => [
+        convertedResult(inputs[1]!),
+        convertedResult(inputs[0]!),
+      ],
+    },
+    {
+      name: 'replaced input identity',
+      results: (inputs: readonly LocatedFlexLayoutInput[]) => [
+        convertedResult({ ...inputs[0]! }),
+        convertedResult(inputs[1]!),
+      ],
+    },
+    {
+      name: 'parse error attached to parsed input',
+      results: (inputs: readonly LocatedFlexLayoutInput[]) => [
+        {
+          status: 'parse-error' as const,
+          fileName: inputs[0]!.fileName,
+          code: 'generated-template-parse-error' as const,
+          reason: 'invalid generated template',
+          source: { start: 0, end: 1 },
+        },
+        convertedResult(inputs[1]!),
+      ],
+    },
+  ])('rejects parsed render results with a $name', scenario => {
+    const analyzed = parsedProjectWithTwoInputs();
+    const template = analyzed.templates[0];
+    if (template?.status !== 'parsed') throw new Error('Expected a parsed template fixture.');
+
+    const error = captureInternalInvariant(() =>
+      renderedProject({
+        analyzed,
+        target: 'tailwind',
+        files: [
+          {
+            ...template.file,
+            edits: [],
+            results: scenario.results(template.inputs),
+          },
+        ],
+        session: { target: 'tailwind' },
+      }),
+    );
+
+    expect(error.message).toContain('Parsed render result');
+  });
+
+  test('canonicalizes every parsed render result onto the owned analyzed input identity', () => {
+    const analyzed = parsedProjectWithTwoInputs();
+    if (analyzed.templates[0]?.status !== 'parsed') throw new Error('Expected a parsed template fixture.');
+
+    const rendered = renderedProject({
+      analyzed,
+      target: 'tailwind',
+      files: [
+        {
+          ...analyzed.templates[0].file,
+          edits: [],
+          results: analyzed.templates[0].inputs.map(input => convertedResult(input)),
+        },
+      ],
+      session: { target: 'tailwind' },
+    });
+    if (rendered.analyzed.templates[0]?.status !== 'parsed') throw new Error('Expected a parsed template fixture.');
+
+    expect(
+      rendered.files[0]!.results.map(result => (result.status === 'parse-error' ? undefined : result.input)),
+    ).toEqual(rendered.analyzed.templates[0].inputs);
+    expect(rendered.files[0]!.results[0]!.status).not.toBe('parse-error');
+    if (rendered.files[0]!.results[0]!.status === 'parse-error') throw new Error('Expected a conversion result.');
+    expect(rendered.files[0]!.results[0]!.input).toBe(rendered.analyzed.templates[0].inputs[0]);
+  });
+
+  test('canonicalizes rendered file identities without dropping edits or results', () => {
     const analyzed = parsedProject();
     const identity = analyzed.manifest.templates[0]!;
     const inputPath = `${path.dirname(identity.inputPath)}${path.sep}nested${path.sep}..${path.sep}${path.basename(identity.inputPath)}`;
     const outputPath = `${path.dirname(identity.outputPath)}${path.sep}nested${path.sep}..${path.sep}${path.basename(identity.outputPath)}`;
-    const result = {
-      status: 'parse-error' as const,
-      fileName: inputPath,
-      code: 'template-parse-error' as const,
-      reason: 'fixture diagnostic',
-      source: { start: 1, end: 2 },
-    };
-    const artifact: MigrationPlan['artifacts'][number] = {
-      kind: 'template',
-      path: identity.outputPath,
-      original: { status: 'absent' },
-      proposed: { status: 'present', contents: '<div></div>' },
-    };
+    if (analyzed.templates[0]?.status !== 'parsed') throw new Error('Expected a parsed template fixture.');
+    const result = convertedResult(analyzed.templates[0].inputs[0]!);
+    const edit = { range: { start: 0, end: 3 }, text: 'new', inputId: 'fixture' };
 
     const rendered = renderedProject({
       analyzed,
+      target: 'tailwind',
       files: [
         {
-          file: { inputPath, outputPath, changed: true, results: [result] },
-          artifact,
+          inputPath,
+          outputPath,
+          edits: [edit],
+          results: [result],
         },
       ],
       session: { target: 'tailwind' },
     });
 
-    expect(rendered.files[0]!.file).toEqual({
+    expect(rendered.files[0]).toEqual({
       inputPath: identity.inputPath,
       outputPath: identity.outputPath,
-      changed: true,
+      edits: [edit],
       results: [result],
     });
-    expect(rendered.files[0]!.artifact).toEqual(artifact);
-    expect(rendered.files[0]!.artifact).not.toBe(artifact);
+    expect(rendered.files[0]!.edits[0]).not.toBe(edit);
   });
 
   test('owns migration plan contents and a plain stylesheet result record', () => {
     const rendered = renderedCssProject();
-    const files = [rawFilePlan('templates/card.html', 'generated/card.html').file];
+    const files = [
+      {
+        inputPath: path.resolve('templates/card.html'),
+        outputPath: path.resolve('generated/card.html'),
+        changed: false,
+        results: rendered.files[0]!.results,
+      },
+    ];
     const artifacts: MigrationPlan['artifacts'][number][] = [];
     const plan: MigrationPlan = { target: 'css', files, artifacts };
     const stylesheet: StylesheetMigrationResult = {
@@ -599,3 +747,34 @@ describe('pipeline handoff factories', () => {
     );
   });
 });
+
+function parsedProjectWithTwoInputs(): AnalyzedProject {
+  const manifest = manifestFor();
+  const first = locatedInput(manifest.templates[0]!.inputPath);
+  const second = {
+    ...locatedInput(manifest.templates[0]!.inputPath),
+    id: `${manifest.templates[0]!.inputPath}:20`,
+    sourceName: 'fxLayoutGap',
+    directive: 'fxLayoutGap' as const,
+    value: '16px',
+    source: { start: 20, end: 36 },
+    nameSource: { start: 20, end: 31 },
+    valueSource: { start: 33, end: 37 },
+  };
+  return analyzedProject({
+    manifest,
+    templates: [
+      {
+        status: 'parsed',
+        file: manifest.templates[0]!,
+        source: '<div fxLayout="row" fxLayoutGap="16px"></div>',
+        parseResult: { status: 'parsed', elements: [] },
+        inputs: [first, second],
+      },
+    ],
+  });
+}
+
+function convertedResult(input: LocatedFlexLayoutInput): ConversionResult {
+  return { status: 'converted', input };
+}

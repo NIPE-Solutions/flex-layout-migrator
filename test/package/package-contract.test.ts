@@ -109,7 +109,13 @@ describe('package contract', () => {
       bin: { 'flex-layout-codemod': './dist/cli.js' },
       files: ['dist', 'README.md', 'LICENSE', 'CHANGELOG.md'],
     });
-    expect(pkg.dependencies).toMatchObject({ '@angular/compiler': '21.2.22' });
+    expect(pkg.dependencies).toEqual({
+      '@angular/compiler': '21.2.22',
+      commander: '^15.0.0',
+      'fs-extra': '^11.4.0',
+      ignore: '5.2.4',
+      winston: '^3.19.0',
+    });
     expect(pkg.dependencies).not.toHaveProperty('cheerio');
     expect(pkg.dependencies).not.toHaveProperty('p-queue');
     expect(pkg.dependencies).not.toHaveProperty('classnames');

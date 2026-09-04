@@ -1,13 +1,10 @@
 import type { ConversionResult } from '../../analyzer/conversion-result';
-import { MigrationApplicationError } from '../../migrator/migration-application.error';
-import { fileMigrationPlan, type FileMigrationPlan } from '../../migrator/migration-plan';
 import { ConversionPlanner, type ConversionPlanningOptions, type FilePlan } from '../../planner/conversion-planner';
 import type { ConversionRenderer } from '../../render/conversion-renderer';
 import type { RenderSession } from '../../render/render-session';
 import type { AnalyzedTemplate, AnalyzedProject } from '../analyzed-project';
 import type { RenderStage } from '../migration-pipeline';
-import { renderedProject, type RenderedProject } from '../rendered-project';
-import { DefaultCompatibilityEditValidator, type CompatibilityEditValidator } from './compatibility-edit.validator';
+import { renderedProject, type RenderedProject, type RenderedTemplateFile } from '../rendered-project';
 
 export interface RenderTemplatePlanner {
   plan(
@@ -37,11 +34,10 @@ export class RenderProjectStage implements RenderStage {
   constructor(
     private readonly session: RenderSession,
     private readonly templatePlanner: RenderTemplatePlanner = defaultTemplatePlanner,
-    private readonly editValidator: CompatibilityEditValidator = new DefaultCompatibilityEditValidator(),
   ) {}
 
   public async run(analyzed: AnalyzedProject): Promise<RenderedProject> {
-    const files: FileMigrationPlan[] = [];
+    const files: RenderedTemplateFile[] = [];
     const options: ConversionPlanningOptions = {
       responsiveImages: analyzed.manifest.invocation.options.responsiveImages ?? false,
     };
@@ -53,21 +49,20 @@ export class RenderProjectStage implements RenderStage {
       }
 
       const plan = this.templatePlanner.plan(template, this.session.renderer, options);
-      files.push(await this.editValidator.validate(template, plan));
+      files.push({
+        inputPath: template.file.inputPath,
+        outputPath: template.file.outputPath,
+        edits: plan.edits,
+        results: plan.results,
+      });
     }
 
     const finalizedSession = this.session.finalize();
-    if (finalizedSession.target !== this.session.renderer.target) {
-      throw new MigrationApplicationError(
-        'internal-invariant',
-        `Render session finalized for target "${finalizedSession.target}" but its renderer targets "${this.session.renderer.target}".`,
-      );
-    }
-    return renderedProject({ analyzed, files, session: finalizedSession });
+    return renderedProject({ analyzed, target: this.session.renderer.target, files, session: finalizedSession });
   }
 }
 
-function parseErrorPlan(template: Extract<AnalyzedTemplate, { readonly status: 'parse-error' }>): FileMigrationPlan {
+function parseErrorPlan(template: Extract<AnalyzedTemplate, { readonly status: 'parse-error' }>): RenderedTemplateFile {
   const results: readonly ConversionResult[] = template.parseResult.diagnostics.map(diagnostic => ({
     status: 'parse-error',
     fileName: template.file.inputPath,
@@ -75,12 +70,10 @@ function parseErrorPlan(template: Extract<AnalyzedTemplate, { readonly status: '
     reason: diagnostic.message,
     source: diagnostic.source,
   }));
-  return fileMigrationPlan({
-    file: {
-      inputPath: template.file.inputPath,
-      outputPath: template.file.outputPath,
-      changed: false,
-      results,
-    },
-  });
+  return {
+    inputPath: template.file.inputPath,
+    outputPath: template.file.outputPath,
+    edits: [],
+    results,
+  };
 }

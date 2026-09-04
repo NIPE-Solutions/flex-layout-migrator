@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
-import { TailwindAdapter } from '../../src/adapter/tailwind/tailwind.adapter';
+import { TailwindRenderer } from '../../src/render/tailwind/tailwind.renderer';
 import { TemplateAnalyzer } from '../../src/analyzer/template.analyzer';
 import type { ConversionResult } from '../../src/analyzer/conversion-result';
 import { SourceEditor } from '../../src/edit/source-editor';
@@ -34,7 +34,7 @@ function migrate(
   const parsed = new AngularTemplateParser().parse(source, fileName);
   if (parsed.status !== 'parsed') throw new Error(parsed.diagnostics.map(item => item.message).join('\n'));
   const inputs = new TemplateAnalyzer().analyze(fileName, parsed.elements);
-  const plan = new ConversionPlanner().plan(source, parsed.elements, inputs, new TailwindAdapter(config), {
+  const plan = new ConversionPlanner().plan(source, parsed.elements, inputs, new TailwindRenderer(config), {
     responsiveImages,
   });
   const edited = new SourceEditor().apply(source, plan.edits);

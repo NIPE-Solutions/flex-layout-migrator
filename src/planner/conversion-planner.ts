@@ -1,4 +1,4 @@
-import type { PlannedConversion } from '../adapter/conversion-adapter';
+import type { PlannedConversion } from '../render/conversion-renderer';
 import type { ConversionResult } from '../analyzer/conversion-result';
 import type { LocatedFlexLayoutInput } from '../analyzer/flex-layout-attribute.analyzer';
 import type { SourceEdit } from '../edit/source-edit';

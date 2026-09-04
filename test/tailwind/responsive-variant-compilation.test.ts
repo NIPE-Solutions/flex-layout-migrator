@@ -1,18 +1,14 @@
 import { compile } from 'tailwindcss';
 import { BreakpointCatalog, type BreakpointDefinition } from '../../src/breakpoint/breakpoint-catalog';
 import type { LocatedFlexLayoutInput } from '../../src/analyzer/flex-layout-attribute.analyzer';
-import type { PlannedConversion } from '../../src/adapter/conversion-adapter';
 import { ResponsiveVariantEmitter } from '../../src/adapter/tailwind/responsive-variant.emitter';
 import { ExtendedResponsiveEmitter } from '../../src/adapter/tailwind/extended/extended-responsive.emitter';
-import type {
-  ExtendedResponsiveState,
-  ResponsiveClassValue,
-} from '../../src/adapter/tailwind/extended/responsive-class.model';
-import type { ResponsiveStyleValue } from '../../src/adapter/tailwind/extended/responsive-style.model';
-import { parseResponsiveStyleValue } from '../../src/adapter/tailwind/extended/responsive-style-value.parser';
-import { DisplayCompositionPlanner } from '../../src/adapter/tailwind/visibility/display-composition.planner';
+import type { ExtendedResponsiveState, ResponsiveClassValue } from '../../src/semantic/extended/responsive-class.model';
+import type { ResponsiveStyleValue } from '../../src/semantic/extended/responsive-style.model';
+import { parseResponsiveStyleValue } from '../../src/semantic/extended/responsive-style-value.parser';
+import { TailwindSourcePropertyEvidence } from '../../src/evidence/tailwind-source-property.evidence';
 import { VisibilityEmitter } from '../../src/adapter/tailwind/visibility/visibility.emitter';
-import type { VisibilityIntent, VisibilityState } from '../../src/adapter/tailwind/visibility/visibility.model';
+import type { VisibilityIntent, VisibilityState } from '../../src/semantic/visibility/visibility.model';
 
 function definition(alias: string): BreakpointDefinition {
   const classification = new BreakpointCatalog().classify(alias);
@@ -50,38 +46,6 @@ function responsiveUtility(alias: string, utility: string): string {
   const emitted = new ResponsiveVariantEmitter().emit(definition(alias), utility)[0];
   if (!emitted) throw new Error(`Expected ${alias} to emit one responsive utility`);
   return emitted;
-}
-
-function layoutPlan(alias: string): PlannedConversion {
-  return {
-    status: 'converted',
-    input: {
-      ...visibilityState('shown', alias).input,
-      id: `fixture:fxLayout.${alias}`,
-      sourceName: `fxLayout.${alias}`,
-      directive: 'fxLayout',
-      value: 'row',
-    },
-    classNames: [responsiveUtility(alias, 'flex'), responsiveUtility(alias, 'flex-row')],
-  };
-}
-
-function composedCandidates(states: readonly VisibilityState[], layout: PlannedConversion): readonly string[] {
-  const result = new DisplayCompositionPlanner().compose({
-    visibilityPlan: { status: 'converted', states },
-    displayResolution: { status: 'resolved', utility: undefined },
-    layoutPlans: [layout],
-  });
-  if (result.status !== 'converted') throw new Error('Expected display composition to convert.');
-  return result.plans.flatMap(plan => (plan.status === 'converted' ? plan.classNames : []));
-}
-
-function compose(states: readonly VisibilityState[], layout: PlannedConversion) {
-  return new DisplayCompositionPlanner().compose({
-    visibilityPlan: { status: 'converted', states },
-    displayResolution: { status: 'resolved', utility: undefined },
-    layoutPlans: [layout],
-  });
 }
 
 function mediaBlock(css: string, query: string): string {
@@ -251,7 +215,9 @@ describe('Tailwind CSS v4 arbitrary media variants', () => {
       expect(reverseOrderCss).toBe(sourceOrderCss);
       expect(responsiveRule).toContain('margin: 1rem');
       expect(responsiveRule).toContain('margin-top: 2rem');
-      expect(parseResponsiveStyleValue(styleInput)).toMatchObject({ status: 'unverified' });
+      expect(parseResponsiveStyleValue(styleInput, new TailwindSourcePropertyEvidence())).toMatchObject({
+        status: 'unverified',
+      });
     },
   );
 
@@ -279,43 +245,4 @@ describe('Tailwind CSS v4 arbitrary media variants', () => {
     expect(responsiveRule).toContain('display: none');
     expect(css.indexOf(responsiveRule)).toBeGreaterThan(css.indexOf('.flex'));
   });
-
-  test('suppresses a responsive layout display that would otherwise override inherited base hiding', async () => {
-    const responsiveFlex = responsiveUtility('sm', 'flex');
-    const unsafeCss = await compileCandidates(['hidden', responsiveFlex]);
-    const unsafeResponsiveRule = mediaBlock(unsafeCss, 'screen and (min-width: 600px) and (max-width: 959.98px)');
-
-    expect(unsafeResponsiveRule).toContain('display: flex');
-    expect(unsafeCss.indexOf(unsafeResponsiveRule)).toBeGreaterThan(unsafeCss.indexOf('.hidden'));
-
-    const candidates = composedCandidates([visibilityState('hidden')], layoutPlan('sm'));
-    const css = await compileCandidates(candidates);
-    const responsiveRule = mediaBlock(css, 'screen and (min-width: 600px) and (max-width: 959.98px)');
-
-    expect(candidates).not.toContain(responsiveFlex);
-    expect(responsiveRule).toContain('flex-direction: row');
-    expect(responsiveRule).not.toContain('display: flex');
-  });
-
-  test.each([
-    ['nested max-only', 'lt-md', 'lt-sm', 'screen and (max-width: 959.98px)', 'screen and (max-width: 599.98px)'],
-    ['crossing min/max', 'gt-xs', 'lt-md', 'screen and (min-width: 600px)', 'screen and (max-width: 959.98px)'],
-  ])(
-    'preserves %s partial overlap when compiled layout display can override hiding',
-    async (_case, layoutAlias, hideAlias, layoutQuery, hideQuery) => {
-      const responsiveFlex = responsiveUtility(layoutAlias, 'flex');
-      const responsiveHidden = responsiveUtility(hideAlias, 'hidden');
-      const unsafeCss = await compileCandidates([responsiveFlex, responsiveHidden]);
-      const flexRule = mediaBlock(unsafeCss, layoutQuery);
-      const hiddenRule = mediaBlock(unsafeCss, hideQuery);
-
-      expect(flexRule).toContain('display: flex');
-      expect(hiddenRule).toContain('display: none');
-      expect(unsafeCss.indexOf(flexRule)).toBeGreaterThan(unsafeCss.indexOf(hiddenRule));
-
-      const result = compose([visibilityState('hidden', hideAlias)], layoutPlan(layoutAlias));
-      expect(result).toMatchObject({ status: 'unresolved' });
-      expect(result.plans.every(plan => plan.status === 'review' && plan.code === 'context-unverified')).toBe(true);
-    },
-  );
 });

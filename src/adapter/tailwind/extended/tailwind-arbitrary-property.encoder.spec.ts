@@ -1,5 +1,5 @@
 import { compile } from 'tailwindcss';
-import type { LiteralStyleDeclaration } from '../visibility/literal-style-display';
+import type { LiteralStyleDeclaration } from '../../../semantic/literal-style-declaration';
 import { TailwindArbitraryPropertyEncoder } from './tailwind-arbitrary-property.encoder';
 
 async function compileCandidate(candidate: string, source = '@tailwind utilities;'): Promise<string> {

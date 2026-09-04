@@ -67,6 +67,7 @@ describe('continuous integration', () => {
         steps: [
           {
             uses: 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1',
+            with: { 'fetch-depth': 0 },
           },
           {
             uses: 'actions/setup-node@820762786026740c76f36085b0efc47a31fe5020',
@@ -114,6 +115,40 @@ describe('continuous integration', () => {
     expect(workflow).not.toContain('contents: write');
   });
 
+  it('installs the packageManager npm version before every CI job that regenerates evidence', async () => {
+    const source = await readFile(new URL('../../.github/workflows/ci.yml', import.meta.url), 'utf8');
+    const workflow = parse(source);
+
+    for (const jobName of ['quality', 'test', 'package', 'benchmark']) {
+      const steps = workflow.jobs[jobName].steps as readonly { readonly run?: string }[];
+      const installIndex = steps.findIndex(step => step.run === 'npm install --global npm@11.19.0');
+      const ciIndex = steps.findIndex(step => step.run === 'npm ci');
+      expect(installIndex, jobName).toBeGreaterThanOrEqual(0);
+      expect(installIndex, jobName).toBeLessThan(ciIndex);
+    }
+  });
+
+  it('checks out complete Git history in the job that runs historical evidence contracts', async () => {
+    const source = await readFile(new URL('../../.github/workflows/ci.yml', import.meta.url), 'utf8');
+    const workflow = parse(source);
+    const testJob = workflow.jobs.test;
+
+    expect(testJob.steps).toContainEqual({ run: 'npm run test:coverage' });
+    expect(testJob.steps).toContainEqual({
+      run: 'git fetch --no-tags origin 41c0714bca3ec09470e25efde0f30b6bc96cc0ac',
+    });
+    expect(
+      testJob.steps.filter(
+        (step: { uses?: string }) => step.uses === 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1',
+      ),
+    ).toEqual([
+      {
+        uses: 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1',
+        with: { 'fetch-depth': 0 },
+      },
+    ]);
+  });
+
   it('records the non-thresholded architecture benchmark as a retained CI artifact', async () => {
     const source = await readFile(new URL('../../.github/workflows/ci.yml', import.meta.url), 'utf8');
     const workflow = parse(source);
@@ -127,6 +162,7 @@ describe('continuous integration', () => {
           uses: 'actions/setup-node@820762786026740c76f36085b0efc47a31fe5020',
           with: { 'node-version': 24, cache: 'npm' },
         },
+        { run: 'npm install --global npm@11.19.0' },
         { run: 'npm ci' },
         { run: 'npm run build' },
         { run: 'npm run benchmark:architecture -- --json architecture-benchmark.json' },

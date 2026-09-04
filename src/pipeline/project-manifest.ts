@@ -1,5 +1,13 @@
 import * as path from 'node:path';
-import type { MigrationOptions } from '../migrator/migrator';
+import type { MigrationMode } from '../migrator/migration-mode';
+
+export interface MigrationOptions {
+  readonly mode: MigrationMode;
+  readonly responsiveImages?: boolean;
+  readonly stylesheetPath?: string;
+  readonly stylesheetPathInput?: string;
+  readonly reportPath?: string;
+}
 
 export interface MigrationInvocation {
   readonly inputPath: string;

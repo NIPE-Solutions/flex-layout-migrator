@@ -1,7 +1,7 @@
 import { ResponsiveVariantEmitter } from '../responsive-variant.emitter';
 import { describeTailwindUtility } from '../tailwind-class-conflict';
-import type { ExtendedResponsiveState, ResponsiveClassValue } from './responsive-class.model';
-import type { ResponsiveStyleValue } from './responsive-style.model';
+import type { ExtendedResponsiveState, ResponsiveClassValue } from '../../../semantic/extended/responsive-class.model';
+import type { ResponsiveStyleValue } from '../../../semantic/extended/responsive-style.model';
 import { TailwindArbitraryPropertyEncoder } from './tailwind-arbitrary-property.encoder';
 import { TailwindCandidateClassifier } from './tailwind-candidate-classifier';
 

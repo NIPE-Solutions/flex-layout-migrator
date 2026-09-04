@@ -10,7 +10,6 @@ import type { LayoutAlignmentSemantics } from '../../flex/layout-align.semantic'
 import type { LayoutGapSemantics } from '../../flex/layout-gap.semantic';
 import type { LayoutSemantics } from '../../flex/layout.semantic';
 import type { GridSemanticPlan } from '../../grid/grid-semantic.model';
-import type { PlannedConversion } from '../../adapter/conversion-adapter';
 import { TailwindSourcePropertyEvidence } from '../../evidence/tailwind-source-property.evidence';
 import { renderFlexAlign } from '../../adapter/tailwind/directives/flex-align.strategy';
 import { renderFlexFill } from '../../adapter/tailwind/directives/flex-fill.strategy';
@@ -27,7 +26,7 @@ import {
   describeTailwindUtility,
   findTailwindClassConflicts,
 } from '../../adapter/tailwind/tailwind-class-conflict';
-import { cssPropertiesOverlap } from '../../adapter/tailwind/extended/css-property-ownership';
+import { cssPropertiesOverlap } from '../../semantic/css-property-ownership';
 import { ResponsiveVariantEmitter } from '../../adapter/tailwind/responsive-variant.emitter';
 import { VisibilityEmitter } from '../../adapter/tailwind/visibility/visibility.emitter';
 import type { SemanticConversionContext } from '../../semantic/conversion-context';
@@ -38,7 +37,7 @@ import {
   type ResolvedSemanticPlan,
   type VisibilitySemantics,
 } from '../../semantic/semantic-plan';
-import type { ConversionRenderer } from '../conversion-renderer';
+import type { ConversionRenderer, PlannedConversion } from '../conversion-renderer';
 
 const sharedDirectives = new Set<LocatedFlexLayoutInput['directive']>([
   'fxLayout',

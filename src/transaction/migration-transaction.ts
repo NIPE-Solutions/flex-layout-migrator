@@ -1,121 +1,27 @@
-import { randomUUID } from 'node:crypto';
-import { constants } from 'node:fs';
-import { access, link, lstat, mkdir, open, rename, rmdir, stat, unlink } from 'node:fs/promises';
-import { basename, dirname, join, resolve } from 'node:path';
 import { MigrationApplicationError, type MigrationApplicationErrorCode } from '../migrator/migration-application.error';
-import type { ArtifactState, MigrationPlan, PlannedOutputArtifact } from '../migrator/migration-plan';
+import type { MigrationPlan } from '../migrator/migration-plan';
 import { AngularTemplateParser } from '../template/angular-template.parser';
 import { compareCodeUnits } from '../util/compare-code-units';
+import { FileSystemCleanupUnit } from './cleanup.unit';
+import { CommitUnitError, FileSystemCommitUnit, type CommittedArtifact } from './commit.unit';
+import { FileSystemRollbackUnit } from './rollback.unit';
+import { FileSystemStagingUnit, StagingUnitError, type StagedArtifact } from './staging.unit';
 import { TransactionSignalRegistrar, type TransactionSignalRegistrarLike } from './transaction-signal.registrar';
+import {
+  RecoveryUnitError,
+  TransactionUnitSession,
+  nodeTransactionOperations,
+  type MigrationTransactionFileHandle,
+  type MigrationTransactionOperations,
+  type MigrationTransactionStat,
+  type RecoveryOutcome,
+} from './transaction-unit.session';
 
-export interface MigrationTransactionFileHandle {
-  writeFile(contents: string, encoding: BufferEncoding): Promise<void>;
-  readFile(options: { readonly encoding: 'utf8' }): Promise<string>;
-  stat(): Promise<MigrationTransactionStat>;
-  sync(): Promise<void>;
-  close(): Promise<void>;
-}
+export type { MigrationTransactionFileHandle, MigrationTransactionOperations, MigrationTransactionStat };
 
-export interface MigrationTransactionStat {
-  readonly dev: number | bigint;
-  readonly ino: number | bigint;
-  isDirectory(): boolean;
-  isFile(): boolean;
-  isSymbolicLink(): boolean;
-}
-
-export interface MigrationTransactionOperations {
-  access(path: string, mode: number): Promise<void>;
-  link(existingPath: string, newPath: string): Promise<void>;
-  lstat(path: string): Promise<MigrationTransactionStat>;
-  mkdir(path: string, options?: { readonly recursive?: boolean; readonly mode?: number }): Promise<unknown>;
-  open(path: string, flags: 'r' | 'wx'): Promise<MigrationTransactionFileHandle>;
-  rename(source: string, destination: string): Promise<void>;
-  rmdir(path: string): Promise<void>;
-  stat(path: string): Promise<MigrationTransactionStat>;
-  unlink(path: string): Promise<void>;
-}
-
-const nodeOperations: MigrationTransactionOperations = {
-  access,
-  link,
-  lstat,
-  mkdir,
-  open: (target, flags) => open(target, flags),
-  rename,
-  rmdir,
-  stat,
-  unlink,
-};
-
-interface FileIdentity {
-  readonly dev: string;
-  readonly ino: string;
-}
-
-interface DirectoryExpectation {
-  readonly path: string;
-  readonly original:
-    | 'absent'
-    | { readonly identity: FileIdentity; readonly kind: 'directory' }
-    | { readonly identity: FileIdentity; readonly kind: 'symbolic-link'; readonly followedIdentity: FileIdentity };
-}
-
-interface CreatedDirectory {
-  readonly path: string;
-  identity?: FileIdentity;
-  readonly publicPaths: Set<string>;
-  exists: boolean;
-}
-
-interface OwnedNamespace {
-  readonly path: string;
-  identity?: FileIdentity;
-  readonly publicPath: string;
-  exists: boolean;
-}
-
-interface OwnedFile {
-  readonly path: string;
-  readonly publicPath: string;
-  identity?: FileIdentity;
-  exists: boolean;
-  preserve: boolean;
-}
-
-interface ObservedPresentState {
-  readonly status: 'present';
+interface PreflightSeal {
+  readonly plan: MigrationPlan;
   readonly contents: string;
-  readonly identity: FileIdentity;
-}
-
-type ObservedState = { readonly status: 'absent' } | ObservedPresentState;
-
-interface RuntimeArtifact {
-  readonly artifact: PlannedOutputArtifact;
-  readonly directories: readonly DirectoryExpectation[];
-  readonly quarantines: OwnedFile[];
-  readonly ownedFiles: OwnedFile[];
-  readonly readHandles: Set<MigrationTransactionFileHandle>;
-  originalIdentity?: FileIdentity;
-  namespace?: OwnedNamespace;
-  stage?: OwnedFile;
-  backup?: OwnedFile;
-  openHandle?: MigrationTransactionFileHandle;
-  installedIdentity?: FileIdentity;
-  restoredIdentity?: FileIdentity;
-}
-
-interface TransactionContext {
-  readonly items: readonly RuntimeArtifact[];
-  readonly createdDirectories: Map<string, CreatedDirectory>;
-  readonly unconfirmedEntries: Map<string, Set<string>>;
-  readonly recoveryFailures: unknown[];
-}
-
-interface RecoveryOutcome {
-  readonly paths: readonly string[];
-  readonly failures: readonly unknown[];
 }
 
 class TransactionInterruptedError extends Error {
@@ -128,47 +34,82 @@ class TransactionInterruptedError extends Error {
 export class MigrationTransaction {
   private interruptedBy: NodeJS.Signals | undefined;
   private unregisterSignals: (() => void) | undefined;
+  private preflightSeal: PreflightSeal | undefined;
+  private activePreflight: symbol | undefined;
+  private applying = false;
 
   constructor(
-    private readonly operations: MigrationTransactionOperations = nodeOperations,
+    private readonly operations: MigrationTransactionOperations = nodeTransactionOperations,
     private readonly signalRegistrar: TransactionSignalRegistrarLike = new TransactionSignalRegistrar(),
     private readonly parser: AngularTemplateParser = new AngularTemplateParser(),
   ) {}
 
-  async preflight(plan: MigrationPlan): Promise<void> {
-    await this.preparePlan(plan);
+  public async preflight(plan: MigrationPlan): Promise<void> {
+    if (this.applying) throw this.invalidTransition('preflight', plan);
+    if (this.activePreflight !== undefined) {
+      throw new MigrationApplicationError(
+        'internal-invariant',
+        'Migration transaction cannot preflight while another preflight is active.',
+        sortedUnique(plan.artifacts.map(artifact => artifact.path)),
+      );
+    }
+    const owner = Symbol('preflight');
+    this.activePreflight = owner;
+    this.preflightSeal = undefined;
+    try {
+      this.rejectParseErrors(plan);
+      const session = new TransactionUnitSession(this.operations, this.parser);
+      await session.prepareForPreflight(plan.artifacts);
+      if (this.activePreflight !== owner) throw this.invalidTransition('preflight', plan);
+      this.preflightSeal = { plan, contents: planContents(plan) };
+    } finally {
+      if (this.activePreflight === owner) this.activePreflight = undefined;
+    }
   }
 
-  async apply(plan: MigrationPlan): Promise<void> {
-    const items = await this.preparePlan(plan);
-    if (items.length === 0) return;
+  public async apply(plan: MigrationPlan): Promise<void> {
+    this.assertPreflightSeal(plan);
+    this.preflightSeal = undefined;
+    if (plan.artifacts.length === 0) return;
+    if (this.applying) throw this.invalidTransition('apply', plan);
 
+    this.applying = true;
     this.interruptedBy = undefined;
-    const context: TransactionContext = {
-      items,
-      createdDirectories: new Map(),
-      unconfirmedEntries: new Map(),
-      recoveryFailures: [],
-    };
+    const controller = new AbortController();
+    const session = new TransactionUnitSession(this.operations, this.parser, () => {
+      this.syncSignalScope(session, controller);
+    });
+    const stagingUnit = new FileSystemStagingUnit(session.stagingPort());
+    const commitUnit = new FileSystemCommitUnit(session.commitPort());
+    const rollbackUnit = new FileSystemRollbackUnit(session.rollbackPort());
+
+    let staged: readonly StagedArtifact[] = [];
     try {
-      await this.stage(context);
+      staged = await stagingUnit.stage(plan.artifacts, controller.signal);
     } catch (error: unknown) {
-      const recovery = await this.cleanupWithoutRollback(context);
-      this.unregisterSignalHandlers();
-      throw this.decorateFailure(error, recovery);
+      const stagingError = error instanceof StagingUnitError ? error : undefined;
+      staged = stagingError?.staged ?? staged;
+      const recovery = await this.runCleanup(session, staged, 'recovery');
+      this.finishApplication();
+      throw this.decorateFailure(stagingError?.cause ?? error, recovery);
     }
 
+    let committed: readonly CommittedArtifact[] = [];
     try {
-      await this.commit(context);
-      this.assertNotInterrupted();
+      committed = await commitUnit.commit(staged, controller.signal);
+      this.assertNotInterrupted(controller.signal);
     } catch (error: unknown) {
-      const recovery = await this.rollback(context);
-      this.unregisterSignalHandlers();
-      throw this.decorateFailure(error, recovery);
+      const commitError = error instanceof CommitUnitError ? error : undefined;
+      staged = commitError?.staged ?? staged;
+      committed = commitError?.committed ?? committed;
+      const rollback = await this.runRollback(rollbackUnit, [...committed].reverse());
+      const cleanup = await this.runCleanup(session, staged, 'recovery');
+      this.finishApplication();
+      throw this.decorateFailure(commitError?.cause ?? error, mergeRecovery(rollback, cleanup));
     }
 
-    const finalization = await this.finalizeCommitted(context);
-    this.unregisterSignalHandlers();
+    const finalization = await this.runCleanup(session, staged, 'committed');
+    this.finishApplication();
     if (finalization.paths.length > 0 || finalization.failures.length > 0) {
       const cause = finalization.failures[0] ?? new Error('Transaction cleanup could not be confirmed.');
       throw new MigrationApplicationError(
@@ -187,44 +128,6 @@ export class MigrationTransaction {
     }
   }
 
-  private async preparePlan(plan: MigrationPlan): Promise<readonly RuntimeArtifact[]> {
-    this.rejectParseErrors(plan);
-    const artifacts = [...plan.artifacts].sort((left, right) =>
-      compareCodeUnits(resolve(left.path), resolve(right.path)),
-    );
-    for (let index = 1; index < artifacts.length; index++) {
-      const previous = artifacts[index - 1];
-      const current = artifacts[index];
-      if (!previous || !current || previous.path !== current.path) continue;
-      throw new MigrationApplicationError('path-collision', `Migration paths collide: ${current.path}`, [current.path]);
-    }
-
-    const items: RuntimeArtifact[] = [];
-    for (const artifact of artifacts) {
-      let item: RuntimeArtifact | undefined;
-      try {
-        const directories = await this.inspectDirectoryChain(dirname(artifact.path), artifact.path);
-        item = { artifact, directories, quarantines: [], ownedFiles: [], readHandles: new Set() };
-        const current = await this.observePublic(item);
-        if (!sameArtifactState(current, artifact.original)) throw this.concurrentModification(artifact.path);
-        if (current.status === 'present') item.originalIdentity = current.identity;
-        items.push(item);
-      } catch (error: unknown) {
-        const closeFailures: unknown[] = [];
-        if (item) await this.closeReadHandles(item, closeFailures);
-        const failure = this.attachRecoveryFailures(artifact.path, error, closeFailures);
-        if (failure instanceof MigrationApplicationError) throw failure;
-        throw new MigrationApplicationError(
-          'transaction-io',
-          `Could not verify migration destination: ${artifact.path}`,
-          [artifact.path],
-          { cause: failure },
-        );
-      }
-    }
-    return items;
-  }
-
   private rejectParseErrors(plan: MigrationPlan): void {
     const paths = plan.files
       .flatMap(file => file.results.filter(result => result.status === 'parse-error').map(result => result.fileName))
@@ -238,905 +141,45 @@ export class MigrationTransaction {
     );
   }
 
-  private async inspectDirectoryChain(parent: string, publicPath: string): Promise<readonly DirectoryExpectation[]> {
-    const result: DirectoryExpectation[] = [];
-    let missing = false;
-    for (const candidate of directoryChain(parent)) {
-      if (missing) {
-        result.push({ path: candidate, original: 'absent' });
-        continue;
-      }
-      try {
-        const stat = await this.operations.lstat(candidate);
-        const isImmediateParent = candidate === resolve(parent);
-        if ((!stat.isSymbolicLink() && !stat.isDirectory()) || (isImmediateParent && stat.isSymbolicLink())) {
-          throw new MigrationApplicationError(
-            'unsupported-path-type',
-            `Migration destination parent must be a directory: ${candidate}`,
-            [publicPath],
-          );
-        }
-        if (stat.isSymbolicLink()) {
-          const followed = await this.operations.stat(candidate);
-          if (!followed.isDirectory()) {
-            throw new MigrationApplicationError(
-              'unsupported-path-type',
-              `Migration destination ancestor must resolve to a directory: ${candidate}`,
-              [publicPath],
-            );
-          }
-          result.push({
-            path: candidate,
-            original: {
-              identity: identity(stat),
-              kind: 'symbolic-link',
-              followedIdentity: identity(followed),
-            },
-          });
-        } else {
-          result.push({ path: candidate, original: { identity: identity(stat), kind: 'directory' } });
-        }
-      } catch (error: unknown) {
-        if (!isEnoent(error)) throw error;
-        missing = true;
-        result.push({ path: candidate, original: 'absent' });
-      }
-    }
-    const nearestExisting = [...result].reverse().find(item => item.original !== 'absent');
-    if (nearestExisting) await this.operations.access(nearestExisting.path, constants.W_OK | constants.X_OK);
-    return result;
+  private assertPreflightSeal(plan: MigrationPlan): void {
+    const seal = this.preflightSeal;
+    if (seal?.plan === plan && seal.contents === planContents(plan)) return;
+    throw this.invalidTransition('apply', plan);
   }
 
-  private async stage(context: TransactionContext): Promise<void> {
-    for (const item of context.items) await this.ensureParentDirectories(item, context);
-    for (const item of context.items) await this.createNamespace(item, context);
-    for (const item of context.items) {
-      if (item.artifact.proposed.status === 'absent') continue;
-      this.assertNotInterrupted();
-      item.stage = await this.createOwnedFile(item, 'stage', item.artifact.proposed.contents, context);
-      const staged = await this.readOwnedFile(item, item.stage);
-      if (item.artifact.kind === 'template') this.validateStagedTemplate(item.artifact.path, staged);
-    }
-  }
-
-  private async ensureParentDirectories(item: RuntimeArtifact, context: TransactionContext): Promise<void> {
-    for (let index = 0; index < item.directories.length; index++) {
-      this.assertNotInterrupted();
-      const expectation = item.directories[index];
-      if (!expectation) continue;
-      if (expectation.original !== 'absent') {
-        await this.assertDirectoryExpectation(expectation.path, expectation.original, item.artifact.path);
-        continue;
-      }
-      const existingCreation = context.createdDirectories.get(expectation.path);
-      if (existingCreation) {
-        existingCreation.publicPaths.add(item.artifact.path);
-        await this.assertDirectoryIdentity(expectation.path, required(existingCreation.identity), item.artifact.path);
-        continue;
-      }
-      await this.assertExpectedAbsent(expectation.path, item.artifact.path);
-      const parentExpectation = item.directories[index - 1];
-      if (parentExpectation) await this.assertExpectedDirectory(parentExpectation, item, context);
-      try {
-        await this.operations.mkdir(expectation.path, { mode: 0o755 });
-      } catch (error: unknown) {
-        this.trackUnconfirmedEntry(context, expectation.path, item.artifact.path);
-        throw error;
-      }
-      const created: CreatedDirectory = {
-        path: expectation.path,
-        publicPaths: new Set([item.artifact.path]),
-        exists: true,
-      };
-      context.createdDirectories.set(expectation.path, created);
-      this.syncSignalScope(context);
-      const stat = await this.operations.lstat(expectation.path);
-      if (stat.isSymbolicLink() || !stat.isDirectory()) throw this.concurrentModification(item.artifact.path);
-      created.identity = identity(stat);
-      if (parentExpectation) await this.assertExpectedDirectory(parentExpectation, item, context);
-    }
-    await this.assertParentChain(item, context);
-  }
-
-  private async createNamespace(item: RuntimeArtifact, context: TransactionContext): Promise<void> {
-    await this.assertParentChain(item, context);
-    const namespacePath = join(dirname(item.artifact.path), `.${basename(item.artifact.path)}.${randomUUID()}.txn`);
-    await this.assertExpectedAbsent(namespacePath, item.artifact.path);
-    try {
-      await this.operations.mkdir(namespacePath, { mode: 0o700 });
-    } catch (error: unknown) {
-      this.trackUnconfirmedEntry(context, namespacePath, item.artifact.path);
-      throw error;
-    }
-    item.namespace = { path: namespacePath, publicPath: item.artifact.path, exists: true };
-    this.syncSignalScope(context);
-    const stat = await this.operations.lstat(namespacePath);
-    if (stat.isSymbolicLink() || !stat.isDirectory()) throw this.concurrentModification(item.artifact.path);
-    item.namespace.identity = identity(stat);
-    await this.assertParentChain(item, context);
-  }
-
-  private async createOwnedFile(
-    item: RuntimeArtifact,
-    name: string,
-    contents: string,
-    context: TransactionContext,
-  ): Promise<OwnedFile> {
-    await this.assertNamespace(item);
-    const owned: OwnedFile = {
-      path: join(required(item.namespace).path, name),
-      publicPath: item.artifact.path,
-      exists: false,
-      preserve: false,
-    };
-    item.ownedFiles.push(owned);
-    await this.assertExpectedAbsent(owned.path, item.artifact.path);
-    const handle = await this.operations.open(owned.path, 'wx');
-    owned.exists = true;
-    item.openHandle = handle;
-    this.syncSignalScope(context);
-    owned.identity = identity(await handle.stat());
-    this.assertNotInterrupted();
-    await handle.writeFile(contents, 'utf8');
-    this.assertNotInterrupted();
-    await handle.sync();
-    this.assertNotInterrupted();
-    await handle.close();
-    item.openHandle = undefined;
-    this.assertNotInterrupted();
-    await this.assertOwnedIdentity(item, owned);
-    return owned;
-  }
-
-  private validateStagedTemplate(publicPath: string, contents: string): void {
-    if (this.parser.parse(contents, publicPath).status !== 'parse-error') return;
-    throw new MigrationApplicationError(
+  private invalidTransition(action: 'preflight' | 'apply', plan: MigrationPlan): MigrationApplicationError {
+    return new MigrationApplicationError(
       'internal-invariant',
-      `Staged template failed Angular validation: ${publicPath}`,
-      [publicPath],
+      action === 'apply'
+        ? 'Migration transaction apply requires the exact plan that passed preflight.'
+        : 'Migration transaction cannot preflight while application is active.',
+      sortedUnique(plan.artifacts.map(artifact => artifact.path)),
     );
   }
 
-  private async commit(context: TransactionContext): Promise<void> {
-    for (const item of context.items) {
-      this.assertNotInterrupted();
-      if (item.artifact.original.status === 'present') await this.captureOriginal(item, context);
-      this.assertNotInterrupted();
-      if (item.artifact.proposed.status === 'present') await this.installProposed(item, context);
-    }
-  }
-
-  private async captureOriginal(item: RuntimeArtifact, context: TransactionContext): Promise<void> {
-    const firstCapture = await this.observePublic(item, context);
-    if (
-      !sameArtifactState(firstCapture, item.artifact.original) ||
-      firstCapture.status !== 'present' ||
-      !item.originalIdentity ||
-      !sameIdentity(firstCapture.identity, item.originalIdentity)
-    ) {
-      throw this.concurrentModification(item.artifact.path);
-    }
-    item.backup = await this.createOwnedFile(item, 'backup', firstCapture.contents, context);
-    if ((await this.readOwnedFile(item, item.backup)) !== firstCapture.contents) {
-      throw this.ownershipFailure(item.artifact.path);
-    }
-    const secondCapture = await this.observePublic(item, context);
-    if (
-      secondCapture.status !== 'present' ||
-      !sameIdentity(secondCapture.identity, firstCapture.identity) ||
-      secondCapture.contents !== firstCapture.contents
-    ) {
-      throw this.concurrentModification(item.artifact.path);
-    }
-    await this.quarantineOriginal(item, firstCapture, context);
-  }
-
-  private async quarantineOriginal(
-    item: RuntimeArtifact,
-    captured: ObservedPresentState,
-    context: TransactionContext,
-  ): Promise<void> {
-    await this.assertParentChain(item, context);
-    await this.assertNamespace(item);
-    const immediatelyBefore = await this.observePublic(item, context);
-    if (
-      immediatelyBefore.status !== 'present' ||
-      !sameIdentity(immediatelyBefore.identity, captured.identity) ||
-      immediatelyBefore.contents !== captured.contents
-    ) {
-      throw this.concurrentModification(item.artifact.path);
-    }
-    const quarantine: OwnedFile = {
-      path: join(required(item.namespace).path, `quarantine-${randomUUID()}`),
-      publicPath: item.artifact.path,
-      exists: false,
-      preserve: false,
-    };
-    item.quarantines.push(quarantine);
-    item.ownedFiles.push(quarantine);
-    await this.assertExpectedAbsent(quarantine.path, item.artifact.path);
-    let renameFailure: unknown;
+  private async runRollback(
+    rollbackUnit: FileSystemRollbackUnit,
+    committed: readonly CommittedArtifact[],
+  ): Promise<RecoveryOutcome> {
     try {
-      await this.operations.rename(item.artifact.path, quarantine.path);
+      return { paths: await rollbackUnit.rollback(committed), failures: [] };
     } catch (error: unknown) {
-      renameFailure = error;
+      if (error instanceof RecoveryUnitError) return { paths: error.paths, failures: error.failures };
+      return { paths: [], failures: [error] };
     }
-    const quarantinedStat = await this.lstatOrAbsent(quarantine.path);
-    if (quarantinedStat !== 'absent') {
-      quarantine.exists = true;
-      quarantine.identity = identity(quarantinedStat);
-      const quarantinedContents = await this.readOwnedFile(item, quarantine);
-      if (!sameIdentity(quarantine.identity, captured.identity) || quarantinedContents !== captured.contents) {
-        quarantine.preserve = true;
-        await this.restorePreservedQuarantine(item, quarantine, context);
-        throw this.concurrentModification(item.artifact.path, renameFailure);
-      }
-      const destination = await this.lstatOrAbsent(item.artifact.path);
-      if (renameFailure !== undefined) throw renameFailure;
-      if (destination !== 'absent') throw this.concurrentModification(item.artifact.path);
-      await this.assertParentChain(item, context);
-      return;
-    }
-    const destination = await this.lstatOrAbsent(item.artifact.path);
-    if (
-      renameFailure !== undefined &&
-      destination !== 'absent' &&
-      sameIdentity(identity(destination), captured.identity)
-    ) {
-      throw renameFailure;
-    }
-    throw this.concurrentModification(item.artifact.path, renameFailure);
   }
 
-  private async installProposed(item: RuntimeArtifact, context: TransactionContext): Promise<void> {
-    const stage = required(item.stage);
-    await this.assertOwnedIdentity(item, stage);
-    await this.assertParentChain(item, context);
-    await this.assertExpectedAbsent(item.artifact.path, item.artifact.path);
-    let linkFailure: unknown;
+  private async runCleanup(
+    session: TransactionUnitSession,
+    staged: readonly StagedArtifact[],
+    kind: 'committed' | 'recovery',
+  ): Promise<RecoveryOutcome> {
     try {
-      await this.operations.link(stage.path, item.artifact.path);
+      return { paths: await new FileSystemCleanupUnit(session.cleanupPort(), kind).cleanup(staged), failures: [] };
     } catch (error: unknown) {
-      linkFailure = error;
+      if (error instanceof RecoveryUnitError) return { paths: error.paths, failures: error.failures };
+      return { paths: [], failures: [error] };
     }
-    const destination = await this.lstatOrAbsent(item.artifact.path);
-    if (destination !== 'absent' && stage.identity && sameIdentity(identity(destination), stage.identity)) {
-      item.installedIdentity = stage.identity;
-      await this.assertParentChain(item, context);
-      if (linkFailure !== undefined) throw linkFailure;
-      return;
-    }
-    if (destination !== 'absent') throw this.concurrentModification(item.artifact.path, linkFailure);
-    if (linkFailure !== undefined) throw linkFailure;
-    throw this.ownershipFailure(item.artifact.path);
-  }
-
-  private async restorePreservedQuarantine(
-    item: RuntimeArtifact,
-    quarantine: OwnedFile,
-    context: TransactionContext,
-    failures: unknown[] = context.recoveryFailures,
-  ): Promise<void> {
-    const quarantineIdentity = required(quarantine.identity);
-    if ((await this.lstatOrAbsent(item.artifact.path)) !== 'absent') return;
-    try {
-      await this.operations.link(quarantine.path, item.artifact.path);
-    } catch (error: unknown) {
-      failures.push(error);
-    }
-    const destination = await this.lstatOrAbsent(item.artifact.path);
-    if (destination !== 'absent' && sameIdentity(identity(destination), quarantineIdentity)) {
-      quarantine.preserve = false;
-    }
-  }
-
-  private async rollback(context: TransactionContext): Promise<RecoveryOutcome> {
-    const failures = [...context.recoveryFailures];
-    const cleanupPaths = new Set<string>();
-    for (const item of [...context.items].reverse()) await this.restoreOriginal(item, context, failures);
-    const restored = new Map<RuntimeArtifact, boolean>();
-    for (const item of context.items) restored.set(item, await this.verifyOriginal(item, context, failures));
-    for (const item of [...context.items].reverse()) {
-      await this.closeReadHandles(item, failures);
-      await this.closeOpenHandle(item, failures);
-      for (const owned of [...item.ownedFiles].reverse()) {
-        if (owned === item.backup && !restored.get(item)) {
-          if (owned.exists) cleanupPaths.add(item.artifact.path);
-          continue;
-        }
-        await this.removeOwnedFile(item, owned, cleanupPaths, failures);
-      }
-      await this.removeNamespace(item, cleanupPaths, failures);
-      this.syncSignalScope(context);
-    }
-    await this.removeCreatedDirectories(context, cleanupPaths, failures, false);
-    await this.collectUnconfirmedPaths(context, cleanupPaths, failures);
-    const paths = new Set(cleanupPaths);
-    for (const item of context.items) {
-      if (!(await this.verifyOriginal(item, context, failures))) paths.add(item.artifact.path);
-    }
-    return recoveryOutcome(paths, failures);
-  }
-
-  private async restoreOriginal(
-    item: RuntimeArtifact,
-    context: TransactionContext,
-    failures: unknown[],
-  ): Promise<void> {
-    let current: ObservedState | 'unknown';
-    try {
-      current = await this.observePublic(item, context);
-    } catch (error: unknown) {
-      failures.push(error);
-      current = 'unknown';
-    }
-    if (current !== 'unknown' && this.isConfirmedOriginal(item, current)) return;
-    if (current !== 'unknown' && current.status === 'present') {
-      if (
-        !item.installedIdentity ||
-        !sameIdentity(current.identity, item.installedIdentity) ||
-        item.artifact.proposed.status !== 'present' ||
-        current.contents !== item.artifact.proposed.contents
-      ) {
-        if (item.stage && item.installedIdentity && sameIdentity(current.identity, item.installedIdentity)) {
-          item.stage.preserve = true;
-        }
-        return;
-      }
-      if (!(await this.recoveryQuarantine(item, current, context, failures))) return;
-    } else if (current === 'unknown') {
-      return;
-    }
-    if (item.artifact.original.status === 'absent') return;
-    const backup = item.backup;
-    if (!backup) return;
-    try {
-      if ((await this.readOwnedFile(item, backup)) !== item.artifact.original.contents) return;
-      await this.assertParentChain(item, context);
-      await this.assertExpectedAbsent(item.artifact.path, item.artifact.path);
-      try {
-        await this.operations.link(backup.path, item.artifact.path);
-      } catch (error: unknown) {
-        failures.push(error);
-      }
-      const restored = await this.lstatOrAbsent(item.artifact.path);
-      if (
-        restored !== 'absent' &&
-        !restored.isSymbolicLink() &&
-        restored.isFile() &&
-        backup.identity &&
-        sameIdentity(identity(restored), backup.identity)
-      ) {
-        item.restoredIdentity = backup.identity;
-      }
-    } catch (error: unknown) {
-      failures.push(error);
-    }
-  }
-
-  private async recoveryQuarantine(
-    item: RuntimeArtifact,
-    current: ObservedPresentState,
-    context: TransactionContext,
-    failures: unknown[],
-  ): Promise<boolean> {
-    const quarantine: OwnedFile = {
-      path: join(required(item.namespace).path, `quarantine-rollback-${randomUUID()}`),
-      publicPath: item.artifact.path,
-      exists: false,
-      preserve: false,
-    };
-    item.quarantines.push(quarantine);
-    item.ownedFiles.push(quarantine);
-    try {
-      await this.assertParentChain(item, context);
-      await this.assertNamespace(item);
-      const before = await this.observePublic(item, context);
-      if (
-        before.status !== 'present' ||
-        !sameIdentity(before.identity, current.identity) ||
-        before.contents !== current.contents
-      ) {
-        return false;
-      }
-      await this.assertExpectedAbsent(quarantine.path, item.artifact.path);
-      try {
-        await this.operations.rename(item.artifact.path, quarantine.path);
-      } catch (error: unknown) {
-        failures.push(error);
-      }
-      const quarantined = await this.lstatOrAbsent(quarantine.path);
-      if (quarantined === 'absent') return false;
-      quarantine.exists = true;
-      quarantine.identity = identity(quarantined);
-      quarantine.preserve = true;
-      if (!sameIdentity(quarantine.identity, current.identity)) {
-        await this.restorePreservedQuarantine(item, quarantine, context, failures);
-        return false;
-      }
-      if ((await this.readOwnedFile(item, quarantine)) !== current.contents) {
-        await this.restorePreservedQuarantine(item, quarantine, context, failures);
-        return false;
-      }
-      quarantine.preserve = false;
-      return (await this.lstatOrAbsent(item.artifact.path)) === 'absent';
-    } catch (error: unknown) {
-      failures.push(error);
-      return false;
-    }
-  }
-
-  private async cleanupWithoutRollback(context: TransactionContext): Promise<RecoveryOutcome> {
-    const failures = [...context.recoveryFailures];
-    const cleanupPaths = new Set<string>();
-    for (const item of [...context.items].reverse()) {
-      await this.closeReadHandles(item, failures);
-      await this.closeOpenHandle(item, failures);
-      for (const owned of [...item.ownedFiles].reverse()) {
-        await this.removeOwnedFile(item, owned, cleanupPaths, failures);
-      }
-      await this.removeNamespace(item, cleanupPaths, failures);
-      this.syncSignalScope(context);
-    }
-    await this.removeCreatedDirectories(context, cleanupPaths, failures, false);
-    await this.collectUnconfirmedPaths(context, cleanupPaths, failures);
-    const paths = new Set(cleanupPaths);
-    for (const item of context.items) {
-      if (!(await this.verifyOriginal(item, context, failures))) paths.add(item.artifact.path);
-    }
-    return recoveryOutcome(paths, failures);
-  }
-
-  private async finalizeCommitted(context: TransactionContext): Promise<RecoveryOutcome> {
-    const failures = [...context.recoveryFailures];
-    const paths = new Set<string>();
-    for (const item of context.items) {
-      await this.closeReadHandles(item, failures);
-      for (const owned of item.ownedFiles) await this.removeOwnedFile(item, owned, paths, failures);
-      await this.removeNamespace(item, paths, failures);
-      this.syncSignalScope(context);
-    }
-    await this.removeCreatedDirectories(context, paths, failures, true);
-    await this.collectUnconfirmedPaths(context, paths, failures);
-    return recoveryOutcome(paths, failures);
-  }
-
-  private async closeOpenHandle(item: RuntimeArtifact, failures: unknown[]): Promise<void> {
-    if (!item.openHandle) return;
-    try {
-      await item.openHandle.close();
-    } catch (error: unknown) {
-      failures.push(error);
-    }
-    item.openHandle = undefined;
-  }
-
-  private async closeReadHandles(item: RuntimeArtifact, failures: unknown[]): Promise<void> {
-    for (const handle of item.readHandles) {
-      try {
-        await handle.close();
-        item.readHandles.delete(handle);
-      } catch (error: unknown) {
-        failures.push(error);
-      }
-    }
-  }
-
-  private async removeOwnedFile(
-    item: RuntimeArtifact,
-    owned: OwnedFile | undefined,
-    paths: Set<string>,
-    failures: unknown[],
-  ): Promise<void> {
-    if (!owned?.exists) return;
-    if (owned.preserve || !owned.identity) {
-      paths.add(owned.publicPath);
-      return;
-    }
-    try {
-      await this.assertNamespace(item);
-      const before = await this.operations.lstat(owned.path);
-      if (!sameIdentity(identity(before), owned.identity) || before.isSymbolicLink() || !before.isFile()) {
-        paths.add(owned.publicPath);
-        failures.push(new Error('Invocation-owned file identity could not be confirmed.'));
-        return;
-      }
-    } catch (error: unknown) {
-      if (isEnoent(error)) {
-        owned.exists = false;
-        return;
-      }
-      paths.add(owned.publicPath);
-      failures.push(error);
-      return;
-    }
-    try {
-      await this.operations.unlink(owned.path);
-    } catch (error: unknown) {
-      if (!isEnoent(error)) failures.push(error);
-    }
-    try {
-      await this.operations.lstat(owned.path);
-      paths.add(owned.publicPath);
-    } catch (error: unknown) {
-      if (isEnoent(error)) owned.exists = false;
-      else {
-        paths.add(owned.publicPath);
-        failures.push(error);
-      }
-    }
-  }
-
-  private async removeNamespace(item: RuntimeArtifact, paths: Set<string>, failures: unknown[]): Promise<void> {
-    const namespace = item.namespace;
-    if (!namespace?.exists) return;
-    if (!namespace.identity) {
-      paths.add(namespace.publicPath);
-      return;
-    }
-    try {
-      const stat = await this.operations.lstat(namespace.path);
-      if (!sameIdentity(identity(stat), namespace.identity) || stat.isSymbolicLink() || !stat.isDirectory()) {
-        paths.add(namespace.publicPath);
-        failures.push(new Error('Invocation namespace identity could not be confirmed.'));
-        return;
-      }
-    } catch (error: unknown) {
-      if (isEnoent(error)) {
-        namespace.exists = false;
-        return;
-      }
-      paths.add(namespace.publicPath);
-      failures.push(error);
-      return;
-    }
-    try {
-      await this.operations.rmdir(namespace.path);
-    } catch (error: unknown) {
-      if (!isDirectoryNotEmpty(error) && !isEnoent(error)) failures.push(error);
-    }
-    try {
-      await this.operations.lstat(namespace.path);
-      paths.add(namespace.publicPath);
-    } catch (error: unknown) {
-      if (isEnoent(error)) namespace.exists = false;
-      else {
-        paths.add(namespace.publicPath);
-        failures.push(error);
-      }
-    }
-  }
-
-  private async removeCreatedDirectories(
-    context: TransactionContext,
-    paths: Set<string>,
-    failures: unknown[],
-    preserveCommittedOutputParents: boolean,
-  ): Promise<void> {
-    const directories = [...context.createdDirectories.values()].sort(
-      (left, right) => pathDepth(right.path) - pathDepth(left.path) || compareCodeUnits(right.path, left.path),
-    );
-    for (const directory of directories) {
-      if (!directory.exists) continue;
-      if (
-        preserveCommittedOutputParents &&
-        context.items.some(
-          item =>
-            item.artifact.proposed.status === 'present' &&
-            item.directories.some(expectation => expectation.path === directory.path),
-        )
-      ) {
-        continue;
-      }
-      if (!directory.identity) {
-        for (const publicPath of directory.publicPaths) paths.add(publicPath);
-        continue;
-      }
-      let before: MigrationTransactionStat;
-      try {
-        before = await this.operations.lstat(directory.path);
-      } catch (error: unknown) {
-        if (isEnoent(error)) {
-          directory.exists = false;
-          this.syncSignalScope(context);
-          continue;
-        }
-        for (const publicPath of directory.publicPaths) paths.add(publicPath);
-        failures.push(error);
-        continue;
-      }
-      if (!sameIdentity(identity(before), directory.identity) || before.isSymbolicLink() || !before.isDirectory()) {
-        for (const publicPath of directory.publicPaths) paths.add(publicPath);
-        continue;
-      }
-      let removalFailure: unknown;
-      try {
-        await this.operations.rmdir(directory.path);
-      } catch (error: unknown) {
-        removalFailure = error;
-      }
-      let after: MigrationTransactionStat | 'absent';
-      try {
-        after = await this.lstatOrAbsent(directory.path);
-      } catch (error: unknown) {
-        for (const publicPath of directory.publicPaths) paths.add(publicPath);
-        if (removalFailure !== undefined && !isEnoent(removalFailure)) failures.push(removalFailure);
-        failures.push(error);
-        continue;
-      }
-      if (after === 'absent') {
-        directory.exists = false;
-        if (removalFailure !== undefined && !isEnoent(removalFailure)) failures.push(removalFailure);
-        this.syncSignalScope(context);
-        continue;
-      }
-      for (const publicPath of directory.publicPaths) paths.add(publicPath);
-      if (removalFailure !== undefined && !isEnoent(removalFailure)) failures.push(removalFailure);
-    }
-  }
-
-  private trackUnconfirmedEntry(context: TransactionContext, path: string, publicPath: string): void {
-    const publicPaths = context.unconfirmedEntries.get(path) ?? new Set<string>();
-    publicPaths.add(publicPath);
-    context.unconfirmedEntries.set(path, publicPaths);
-  }
-
-  private async collectUnconfirmedPaths(
-    context: TransactionContext,
-    paths: Set<string>,
-    failures: unknown[],
-  ): Promise<void> {
-    for (const [candidate, publicPaths] of context.unconfirmedEntries) {
-      try {
-        await this.operations.lstat(candidate);
-      } catch (error: unknown) {
-        if (isEnoent(error)) continue;
-        failures.push(error);
-      }
-      for (const publicPath of publicPaths) paths.add(publicPath);
-    }
-  }
-
-  private async verifyOriginal(
-    item: RuntimeArtifact,
-    context: TransactionContext,
-    failures: unknown[],
-  ): Promise<boolean> {
-    try {
-      return this.isConfirmedOriginal(item, await this.observePublic(item, context));
-    } catch (error: unknown) {
-      failures.push(error);
-      return false;
-    }
-  }
-
-  private isConfirmedOriginal(item: RuntimeArtifact, observed: ObservedState): boolean {
-    if (!sameArtifactState(observed, item.artifact.original)) return false;
-    if (observed.status === 'absent') return true;
-    return [item.originalIdentity, item.restoredIdentity].some(
-      expected => expected !== undefined && sameIdentity(observed.identity, expected),
-    );
-  }
-
-  private async observePublic(item: RuntimeArtifact, context?: TransactionContext): Promise<ObservedState> {
-    await this.assertParentChain(item, context);
-    const before = await this.lstatOrAbsent(item.artifact.path);
-    if (before === 'absent') return { status: 'absent' };
-    if (before.isSymbolicLink() || !before.isFile()) {
-      throw new MigrationApplicationError(
-        'unsupported-path-type',
-        `Migration destination must be a regular file: ${item.artifact.path}`,
-        [item.artifact.path],
-      );
-    }
-    const beforeIdentity = identity(before);
-    const handle = await this.operations.open(item.artifact.path, 'r');
-    const contents = await this.readThroughHandle(item, handle, async () => {
-      const handleBefore = identity(await handle.stat());
-      if (!sameIdentity(beforeIdentity, handleBefore)) throw this.concurrentModification(item.artifact.path);
-      const read = await handle.readFile({ encoding: 'utf8' });
-      const handleAfter = identity(await handle.stat());
-      if (!sameIdentity(handleBefore, handleAfter)) throw this.concurrentModification(item.artifact.path);
-      return read;
-    });
-    const after = await this.lstatOrAbsent(item.artifact.path);
-    if (
-      after === 'absent' ||
-      after.isSymbolicLink() ||
-      !after.isFile() ||
-      !sameIdentity(beforeIdentity, identity(after))
-    ) {
-      throw this.concurrentModification(item.artifact.path);
-    }
-    await this.assertParentChain(item, context);
-    return { status: 'present', contents, identity: beforeIdentity };
-  }
-
-  private async readOwnedFile(item: RuntimeArtifact, owned: OwnedFile): Promise<string> {
-    await this.assertOwnedIdentity(item, owned);
-    const expected = required(owned.identity);
-    const handle = await this.operations.open(owned.path, 'r');
-    const contents = await this.readThroughHandle(item, handle, async () => {
-      const before = identity(await handle.stat());
-      if (!sameIdentity(before, expected)) throw this.ownershipFailure(owned.publicPath);
-      const read = await handle.readFile({ encoding: 'utf8' });
-      const after = identity(await handle.stat());
-      if (!sameIdentity(after, expected)) throw this.ownershipFailure(owned.publicPath);
-      return read;
-    });
-    await this.assertOwnedIdentity(item, owned);
-    return contents;
-  }
-
-  private async readThroughHandle<T>(
-    item: RuntimeArtifact,
-    handle: MigrationTransactionFileHandle,
-    read: () => Promise<T>,
-  ): Promise<T> {
-    item.readHandles.add(handle);
-    let value: T | undefined;
-    let readFailure: unknown;
-    let readFailed = false;
-    try {
-      value = await read();
-    } catch (error: unknown) {
-      readFailed = true;
-      readFailure = error;
-    }
-    const closeFailures: unknown[] = [];
-    for (let attempt = 0; attempt < 2 && item.readHandles.has(handle); attempt++) {
-      try {
-        await handle.close();
-        item.readHandles.delete(handle);
-      } catch (error: unknown) {
-        closeFailures.push(error);
-      }
-    }
-    if (readFailed) throw this.attachRecoveryFailures(item.artifact.path, readFailure, closeFailures);
-    if (closeFailures.length > 0) {
-      throw new MigrationApplicationError(
-        'transaction-io',
-        `Could not close a migration read handle: ${item.artifact.path}`,
-        [item.artifact.path],
-        { cause: closeFailures[0], recoveryFailures: closeFailures.slice(1) },
-      );
-    }
-    return value as T;
-  }
-
-  private attachRecoveryFailures(publicPath: string, error: unknown, recoveryFailures: readonly unknown[]): unknown {
-    if (recoveryFailures.length === 0) return error;
-    if (error instanceof MigrationApplicationError) {
-      return new MigrationApplicationError(error.code, error.message, error.paths, {
-        cause: error.cause ?? error,
-        recoveryFailures: [...error.recoveryFailures, ...recoveryFailures],
-      });
-    }
-    return new MigrationApplicationError(
-      'transaction-io',
-      `Could not read migration state: ${publicPath}`,
-      [publicPath],
-      {
-        cause: error,
-        recoveryFailures,
-      },
-    );
-  }
-
-  private async assertOwnedIdentity(item: RuntimeArtifact, owned: OwnedFile): Promise<void> {
-    await this.assertNamespace(item);
-    if (!owned.identity) throw this.ownershipFailure(owned.publicPath);
-    const stat = await this.operations.lstat(owned.path);
-    if (stat.isSymbolicLink() || !stat.isFile() || !sameIdentity(identity(stat), owned.identity)) {
-      throw this.ownershipFailure(owned.publicPath);
-    }
-    await this.assertNamespace(item);
-  }
-
-  private async assertNamespace(item: RuntimeArtifact): Promise<void> {
-    const namespace = required(item.namespace);
-    const expectedIdentity = required(namespace.identity);
-    const stat = await this.operations.lstat(namespace.path);
-    if (stat.isSymbolicLink() || !stat.isDirectory() || !sameIdentity(identity(stat), expectedIdentity)) {
-      throw this.ownershipFailure(namespace.publicPath);
-    }
-  }
-
-  private async assertParentChain(item: RuntimeArtifact, context?: TransactionContext): Promise<void> {
-    for (const expectation of item.directories) await this.assertExpectedDirectory(expectation, item, context);
-  }
-
-  private async assertExpectedDirectory(
-    expectation: DirectoryExpectation,
-    item: RuntimeArtifact,
-    context?: TransactionContext,
-  ): Promise<void> {
-    const created = context?.createdDirectories.get(expectation.path);
-    if (created?.exists) {
-      await this.assertDirectoryIdentity(expectation.path, required(created.identity), item.artifact.path);
-      return;
-    }
-    if (expectation.original === 'absent') {
-      await this.assertExpectedAbsent(expectation.path, item.artifact.path);
-      return;
-    }
-    await this.assertDirectoryExpectation(expectation.path, expectation.original, item.artifact.path);
-  }
-
-  private async assertDirectoryExpectation(
-    path: string,
-    expected: Exclude<DirectoryExpectation['original'], 'absent'>,
-    publicPath: string,
-  ): Promise<void> {
-    let stat: MigrationTransactionStat;
-    try {
-      stat = await this.operations.lstat(path);
-    } catch (error: unknown) {
-      throw this.concurrentModification(publicPath, error);
-    }
-    const kind = stat.isSymbolicLink() ? 'symbolic-link' : stat.isDirectory() ? 'directory' : undefined;
-    if (kind !== expected.kind || !sameIdentity(identity(stat), expected.identity)) {
-      throw this.concurrentModification(publicPath);
-    }
-    if (expected.kind === 'symbolic-link') {
-      let followed: MigrationTransactionStat;
-      try {
-        followed = await this.operations.stat(path);
-      } catch (error: unknown) {
-        throw this.concurrentModification(publicPath, error);
-      }
-      if (!followed.isDirectory() || !sameIdentity(identity(followed), expected.followedIdentity)) {
-        throw this.concurrentModification(publicPath);
-      }
-    }
-  }
-
-  private async assertDirectoryIdentity(path: string, expected: FileIdentity, publicPath: string): Promise<void> {
-    let stat: MigrationTransactionStat;
-    try {
-      stat = await this.operations.lstat(path);
-    } catch (error: unknown) {
-      throw this.concurrentModification(publicPath, error);
-    }
-    if (stat.isSymbolicLink() || !stat.isDirectory() || !sameIdentity(identity(stat), expected)) {
-      throw this.concurrentModification(publicPath);
-    }
-  }
-
-  private async assertExpectedAbsent(path: string, publicPath: string): Promise<void> {
-    try {
-      await this.operations.lstat(path);
-    } catch (error: unknown) {
-      if (isEnoent(error)) return;
-      throw error;
-    }
-    throw this.concurrentModification(publicPath);
-  }
-
-  private async lstatOrAbsent(path: string): Promise<MigrationTransactionStat | 'absent'> {
-    try {
-      return await this.operations.lstat(path);
-    } catch (error: unknown) {
-      if (isEnoent(error)) return 'absent';
-      throw error;
-    }
-  }
-
-  private concurrentModification(publicPath: string, cause?: unknown): MigrationApplicationError {
-    return new MigrationApplicationError(
-      'concurrent-modification',
-      `Migration destination changed after planning: ${publicPath}`,
-      [publicPath],
-      cause === undefined ? undefined : { cause },
-    );
-  }
-
-  private ownershipFailure(publicPath: string): MigrationApplicationError {
-    return new MigrationApplicationError(
-      'transaction-io',
-      `Migration transaction ownership could not be confirmed: ${publicPath}`,
-      [publicPath],
-    );
   }
 
   private decorateFailure(error: unknown, recovery: RecoveryOutcome): MigrationApplicationError {
@@ -1160,23 +203,21 @@ export class MigrationTransaction {
     );
   }
 
-  private syncSignalScope(context: TransactionContext): void {
-    const hasOwnedArtifacts =
-      [...context.createdDirectories.values()].some(directory => directory.exists) ||
-      context.items.some(
-        item =>
-          item.namespace?.exists ||
-          item.stage?.exists ||
-          item.backup?.exists ||
-          item.quarantines.some(quarantine => quarantine.exists),
-      );
+  private syncSignalScope(session: TransactionUnitSession, controller: AbortController): void {
+    const hasOwnedArtifacts = session.hasOwnedArtifacts();
     if (hasOwnedArtifacts && !this.unregisterSignals) {
       this.unregisterSignals = this.signalRegistrar.register(signal => {
         this.interruptedBy ??= signal;
+        if (!controller.signal.aborted) controller.abort(new TransactionInterruptedError(signal));
       });
     } else if (!hasOwnedArtifacts) {
       this.unregisterSignalHandlers();
     }
+  }
+
+  private finishApplication(): void {
+    this.unregisterSignalHandlers();
+    this.applying = false;
   }
 
   private unregisterSignalHandlers(): void {
@@ -1184,60 +225,21 @@ export class MigrationTransaction {
     this.unregisterSignals = undefined;
   }
 
-  private assertNotInterrupted(): void {
-    if (this.interruptedBy) throw new TransactionInterruptedError(this.interruptedBy);
+  private assertNotInterrupted(signal: AbortSignal): void {
+    if (!signal.aborted) return;
+    throw signal.reason instanceof Error ? signal.reason : new Error('Migration transaction interrupted.');
   }
 }
 
-function identity(stat: MigrationTransactionStat): FileIdentity {
-  return { dev: String(stat.dev), ino: String(stat.ino) };
+function planContents(plan: MigrationPlan): string {
+  return JSON.stringify(plan);
 }
 
-function sameIdentity(left: FileIdentity, right: FileIdentity): boolean {
-  return left.dev === right.dev && left.ino === right.ino;
-}
-
-function sameArtifactState(left: ObservedState, right: ArtifactState): boolean {
-  if (left.status !== right.status) return false;
-  if (left.status === 'absent') return true;
-  return right.status === 'present' && left.contents === right.contents;
-}
-
-function directoryChain(path: string): readonly string[] {
-  const result: string[] = [];
-  let current = resolve(path);
-  while (true) {
-    result.unshift(current);
-    const parent = dirname(current);
-    if (parent === current) return result;
-    current = parent;
-  }
-}
-
-function required<T>(value: T | undefined): T {
-  if (value === undefined) throw new Error('Missing transaction state.');
-  return value;
-}
-
-function isEnoent(error: unknown): error is NodeJS.ErrnoException {
-  return typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT';
-}
-
-function isDirectoryNotEmpty(error: unknown): error is NodeJS.ErrnoException {
-  return (
-    typeof error === 'object' &&
-    error !== null &&
-    'code' in error &&
-    (error.code === 'ENOTEMPTY' || error.code === 'EEXIST')
-  );
-}
-
-function pathDepth(path: string): number {
-  return path.split(/[\\/]/u).filter(Boolean).length;
-}
-
-function recoveryOutcome(paths: Iterable<string>, failures: readonly unknown[]): RecoveryOutcome {
-  return { paths: sortedUnique(paths), failures: Object.freeze([...failures]) };
+function mergeRecovery(...outcomes: readonly RecoveryOutcome[]): RecoveryOutcome {
+  return {
+    paths: sortedUnique(outcomes.flatMap(outcome => outcome.paths)),
+    failures: Object.freeze(outcomes.flatMap(outcome => outcome.failures)),
+  };
 }
 
 function sortedUnique(paths: Iterable<string>): readonly string[] {

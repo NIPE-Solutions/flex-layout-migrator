@@ -22,11 +22,12 @@ const flexRoot = join(productionRoot, 'flex');
 const pipelineRoot = join(productionRoot, 'pipeline');
 const discoverStagePath = join(pipelineRoot, 'discover', 'discover-project.stage.ts');
 const analyzeStagePath = join(pipelineRoot, 'analyze', 'analyze-project.stage.ts');
+const renderStagePath = join(pipelineRoot, 'render', 'render-project.stage.ts');
+const validateRoot = join(pipelineRoot, 'validate');
 const semanticRoot = join(productionRoot, 'semantic');
 const semanticRenderCoordinatorPath = join(productionRoot, 'planner', 'semantic-render.coordinator.ts');
 const atomicWriterPath = join(productionRoot, 'lib', 'atomic-file.writer.ts');
-const migratorPath = join(productionRoot, 'migrator', 'migrator.ts');
-const conversionAdapterPath = join(productionRoot, 'adapter', 'conversion-adapter.ts');
+const migrationRunnerPath = join(pipelineRoot, 'migration-runner.ts');
 const destinationTemplateSourcePath = join(productionRoot, 'migrator', 'destination-template-source.ts');
 const stylesheetPlannerPath = join(productionRoot, 'migrator', 'stylesheet.planner.ts');
 const legacyResponsiveFamilyPlannerPath = join(productionRoot, 'adapter', 'responsive-family.planner.ts');
@@ -37,13 +38,13 @@ const productionPaths = productionTypeScriptFiles(productionRoot);
 const semanticPaths = productionTypeScriptFiles(semanticRoot);
 const productionInspection = createTypeScriptProjectInspectionSession(productionPaths);
 const semanticInspection = createTypeScriptProjectInspectionSession(semanticPaths);
-const adapterPlannerPaths = productionTypeScriptFiles(join(productionRoot, 'adapter')).filter(path =>
+const semanticPlannerPaths = productionTypeScriptFiles(semanticRoot).filter(path =>
   basename(path).endsWith('.planner.ts'),
 );
-const targetResponsiveRangeOwnerPaths = [
-  'adapter/tailwind/extended/extended-display-composition.planner.ts',
-  'adapter/tailwind/extended/generated-property-composition.planner.ts',
-  'adapter/tailwind/visibility/display-composition.planner.ts',
+const semanticResponsiveRangeOwnerPaths = [
+  'semantic/extended/extended-family.planner.ts',
+  'semantic/responsive-family.planner.ts',
+  'semantic/visibility/visibility-state.planner.ts',
 ].map(path => join(productionRoot, path));
 let cachedProductionSemanticAuthorities: ReturnType<typeof inspectSemanticAuthorityCalls> | undefined;
 let cachedRogueProductionSemanticAuthorities: ReturnType<typeof inspectSemanticAuthorityCalls> | undefined;
@@ -54,11 +55,12 @@ let cachedFilesystemNamespaceUnionAuthorities: ReturnType<typeof inspectSemantic
 let cachedFilesystemPluralProvenanceAuthorities: ReturnType<typeof inspectSemanticAuthorityCalls> | undefined;
 const productionGraphAuthorities = new Set([
   'AnalyzeProjectStage.run',
-  'CurrentMigrationPipeline.run',
+  'ApplyProjectStage.run',
   'DiscoverProjectStage.run',
+  'MigrationRunner.run',
   'MigrationTransaction.apply',
-  'Migrator.migrate',
   'RenderProjectStage.run',
+  'ValidateProjectStage.run',
 ]);
 const filesystemOperationAuthorityNames = [
   'FileSystem.access',
@@ -124,13 +126,13 @@ const resourceAuthorityNames = new Set([
   'IgnoreLibrary.createMatcher',
 ]);
 const expectedProductionAuthorityGraph = [
-  { source: 'cli/run-cli.ts', authority: 'CurrentMigrationPipeline.run' },
-  { source: 'migrator/migrator.ts', authority: 'MigrationTransaction.apply' },
-  { source: 'pipeline/current-migration.pipeline.ts', authority: 'AnalyzeProjectStage.run' },
-  { source: 'pipeline/current-migration.pipeline.ts', authority: 'DiscoverProjectStage.run' },
-  { source: 'pipeline/current-migration.pipeline.ts', authority: 'Migrator.migrate' },
-  { source: 'pipeline/current-migration.pipeline.ts', authority: 'RenderProjectStage.run' },
+  { source: 'cli/run-cli.ts', authority: 'MigrationRunner.run' },
+  { source: 'pipeline/apply/apply-project.stage.ts', authority: 'MigrationTransaction.apply' },
+  { source: 'pipeline/migration-pipeline.ts', authority: 'AnalyzeProjectStage.run' },
+  { source: 'pipeline/migration-pipeline.ts', authority: 'ApplyProjectStage.run' },
+  { source: 'pipeline/migration-pipeline.ts', authority: 'DiscoverProjectStage.run' },
   { source: 'pipeline/migration-pipeline.ts', authority: 'RenderProjectStage.run' },
+  { source: 'pipeline/migration-pipeline.ts', authority: 'ValidateProjectStage.run' },
 ] as const;
 const rogueProductionAuthorityCases = [
   {
@@ -152,21 +154,30 @@ const rogueProductionAuthorityCases = [
     `,
   },
   {
-    sourcePath: join(productionRoot, 'migrator', 'analyzed-file.migrator.ts'),
-    authority: 'Migrator.migrate',
+    sourcePath: join(productionRoot, 'cli', 'run-cli.ts'),
+    authority: 'RenderProjectStage.run',
     source: `
-      import type { Migrator } from './migrator.js';
-      declare const migrator: Migrator;
-      void migrator.migrate({ mode: 'plan' });
+      import type { RenderProjectStage } from '../pipeline/render/render-project.stage.js';
+      declare const render: RenderProjectStage;
+      void render.run(undefined as never);
     `,
   },
   {
-    sourcePath: join(productionRoot, 'adapter', 'css', 'css.adapter.ts'),
+    sourcePath: join(productionRoot, 'render', 'css', 'css.renderer.ts'),
     authority: 'MigrationTransaction.apply',
     source: `
       import type { MigrationTransaction } from '../../transaction/migration-transaction.js';
       declare const transaction: MigrationTransaction;
       void transaction.apply(undefined as never);
+    `,
+  },
+  {
+    sourcePath: join(productionRoot, 'report', 'json-report.writer.ts'),
+    authority: 'ApplyProjectStage.run',
+    source: `
+      import type { ApplyProjectStage } from '../pipeline/apply/apply-project.stage.js';
+      declare const apply: ApplyProjectStage;
+      void apply.run(undefined as never);
     `,
   },
 ] as const;
@@ -225,9 +236,10 @@ const unrelatedBarrelPath = join(localBindingFixtureRoot, 'unrelated.barrel.ts')
 const typeOnlyBarrelPath = join(localBindingFixtureRoot, 'type-only.barrel.ts');
 const localBindingBarrelCases = [
   {
-    label: 'unused ESM filesystem alias acquired by Migrator from its named owner',
-    sourcePath: migratorPath,
-    source: "import { existingDestinationRead as unused } from './destination-template-source.js'; void unused;",
+    label: 'unused ESM filesystem alias acquired from its named owner',
+    sourcePath: join(localBindingFixtureRoot, 'local-fs-esm-consumer.ts'),
+    source:
+      "import { existingDestinationRead as unused } from '../migrator/destination-template-source.js'; void unused;",
     expected: 'FileSystem.acquire.readFile',
   },
   {
@@ -610,7 +622,6 @@ const expectedRendererRelativePaths = [
   'image/picture.renderer.ts',
   'render/conversion-renderer.ts',
   'render/css/css.renderer.ts',
-  'render/tailwind/extended-responsive.renderer.ts',
   'render/tailwind/tailwind.renderer.ts',
 ] as const;
 const rendererPaths = expectedRendererRelativePaths.map(path => join(productionRoot, path));
@@ -763,6 +774,30 @@ describe('enterprise pipeline dependency boundary', { timeout: wholeProjectInspe
     );
   });
 
+  test('resolves all five MigrationPipeline stage calls exactly once and in source order', () => {
+    const route = productionSemanticAuthorities()
+      .filter(call => call.sourcePath === join(pipelineRoot, 'migration-pipeline.ts'))
+      .map(call => call.name)
+      .filter(name => productionGraphAuthorities.has(name));
+
+    expect(route).toEqual([
+      'DiscoverProjectStage.run',
+      'AnalyzeProjectStage.run',
+      'RenderProjectStage.run',
+      'ValidateProjectStage.run',
+      'ApplyProjectStage.run',
+    ]);
+  });
+
+  test('routes project-topology prevalidation through concrete Validate before the five-stage run', () => {
+    expect(
+      normalizedAuthoritySources(productionSemanticAuthorities(), new Set(['ValidateProjectStage.prevalidate'])),
+    ).toEqual([
+      { source: 'pipeline/migration-pipeline.ts', authority: 'ValidateProjectStage.prevalidate' },
+      { source: 'pipeline/validate/validate-project.stage.ts', authority: 'ValidateProjectStage.prevalidate' },
+    ]);
+  });
+
   test('keeps responsive-family runtime exports owned only by the target-neutral semantic module', () => {
     const owners = [
       ...new Set(
@@ -832,14 +867,33 @@ describe('enterprise pipeline dependency boundary', { timeout: wholeProjectInspe
     expect(inspection.programConstructionCount).toBe(1);
   });
 
-  test('keeps the deprecated ConversionAdapter type free of semantic orchestration hooks', () => {
-    const inspection = inspectTypeScript(readFileSync(conversionAdapterPath, 'utf8'), conversionAdapterPath);
+  test('contains no obsolete compatibility facade declarations or runtime exports', () => {
+    const obsoleteSymbols = new Set([
+      'AnalyzedFileMigrator',
+      'BaseMigrator',
+      'CompatibilityConversionAdapter',
+      'CompatibilityEditValidator',
+      'ConversionAdapter',
+      'ConversionAdapterSession',
+      'CssAdapter',
+      'CssAdapterSession',
+      'CurrentMigrationPipeline',
+      'FileMigrator',
+      'FolderMigrator',
+      'Migrator',
+      'RendererBackedConversionAdapter',
+      'TailwindAdapter',
+      'TailwindAdapterSession',
+    ]);
+    const declarations = [...obsoleteSymbols].flatMap(symbolName =>
+      productionInspection.inspectRuntimeNamedDeclarationProvenance(symbolName),
+    );
+    const exports = productionInspection
+      .inspectRuntimeExportSymbolProvenance()
+      .filter(symbol => obsoleteSymbols.has(symbol.exportedName) || obsoleteSymbols.has(symbol.symbolName));
 
-    expect(
-      inspection.declaredMethodNames.filter(name =>
-        ['planElement', 'closePlanDependencies', 'acceptPlans'].includes(name),
-      ),
-    ).toEqual([]);
+    expect(declarations).toEqual([]);
+    expect(exports).toEqual([]);
   });
 
   test('does not treat a type-only responsive compatibility alias as runtime ownership', () => {
@@ -909,13 +963,13 @@ describe('enterprise pipeline dependency boundary', { timeout: wholeProjectInspe
     const barrelPath = join(productionRoot, '__architecture-fixture__', 'semantic-type-barrel.ts');
     const overrides = new Map([
       [typeOnlyPath, "import type { PlannedConversion } from './semantic-type-barrel.js'; void 0;"],
-      [barrelPath, "export type { PlannedConversion } from '../adapter/conversion-adapter.js';"],
+      [barrelPath, "export type { PlannedConversion } from '../render/conversion-renderer.js';"],
     ]);
     const inspection = createTypeScriptProjectInspectionSession([typeOnlyPath], overrides);
     const findings = inspection.inspectDependencyClosure();
 
     expect(findings.map(finding => finding.dependencyPath)).toContain(
-      join(productionRoot, 'adapter', 'conversion-adapter.ts'),
+      join(productionRoot, 'render', 'conversion-renderer.ts'),
     );
     expect(inspection.inspectRuntimeDependencyClosure()).toEqual([]);
     expect(inspection.programConstructionCount).toBe(1);
@@ -986,6 +1040,46 @@ describe('enterprise pipeline dependency boundary', { timeout: wholeProjectInspe
   test('makes RenderProjectStage the sole caller of RenderSession finalization', () => {
     expect(normalizedAuthoritySources(productionSemanticAuthorities(), new Set(['RenderSession.finalize']))).toEqual([
       { source: 'pipeline/render/render-project.stage.ts', authority: 'RenderSession.finalize' },
+    ]);
+  });
+
+  test('forbids validation authorities in Render and requires them under concrete Validate', () => {
+    const validationAuthorities = new Set<string>([
+      'ChangedTemplateValidation.parse',
+      'CssReferenceCollector.collect',
+      'CssReferenceParser.parse',
+      'DestinationTemplateSource.read',
+      'MigrationPathValidation.validate',
+      'StylesheetRootTopologyValidation.validate',
+      'SourceEditor.apply',
+      'StylesheetPlanner.plan',
+      'TemplateProposalValidator.validate',
+    ]);
+    const calls = productionSemanticAuthorities().filter(call => validationAuthorities.has(call.name));
+    const validateCalls = calls.filter(call => call.sourcePath.startsWith(`${validateRoot}/`));
+
+    expect(calls.filter(call => call.sourcePath === renderStagePath)).toEqual([]);
+    expect(
+      normalizedAuthoritySources(
+        calls.filter(call => !call.sourcePath.startsWith(`${validateRoot}/`)),
+        validationAuthorities,
+      ),
+    ).toEqual([{ source: 'image/picture.renderer.ts', authority: 'SourceEditor.apply' }]);
+    expect(normalizedAuthoritySources(validateCalls, validationAuthorities)).toEqual([
+      { source: 'pipeline/validate/css-reference.collector.ts', authority: 'CssReferenceParser.parse' },
+      { source: 'pipeline/validate/css-reference.collector.ts', authority: 'DestinationTemplateSource.read' },
+      { source: 'pipeline/validate/template-proposal.validator.ts', authority: 'ChangedTemplateValidation.parse' },
+      { source: 'pipeline/validate/template-proposal.validator.ts', authority: 'DestinationTemplateSource.read' },
+      { source: 'pipeline/validate/template-proposal.validator.ts', authority: 'SourceEditor.apply' },
+      { source: 'pipeline/validate/validate-project.stage.ts', authority: 'CssReferenceCollector.collect' },
+      { source: 'pipeline/validate/validate-project.stage.ts', authority: 'MigrationPathValidation.validate' },
+      { source: 'pipeline/validate/validate-project.stage.ts', authority: 'MigrationPathValidation.validate' },
+      { source: 'pipeline/validate/validate-project.stage.ts', authority: 'StylesheetPlanner.plan' },
+      {
+        source: 'pipeline/validate/validate-project.stage.ts',
+        authority: 'StylesheetRootTopologyValidation.validate',
+      },
+      { source: 'pipeline/validate/validate-project.stage.ts', authority: 'TemplateProposalValidator.validate' },
     ]);
   });
 
@@ -1387,21 +1481,21 @@ describe('enterprise pipeline dependency boundary', { timeout: wholeProjectInspe
     ]);
   });
 
-  test('rejects even one extra direct filesystem read and acquisition in Migrator', () => {
+  test('rejects even one direct filesystem read and acquisition in MigrationRunner', () => {
     const source = `
       import { readFile as forbiddenOriginalRead } from 'node:fs/promises';
-      ${readFileSync(migratorPath, 'utf8')}
+      ${readFileSync(migrationRunnerPath, 'utf8')}
       void forbiddenOriginalRead('input.html', 'utf8');
     `;
-    const calls = inspectSemanticAuthorityCalls(productionPaths, new Map([[migratorPath, source]])).filter(
+    const calls = inspectSemanticAuthorityCalls(productionPaths, new Map([[migrationRunnerPath, source]])).filter(
       call =>
-        call.sourcePath === migratorPath &&
+        call.sourcePath === migrationRunnerPath &&
         (call.name === 'FileSystem.readFile' || call.name === 'FileSystem.acquire.readFile'),
     );
 
     expect(calls).toEqual([
-      { sourcePath: migratorPath, name: 'FileSystem.acquire.readFile' },
-      { sourcePath: migratorPath, name: 'FileSystem.readFile' },
+      { sourcePath: migrationRunnerPath, name: 'FileSystem.acquire.readFile' },
+      { sourcePath: migrationRunnerPath, name: 'FileSystem.readFile' },
     ]);
   });
 
@@ -1422,8 +1516,6 @@ describe('enterprise pipeline dependency boundary', { timeout: wholeProjectInspe
 
   test('keeps direct filesystem and ignore authorities at their named production owners', () => {
     expect(normalizedAuthoritySources(productionSemanticAuthorities(), resourceAuthorityNames)).toEqual([
-      { source: 'cli/stylesheet-path.validator.ts', authority: 'FileSystem.acquire.lstat' },
-      { source: 'cli/stylesheet-path.validator.ts', authority: 'FileSystem.lstat' },
       { source: 'lib/atomic-file.writer.ts', authority: 'FileSystem.acquire.lstat' },
       { source: 'lib/atomic-file.writer.ts', authority: 'FileSystem.acquire.open' },
       { source: 'lib/gitignore.helper.ts', authority: 'FileSystem.acquire.*' },
@@ -1436,8 +1528,8 @@ describe('enterprise pipeline dependency boundary', { timeout: wholeProjectInspe
       { source: 'migrator/migration-path.validator.ts', authority: 'FileSystem.acquire.lstat' },
       { source: 'migrator/migration-path.validator.ts', authority: 'FileSystem.acquire.stat' },
       { source: 'migrator/migration-path.validator.ts', authority: 'FileSystem.lstat' },
+      { source: 'migrator/migration-path.validator.ts', authority: 'FileSystem.lstat' },
       { source: 'migrator/migration-path.validator.ts', authority: 'FileSystem.stat' },
-      { source: 'migrator/migrator.ts', authority: 'DestinationTemplateSource.read' },
       { source: 'migrator/stylesheet.planner.ts', authority: 'FileSystem.acquire.lstat' },
       { source: 'migrator/stylesheet.planner.ts', authority: 'FileSystem.acquire.readFile' },
       { source: 'migrator/stylesheet.planner.ts', authority: 'FileSystem.readFile' },
@@ -1451,12 +1543,13 @@ describe('enterprise pipeline dependency boundary', { timeout: wholeProjectInspe
         source: 'pipeline/discover/discover-project.stage.ts',
         authority: 'GitIgnoreHelper.acquire',
       },
-      { source: 'pipeline/render/compatibility-edit.validator.ts', authority: 'DestinationTemplateSource.read' },
-      { source: 'transaction/migration-transaction.ts', authority: 'FileSystem.acquire.access' },
-      { source: 'transaction/migration-transaction.ts', authority: 'FileSystem.acquire.lstat' },
-      { source: 'transaction/migration-transaction.ts', authority: 'FileSystem.acquire.open' },
-      { source: 'transaction/migration-transaction.ts', authority: 'FileSystem.acquire.stat' },
-      { source: 'transaction/migration-transaction.ts', authority: 'FileSystem.open' },
+      { source: 'pipeline/validate/css-reference.collector.ts', authority: 'DestinationTemplateSource.read' },
+      { source: 'pipeline/validate/template-proposal.validator.ts', authority: 'DestinationTemplateSource.read' },
+      { source: 'transaction/transaction-unit.session.ts', authority: 'FileSystem.acquire.access' },
+      { source: 'transaction/transaction-unit.session.ts', authority: 'FileSystem.acquire.lstat' },
+      { source: 'transaction/transaction-unit.session.ts', authority: 'FileSystem.acquire.open' },
+      { source: 'transaction/transaction-unit.session.ts', authority: 'FileSystem.acquire.stat' },
+      { source: 'transaction/transaction-unit.session.ts', authority: 'FileSystem.open' },
     ]);
   });
 
@@ -1470,8 +1563,8 @@ describe('enterprise pipeline dependency boundary', { timeout: wholeProjectInspe
     }
   });
 
-  test('reserves adapter responsive range ownership for target-specific composition planners', () => {
-    const responsiveRangeSymbols = inspectRuntimeSymbolProvenance(adapterPlannerPaths).filter(
+  test('reserves responsive range ownership for canonical semantic planners', () => {
+    const responsiveRangeSymbols = inspectRuntimeSymbolProvenance(semanticPlannerPaths).filter(
       symbol =>
         symbol.declarationPath.endsWith('/breakpoint/breakpoint-catalog.ts') &&
         ['BreakpointCatalog', 'mediaDefinitionsIntersect', 'mediaRangesIntersect'].includes(symbol.symbolName),
@@ -1492,7 +1585,7 @@ describe('enterprise pipeline dependency boundary', { timeout: wholeProjectInspe
         )
         .map(([sourcePath]) => sourcePath)
         .sort(),
-    ).toEqual([...targetResponsiveRangeOwnerPaths].sort());
+    ).toEqual([...semanticResponsiveRangeOwnerPaths].sort());
   });
 
   test.each([
@@ -1596,10 +1689,10 @@ describe('enterprise pipeline dependency boundary', { timeout: wholeProjectInspe
       { source: 'pipeline/analyze/analyze-project.stage.ts', authority: 'TemplateSourceReader.read' },
     ]);
     expect(parseCalls).toEqual([
-      { source: 'migrator/migrator.ts', authority: 'CssReferenceParser.parse' },
       { source: 'pipeline/analyze/analyze-project.stage.ts', authority: 'OriginalTemplateParser.parse' },
-      { source: 'pipeline/render/compatibility-edit.validator.ts', authority: 'ChangedTemplateValidation.parse' },
-      { source: 'transaction/migration-transaction.ts', authority: 'StagedTemplateValidation.parse' },
+      { source: 'pipeline/validate/css-reference.collector.ts', authority: 'CssReferenceParser.parse' },
+      { source: 'pipeline/validate/template-proposal.validator.ts', authority: 'ChangedTemplateValidation.parse' },
+      { source: 'transaction/transaction-unit.session.ts', authority: 'StagedTemplateValidation.parse' },
     ]);
   });
 
@@ -1612,7 +1705,7 @@ describe('enterprise pipeline dependency boundary', { timeout: wholeProjectInspe
   });
 
   test.each([
-    ["void import('../../adapter/conversion-adapter.js');", '../../adapter/conversion-adapter.js'],
+    ["void import('../../render/tailwind/tailwind.renderer.js');", '../../render/tailwind/tailwind.renderer.js'],
     ["const planner = require('../../planner/conversion-planner.js');", '../../planner/conversion-planner.js'],
     [
       "export { MigrationTransaction } from '../../transaction/migration-transaction.js';",
@@ -1623,13 +1716,13 @@ describe('enterprise pipeline dependency boundary', { timeout: wholeProjectInspe
   });
 
   test.each([
-    "import { AnalyzedFileMigrator } from '../../migrator/analyzed-file.migrator.js'; void AnalyzedFileMigrator;",
-    "import { FileMigrator } from '../../migrator/file.migrator.js'; void FileMigrator;",
-    "import { FolderMigrator } from '../../migrator/folder.migrator.js'; void FolderMigrator;",
-    "import { Migrator } from '../../migrator/migrator.js'; void Migrator;",
+    "import { AdapterFactory } from '../../adapter/adapter.factory.js'; void AdapterFactory;",
+    "import { TailwindRenderer } from '../../render/tailwind/tailwind.renderer.js'; void TailwindRenderer;",
+    "import { CssRenderer } from '../../render/css/css.renderer.js'; void CssRenderer;",
+    "import { MigrationRunner } from '../../pipeline/migration-runner.js'; void MigrationRunner;",
     "import { SourceEditor } from '../../edit/source-editor.js'; void SourceEditor;",
     "import { PictureRenderer } from '../../image/picture.renderer.js'; void PictureRenderer;",
-  ])('rejects an Analyze dependency on a concrete render/edit/migrator implementation: %s', source => {
+  ])('rejects an Analyze dependency on a concrete render/edit/orchestration implementation: %s', source => {
     expect(forbiddenAnalyzeDependency(source)).toBeDefined();
   });
 
@@ -1648,7 +1741,7 @@ describe('enterprise pipeline dependency boundary', { timeout: wholeProjectInspe
   });
 
   test.each([
-    "async function load() { return import('../../adapter/conversion-adapter.js'); } void load();",
+    "async function load() { return import('../../render/tailwind/tailwind.renderer.js'); } void load();",
     "const planner = require('../../planner/conversion-planner.js'); void planner;",
   ])('rejects an Analyze implementation dependency acquired dynamically: %s', source => {
     expect(forbiddenAnalyzeDependency(source)).toBeDefined();
@@ -1657,7 +1750,7 @@ describe('enterprise pipeline dependency boundary', { timeout: wholeProjectInspe
   test.each([
     "import { logger } from '../../logger.js'; logger.debug('adapter renderer edit migrator');",
     "import { helper } from '../../__architecture-fixture__/migration-reporting.helper.js'; void helper;",
-    "import type { AnalyzedFileMigrator } from '../../migrator/analyzed-file.migrator.js'; type Plan = AnalyzedFileMigrator;",
+    "import type { MigrationRunner } from '../../pipeline/migration-runner.js'; type Runner = MigrationRunner;",
   ])('allows an unrelated or type-only Analyze dependency negative: %s', source => {
     expect(forbiddenAnalyzeDependency(source)).toBeUndefined();
   });
@@ -1765,14 +1858,14 @@ describe('enterprise pipeline dependency boundary', { timeout: wholeProjectInspe
     expect(mutationCalls(source)).toEqual([]);
   });
 
-  test('allows only the known undeclared ignore runtime package until the dependency slice', () => {
-    const undeclared = productionTypeScriptFiles(productionRoot).flatMap(path =>
+  test('keeps declared runtime packages in exact bijection with production external imports', () => {
+    const imported = productionTypeScriptFiles(productionRoot).flatMap(path =>
       runtimeModuleReferences(readFileSync(path, 'utf8'), path).flatMap(reference => {
         const packageName = externalPackage(reference);
-        return packageName === undefined || declaredRuntimePackages.has(packageName) ? [] : [packageName];
+        return packageName === undefined ? [] : [packageName];
       }),
     );
 
-    expect([...new Set(undeclared)].sort()).toEqual(['ignore']);
+    expect([...new Set(imported)].sort()).toEqual([...declaredRuntimePackages].sort());
   });
 });

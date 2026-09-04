@@ -1,4 +1,4 @@
-import { cssPropertiesOverlap, cssPropertyOwnershipCovers } from './css-property-ownership';
+import { cssPropertiesOverlap, cssPropertyOwnershipCovers } from '../../../semantic/css-property-ownership';
 
 describe('cssPropertiesOverlap', () => {
   test.each([

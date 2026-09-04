@@ -1,9 +1,9 @@
 import * as path from 'node:path';
-import { MigrationApplicationError } from '../migrator/migration-application.error';
 import { fileMigrationResult, type FileMigrationResult } from '../migrator/file-migration-result';
+import { MigrationApplicationError } from '../migrator/migration-application.error';
 import { migrationPlan, type MigrationPlan, type PlannedOutputArtifact } from '../migrator/migration-plan';
 import type { StylesheetMigrationResult } from '../report/migration-report.builder';
-import { renderedProject, type RenderedProject } from './rendered-project';
+import { renderedProject, type RenderedProject, type RenderedTemplateFile } from './rendered-project';
 
 export interface ValidatedProjectPlan {
   readonly rendered: RenderedProject;
@@ -13,15 +13,19 @@ export interface ValidatedProjectPlan {
 
 export function validatedProjectPlan(project: ValidatedProjectPlan): ValidatedProjectPlan {
   const rendered = renderedProject(project.rendered);
-  const suppliedPlan = migrationPlan(project.plan);
+  if (rendered.target !== rendered.session.target) {
+    throw internalInvariant(
+      `Render session finalized for target "${rendered.session.target}" but its renderer targets "${rendered.target}".`,
+    );
+  }
 
+  const suppliedPlan = migrationPlan(project.plan);
   if (suppliedPlan.target !== rendered.session.target) {
     throw internalInvariant('Validated migration plan target differs from its finalized adapter session target.');
   }
 
   const plan = canonicalPlan(rendered, suppliedPlan);
-  const templateArtifacts = renderedTemplateArtifacts(rendered);
-  assertTemplateArtifactCongruence(templateArtifacts, plan.artifacts);
+  const templateArtifacts = validatedTemplateArtifacts(plan.files, plan.artifacts);
   const stylesheet = validatedStylesheet(rendered, plan, templateArtifacts, project.stylesheet);
 
   return Object.freeze({
@@ -34,47 +38,57 @@ export function validatedProjectPlan(project: ValidatedProjectPlan): ValidatedPr
 function canonicalPlan(rendered: RenderedProject, supplied: MigrationPlan): MigrationPlan {
   if (supplied.files.length !== rendered.files.length) throw fileCongruenceInvariant();
   const files = supplied.files.map((file, index) => {
-    const expected = rendered.files[index]?.file;
+    const expected = rendered.files[index];
     if (expected === undefined || !samePathPair(expected, file)) throw fileCongruenceInvariant();
     const canonical = fileMigrationResult({
       ...file,
       inputPath: expected.inputPath,
       outputPath: expected.outputPath,
     });
-    if (!sameOwnedValue(canonical, expected)) throw fileCongruenceInvariant();
+    if (!validResults(expected, canonical)) throw fileCongruenceInvariant();
     return canonical;
   });
+  if (new Set(files.map(file => normalizedAbsolutePath(file.outputPath))).size !== files.length) {
+    throw fileCongruenceInvariant();
+  }
 
   return migrationPlan({ target: supplied.target, files, artifacts: supplied.artifacts });
 }
 
-function renderedTemplateArtifacts(rendered: RenderedProject): readonly PlannedOutputArtifact[] {
-  return rendered.files.flatMap(file => {
-    const artifact = file.artifact;
-    if (
-      file.file.changed !== (artifact !== undefined) ||
-      (artifact !== undefined &&
-        (artifact.kind !== 'template' || normalizedAbsolutePath(artifact.path) !== file.file.outputPath))
-    ) {
-      throw internalInvariant('Rendered template artifacts must correspond exactly to changed file outputs.');
-    }
-    return artifact === undefined ? [] : [artifact];
-  });
+function validResults(rendered: RenderedTemplateFile, planned: FileMigrationResult): boolean {
+  if (sameOwnedValue(planned.results, rendered.results)) return true;
+  return (
+    rendered.edits.length > 0 &&
+    planned.changed === false &&
+    planned.results.length > 0 &&
+    planned.results.every(
+      result =>
+        result.status === 'parse-error' &&
+        result.code === 'generated-template-parse-error' &&
+        normalizedAbsolutePath(result.fileName) === normalizedAbsolutePath(rendered.outputPath),
+    )
+  );
 }
 
-function assertTemplateArtifactCongruence(
-  renderedArtifacts: readonly PlannedOutputArtifact[],
-  planArtifacts: readonly PlannedOutputArtifact[],
-): void {
-  const templateArtifacts = planArtifacts.filter(artifact => artifact.kind === 'template');
+function validatedTemplateArtifacts(
+  files: readonly FileMigrationResult[],
+  artifacts: readonly PlannedOutputArtifact[],
+): readonly PlannedOutputArtifact[] {
+  const templateArtifacts = artifacts.filter(artifact => artifact.kind === 'template');
+  const changedFiles = files.filter(file => file.changed);
   if (
-    templateArtifacts.length !== renderedArtifacts.length ||
-    templateArtifacts.some((artifact, index) => !sameArtifact(artifact, renderedArtifacts[index]))
+    templateArtifacts.length !== changedFiles.length ||
+    templateArtifacts.some(
+      (artifact, index) =>
+        artifact.proposed.status !== 'present' ||
+        normalizedAbsolutePath(artifact.path) !== normalizedAbsolutePath(changedFiles[index]?.outputPath ?? ''),
+    )
   ) {
     throw internalInvariant(
-      'Validated migration plan template artifacts must match rendered template artifacts in file order.',
+      'Validated migration plan template artifacts must correspond exactly to changed file outputs in file order.',
     );
   }
+  return templateArtifacts;
 }
 
 function validatedStylesheet(
@@ -160,7 +174,7 @@ function sameArtifact(left: PlannedOutputArtifact, right: PlannedOutputArtifact 
   );
 }
 
-function samePathPair(left: FileMigrationResult, right: FileMigrationResult): boolean {
+function samePathPair(left: RenderedTemplateFile, right: FileMigrationResult): boolean {
   return (
     normalizedAbsolutePath(left.inputPath) === normalizedAbsolutePath(right.inputPath) &&
     normalizedAbsolutePath(left.outputPath) === normalizedAbsolutePath(right.outputPath)

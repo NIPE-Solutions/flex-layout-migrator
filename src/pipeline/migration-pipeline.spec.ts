@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import type { MigrationApplication } from '../report/migration-report';
 import { analyzedProject, type AnalyzedProject } from './analyzed-project';
+import { appliedProject } from './applied-project';
 import {
   MigrationPipeline,
   type AnalyzeStage,
@@ -36,15 +37,16 @@ function fixtures(): PipelineFixtures {
   });
   const manifest = projectManifest({ invocation, templates: [] });
   const analyzed = analyzedProject({ manifest, templates: [] });
-  const rendered = renderedProject({ analyzed, files: [], session: { target: 'tailwind' } });
+  const rendered = renderedProject({ analyzed, target: 'tailwind', files: [], session: { target: 'tailwind' } });
   const validated = validatedProjectPlan({ rendered, plan: { target: 'tailwind', files: [], artifacts: [] } });
-  const application: MigrationApplication = { status: 'applied' };
+  const application: MigrationApplication = { status: 'skipped', reason: 'plan-only' };
 
   return { invocation, manifest, analyzed, rendered, validated, application };
 }
 
 interface RecordingStages {
   readonly calls: string[];
+  readonly prevalidate: ReturnType<typeof vi.fn<(invocation: MigrationInvocation) => Promise<void>>>;
   discover: DiscoverStage;
   analyze: AnalyzeStage;
   render: RenderStage;
@@ -54,9 +56,13 @@ interface RecordingStages {
 
 function recordingStages(values: PipelineFixtures): RecordingStages {
   const calls: string[] = [];
+  const prevalidate = vi.fn(async (invocation: MigrationInvocation) => {
+    expect(invocation).toBe(values.invocation);
+  });
 
   return {
     calls,
+    prevalidate,
     discover: {
       run(invocation) {
         calls.push('discover');
@@ -79,17 +85,18 @@ function recordingStages(values: PipelineFixtures): RecordingStages {
       },
     },
     validate: {
+      prevalidate,
       run(rendered) {
         calls.push('validate');
         expect(rendered).toBe(values.rendered);
         return Promise.resolve(values.validated);
       },
-    },
+    } as ValidateStage,
     apply: {
       run(validated) {
         calls.push('apply');
         expect(validated).toBe(values.validated);
-        return Promise.resolve({ application: values.application });
+        return Promise.resolve(appliedProject({ validated, application: values.application }));
       },
     },
   };
@@ -106,12 +113,30 @@ describe('MigrationPipeline', () => {
 
     const result = await pipeline(stages).run(values.invocation);
 
+    expect(stages.prevalidate).toHaveBeenCalledOnce();
     expect(stages.calls).toEqual(['discover', 'analyze', 'render', 'validate', 'apply']);
     expect(result.validated).toBe(values.validated);
     expect(result.application).toEqual(values.application);
     expect(result.application).not.toBe(values.application);
     expect(Object.isFrozen(result)).toBe(true);
     expect(Object.isFrozen(result.application)).toBe(true);
+  });
+
+  test('propagates Validate prevalidation before Discover without running a pipeline stage', async () => {
+    const values = fixtures();
+    const stages = recordingStages(values);
+    const error = new Error('invalid project topology');
+    const validate = {
+      ...stages.validate,
+      prevalidate: vi.fn(() => Promise.reject(error)),
+    } as ValidateStage;
+
+    await expect(
+      new MigrationPipeline(stages.discover, stages.analyze, stages.render, validate, stages.apply).run(
+        values.invocation,
+      ),
+    ).rejects.toBe(error);
+    expect(stages.calls).toEqual([]);
   });
 
   test.each([
@@ -187,7 +212,7 @@ function replaceWithFailingStage(
       stages.render = failingStage;
       return;
     case 'validate':
-      stages.validate = failingStage;
+      stages.validate = { ...failingStage, prevalidate: stages.prevalidate };
       return;
     case 'apply':
       stages.apply = failingStage;

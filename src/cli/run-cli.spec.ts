@@ -3,13 +3,12 @@ import { tmpdir } from 'node:os';
 import { join, resolve, sep } from 'node:path';
 import { AnalyzeProjectStage } from '../pipeline/analyze/analyze-project.stage';
 import { analyzedProject } from '../pipeline/analyzed-project';
-import {
-  CurrentMigrationPipeline,
-  type MigrationRunner,
-  type MigratorFactory,
-} from '../pipeline/current-migration.pipeline';
-import type { DiscoverStage, RenderStage } from '../pipeline/migration-pipeline';
+import { ApplyProjectStage, type MigrationTransactionPort } from '../pipeline/apply/apply-project.stage';
+import { MigrationPipeline, type DiscoverStage } from '../pipeline/migration-pipeline';
+import { MigrationRunner } from '../pipeline/migration-runner';
 import { projectManifest, type MigrationInvocation } from '../pipeline/project-manifest';
+import { renderedProject } from '../pipeline/rendered-project';
+import { ValidateProjectStage } from '../pipeline/validate/validate-project.stage';
 import type { MigrationReport } from '../report/migration-report';
 import type { TextOutput } from '../report/terminal.presenter';
 import { runCli, type CliOutput, type RunCliDependencies } from './run-cli';
@@ -73,7 +72,7 @@ describe('runCli', () => {
       },
       files: [],
     };
-    const renderStages: RenderStage[] = [];
+    const pipelines: MigrationPipeline[] = [];
     const invocations: MigrationInvocation[] = [];
     const stdout = new MemoryOutput();
     const stderr = new MemoryOutput();
@@ -82,8 +81,8 @@ describe('runCli', () => {
       ['node', 'flex-layout-codemod', input, '--output', outputPath, '--responsive-images', '--report', reportPath],
       { stdout, stderr },
       {
-        createMigrationRunner(render): MigrationRunner {
-          renderStages.push(render);
+        createMigrationRunner(pipeline) {
+          pipelines.push(pipeline);
           return {
             run(invocation) {
               invocations.push(invocation);
@@ -94,14 +93,7 @@ describe('runCli', () => {
       },
     );
 
-    expect(renderStages).toHaveLength(1);
-    const rendered = await renderStages[0]?.run(
-      analyzedProject({
-        manifest: projectManifest({ invocation: invocations[0]!, templates: [] }),
-        templates: [],
-      }),
-    );
-    expect(rendered?.session.target).toBe('tailwind');
+    expect(pipelines).toHaveLength(1);
     expect(invocations).toHaveLength(1);
     expect(invocations[0]).toEqual({
       inputPath: input,
@@ -166,10 +158,17 @@ describe('runCli', () => {
         },
       },
     );
-    const createMigrator = vi.fn<MigratorFactory>();
-
     const result = await run([rawInputPath, '--report', reportPath], {
-      createMigrationRunner: render => new CurrentMigrationPipeline(render, discover, analyze, createMigrator),
+      createMigrationRunner: () =>
+        new MigrationRunner(
+          new MigrationPipeline(
+            discover,
+            analyze,
+            { run: vi.fn() },
+            { prevalidate: () => Promise.resolve(), run: vi.fn() },
+            { run: vi.fn() },
+          ),
+        ),
     });
 
     expect(result).toEqual({
@@ -180,11 +179,10 @@ describe('runCli', () => {
     expect(error.path).toBe(rawTemplatePath);
     expect(error.code).toBe('ENOENT');
     expect(error.cause).toBe(cause);
-    expect(createMigrator).not.toHaveBeenCalled();
     await expect(access(reportPath)).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
-  test('prints a continuation transaction error with its original absolute paths and writes no JSON report', async () => {
+  test('prints an application transaction error with its original absolute paths and writes no JSON report', async () => {
     const rawInputPath = 'relative-fixtures/input';
     const rawOutputPath = 'relative-fixtures/output';
     const reportPath = join(temporaryDirectory, 'migration.json');
@@ -209,12 +207,26 @@ describe('runCli', () => {
         return analyzedProject({ manifest, templates: [] });
       },
     };
-    const createMigrator = vi.fn<MigratorFactory>(() => ({
-      migrate: vi.fn(async () => Promise.reject(error)),
-    }));
+    const transaction: MigrationTransactionPort = {
+      preflight: vi.fn(async () => Promise.reject(error)),
+      apply: vi.fn(async () => Promise.resolve()),
+    };
 
     const result = await run([rawInputPath, '--output', rawOutputPath, '--write', '--report', reportPath], {
-      createMigrationRunner: render => new CurrentMigrationPipeline(render, discover, analyze, createMigrator),
+      createMigrationRunner: () =>
+        new MigrationRunner(
+          new MigrationPipeline(
+            discover,
+            analyze,
+            {
+              async run(analyzed) {
+                return renderedProject({ analyzed, target: 'tailwind', files: [], session: { target: 'tailwind' } });
+              },
+            },
+            new ValidateProjectStage(),
+            new ApplyProjectStage('write', transaction),
+          ),
+        ),
     });
 
     expect(result).toEqual({ exitCode: 1, stdout: '', stderr: `Error: ${message}\n` });
@@ -222,6 +234,8 @@ describe('runCli', () => {
     expect(error.dest).toBe(canonicalDestination);
     expect(error.code).toBe('EACCES');
     expect(error.cause).toBe(cause);
+    expect(transaction.preflight).toHaveBeenCalledOnce();
+    expect(transaction.apply).not.toHaveBeenCalled();
     await expect(access(reportPath)).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
@@ -546,8 +560,8 @@ describe('runCli', () => {
 
       expect(result.exitCode).toBe(1);
       expect(result.stdout).toBe('');
-      expect(result.stderr).toContain('Stylesheet path collides with another migration path');
-      expect(result.stderr).not.toContain('ENOENT');
+      expect(result.stderr).toBe(`Error: Stylesheet path collides with another migration path: ${stylesheet}\n`);
+      await expect(access(missingInput)).rejects.toMatchObject({ code: 'ENOENT' });
       await expect(access(output)).rejects.toMatchObject({ code: 'ENOENT' });
       if (report !== undefined) await expect(access(report)).rejects.toMatchObject({ code: 'ENOENT' });
     },
@@ -581,8 +595,7 @@ describe('runCli', () => {
 
     expect(result.exitCode).toBe(1);
     expect(result.stdout).toBe('');
-    expect(result.stderr).toContain('Stylesheet path collides with another migration path');
-    expect(result.stderr).not.toContain('ENOENT');
+    expect(result.stderr).toBe(`Error: Stylesheet path collides with another migration path: ${stylesheet}\n`);
     for (const candidate of [missingInput, output, stylesheet, reportPath]) {
       await expect(access(candidate)).rejects.toMatchObject({ code: 'ENOENT' });
     }
@@ -667,11 +680,15 @@ describe('runCli', () => {
 
       expect(result.exitCode).toBe(1);
       expect(result.stdout).toBe('');
-      expect(result.stderr).toContain(
-        kind === 'directory' ? 'Stylesheet path must be a regular file' : 'Stylesheet path must not be a symbolic link',
+      expect(result.stderr).toBe(
+        `Error: ${
+          kind === 'directory'
+            ? `Stylesheet path must be a regular file: ${stylesheet}`
+            : `Stylesheet path must not be a symbolic link: ${stylesheet}`
+        }\n`,
       );
-      expect(result.stderr).not.toContain('ENOENT');
       expect(await readFile(preserved, 'utf8')).toBe('preserve me');
+      await expect(access(missingInput)).rejects.toMatchObject({ code: 'ENOENT' });
       await expect(access(output)).rejects.toMatchObject({ code: 'ENOENT' });
     },
   );

@@ -216,9 +216,7 @@ describe('native CSS architecture boundary', () => {
       const inspection = inspectTypeScript(readFileSync(path, 'utf8'), path);
       const sourcePath = relative(process.cwd(), path);
 
-      if (path !== join(cssRoot, 'css.adapter.ts')) {
-        expect(directiveSyntax(inspection), sourcePath).toBeUndefined();
-      }
+      expect(directiveSyntax(inspection), sourcePath).toBeUndefined();
       expect(copiedBreakpointAlias(inspection), sourcePath).toBeUndefined();
     }
   });

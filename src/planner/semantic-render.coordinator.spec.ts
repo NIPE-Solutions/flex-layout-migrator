@@ -1,4 +1,4 @@
-import type { PlannedConversion } from '../adapter/conversion-adapter';
+import type { PlannedConversion } from '../render/conversion-renderer';
 import type { LocatedFlexLayoutInput } from '../analyzer/flex-layout-attribute.analyzer';
 import { MigrationApplicationError } from '../migrator/migration-application.error';
 import type { ConversionRenderer } from '../render/conversion-renderer';

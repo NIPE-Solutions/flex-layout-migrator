@@ -1,4 +1,4 @@
-import type { LiteralStyleDeclaration } from '../visibility/literal-style-display';
+import type { LiteralStyleDeclaration } from '../../../semantic/literal-style-declaration';
 import { isByteExactHtmlClassToken } from '../../../edit/html-attribute-value';
 
 const ordinaryProperty = /^-?[a-z][a-z\d-]*$/iu;
