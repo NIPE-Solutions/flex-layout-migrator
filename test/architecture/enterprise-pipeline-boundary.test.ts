@@ -8,6 +8,7 @@ import {
   inspectTypeScript,
   inspectTypeScriptProject,
   inspectRuntimeDependencyClosure,
+  inspectRuntimeSymbolProvenance,
   inspectSemanticAuthorityCalls,
   moduleReferenceContainsPath,
   productionTypeScriptFiles,
@@ -24,9 +25,26 @@ const migratorPath = join(productionRoot, 'migrator', 'migrator.ts');
 const destinationTemplateSourcePath = join(productionRoot, 'migrator', 'destination-template-source.ts');
 const stylesheetPlannerPath = join(productionRoot, 'migrator', 'stylesheet.planner.ts');
 const legacyResponsiveFamilyPlannerPath = join(productionRoot, 'adapter', 'responsive-family.planner.ts');
+const tailwindResponsiveFamilyPlannerSpecPath = join(
+  productionRoot,
+  'adapter',
+  'tailwind',
+  'responsive-family.planner.spec.ts',
+);
+const semanticResponsiveFamilyPlannerSpecPath = join(productionRoot, 'semantic', 'responsive-family.planner.spec.ts');
 const roguePath = join(productionRoot, '__architecture-fixture__', 'rogue.ts');
 const wholeProjectInspectionTimeout = 60_000;
 const productionPaths = productionTypeScriptFiles(productionRoot);
+const adapterPlannerPaths = productionTypeScriptFiles(join(productionRoot, 'adapter')).filter(path =>
+  basename(path).endsWith('.planner.ts'),
+);
+const targetResponsiveRangeOwnerPaths = [
+  'adapter/tailwind/extended/extended-display-composition.planner.ts',
+  'adapter/tailwind/extended/extended-family.planner.ts',
+  'adapter/tailwind/extended/generated-property-composition.planner.ts',
+  'adapter/tailwind/visibility/display-composition.planner.ts',
+  'adapter/tailwind/visibility/visibility-state.planner.ts',
+].map(path => join(productionRoot, path));
 let cachedProductionSemanticAuthorities: ReturnType<typeof inspectSemanticAuthorityCalls> | undefined;
 let cachedRogueProductionSemanticAuthorities: ReturnType<typeof inspectSemanticAuthorityCalls> | undefined;
 let cachedGitIgnoreBarrelAuthorities: ReturnType<typeof inspectSemanticAuthorityCalls> | undefined;
@@ -1185,16 +1203,90 @@ describe('enterprise pipeline dependency boundary', { timeout: wholeProjectInspe
     }
   });
 
-  test('keeps responsive range ownership out of the adapter compatibility planner', () => {
-    const runtimeImports = inspectTypeScript(
-      readFileSync(legacyResponsiveFamilyPlannerPath, 'utf8'),
-      legacyResponsiveFamilyPlannerPath,
-    ).runtimeImports;
+  test('reserves adapter responsive range ownership for target-specific composition planners', () => {
+    const responsiveRangeSymbols = inspectRuntimeSymbolProvenance(adapterPlannerPaths).filter(
+      symbol =>
+        symbol.declarationPath.endsWith('/breakpoint/breakpoint-catalog.ts') &&
+        ['BreakpointCatalog', 'mediaDefinitionsIntersect', 'mediaRangesIntersect'].includes(symbol.symbolName),
+    );
+    const owners = new Map<string, Set<string>>();
+    for (const symbol of responsiveRangeSymbols) {
+      const names = owners.get(symbol.sourcePath) ?? new Set<string>();
+      names.add(symbol.symbolName);
+      owners.set(symbol.sourcePath, names);
+    }
 
-    const importedNames = runtimeImports.map(runtimeImport => runtimeImport.importedName);
-    expect(importedNames).not.toContain('BreakpointCatalog');
-    expect(importedNames).not.toContain('mediaDefinitionsIntersect');
-    expect(importedNames).not.toContain('mediaRangesIntersect');
+    expect(
+      [...owners.entries()]
+        .filter(
+          ([, names]) =>
+            names.has('BreakpointCatalog') &&
+            (names.has('mediaDefinitionsIntersect') || names.has('mediaRangesIntersect')),
+        )
+        .map(([sourcePath]) => sourcePath)
+        .sort(),
+    ).toEqual([...targetResponsiveRangeOwnerPaths].sort());
+  });
+
+  test.each([
+    [
+      'named imports',
+      "import { BreakpointCatalog, mediaDefinitionsIntersect } from '../breakpoint/breakpoint-catalog.js';",
+    ],
+    [
+      'namespace import',
+      "import * as breakpoints from '../breakpoint/breakpoint-catalog.js'; void breakpoints;",
+    ],
+    [
+      're-export alias',
+      "export { BreakpointCatalog as Catalog, mediaRangesIntersect as intersects } from '../breakpoint/breakpoint-catalog.js';",
+    ],
+  ])('detects responsive range ownership through %s', (_label, source) => {
+    const symbols = inspectRuntimeSymbolProvenance(
+      [legacyResponsiveFamilyPlannerPath],
+      new Map([[legacyResponsiveFamilyPlannerPath, source]]),
+    );
+
+    expect(symbols.map(symbol => symbol.symbolName)).toEqual(
+      expect.arrayContaining(['BreakpointCatalog', expect.stringMatching(/^media.*Intersect$/u)]),
+    );
+  });
+
+  test('allows type-only responsive range imports as a negative control', () => {
+    const symbols = inspectRuntimeSymbolProvenance(
+      [legacyResponsiveFamilyPlannerPath],
+      new Map([
+        [
+          legacyResponsiveFamilyPlannerPath,
+          "import type { BreakpointCatalog, mediaDefinitionsIntersect } from '../breakpoint/breakpoint-catalog.js';",
+        ],
+      ]),
+    );
+
+    expect(symbols).toEqual([]);
+  });
+
+  test('keeps target-neutral responsive behavior owned by the semantic planner suite', () => {
+    const semanticCases = [
+      'routes ngClass/class and ngStyle/style as two complete extended families',
+      'converts a base member and a verified responsive override atomically',
+      'converts different utilities in disjoint responsive ranges',
+      'converts identical utilities in overlapping responsive ranges',
+      'preserves the complete family when overlapping ranges emit different utilities',
+      'preserves the complete family when one member is dynamic',
+      'groups fxFlex, fxGrow, and fxShrink as one flex-item family',
+      'groups fxFlexFill and fxFill as one flex-fill family',
+      'retains dynamic-binding diagnostics when responsive context is also unresolved',
+      'closes fxShow and fxHide as one visibility family without replanning their semantics',
+      'retains intrinsic visibility diagnostics when dynamic closure preserves the family',
+    ];
+    const semanticSpec = readFileSync(semanticResponsiveFamilyPlannerSpecPath, 'utf8');
+    const tailwindSpec = readFileSync(tailwindResponsiveFamilyPlannerSpecPath, 'utf8');
+
+    for (const testName of semanticCases) {
+      expect(semanticSpec).toContain(testName);
+      expect(tailwindSpec).not.toContain(testName);
+    }
   });
 
   test('makes Discover the semantic owner of topology and ignore loading', () => {

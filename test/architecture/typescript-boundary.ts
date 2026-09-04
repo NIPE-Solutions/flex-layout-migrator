@@ -198,6 +198,13 @@ export interface RuntimeDependencyFinding {
   readonly dependencyPath: string;
 }
 
+/** A runtime import/export binding resolved to its declared symbol, including aliases and namespaces. */
+export interface RuntimeSymbolProvenance {
+  readonly sourcePath: string;
+  readonly symbolName: string;
+  readonly declarationPath: string;
+}
+
 type FilesystemProvenance = '*' | string;
 const inspectionRootPaths = new WeakMap<ts.Program, ReadonlySet<string>>();
 
@@ -4140,6 +4147,102 @@ export function inspectRuntimeDependencyClosure(
       }
     }
     visit(sourcePath);
+  }
+
+  return findings;
+}
+
+function canonicalRuntimeSymbol(
+  symbol: ts.Symbol,
+  checker: ts.TypeChecker,
+  seenSymbols: ReadonlySet<ts.Symbol> = new Set(),
+): ts.Symbol {
+  if ((symbol.flags & ts.SymbolFlags.Alias) === 0 || seenSymbols.has(symbol)) return symbol;
+  const aliased = checker.getAliasedSymbol(symbol);
+  return aliased === symbol ? symbol : canonicalRuntimeSymbol(aliased, checker, new Set(seenSymbols).add(symbol));
+}
+
+function runtimeSymbolsForBinding(
+  symbol: ts.Symbol,
+  checker: ts.TypeChecker,
+  seenSymbols: ReadonlySet<ts.Symbol> = new Set(),
+): readonly ts.Symbol[] {
+  const canonical = canonicalRuntimeSymbol(symbol, checker, seenSymbols);
+  if (seenSymbols.has(canonical)) return [];
+  const nextSeen = new Set(seenSymbols).add(canonical);
+  if ((canonical.flags & (ts.SymbolFlags.ValueModule | ts.SymbolFlags.NamespaceModule)) === 0) return [canonical];
+  const exports = checker.getExportsOfModule(canonical);
+  if (exports.length === 0) return [canonical];
+  return exports.flatMap(exported => runtimeSymbolsForBinding(exported, checker, nextSeen));
+}
+
+/** Resolves runtime import and re-export bindings through aliases, barrels, and namespace imports. */
+export function inspectRuntimeSymbolProvenance(
+  sourcePaths: readonly string[],
+  sourceOverrides: ReadonlyMap<string, string> = new Map(),
+): readonly RuntimeSymbolProvenance[] {
+  const { checker, program, rootPaths } = createProjectProgram(sourcePaths, sourceOverrides);
+  const findings: RuntimeSymbolProvenance[] = [];
+  const seenFindings = new Set<string>();
+
+  function record(sourcePath: string, symbol: ts.Symbol | undefined): void {
+    if (symbol === undefined) return;
+    for (const resolved of runtimeSymbolsForBinding(symbol, checker)) {
+      const declaration = resolved.valueDeclaration ?? resolved.declarations?.[0];
+      if (declaration === undefined) continue;
+      const finding = {
+        sourcePath,
+        symbolName: resolved.getName(),
+        declarationPath: resolve(declaration.getSourceFile().fileName),
+      };
+      const key = `${finding.sourcePath}\0${finding.symbolName}\0${finding.declarationPath}`;
+      if (seenFindings.has(key)) continue;
+      seenFindings.add(key);
+      findings.push(finding);
+    }
+  }
+
+  function recordModuleExports(sourcePath: string, moduleSpecifier: ts.Expression): void {
+    record(sourcePath, checker.getSymbolAtLocation(moduleSpecifier));
+  }
+
+  for (const sourceFile of program.getSourceFiles()) {
+    const sourcePath = resolve(sourceFile.fileName);
+    if (!rootPaths.has(sourcePath)) continue;
+
+    function visit(node: ts.Node): void {
+      if (ts.isImportDeclaration(node)) {
+        const clause = node.importClause;
+        if (clause === undefined || clause.isTypeOnly) {
+          ts.forEachChild(node, visit);
+          return;
+        }
+        if (clause.name !== undefined) record(sourcePath, checker.getSymbolAtLocation(clause.name));
+        if (clause.namedBindings !== undefined) {
+          if (ts.isNamespaceImport(clause.namedBindings)) {
+            record(sourcePath, checker.getSymbolAtLocation(clause.namedBindings.name));
+          } else {
+            for (const binding of clause.namedBindings.elements) {
+              if (!binding.isTypeOnly) record(sourcePath, checker.getSymbolAtLocation(binding.name));
+            }
+          }
+        }
+      } else if (ts.isExportDeclaration(node) && !node.isTypeOnly) {
+        const exportClause = node.exportClause;
+        if (exportClause === undefined && node.moduleSpecifier !== undefined) {
+          recordModuleExports(sourcePath, node.moduleSpecifier);
+        } else if (exportClause !== undefined && ts.isNamedExports(exportClause)) {
+          for (const binding of exportClause.elements) {
+            if (!binding.isTypeOnly) record(sourcePath, checker.getSymbolAtLocation(binding.name));
+          }
+        }
+      } else if (ts.isImportEqualsDeclaration(node) && !node.isTypeOnly) {
+        record(sourcePath, checker.getSymbolAtLocation(node.name));
+      }
+      ts.forEachChild(node, visit);
+    }
+
+    visit(sourceFile);
   }
 
   return findings;

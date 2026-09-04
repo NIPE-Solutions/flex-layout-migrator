@@ -50,7 +50,7 @@ const responsive = (
 
 interface FixturePlan extends ResponsiveOrchestrationPlan {
   readonly output?: string;
-  readonly code?: 'context-unverified' | 'dynamic-binding' | 'responsive-precedence-unverified';
+  readonly code?: string;
   readonly reason?: string;
   readonly suggestion?: string;
 }
@@ -61,7 +61,7 @@ function converted(input: LocatedFlexLayoutInput, output: string): FixturePlan {
 
 function unresolved(
   input: LocatedFlexLayoutInput,
-  code: NonNullable<FixturePlan['code']>,
+  code: string,
   reason: string,
 ): FixturePlan {
   return { status: 'review', input, code, reason, suggestion: 'migrate manually' };
@@ -71,7 +71,8 @@ const policy: SemanticTargetPolicy<FixturePlan> = {
   emptyPlan: item => converted(item, ''),
   targetEligibility: () => undefined,
   validateActivation: plan => plan,
-  isTargetEligibilityFailure: () => false,
+  isTargetEligibilityFailure: plan =>
+    plan.status !== 'converted' && (plan.code === 'breakpoint-unverified' || plan.code === 'custom-breakpoint'),
   sameOutput: (left, right) => left.status === 'converted' && right.status === 'converted' && left.output === right.output,
   contextUnverified: (item, reason) => unresolved(item, 'context-unverified', reason),
   contextualOutputUnverified: item => unresolved(item, 'context-unverified', 'layout output differs'),
@@ -97,7 +98,7 @@ function planOne(item: LocatedFlexLayoutInput, itemContext: SemanticConversionCo
 describe('ResponsiveFamilyPlanner', () => {
   const planner = new ResponsiveFamilyPlanner(new BreakpointCatalog(), policy);
 
-  test('routes class and style inputs as complete extended families', () => {
+  test('routes ngClass/class and ngStyle/style as two complete extended families', () => {
     const members = [
       responsive('ngClass', 'flex', 'sm'),
       responsive('class', 'card', 'md'),
@@ -120,7 +121,7 @@ describe('ResponsiveFamilyPlanner', () => {
     ]);
   });
 
-  test('converts base and verified responsive members in one family', () => {
+  test('converts a base member and a verified responsive override atomically', () => {
     const plans = planner.plan(
       [literal('fxFlexAlign', 'start'), responsive('fxFlexAlign', 'end', 'sm')],
       context,
@@ -133,7 +134,7 @@ describe('ResponsiveFamilyPlanner', () => {
     ]);
   });
 
-  test('converts different outputs in disjoint responsive ranges', () => {
+  test('converts different utilities in disjoint responsive ranges', () => {
     const plans = planner.plan(
       [responsive('fxFlexAlign', 'start', 'xs'), responsive('fxFlexAlign', 'end', 'sm')],
       context,
@@ -143,7 +144,7 @@ describe('ResponsiveFamilyPlanner', () => {
     expect(plans.every(plan => plan.status === 'converted')).toBe(true);
   });
 
-  test('converts identical outputs in overlapping responsive ranges', () => {
+  test('converts identical utilities in overlapping responsive ranges', () => {
     const plans = planner.plan(
       [responsive('fxFlexAlign', 'center', 'sm'), responsive('fxFlexAlign', 'center', 'gt-xs')],
       context,
@@ -180,7 +181,7 @@ describe('ResponsiveFamilyPlanner', () => {
     ]);
   });
 
-  test('rejects different outputs in overlapping responsive ranges', () => {
+  test('preserves the complete family when overlapping ranges emit different utilities', () => {
     const plans = planner.plan(
       [responsive('fxFlexAlign', 'start', 'sm'), responsive('fxFlexAlign', 'end', 'gt-xs')],
       context,
@@ -192,7 +193,18 @@ describe('ResponsiveFamilyPlanner', () => {
     );
   });
 
-  test('groups fxFlex, fxGrow, and fxShrink into one responsive family', () => {
+  test('preserves the complete family when one member is dynamic', () => {
+    const plans = planner.plan(
+      [literal('fxFlexAlign', 'start'), responsive('fxFlexAlign', 'end', 'sm', 'property')],
+      context,
+      planOne,
+    );
+
+    expect(plans).toEqual(expect.arrayContaining([expect.objectContaining({ code: 'dynamic-binding' })]));
+    expect(plans.every(plan => plan.status !== 'converted')).toBe(true);
+  });
+
+  test('groups fxFlex, fxGrow, and fxShrink as one flex-item family', () => {
     const plans = planner.plan(
       [
         responsive('fxFlex', 'start', 'sm'),
@@ -209,7 +221,7 @@ describe('ResponsiveFamilyPlanner', () => {
     );
   });
 
-  test('groups fxFlexFill and fxFill into one responsive family', () => {
+  test('groups fxFlexFill and fxFill as one flex-fill family', () => {
     const plans = planner.plan(
       [responsive('fxFlexFill', 'start', 'sm'), responsive('fxFill', 'end', 'gt-xs')],
       context,
@@ -222,7 +234,7 @@ describe('ResponsiveFamilyPlanner', () => {
     );
   });
 
-  test('retains dynamic binding diagnostics when responsive layout context is unresolved', () => {
+  test('retains dynamic-binding diagnostics when responsive context is also unresolved', () => {
     const plans = planner.plan(
       [responsive('fxLayout', 'row', 'sm', 'property'), responsive('fxLayoutGap', '4', 'sm', 'property')],
       context,
@@ -244,6 +256,42 @@ describe('ResponsiveFamilyPlanner', () => {
 
     expect(plans).toEqual([
       expect.objectContaining({ status: 'review', code: 'context-unverified' }),
+      expect.objectContaining({ status: 'review', code: 'dynamic-binding' }),
+    ]);
+  });
+
+  test('closes fxShow and fxHide as one visibility family without replanning their semantics', () => {
+    const show = literal('fxShow', '');
+    const hide = responsive('fxHide', '', 'sm');
+    const plans = planner.closeDependencies([show, hide], context, item =>
+      item.id === show.id
+        ? unresolved(item, 'class-conflict', 'conflict')
+        : converted(item, 'hidden'),
+    );
+
+    expect(plans).toEqual([
+      expect.objectContaining({ status: 'review', code: 'class-conflict' }),
+      expect.objectContaining({ status: 'review', code: 'context-unverified' }),
+    ]);
+  });
+
+  test('retains intrinsic visibility diagnostics when dynamic closure preserves the family', () => {
+    const optional = responsive('fxShow', '', 'handset');
+    const custom = responsive('fxHide', '', 'cinema');
+    const dynamic = responsive('fxShow', 'visible', 'sm', 'property');
+    const existing = new Map<string, FixturePlan>([
+      [optional.id, unresolved(optional, 'breakpoint-unverified', 'optional breakpoint')],
+      [custom.id, unresolved(custom, 'custom-breakpoint', 'custom breakpoint')],
+      [dynamic.id, unresolved(dynamic, 'dynamic-binding', 'dynamic binding')],
+    ]);
+
+    const plans = planner.closeDependencies([optional, custom, dynamic], context, item =>
+      existing.get(item.id) ?? planOne(item, context),
+    );
+
+    expect(plans).toEqual([
+      expect.objectContaining({ status: 'review', code: 'breakpoint-unverified' }),
+      expect.objectContaining({ status: 'review', code: 'custom-breakpoint' }),
       expect.objectContaining({ status: 'review', code: 'dynamic-binding' }),
     ]);
   });
