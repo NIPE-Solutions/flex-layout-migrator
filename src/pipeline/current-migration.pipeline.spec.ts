@@ -1,6 +1,5 @@
 import { readdir } from 'node:fs/promises';
 import * as path from 'node:path';
-import { AdapterFactory } from '../adapter/adapter.factory';
 import { MigrationApplicationError } from '../migrator/migration-application.error';
 import { Migrator } from '../migrator/migrator';
 import type { MigrationOptions } from '../migrator/migrator';
@@ -10,13 +9,13 @@ import { analyzedProject } from './analyzed-project';
 import { CurrentMigrationPipeline, type MigratorFactory } from './current-migration.pipeline';
 import type { DiscoveryFileSystem } from './discover/discovery-file-system.port';
 import { DiscoverProjectStage } from './discover/discover-project.stage';
-import type { AnalyzeStage, DiscoverStage } from './migration-pipeline';
+import type { AnalyzeStage, DiscoverStage, RenderStage } from './migration-pipeline';
 import { migrationInvocation, projectManifest } from './project-manifest';
+import { renderedProject, type RenderedProject } from './rendered-project';
 
 describe('CurrentMigrationPipeline', () => {
-  test('runs discovery and analysis once before migrating the exact analyzed handoff', async () => {
+  test('runs discover, analyze, render, then the rendered continuation exactly once', async () => {
     const events: string[] = [];
-    const session = AdapterFactory.createSession('tailwind');
     const callerOptions: MigrationOptions = {
       mode: 'write',
       responsiveImages: true,
@@ -30,6 +29,7 @@ describe('CurrentMigrationPipeline', () => {
     });
     const manifest = projectManifest({ invocation, templates: [] });
     const analyzed = analyzedProject({ manifest, templates: [] });
+    const rendered = tailwindRendered(analyzed);
     const expectedReport = report('delegated');
     const migrate = vi.fn((options?: MigrationOptions) => {
       events.push('migrate');
@@ -50,23 +50,33 @@ describe('CurrentMigrationPipeline', () => {
         return analyzed;
       }),
     };
-    const createMigrator = vi.fn<MigratorFactory>((receivedSession, receivedAnalyzed) => {
-      events.push('create-migrator');
-      expect(receivedSession).toBe(session);
-      expect(receivedAnalyzed).toBe(analyzed);
+    const render: RenderStage = {
+      run: vi.fn(async received => {
+        events.push('render');
+        expect(received).toBe(analyzed);
+        return rendered;
+      }),
+    };
+    let receivedRendered: RenderedProject | undefined;
+    const createMigrator = vi.fn<MigratorFactory>(received => {
+      events.push('create-continuation');
+      receivedRendered = received;
       return { migrate };
     });
 
-    const actualReport = await new CurrentMigrationPipeline(session, discover, analyze, createMigrator).run(invocation);
+    const actualReport = await new CurrentMigrationPipeline(render, discover, analyze, createMigrator).run(invocation);
 
     expect(actualReport).toBe(expectedReport);
-    expect(events).toEqual(['discover', 'analyze', 'create-migrator', 'migrate']);
+    expect(events).toEqual(['discover', 'analyze', 'render', 'create-continuation', 'migrate']);
+    expect(receivedRendered).toBe(rendered);
     expect(discover.run).toHaveBeenCalledOnce();
     expect(discover.run).toHaveBeenCalledWith(invocation);
     expect(analyze.run).toHaveBeenCalledOnce();
     expect(analyze.run).toHaveBeenCalledWith(manifest);
+    expect(render.run).toHaveBeenCalledOnce();
+    expect(render.run).toHaveBeenCalledWith(analyzed);
     expect(createMigrator).toHaveBeenCalledOnce();
-    expect(createMigrator).toHaveBeenCalledWith(session, analyzed);
+    expect(createMigrator).toHaveBeenCalledWith(rendered);
     expect(migrate).toHaveBeenCalledOnce();
     expect(migrate).toHaveBeenCalledWith(invocation.options, {
       mapDestinationReadError: expect.any(Function),
@@ -79,8 +89,7 @@ describe('CurrentMigrationPipeline', () => {
     expect(invocation.canonicalOutputPath).toBe(path.resolve('output.html'));
   });
 
-  test('constructs a fresh analyzed continuation whenever the same invocation runs again', async () => {
-    const session = AdapterFactory.createSession('tailwind');
+  test('constructs a fresh rendered continuation whenever the same invocation runs again', async () => {
     const invocation = migrationInvocation({
       inputPath: 'input.html',
       outputPath: 'output.html',
@@ -88,9 +97,11 @@ describe('CurrentMigrationPipeline', () => {
     });
     const manifest = projectManifest({ invocation, templates: [] });
     const analyzed = analyzedProject({ manifest, templates: [] });
+    const rendered = tailwindRendered(analyzed);
     const reports = [report('first'), report('second')];
     const discover: DiscoverStage = { run: vi.fn(async () => manifest) };
     const analyze: AnalyzeStage = { run: vi.fn(async () => analyzed) };
+    const render: RenderStage = { run: vi.fn(async () => rendered) };
     let factoryCalls = 0;
     const createMigrator = vi.fn<MigratorFactory>(() => {
       const expectedReport = reports[factoryCalls];
@@ -98,13 +109,14 @@ describe('CurrentMigrationPipeline', () => {
       if (expectedReport === undefined) throw new Error('Unexpected migrator construction.');
       return { migrate: vi.fn(async () => expectedReport) };
     });
-    const pipeline = new CurrentMigrationPipeline(session, discover, analyze, createMigrator);
+    const pipeline = new CurrentMigrationPipeline(render, discover, analyze, createMigrator);
 
     const first = await pipeline.run(invocation);
     const second = await pipeline.run(invocation);
 
     expect(discover.run).toHaveBeenCalledTimes(2);
     expect(analyze.run).toHaveBeenCalledTimes(2);
+    expect(render.run).toHaveBeenCalledTimes(2);
     expect(createMigrator).toHaveBeenCalledTimes(2);
     expect(first).toBe(reports[0]);
     expect(second).toBe(reports[1]);
@@ -119,7 +131,6 @@ describe('CurrentMigrationPipeline', () => {
       events.push(`clock:${value}`);
       return value;
     });
-    const session = AdapterFactory.createSession('tailwind');
     const invocation = migrationInvocation({
       inputPath: 'input.html',
       outputPath: 'output.html',
@@ -127,6 +138,7 @@ describe('CurrentMigrationPipeline', () => {
     });
     const manifest = projectManifest({ invocation, templates: [] });
     const analyzed = analyzedProject({ manifest, templates: [] });
+    const rendered = tailwindRendered(analyzed);
     const discover: DiscoverStage = {
       run: vi.fn(async () => {
         events.push('discover');
@@ -139,9 +151,15 @@ describe('CurrentMigrationPipeline', () => {
         return analyzed;
       }),
     };
-    const createMigrator = vi.fn<MigratorFactory>((receivedSession, receivedAnalyzed) => {
-      events.push('create-migrator');
-      const migrator = new Migrator(receivedSession, receivedAnalyzed, () => {
+    const render: RenderStage = {
+      run: vi.fn(async () => {
+        events.push('render');
+        return rendered;
+      }),
+    };
+    const createMigrator = vi.fn<MigratorFactory>(receivedRendered => {
+      events.push('create-continuation');
+      const migrator = new Migrator(receivedRendered, () => {
         throw new Error('Pipeline timing must replace the continuation-only clock.');
       });
       return {
@@ -154,12 +172,21 @@ describe('CurrentMigrationPipeline', () => {
       };
     });
 
-    const actualReport = await new CurrentMigrationPipeline(session, discover, analyze, createMigrator, now).run(
+    const actualReport = await new CurrentMigrationPipeline(render, discover, analyze, createMigrator, now).run(
       invocation,
     );
 
     expect(actualReport.durationMs).toBe(375);
-    expect(events).toEqual(['clock:1000', 'discover', 'analyze', 'create-migrator', 'migrate', 'clock:1375', 'report']);
+    expect(events).toEqual([
+      'clock:1000',
+      'discover',
+      'analyze',
+      'render',
+      'create-continuation',
+      'migrate',
+      'clock:1375',
+      'report',
+    ]);
     expect(now).toHaveBeenCalledTimes(2);
   });
 
@@ -172,15 +199,15 @@ describe('CurrentMigrationPipeline', () => {
     });
     const discover: DiscoverStage = { run: vi.fn(async () => Promise.reject(error)) };
     const analyze: AnalyzeStage = { run: vi.fn() };
+    const render: RenderStage = { run: vi.fn() };
     const createMigrator = vi.fn<MigratorFactory>();
 
-    await expect(
-      new CurrentMigrationPipeline(AdapterFactory.createSession('tailwind'), discover, analyze, createMigrator).run(
-        invocation,
-      ),
-    ).rejects.toBe(error);
+    await expect(new CurrentMigrationPipeline(render, discover, analyze, createMigrator).run(invocation)).rejects.toBe(
+      error,
+    );
 
     expect(analyze.run).not.toHaveBeenCalled();
+    expect(render.run).not.toHaveBeenCalled();
     expect(createMigrator).not.toHaveBeenCalled();
   });
 
@@ -194,16 +221,47 @@ describe('CurrentMigrationPipeline', () => {
     const manifest = projectManifest({ invocation, templates: [] });
     const discover: DiscoverStage = { run: vi.fn(async () => manifest) };
     const analyze: AnalyzeStage = { run: vi.fn(async () => Promise.reject(error)) };
+    const render: RenderStage = { run: vi.fn() };
     const createMigrator = vi.fn<MigratorFactory>();
 
-    await expect(
-      new CurrentMigrationPipeline(AdapterFactory.createSession('tailwind'), discover, analyze, createMigrator).run(
-        invocation,
-      ),
-    ).rejects.toBe(error);
+    await expect(new CurrentMigrationPipeline(render, discover, analyze, createMigrator).run(invocation)).rejects.toBe(
+      error,
+    );
 
     expect(discover.run).toHaveBeenCalledOnce();
     expect(analyze.run).toHaveBeenCalledOnce();
+    expect(render.run).not.toHaveBeenCalled();
+    expect(createMigrator).not.toHaveBeenCalled();
+  });
+
+  test('preserves a raw relative descendant path when rendering rejects before continuation creation', async () => {
+    const rawInputPath = 'relative-fixtures/input';
+    const invocation = migrationInvocation({
+      inputPath: rawInputPath,
+      outputPath: 'relative-fixtures/output',
+      options: { mode: 'plan' },
+    });
+    const manifest = projectManifest({ invocation, templates: [] });
+    const analyzed = analyzedProject({ manifest, templates: [] });
+    const canonicalPath = path.join(invocation.canonicalInputPath, 'nested', 'card.html');
+    const error = Object.assign(new Error(`EACCES: permission denied, open '${canonicalPath}'`), {
+      code: 'EACCES',
+      path: canonicalPath,
+    });
+    const discover: DiscoverStage = { run: vi.fn(async () => manifest) };
+    const analyze: AnalyzeStage = { run: vi.fn(async () => analyzed) };
+    const render: RenderStage = { run: vi.fn(async () => Promise.reject(error)) };
+    const createMigrator = vi.fn<MigratorFactory>();
+
+    const rejected = await rejectedNodeIoError(
+      new CurrentMigrationPipeline(render, discover, analyze, createMigrator).run(invocation),
+    );
+
+    expect(rejected).toBe(error);
+    expect(rejected.message).toBe(
+      `EACCES: permission denied, open '${path.join(rawInputPath, 'nested', 'card.html')}'`,
+    );
+    expect(rejected.path).toBe(path.join(rawInputPath, 'nested', 'card.html'));
     expect(createMigrator).not.toHaveBeenCalled();
   });
 
@@ -216,19 +274,20 @@ describe('CurrentMigrationPipeline', () => {
     });
     const manifest = projectManifest({ invocation, templates: [] });
     const analyzed = analyzedProject({ manifest, templates: [] });
+    const rendered = tailwindRendered(analyzed);
     const discover: DiscoverStage = { run: vi.fn(async () => manifest) };
     const analyze: AnalyzeStage = { run: vi.fn(async () => analyzed) };
+    const render: RenderStage = { run: vi.fn(async () => rendered) };
     const migrate = vi.fn(async () => Promise.reject(error));
     const createMigrator = vi.fn<MigratorFactory>(() => ({ migrate }));
 
-    await expect(
-      new CurrentMigrationPipeline(AdapterFactory.createSession('tailwind'), discover, analyze, createMigrator).run(
-        invocation,
-      ),
-    ).rejects.toBe(error);
+    await expect(new CurrentMigrationPipeline(render, discover, analyze, createMigrator).run(invocation)).rejects.toBe(
+      error,
+    );
 
     expect(discover.run).toHaveBeenCalledOnce();
     expect(analyze.run).toHaveBeenCalledOnce();
+    expect(render.run).toHaveBeenCalledOnce();
     expect(createMigrator).toHaveBeenCalledOnce();
     expect(migrate).toHaveBeenCalledOnce();
     expect(migrate).toHaveBeenCalledWith(invocation.options, {
@@ -257,12 +316,11 @@ describe('CurrentMigrationPipeline', () => {
     };
     const discover = new DiscoverProjectStage(fileSystem, ignoreMatchers);
     const analyze: AnalyzeStage = { run: vi.fn() };
+    const render: RenderStage = { run: vi.fn() };
     const createMigrator = vi.fn<MigratorFactory>();
 
     const error = await rejectedNodeIoError(
-      new CurrentMigrationPipeline(AdapterFactory.createSession('tailwind'), discover, analyze, createMigrator).run(
-        invocation,
-      ),
+      new CurrentMigrationPipeline(render, discover, analyze, createMigrator).run(invocation),
     );
 
     expect(error.message).toBe(`ENOENT: no such file or directory, scandir '${rawInputPath}'`);
@@ -272,6 +330,7 @@ describe('CurrentMigrationPipeline', () => {
     expect(ignoreMatchers.load).toHaveBeenCalledWith(invocation.canonicalInputPath, invocation.inputPath);
     expect(fileSystem.entries).toHaveBeenCalledWith(invocation.canonicalInputPath);
     expect(analyze.run).not.toHaveBeenCalled();
+    expect(render.run).not.toHaveBeenCalled();
     expect(createMigrator).not.toHaveBeenCalled();
   });
 
@@ -294,18 +353,18 @@ describe('CurrentMigrationPipeline', () => {
     });
     const discover: DiscoverStage = { run: vi.fn(async () => manifest) };
     const analyze = new AnalyzeProjectStage();
+    const render: RenderStage = { run: vi.fn() };
     const createMigrator = vi.fn<MigratorFactory>();
 
     const error = await rejectedNodeIoError(
-      new CurrentMigrationPipeline(AdapterFactory.createSession('tailwind'), discover, analyze, createMigrator).run(
-        invocation,
-      ),
+      new CurrentMigrationPipeline(render, discover, analyze, createMigrator).run(invocation),
     );
 
     expect(error.message).toBe(`ENOENT: no such file or directory, open '${rawTemplatePath}'`);
     expect(error.path).toBe(rawTemplatePath);
     expect(error.code).toBe('ENOENT');
     expect(discover.run).toHaveBeenCalledWith(invocation);
+    expect(render.run).not.toHaveBeenCalled();
     expect(createMigrator).not.toHaveBeenCalled();
   });
 
@@ -319,8 +378,10 @@ describe('CurrentMigrationPipeline', () => {
       });
       const manifest = projectManifest({ invocation, templates: [] });
       const analyzed = analyzedProject({ manifest, templates: [] });
+      const rendered = tailwindRendered(analyzed);
       const discover: DiscoverStage = { run: vi.fn(async () => manifest) };
       const analyze: AnalyzeStage = { run: vi.fn(async () => analyzed) };
+      const render: RenderStage = { run: vi.fn(async () => rendered) };
       const cause = new Error(`${phase} cause`);
       const source =
         phase === 'stylesheet read'
@@ -344,9 +405,7 @@ describe('CurrentMigrationPipeline', () => {
       }));
 
       const rejected = await rejectedNodeIoError(
-        new CurrentMigrationPipeline(AdapterFactory.createSession('tailwind'), discover, analyze, createMigrator).run(
-          invocation,
-        ),
+        new CurrentMigrationPipeline(render, discover, analyze, createMigrator).run(invocation),
       );
 
       expect(rejected).toBe(error);
@@ -368,8 +427,10 @@ describe('CurrentMigrationPipeline', () => {
     });
     const manifest = projectManifest({ invocation, templates: [] });
     const analyzed = analyzedProject({ manifest, templates: [] });
+    const rendered = tailwindRendered(analyzed);
     const discover: DiscoverStage = { run: vi.fn(async () => manifest) };
     const analyze: AnalyzeStage = { run: vi.fn(async () => analyzed) };
+    const render: RenderStage = { run: vi.fn(async () => rendered) };
     const collision = path.join(invocation.canonicalOutputPath, 'nested', 'card.html');
     const cause = new Error('validation cause');
     const error = new MigrationApplicationError(
@@ -382,11 +443,9 @@ describe('CurrentMigrationPipeline', () => {
       migrate: vi.fn(async () => Promise.reject(error)),
     }));
 
-    await expect(
-      new CurrentMigrationPipeline(AdapterFactory.createSession('tailwind'), discover, analyze, createMigrator).run(
-        invocation,
-      ),
-    ).rejects.toBe(error);
+    await expect(new CurrentMigrationPipeline(render, discover, analyze, createMigrator).run(invocation)).rejects.toBe(
+      error,
+    );
 
     expect(error.message).toBe(`Migration paths collide: ${collision}`);
     expect(error.paths).toEqual([collision]);
@@ -414,14 +473,10 @@ describe('CurrentMigrationPipeline', () => {
     const message = `EACCES: permission denied, stat '${fixture.errorPath}'`;
     const error = Object.assign(new Error(message), { code: 'EACCES', path: fixture.errorPath });
     const discover: DiscoverStage = { run: vi.fn(async () => Promise.reject(error)) };
+    const render: RenderStage = { run: vi.fn() };
 
     const rejected = await rejectedNodeIoError(
-      new CurrentMigrationPipeline(
-        AdapterFactory.createSession('tailwind'),
-        discover,
-        { run: vi.fn() },
-        vi.fn<MigratorFactory>(),
-      ).run(invocation),
+      new CurrentMigrationPipeline(render, discover, { run: vi.fn() }, vi.fn<MigratorFactory>()).run(invocation),
     );
 
     expect(rejected).toBe(error);
@@ -460,4 +515,8 @@ function report(input: string): MigrationReport {
     },
     files: [],
   };
+}
+
+function tailwindRendered(analyzed: ReturnType<typeof analyzedProject>): RenderedProject {
+  return renderedProject({ analyzed, files: [], session: { target: 'tailwind' } });
 }

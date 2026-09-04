@@ -7,10 +7,11 @@ import { AnalyzeProjectStage } from '../pipeline/analyze/analyze-project.stage';
 import { DiscoverProjectStage } from '../pipeline/discover/discover-project.stage';
 import { CurrentMigrationPipeline, type MigratorFactory } from '../pipeline/current-migration.pipeline';
 import { migrationInvocation } from '../pipeline/project-manifest';
+import { DefaultCompatibilityEditValidator } from '../pipeline/render/compatibility-edit.validator';
+import { RenderProjectStage, type RenderTemplatePlanner } from '../pipeline/render/render-project.stage';
 import { ConversionPlanner } from '../planner/conversion-planner';
 import { AngularTemplateParser } from '../template/angular-template.parser';
 import type { MigrationTransaction } from '../transaction/migration-transaction';
-import { AnalyzedFileMigrator } from './analyzed-file.migrator';
 import { Migrator, type MigratorDependencies } from './migrator';
 
 describe('production analyzed-file handoff', () => {
@@ -68,36 +69,29 @@ describe('production analyzed-file handoff', () => {
     const dependencies: MigratorDependencies = {
       destinationTemplates,
       referenceParser: parser,
-      createFileMigrator(adapter, template, receivedDestinationTemplates) {
-        return new AnalyzedFileMigrator(
-          adapter,
-          template,
-          {
-            validationParser: {
-              parse(contents, fileName) {
-                validationParses.push(fileName);
-                return parser.parse(contents, fileName);
-              },
-            },
-            planner: {
-              plan(...arguments_) {
-                renderedSources.push(arguments_[0]);
-                return planner.plan(...arguments_);
-              },
-            },
-          },
-          receivedDestinationTemplates,
-        );
+    };
+    const templatePlanner: RenderTemplatePlanner = {
+      plan(template, renderer, options) {
+        renderedSources.push(template.source);
+        return planner.plan(template.source, template.parseResult.elements, template.inputs, renderer, options);
       },
     };
+    const validator = new DefaultCompatibilityEditValidator(
+      {
+        parse(contents, fileName) {
+          validationParses.push(fileName);
+          return parser.parse(contents, fileName);
+        },
+      },
+      destinationTemplates,
+    );
+    const render = new RenderProjectStage(session, templatePlanner, validator);
     const transaction = transactionDouble();
-    const createMigrator: MigratorFactory = (receivedSession, analyzed) => {
-      expect(receivedSession).toBe(session);
-      return new Migrator(receivedSession, analyzed, () => 0, transaction, undefined, dependencies);
-    };
+    const createMigrator: MigratorFactory = rendered =>
+      new Migrator(rendered, () => 0, transaction, undefined, dependencies);
     const invocation = migrationInvocation({ inputPath, outputPath, options: { mode: 'plan' } });
 
-    const report = await new CurrentMigrationPipeline(session, new DiscoverProjectStage(), analyze, createMigrator).run(
+    const report = await new CurrentMigrationPipeline(render, new DiscoverProjectStage(), analyze, createMigrator).run(
       invocation,
     );
 

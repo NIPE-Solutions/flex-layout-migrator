@@ -1,27 +1,28 @@
-import type { ConversionAdapterSession } from '../adapter/conversion-adapter.session';
 import { Migrator } from '../migrator/migrator';
+import type { MigrationExecutionContext, MigrationOptions } from '../migrator/migrator';
 import type { MigrationReport } from '../report/migration-report';
 import { AnalyzeProjectStage } from './analyze/analyze-project.stage';
-import type { AnalyzedProject } from './analyzed-project';
 import { DiscoverProjectStage } from './discover/discover-project.stage';
 import { remapInvocationErrorPaths } from './invocation-error-path.mapper';
-import type { AnalyzeStage, DiscoverStage } from './migration-pipeline';
+import type { AnalyzeStage, DiscoverStage, RenderStage } from './migration-pipeline';
 import type { MigrationInvocation } from './project-manifest';
+import type { RenderedProject } from './rendered-project';
 
 export interface MigrationRunner {
   run(invocation: MigrationInvocation): Promise<MigrationReport>;
 }
 
-export type MigratorFactory = (
-  session: ConversionAdapterSession,
-  analyzed: AnalyzedProject,
-) => Pick<Migrator, 'migrate'>;
+export interface RenderedMigrationContinuation {
+  migrate(options?: MigrationOptions, execution?: MigrationExecutionContext): Promise<MigrationReport>;
+}
 
-const defaultMigratorFactory: MigratorFactory = (session, analyzed) => new Migrator(session, analyzed);
+export type MigratorFactory = (rendered: RenderedProject) => RenderedMigrationContinuation;
+
+const defaultMigratorFactory: MigratorFactory = rendered => new Migrator(rendered);
 
 export class CurrentMigrationPipeline implements MigrationRunner {
   constructor(
-    private readonly session: ConversionAdapterSession,
+    private readonly render: RenderStage,
     private readonly discover: DiscoverStage = new DiscoverProjectStage(),
     private readonly analyze: AnalyzeStage = new AnalyzeProjectStage(),
     private readonly createMigrator: MigratorFactory = defaultMigratorFactory,
@@ -32,7 +33,8 @@ export class CurrentMigrationPipeline implements MigrationRunner {
     const startedAt = this.now();
     const manifest = await withInvocationPathCompatibility(() => this.discover.run(invocation), invocation);
     const analyzed = await withInvocationPathCompatibility(() => this.analyze.run(manifest), invocation);
-    return this.createMigrator(this.session, analyzed).migrate(invocation.options, {
+    const rendered = await withInvocationPathCompatibility(() => this.render.run(analyzed), invocation);
+    return this.createMigrator(rendered).migrate(invocation.options, {
       mapDestinationReadError: error => remapInvocationErrorPaths(error, invocation),
       now: this.now,
       startedAt,

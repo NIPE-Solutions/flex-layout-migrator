@@ -5,9 +5,10 @@ import { AdapterFactory } from '../adapter/adapter.factory';
 import { AnalyzeProjectStage } from '../pipeline/analyze/analyze-project.stage';
 import { DiscoverProjectStage } from '../pipeline/discover/discover-project.stage';
 import { migrationInvocation } from '../pipeline/project-manifest';
+import { RenderProjectStage, type RenderTemplatePlanner } from '../pipeline/render/render-project.stage';
+import { ConversionPlanner } from '../planner/conversion-planner';
 import { AngularTemplateParser } from '../template/angular-template.parser';
 import type { MigrationTransaction } from '../transaction/migration-transaction';
-import { AnalyzedFileMigrator } from './analyzed-file.migrator';
 import { Migrator, type MigratorDependencies } from './migrator';
 
 describe('folder analyzed-project continuation', () => {
@@ -38,18 +39,23 @@ describe('folder analyzed-project continuation', () => {
     const manifest = await new DiscoverProjectStage().run(invocation);
     const analyzed = await new AnalyzeProjectStage().run(manifest);
     const renderedPaths: string[] = [];
-    const dependencies = continuationDependencies((adapter, template) => {
-      renderedPaths.push(template.file.inputPath);
-      return new AnalyzedFileMigrator(adapter, template);
-    });
+    const planner = new ConversionPlanner();
+    const templatePlanner: RenderTemplatePlanner = {
+      plan(template, renderer, options) {
+        renderedPaths.push(template.file.inputPath);
+        return planner.plan(template.source, template.parseResult.elements, template.inputs, renderer, options);
+      },
+    };
+    const rendered = await new RenderProjectStage(AdapterFactory.createSession('tailwind'), templatePlanner).run(
+      analyzed,
+    );
 
     const report = await new Migrator(
-      AdapterFactory.createSession('tailwind'),
-      analyzed,
+      rendered,
       () => 0,
       transactionDouble(),
       undefined,
-      dependencies,
+      continuationDependencies(),
     ).migrate({ mode: 'plan' });
 
     expect(manifest.templates.map(template => template.inputPath)).toEqual([
@@ -75,15 +81,11 @@ describe('folder analyzed-project continuation', () => {
     const manifest = await new DiscoverProjectStage().run(invocation);
     const analyzed = await new AnalyzeProjectStage().run(manifest);
     const transaction = transactionDouble();
+    const rendered = await new RenderProjectStage(AdapterFactory.createSession('tailwind')).run(analyzed);
 
-    const report = await new Migrator(
-      AdapterFactory.createSession('tailwind'),
-      analyzed,
-      () => 0,
-      transaction,
-      undefined,
-      continuationDependencies((adapter, template) => new AnalyzedFileMigrator(adapter, template)),
-    ).migrate({ mode: 'write' });
+    const report = await new Migrator(rendered, () => 0, transaction, undefined, continuationDependencies()).migrate({
+      mode: 'write',
+    });
 
     expect(report).toMatchObject({
       application: { status: 'skipped', reason: 'parse-errors' },
@@ -95,13 +97,10 @@ describe('folder analyzed-project continuation', () => {
   });
 });
 
-function continuationDependencies(
-  createFileMigrator: MigratorDependencies['createFileMigrator'],
-): MigratorDependencies {
+function continuationDependencies(): MigratorDependencies {
   return {
     destinationTemplates: { read: filePath => readFile(filePath, 'utf8') },
     referenceParser: new AngularTemplateParser(),
-    createFileMigrator,
   };
 }
 

@@ -2,18 +2,20 @@ import { lstat, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { AdapterFactory } from '../../src/adapter/adapter.factory';
-import type { ConversionAdapterSession } from '../../src/adapter/conversion-adapter.session';
 import { TemplateAnalyzer } from '../../src/analyzer/template.analyzer';
 import { ConversionPlanner } from '../../src/planner/conversion-planner';
-import { AnalyzedFileMigrator, type AnalyzedFileMigratorDependencies } from '../../src/migrator/analyzed-file.migrator';
 import { Migrator, type MigratorDependencies } from '../../src/migrator/migrator';
 import type { MigrationMode } from '../../src/migrator/migration-mode';
 import { StylesheetPlanner } from '../../src/migrator/stylesheet.planner';
 import { AnalyzeProjectStage } from '../../src/pipeline/analyze/analyze-project.stage';
 import { DiscoverProjectStage } from '../../src/pipeline/discover/discover-project.stage';
 import { CurrentMigrationPipeline, type MigratorFactory } from '../../src/pipeline/current-migration.pipeline';
-import type { AnalyzeStage, DiscoverStage } from '../../src/pipeline/migration-pipeline';
+import type { AnalyzeStage, DiscoverStage, RenderStage } from '../../src/pipeline/migration-pipeline';
 import { migrationInvocation } from '../../src/pipeline/project-manifest';
+import { DefaultCompatibilityEditValidator } from '../../src/pipeline/render/compatibility-edit.validator';
+import { RenderProjectStage, type RenderTemplatePlanner } from '../../src/pipeline/render/render-project.stage';
+import type { ConversionRenderer } from '../../src/render/conversion-renderer';
+import type { RenderSession } from '../../src/render/render-session';
 import { AngularTemplateParser } from '../../src/template/angular-template.parser';
 import type { MigrationTransaction } from '../../src/transaction/migration-transaction';
 
@@ -38,6 +40,11 @@ interface MigrationWorkloadEvidence {
   readonly originalReadPaths: string[];
   readonly referenceParsePaths: string[];
   readonly validationParsePaths: string[];
+  convertedFamilies: number;
+  parsedTemplates: number;
+  semanticPlanningPasses: number;
+  targetRenders: number;
+  targetSessionFinalizations: number;
 }
 
 const workloadEvidence = new WeakMap<MigrationWorkloadCounts, MigrationWorkloadEvidence>();
@@ -202,6 +209,7 @@ describe('migration workload counters', () => {
     expect(evidence.analyzedPaths).toEqual([]);
     expect(evidence.changedTemplatePaths).toEqual([]);
     expect(evidence.validationParsePaths).toEqual([]);
+    expectRenderOwnership(counts);
   });
 
   test('does not validation-reparse an unchanged template proposal', async () => {
@@ -219,7 +227,7 @@ describe('migration workload counters', () => {
 });
 
 async function executeSingleFile(
-  session: ConversionAdapterSession,
+  session: RenderSession,
   input: string,
   output: string,
   mode: 'plan' | 'write',
@@ -239,7 +247,7 @@ async function executeFolderCss(
 }
 
 async function executeMigration(
-  session: ConversionAdapterSession,
+  session: RenderSession,
   input: string,
   output: string,
   mode: MigrationMode,
@@ -256,10 +264,11 @@ async function executeMigration(
   });
   const discover = countingDiscoverStage(counts);
   const analyze = countingAnalyzeStage(counts);
+  const render = countingRenderStage(session, counts);
   const dependencies = countingMigratorDependencies(counts);
-  const createMigrator: MigratorFactory = (receivedSession, analyzed) =>
-    new Migrator(receivedSession, analyzed, () => 0, transaction, stylesheetPlanner, dependencies);
-  await new CurrentMigrationPipeline(session, discover, analyze, createMigrator).run(
+  const createMigrator: MigratorFactory = rendered =>
+    new Migrator(rendered, () => 0, transaction, stylesheetPlanner, dependencies);
+  await new CurrentMigrationPipeline(render, discover, analyze, createMigrator).run(
     migrationInvocation({
       inputPath: input,
       outputPath: output,
@@ -325,43 +334,68 @@ function countingMigratorDependencies(counts: MigrationWorkloadCounts): Migrator
         return referenceParser.parse(source, fileName);
       },
     },
-    createFileMigrator: (adapter, template, destinationTemplates) => {
-      const migrator = new AnalyzedFileMigrator(
-        adapter,
-        template,
-        countingFileDependencies(counts),
-        destinationTemplates,
+  };
+}
+
+function countingRenderStage(session: RenderSession, counts: MigrationWorkloadCounts): RenderStage {
+  const parser = new AngularTemplateParser();
+  const planner = new ConversionPlanner();
+  const evidence = evidenceFor(counts);
+  const destinationTemplates = {
+    async read(target: string) {
+      const contents = await readFile(target, 'utf8');
+      evidence.destinationReadPaths.push(target);
+      return contents;
+    },
+  };
+  const validator = new DefaultCompatibilityEditValidator(
+    {
+      parse: (source, fileName) => {
+        counts.validationParses++;
+        evidence.validationParsePaths.push(fileName);
+        return parser.parse(source, fileName);
+      },
+    },
+    destinationTemplates,
+  );
+  const templatePlanner: RenderTemplatePlanner = {
+    plan(template, renderer, options) {
+      evidence.semanticPlanningPasses++;
+      counts.renderedTemplates++;
+      return planner.plan(template.source, template.parseResult.elements, template.inputs, renderer, options);
+    },
+  };
+  const countedSession: RenderSession = {
+    renderer: countingRenderer(session.renderer, () => evidence.targetRenders++),
+    finalize() {
+      evidence.targetSessionFinalizations++;
+      return session.finalize();
+    },
+  };
+  const render = new RenderProjectStage(countedSession, templatePlanner, validator);
+  return {
+    async run(analyzed) {
+      evidence.parsedTemplates += analyzed.templates.filter(template => template.status === 'parsed').length;
+      const rendered = await render.run(analyzed);
+      evidence.convertedFamilies += rendered.files
+        .flatMap(file => file.file.results)
+        .filter(result => result.status === 'converted').length;
+      evidence.changedTemplatePaths.push(
+        ...rendered.files.filter(file => file.file.changed).map(file => file.file.outputPath),
       );
-      return {
-        async plan(options) {
-          const plan = await migrator.plan(options);
-          if (plan.file.changed) evidenceFor(counts).changedTemplatePaths.push(plan.file.outputPath);
-          return plan;
-        },
-      };
+      return rendered;
     },
   };
 }
 
-function countingFileDependencies(counts: MigrationWorkloadCounts): AnalyzedFileMigratorDependencies {
-  const parser = new AngularTemplateParser();
-  const planner = new ConversionPlanner();
-
-  return {
-    validationParser: {
-      parse: (source, fileName) => {
-        counts.validationParses++;
-        evidenceFor(counts).validationParsePaths.push(fileName);
-        return parser.parse(source, fileName);
-      },
+function countingRenderer(renderer: ConversionRenderer, onRender: () => void): ConversionRenderer {
+  return Object.freeze({
+    ...renderer,
+    render(plan: Parameters<ConversionRenderer['render']>[0], context: Parameters<ConversionRenderer['render']>[1]) {
+      onRender();
+      return renderer.render(plan, context);
     },
-    planner: {
-      plan: (...args) => {
-        counts.renderedTemplates++;
-        return planner.plan(...args);
-      },
-    },
-  };
+  });
 }
 
 function transactionDouble(counts: MigrationWorkloadCounts) {
@@ -402,6 +436,11 @@ function emptyCounts(): MigrationWorkloadCounts {
     originalReadPaths: [],
     referenceParsePaths: [],
     validationParsePaths: [],
+    convertedFamilies: 0,
+    parsedTemplates: 0,
+    semanticPlanningPasses: 0,
+    targetRenders: 0,
+    targetSessionFinalizations: 0,
   });
   return counts;
 }
@@ -418,9 +457,17 @@ function expectSingleOwnerEvidence(counts: MigrationWorkloadCounts, hasChangedPr
   expect(evidence.initialParsePaths).toEqual(evidence.discoveredPaths);
   expect(evidence.analyzedPaths).toEqual(evidence.discoveredPaths);
   expect(evidence.validationParsePaths).toEqual(hasChangedProposal ? evidence.discoveredOutputPaths : []);
+  expectRenderOwnership(counts);
 }
 
-function tailwindSession(): ConversionAdapterSession {
+function expectRenderOwnership(counts: MigrationWorkloadCounts): void {
+  const evidence = evidenceFor(counts);
+  expect(evidence.semanticPlanningPasses).toBe(evidence.parsedTemplates);
+  expect(evidence.targetSessionFinalizations).toBe(1);
+  expect(evidence.targetRenders).toBe(evidence.convertedFamilies);
+}
+
+function tailwindSession(): RenderSession {
   return AdapterFactory.createSession('tailwind');
 }
 

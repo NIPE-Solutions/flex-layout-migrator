@@ -2,18 +2,17 @@ import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promise
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { AdapterFactory } from '../adapter/adapter.factory';
-import type { ConversionAdapterSession } from '../adapter/conversion-adapter.session';
 import type { OwnedCssReferences } from '../adapter/css/stylesheet/owned-stylesheet.merger';
 import { AnalyzeProjectStage } from '../pipeline/analyze/analyze-project.stage';
 import { analyzedProject } from '../pipeline/analyzed-project';
 import { DiscoverProjectStage } from '../pipeline/discover/discover-project.stage';
 import { remapInvocationErrorPaths } from '../pipeline/invocation-error-path.mapper';
 import { migrationInvocation, projectManifest } from '../pipeline/project-manifest';
+import { RenderProjectStage } from '../pipeline/render/render-project.stage';
+import type { ConversionRenderer } from '../render/conversion-renderer';
+import type { RenderSession } from '../render/render-session';
 import { AngularTemplateParser } from '../template/angular-template.parser';
 import type { MigrationTransaction } from '../transaction/migration-transaction';
-import { AnalyzedFileMigrator } from './analyzed-file.migrator';
-import { fileMigrationResult } from './file-migration-result';
-import { fileMigrationPlan } from './migration-plan';
 import { Migrator, type MigrationOptions, type MigratorDependencies } from './migrator';
 import type { StylesheetPlanner } from './stylesheet.planner';
 
@@ -28,67 +27,29 @@ describe('Migrator', () => {
     await rm(temporaryDirectory, { recursive: true, force: true });
   });
 
-  test('renders each authoritative analyzed template once in manifest order without recovering original inputs', async () => {
-    const manifest = projectManifest({
-      invocation: { inputPath: 'templates', outputPath: 'generated', options: { mode: 'plan' } },
-      templates: [
-        { inputPath: 'templates/zeta.html', outputPath: 'generated/zeta.html' },
-        { inputPath: 'templates/alpha.html', outputPath: 'generated/alpha.html' },
-      ],
-    });
-    const analyzed = analyzedProject({
-      manifest,
-      templates: manifest.templates.map(file => ({
-        status: 'parsed' as const,
-        file,
-        source: `<div>${file.inputPath}</div>`,
-        parseResult: { status: 'parsed' as const, elements: [] },
-        inputs: [],
-      })),
-    });
-    const renderedPaths: string[] = [];
-    const destinationTemplates = {
-      read: vi.fn(async () => {
-        throw new Error('Tailwind migration must not read a destination template.');
-      }),
-    };
-    const dependencies = {
-      destinationTemplates,
-      referenceParser: {
-        parse: vi.fn(() => {
-          throw new Error('Tailwind migration must not collect CSS references.');
-        }),
-      },
-      createFileMigrator: vi.fn((_adapter, template, receivedDestinationTemplates) => ({
-        async plan() {
-          expect(receivedDestinationTemplates).toBe(destinationTemplates);
-          renderedPaths.push(template.file.inputPath);
-          return fileMigrationPlan({
-            file: fileMigrationResult({
-              inputPath: template.file.inputPath,
-              outputPath: template.file.outputPath,
-              changed: false,
-              results: [],
-            }),
-          });
-        },
-      })),
-    };
-    const session = tailwindSession();
-    const finalize = vi.spyOn(session, 'finalize');
+  test('builds validation and application work from the rendered handoff without rendering again', async () => {
+    const inputPath = join(temporaryDirectory, 'input.html');
+    const outputPath = join(temporaryDirectory, 'output.html');
+    await writeFile(inputPath, '<div fxLayout="row"></div>', 'utf8');
+    const invocation = migrationInvocation({ inputPath, outputPath, options: { mode: 'plan' } });
+    const manifest = await new DiscoverProjectStage().run(invocation);
+    const analyzed = await new AnalyzeProjectStage().run(manifest);
+    let renderCalls = 0;
+    const session = countingRenderSession(tailwindSession(), () => renderCalls++);
+    const rendered = await new RenderProjectStage(session).run(analyzed);
+    const callsAfterRenderStage = renderCalls;
 
-    const report = await new Migrator(session, analyzed, () => 0, transactionDouble(), undefined, dependencies).migrate(
+    const report = await new Migrator(rendered, () => 0, transactionDouble()).migrate({ mode: 'plan' });
+
+    expect(report.files).toEqual([
       {
-        mode: 'plan',
+        path: 'input.html',
+        changed: true,
+        results: [{ status: 'converted', directive: 'fxLayout', sourceName: 'fxLayout', offset: 5 }],
       },
-    );
-
-    expect(renderedPaths).toEqual(manifest.templates.map(template => template.inputPath));
-    expect(dependencies.createFileMigrator).toHaveBeenCalledTimes(2);
-    expect(dependencies.destinationTemplates.read).not.toHaveBeenCalled();
-    expect(dependencies.referenceParser.parse).not.toHaveBeenCalled();
-    expect(finalize).toHaveBeenCalledOnce();
-    expect(report.files.map(file => file.path)).toEqual(['alpha.html', 'zeta.html']);
+    ]);
+    expect(callsAfterRenderStage).toBeGreaterThan(0);
+    expect(renderCalls).toBe(callsAfterRenderStage);
   });
 
   test('reuses analyzed source when collecting native CSS references for an unchanged in-place template', async () => {
@@ -112,18 +73,13 @@ describe('Migrator', () => {
     const dependencies: MigratorDependencies = {
       destinationTemplates: { read: readDestination },
       referenceParser: new AngularTemplateParser(),
-      createFileMigrator: (adapter, template, destinationTemplates) =>
-        new AnalyzedFileMigrator(adapter, template, undefined, destinationTemplates),
     };
+    const rendered = await new RenderProjectStage(AdapterFactory.createSession('css')).run(analyzed);
 
-    await new Migrator(
-      AdapterFactory.createSession('css'),
-      analyzed,
-      () => 0,
-      transactionDouble(),
-      stylesheetPlanner,
-      dependencies,
-    ).migrate({ mode: 'plan', stylesheetPath });
+    await new Migrator(rendered, () => 0, transactionDouble(), stylesheetPlanner, dependencies).migrate({
+      mode: 'plan',
+      stylesheetPath,
+    });
 
     expect(readDestination).not.toHaveBeenCalled();
     const references = stylesheetPlanner.plan.mock.calls[0]?.[2] as OwnedCssReferences;
@@ -164,28 +120,10 @@ describe('Migrator', () => {
     const dependencies: MigratorDependencies = {
       destinationTemplates,
       referenceParser: new AngularTemplateParser(),
-      createFileMigrator: (_adapter, template) => ({
-        plan: vi.fn(async () =>
-          fileMigrationPlan({
-            file: fileMigrationResult({
-              inputPath: template.file.inputPath,
-              outputPath: template.file.outputPath,
-              changed: false,
-              results: [],
-            }),
-          }),
-        ),
-      }),
     };
     const stylesheetPlanner = { plan: vi.fn<StylesheetPlanner['plan']>() };
-    const migrator = new Migrator(
-      AdapterFactory.createSession('css'),
-      analyzed,
-      () => 0,
-      transactionDouble(),
-      stylesheetPlanner,
-      dependencies,
-    );
+    const rendered = await new RenderProjectStage(AdapterFactory.createSession('css')).run(analyzed);
+    const migrator = new Migrator(rendered, () => 0, transactionDouble(), stylesheetPlanner, dependencies);
 
     const rejected = await rejectedNodeIoError(
       migrator.migrate(invocation.options, {
@@ -909,7 +847,7 @@ function tailwindSession() {
 }
 
 function migrationFromPaths(
-  session: ConversionAdapterSession,
+  session: RenderSession,
   inputPath: string,
   outputPath: string,
   now?: () => number,
@@ -922,9 +860,21 @@ function migrationFromPaths(
       const invocation = migrationInvocation({ inputPath, outputPath, options });
       const manifest = await new DiscoverProjectStage().run(invocation);
       const analyzed = await new AnalyzeProjectStage().run(manifest);
-      return new Migrator(session, analyzed, now, transaction, stylesheetPlanner, dependencies).migrate(options);
+      const rendered = await new RenderProjectStage(session).run(analyzed);
+      return new Migrator(rendered, now, transaction, stylesheetPlanner, dependencies).migrate(options);
     },
   };
+}
+
+function countingRenderSession(session: RenderSession, onRender: () => void): RenderSession {
+  const renderer: ConversionRenderer = Object.freeze({
+    ...session.renderer,
+    render(plan: Parameters<ConversionRenderer['render']>[0], context: Parameters<ConversionRenderer['render']>[1]) {
+      onRender();
+      return session.renderer.render(plan, context);
+    },
+  });
+  return Object.freeze({ renderer, finalize: () => session.finalize() });
 }
 
 function transactionDouble() {
