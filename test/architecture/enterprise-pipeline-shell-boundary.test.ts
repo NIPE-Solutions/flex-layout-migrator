@@ -4,6 +4,7 @@ import { basename, join, relative } from 'node:path';
 import { describe, expect, test } from 'vitest';
 
 import { analyzedProject } from '../../src/pipeline/analyzed-project';
+import { appliedProject } from '../../src/pipeline/applied-project';
 import { MigrationPipeline } from '../../src/pipeline/migration-pipeline';
 import { migrationInvocation, projectManifest } from '../../src/pipeline/project-manifest';
 import { renderedProject } from '../../src/pipeline/rendered-project';
@@ -24,6 +25,7 @@ const cliPath = join(productionRoot, 'cli', 'run-cli.ts');
 const currentPipelinePath = join(pipelineRoot, 'current-migration.pipeline.ts');
 const migrationPipelinePath = join(pipelineRoot, 'migration-pipeline.ts');
 const handoffImports = new Map<string, readonly string[]>([
+  ['applied-project.ts', ['./validated-project-plan', '../report/migration-report']],
   [
     'analyzed-project.ts',
     [
@@ -98,11 +100,11 @@ describe('enterprise pipeline shell dependency boundary', { timeout: wholeProjec
     expect(sorted(inspectTypeScript(source, migrationPipelinePath).moduleReferences)).toEqual(
       sorted([
         './analyzed-project',
+        './applied-project',
         './pipeline-stage.error',
         './project-manifest',
         './rendered-project',
         './validated-project-plan',
-        '../report/migration-report',
       ]),
     );
     expect(runtimeModuleReferences(source, migrationPipelinePath)).toEqual(['./pipeline-stage.error']);
@@ -153,11 +155,12 @@ describe('enterprise pipeline shell dependency boundary', { timeout: wholeProjec
       sorted([
         './project-manifest',
         './analyze/analyze-project.stage',
+        './applied-project',
+        './apply/apply-project.stage',
         './discover/discover-project.stage',
         './invocation-error-path.mapper',
         './migration-pipeline',
         './validate/validate-project.stage',
-        './validated-project-plan',
         '../migrator/migrator',
         '../migrator/migrator',
         '../report/migration-report',
@@ -267,7 +270,10 @@ describe('enterprise pipeline shell dependency boundary', { timeout: wholeProjec
       { run: () => Promise.resolve(analyzed) },
       { run: () => Promise.resolve(rendered) },
       { run: () => Promise.resolve(validated) },
-      { run: () => Promise.resolve({ application: { status: 'skipped', reason: 'plan-only' } }) },
+      {
+        run: () =>
+          Promise.resolve(appliedProject({ validated, application: { status: 'skipped', reason: 'plan-only' } })),
+      },
     ).run(invocation);
     const parsed = analyzed.templates[0]!;
     if (parsed.status !== 'parse-error') throw new Error('Expected a parse-error fixture.');
@@ -310,6 +316,8 @@ describe('enterprise pipeline shell dependency boundary', { timeout: wholeProjec
     expect(pipelinePaths.map(path => basename(path)).sort()).toEqual([
       'analyze-project.stage.ts',
       'analyzed-project.ts',
+      'applied-project.ts',
+      'apply-project.stage.ts',
       'css-reference.collector.ts',
       'current-migration.pipeline.ts',
       'discover-project.stage.ts',
@@ -329,6 +337,8 @@ describe('enterprise pipeline shell dependency boundary', { timeout: wholeProjec
       'validated-project-plan.ts',
     ]);
     expect(inspectTypeScriptProject(pipelinePaths).filesystemMutationCalls).toEqual([]);
-    expect(inspectTypeScriptProject(pipelinePaths).transactionApplyCalls).toEqual([]);
+    expect(inspectTypeScriptProject(pipelinePaths).transactionApplyCalls).toEqual([
+      { sourcePath: join(pipelineRoot, 'apply', 'apply-project.stage.ts'), name: 'apply' },
+    ]);
   });
 });

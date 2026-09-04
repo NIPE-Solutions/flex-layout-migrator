@@ -5,6 +5,7 @@ import { AdapterFactory } from '../adapter/adapter.factory';
 import type { OwnedCssReferences } from '../adapter/css/stylesheet/owned-stylesheet.merger';
 import { AnalyzeProjectStage } from '../pipeline/analyze/analyze-project.stage';
 import { analyzedProject } from '../pipeline/analyzed-project';
+import { ApplyProjectStage } from '../pipeline/apply/apply-project.stage';
 import { DiscoverProjectStage } from '../pipeline/discover/discover-project.stage';
 import type { TemplateParser } from '../pipeline/analyze/template-parser.port';
 import { migrationInvocation, projectManifest } from '../pipeline/project-manifest';
@@ -49,7 +50,8 @@ describe('Migrator', () => {
     const callsAfterRenderStage = renderCalls;
     const validated = await new ValidateProjectStage().run(rendered);
 
-    const report = await new Migrator(validated, () => 0, transactionDouble()).migrate({ mode: 'plan' });
+    const applied = await new ApplyProjectStage('plan', transactionDouble()).run(validated);
+    const report = await new Migrator(applied, () => 0).migrate({ mode: 'plan' });
 
     expect(report.files).toEqual([
       {
@@ -91,7 +93,8 @@ describe('Migrator', () => {
       stylesheetPlanner,
     ).run(rendered);
 
-    await new Migrator(validated, () => 0, transactionDouble()).migrate({
+    const applied = await new ApplyProjectStage('plan', transactionDouble()).run(validated);
+    await new Migrator(applied, () => 0).migrate({
       mode: 'plan',
       stylesheetPath,
     });
@@ -885,7 +888,8 @@ function migrationFromPaths(
       const validated = await new ValidateProjectStage(templateValidator, cssReferences, stylesheetPlanner).run(
         rendered,
       );
-      return new Migrator(validated, now, transaction).migrate(options);
+      const applied = await new ApplyProjectStage(options.mode, transaction).run(validated);
+      return new Migrator(applied, now).migrate(options);
     },
   };
 }

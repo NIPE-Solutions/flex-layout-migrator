@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { AdapterFactory } from '../adapter/adapter.factory';
 import { AnalyzeProjectStage } from '../pipeline/analyze/analyze-project.stage';
+import { ApplyProjectStage } from '../pipeline/apply/apply-project.stage';
 import { DiscoverProjectStage } from '../pipeline/discover/discover-project.stage';
 import { migrationInvocation } from '../pipeline/project-manifest';
 import { RenderProjectStage, type RenderTemplatePlanner } from '../pipeline/render/render-project.stage';
@@ -51,7 +52,8 @@ describe('folder analyzed-project continuation', () => {
     );
     const validated = await new ValidateProjectStage().run(rendered);
 
-    const report = await new Migrator(validated, () => 0, transactionDouble()).migrate({ mode: 'plan' });
+    const applied = await new ApplyProjectStage('plan', transactionDouble()).run(validated);
+    const report = await new Migrator(applied, () => 0).migrate({ mode: 'plan' });
 
     expect(manifest.templates.map(template => template.inputPath)).toEqual([
       join(inputFolder, 'Z', 'nested.html'),
@@ -79,7 +81,8 @@ describe('folder analyzed-project continuation', () => {
     const rendered = await new RenderProjectStage(AdapterFactory.createSession('tailwind')).run(analyzed);
     const validated = await new ValidateProjectStage().run(rendered);
 
-    const report = await new Migrator(validated, () => 0, transaction).migrate({
+    const applied = await new ApplyProjectStage('write', transaction).run(validated);
+    const report = await new Migrator(applied, () => 0).migrate({
       mode: 'write',
     });
 

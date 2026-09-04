@@ -128,7 +128,7 @@ const resourceAuthorityNames = new Set([
 ]);
 const expectedProductionAuthorityGraph = [
   { source: 'cli/run-cli.ts', authority: 'CurrentMigrationPipeline.run' },
-  { source: 'migrator/migrator.ts', authority: 'MigrationTransaction.apply' },
+  { source: 'pipeline/apply/apply-project.stage.ts', authority: 'MigrationTransaction.apply' },
   { source: 'pipeline/current-migration.pipeline.ts', authority: 'AnalyzeProjectStage.run' },
   { source: 'pipeline/current-migration.pipeline.ts', authority: 'DiscoverProjectStage.run' },
   { source: 'pipeline/current-migration.pipeline.ts', authority: 'Migrator.migrate' },
@@ -1495,11 +1495,11 @@ describe('enterprise pipeline dependency boundary', { timeout: wholeProjectInspe
       },
       { source: 'pipeline/validate/css-reference.collector.ts', authority: 'DestinationTemplateSource.read' },
       { source: 'pipeline/validate/template-proposal.validator.ts', authority: 'DestinationTemplateSource.read' },
-      { source: 'transaction/migration-transaction.ts', authority: 'FileSystem.acquire.access' },
-      { source: 'transaction/migration-transaction.ts', authority: 'FileSystem.acquire.lstat' },
-      { source: 'transaction/migration-transaction.ts', authority: 'FileSystem.acquire.open' },
-      { source: 'transaction/migration-transaction.ts', authority: 'FileSystem.acquire.stat' },
-      { source: 'transaction/migration-transaction.ts', authority: 'FileSystem.open' },
+      { source: 'transaction/transaction-unit.session.ts', authority: 'FileSystem.acquire.access' },
+      { source: 'transaction/transaction-unit.session.ts', authority: 'FileSystem.acquire.lstat' },
+      { source: 'transaction/transaction-unit.session.ts', authority: 'FileSystem.acquire.open' },
+      { source: 'transaction/transaction-unit.session.ts', authority: 'FileSystem.acquire.stat' },
+      { source: 'transaction/transaction-unit.session.ts', authority: 'FileSystem.open' },
     ]);
   });
 
@@ -1642,7 +1642,7 @@ describe('enterprise pipeline dependency boundary', { timeout: wholeProjectInspe
       { source: 'pipeline/analyze/analyze-project.stage.ts', authority: 'OriginalTemplateParser.parse' },
       { source: 'pipeline/validate/css-reference.collector.ts', authority: 'CssReferenceParser.parse' },
       { source: 'pipeline/validate/template-proposal.validator.ts', authority: 'ChangedTemplateValidation.parse' },
-      { source: 'transaction/migration-transaction.ts', authority: 'StagedTemplateValidation.parse' },
+      { source: 'transaction/transaction-unit.session.ts', authority: 'StagedTemplateValidation.parse' },
     ]);
   });
 

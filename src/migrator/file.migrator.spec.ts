@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { AdapterFactory } from '../adapter/adapter.factory';
 import { TemplateAnalyzer } from '../analyzer/template.analyzer';
 import { AnalyzeProjectStage } from '../pipeline/analyze/analyze-project.stage';
+import { ApplyProjectStage } from '../pipeline/apply/apply-project.stage';
 import { DiscoverProjectStage } from '../pipeline/discover/discover-project.stage';
 import { CurrentMigrationPipeline, type MigratorFactory } from '../pipeline/current-migration.pipeline';
 import { migrationInvocation } from '../pipeline/project-manifest';
@@ -85,7 +86,7 @@ describe('production analyzed-file handoff', () => {
     const render = new RenderProjectStage(session, templatePlanner);
     const validate = new ValidateProjectStage(validator);
     const transaction = transactionDouble();
-    const createMigrator: MigratorFactory = validated => new Migrator(validated, () => 0, transaction);
+    const createMigrator: MigratorFactory = applied => new Migrator(applied, () => 0);
     const invocation = migrationInvocation({ inputPath, outputPath, options: { mode: 'plan' } });
 
     const report = await new CurrentMigrationPipeline(
@@ -95,6 +96,7 @@ describe('production analyzed-file handoff', () => {
       createMigrator,
       Date.now,
       validate,
+      mode => new ApplyProjectStage(mode, transaction),
     ).run(invocation);
 
     expect(report).toMatchObject({

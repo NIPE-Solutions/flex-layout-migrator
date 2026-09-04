@@ -47,7 +47,9 @@ describe('MigrationTransaction concurrency boundaries', () => {
     });
 
     const error = await captureError(
-      new MigrationTransaction(operations).apply(plan([template(target, absent(), present('<div>ours</div>'))])),
+      new PreflightedMigrationTransaction(operations).apply(
+        plan([template(target, absent(), present('<div>ours</div>'))]),
+      ),
     );
 
     expect(error).toMatchObject({ code: 'concurrent-modification', paths: [target] });
@@ -69,7 +71,7 @@ describe('MigrationTransaction concurrency boundaries', () => {
     });
 
     const error = await captureError(
-      new MigrationTransaction(operations).apply(
+      new PreflightedMigrationTransaction(operations).apply(
         plan([template(target, present('planned original'), present('<div>ours</div>'))]),
       ),
     );
@@ -84,7 +86,7 @@ describe('MigrationTransaction concurrency boundaries', () => {
     let publicStats = 0;
     const operations = operationsWith({
       lstat: async candidate => {
-        if (candidate === target && ++publicStats === 3) {
+        if (candidate === target && ++publicStats === 5) {
           await rename(target, join(root, 'original-inode'));
           await writeFile(target, 'before', 'utf8');
         }
@@ -93,7 +95,7 @@ describe('MigrationTransaction concurrency boundaries', () => {
     });
 
     const error = await captureError(
-      new MigrationTransaction(operations).apply(
+      new PreflightedMigrationTransaction(operations).apply(
         plan([template(target, present('before'), present('<div>ours</div>'))]),
       ),
     );
@@ -120,7 +122,7 @@ describe('MigrationTransaction concurrency boundaries', () => {
     });
 
     const error = await captureError(
-      new MigrationTransaction(operations).apply(
+      new PreflightedMigrationTransaction(operations).apply(
         plan([template(target, present('planned original'), present('<div>ours</div>'))]),
       ),
     );
@@ -150,7 +152,9 @@ describe('MigrationTransaction concurrency boundaries', () => {
     });
 
     const error = await captureError(
-      new MigrationTransaction(operations).apply(plan([template(target, absent(), present('<div>ours</div>'))])),
+      new PreflightedMigrationTransaction(operations).apply(
+        plan([template(target, absent(), present('<div>ours</div>'))]),
+      ),
     );
 
     expect(error).toMatchObject({ code: 'concurrent-modification', paths: [target] });
@@ -168,7 +172,7 @@ describe('MigrationTransaction concurrency boundaries', () => {
     const operations = operationsWith({
       lstat: async candidate => {
         const result = await lstat(candidate, { bigint: true });
-        if (candidate === ancestorLink && ++ancestorChecks === 3) {
+        if (candidate === ancestorLink && ++ancestorChecks === 5) {
           await rename(followed, displaced);
           await mkdir(followed);
         }
@@ -177,7 +181,9 @@ describe('MigrationTransaction concurrency boundaries', () => {
     });
 
     const error = await captureError(
-      new MigrationTransaction(operations).apply(plan([template(target, absent(), present('<div>ours</div>'))])),
+      new PreflightedMigrationTransaction(operations).apply(
+        plan([template(target, absent(), present('<div>ours</div>'))]),
+      ),
     );
 
     expect(error).toMatchObject({ code: 'concurrent-modification', paths: [target] });
@@ -204,7 +210,9 @@ describe('MigrationTransaction concurrency boundaries', () => {
     });
 
     const error = await captureError(
-      new MigrationTransaction(operations).apply(plan([template(target, absent(), present('<div>ours</div>'))])),
+      new PreflightedMigrationTransaction(operations).apply(
+        plan([template(target, absent(), present('<div>ours</div>'))]),
+      ),
     );
 
     expect(error).toMatchObject({ code: 'transaction-io', paths: [target] });
@@ -229,7 +237,7 @@ describe('MigrationTransaction concurrency boundaries', () => {
     });
 
     const error = await captureError(
-      new MigrationTransaction(operations).apply(
+      new PreflightedMigrationTransaction(operations).apply(
         plan([
           template(first, absent(), present('<div>first</div>')),
           template(second, absent(), present('<div>second</div>')),
@@ -263,7 +271,9 @@ describe('MigrationTransaction concurrency boundaries', () => {
     });
 
     const error = await captureError(
-      new MigrationTransaction(operations).apply(plan([template(target, absent(), present('<div>ours</div>'))])),
+      new PreflightedMigrationTransaction(operations).apply(
+        plan([template(target, absent(), present('<div>ours</div>'))]),
+      ),
     );
 
     expect(error).toMatchObject({ code: 'transaction-io', paths: [target], cause: initiating });
@@ -291,7 +301,7 @@ describe('MigrationTransaction concurrency boundaries', () => {
     });
 
     const error = await captureError(
-      new MigrationTransaction(operations).apply(
+      new PreflightedMigrationTransaction(operations).apply(
         plan([
           template(replace, present('original bytes'), present('<div>replacement</div>')),
           template(fail, absent(), present('<div>fail</div>')),
@@ -328,7 +338,7 @@ describe('MigrationTransaction concurrency boundaries', () => {
     });
 
     const error = await captureError(
-      new MigrationTransaction(operations).apply(
+      new PreflightedMigrationTransaction(operations).apply(
         plan([
           template(replace, present('original bytes'), present('<div>replacement</div>')),
           template(fail, absent(), present('<div>fail</div>')),
@@ -361,7 +371,9 @@ describe('MigrationTransaction concurrency boundaries', () => {
     });
 
     const error = await captureError(
-      new MigrationTransaction(operations).apply(plan([template(target, absent(), present('<div>ours</div>'))])),
+      new PreflightedMigrationTransaction(operations).apply(
+        plan([template(target, absent(), present('<div>ours</div>'))]),
+      ),
     );
 
     expect(error).toMatchObject({ code: 'transaction-io', paths: [], cause: initiating });
@@ -385,7 +397,7 @@ describe('MigrationTransaction concurrency boundaries', () => {
     });
 
     const error = await captureError(
-      new MigrationTransaction(operations).apply(
+      new PreflightedMigrationTransaction(operations).apply(
         plan([template(target, present('original bytes'), present('<div>ours</div>'))]),
       ),
     );
@@ -416,7 +428,9 @@ describe('MigrationTransaction concurrency boundaries', () => {
     });
 
     const error = await captureError(
-      new MigrationTransaction(operations).apply(plan([template(target, absent(), present('<div>ours</div>'))])),
+      new PreflightedMigrationTransaction(operations).apply(
+        plan([template(target, absent(), present('<div>ours</div>'))]),
+      ),
     );
 
     expect(error).toMatchObject({ code: 'transaction-io', paths: [], cause: closeFailure });
@@ -519,7 +533,9 @@ describe('MigrationTransaction concurrency boundaries', () => {
     });
 
     const error = await captureError(
-      new MigrationTransaction(operations).apply(plan([template(target, absent(), present('<div>ours</div>'))])),
+      new PreflightedMigrationTransaction(operations).apply(
+        plan([template(target, absent(), present('<div>ours</div>'))]),
+      ),
     );
 
     expect(error).toMatchObject({
@@ -555,7 +571,7 @@ describe('MigrationTransaction concurrency boundaries', () => {
     });
 
     const error = await captureError(
-      new MigrationTransaction(operations, registrar).apply(
+      new PreflightedMigrationTransaction(operations, registrar).apply(
         plan([template(target, absent(), present('<div>ours</div>'))]),
       ),
     );
@@ -586,7 +602,7 @@ describe('MigrationTransaction concurrency boundaries', () => {
     });
 
     const error = await captureError(
-      new MigrationTransaction(operations, registrar).apply(
+      new PreflightedMigrationTransaction(operations, registrar).apply(
         plan([template(target, present('original bytes'), present('<div>ours</div>'))]),
       ),
     );
@@ -608,7 +624,9 @@ describe('MigrationTransaction concurrency boundaries', () => {
     });
 
     const error = await captureError(
-      new MigrationTransaction(operations).apply(plan([template(target, absent(), present('<div>ours</div>'))])),
+      new PreflightedMigrationTransaction(operations).apply(
+        plan([template(target, absent(), present('<div>ours</div>'))]),
+      ),
     );
 
     expect(error).toMatchObject({ code: 'transaction-io', cause: initiating });
@@ -632,7 +650,9 @@ describe('MigrationTransaction concurrency boundaries', () => {
     });
 
     const error = await captureError(
-      new MigrationTransaction(operations).apply(plan([template(target, absent(), present('<div>ours</div>'))])),
+      new PreflightedMigrationTransaction(operations).apply(
+        plan([template(target, absent(), present('<div>ours</div>'))]),
+      ),
     );
 
     expect(error).toMatchObject({
@@ -665,7 +685,9 @@ describe('MigrationTransaction concurrency boundaries', () => {
     });
 
     const error = await captureError(
-      new MigrationTransaction(operations).apply(plan([template(target, absent(), present('<div>ours</div>'))])),
+      new PreflightedMigrationTransaction(operations).apply(
+        plan([template(target, absent(), present('<div>ours</div>'))]),
+      ),
     );
 
     expect(error).toMatchObject({
@@ -698,7 +720,9 @@ describe('MigrationTransaction concurrency boundaries', () => {
     });
 
     const error = await captureError(
-      new MigrationTransaction(operations).apply(plan([template(target, absent(), present('<div>ours</div>'))])),
+      new PreflightedMigrationTransaction(operations).apply(
+        plan([template(target, absent(), present('<div>ours</div>'))]),
+      ),
     );
 
     expect(error).toMatchObject({ code: 'transaction-io', paths: [target], cause: initiating });
@@ -718,7 +742,9 @@ describe('MigrationTransaction concurrency boundaries', () => {
     });
 
     const error = await captureError(
-      new MigrationTransaction(operations).apply(plan([template(target, absent(), present('<div>ours</div>'))])),
+      new PreflightedMigrationTransaction(operations).apply(
+        plan([template(target, absent(), present('<div>ours</div>'))]),
+      ),
     );
 
     expect(error).toMatchObject({ code: 'transaction-io', paths: [target], cause: initiating });
@@ -760,6 +786,13 @@ function proxyHandle(
 
 function plan(artifacts: readonly ReturnType<typeof plannedOutputArtifact>[]) {
   return migrationPlan({ target: 'tailwind', files: [], artifacts });
+}
+
+class PreflightedMigrationTransaction extends MigrationTransaction {
+  public override async apply(plan: Parameters<MigrationTransaction['apply']>[0]): Promise<void> {
+    await this.preflight(plan);
+    await super.apply(plan);
+  }
 }
 
 function template(path: string, original: ArtifactState, proposed: Extract<ArtifactState, { status: 'present' }>) {

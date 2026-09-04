@@ -7,12 +7,21 @@ import {
   inspectTypeScriptProject,
   inspectSemanticAuthorityCalls,
   productionTypeScriptFiles,
+  runtimeModuleReferences,
   type TypeScriptInspection,
   type TypeScriptProjectInspection,
 } from './typescript-boundary';
 
 const productionRoot = join(process.cwd(), 'src');
 const transactionRoot = join(productionRoot, 'transaction');
+const migrationTransactionPath = join(transactionRoot, 'migration-transaction.ts');
+const transactionUnitPaths = [
+  join(transactionRoot, 'staging.unit.ts'),
+  join(transactionRoot, 'commit.unit.ts'),
+  join(transactionRoot, 'rollback.unit.ts'),
+  join(transactionRoot, 'cleanup.unit.ts'),
+];
+const applyProjectStagePath = join(productionRoot, 'pipeline', 'apply', 'apply-project.stage.ts');
 const adapterRoot = join(productionRoot, 'adapter');
 const migratorRoot = join(productionRoot, 'migrator');
 const migratorPath = join(migratorRoot, 'migrator.ts');
@@ -172,6 +181,33 @@ describe('migration transaction architecture boundary', { timeout: wholeProjectI
     wholeProjectInspectionTimeout,
   );
 
+  test('makes concrete Apply the sole production caller of transaction application', () => {
+    expect(transactionApplyCalls(new Map(), productionTypeScriptFiles(productionRoot))).toEqual([
+      { sourcePath: applyProjectStagePath, name: 'apply' },
+    ]);
+  });
+
+  test('keeps node filesystem mechanics out of the transaction coordinator', () => {
+    const inspection = inspectTypeScript(readFileSync(migrationTransactionPath, 'utf8'), migrationTransactionPath);
+
+    expect(inspection.moduleReferences.filter(reference => reference.startsWith('node:fs'))).toEqual([]);
+    expect(inspectProject(new Map(), [migrationTransactionPath]).filesystemMutationCalls).toEqual([]);
+  });
+
+  test('limits focused transaction-unit runtime consumption to the transaction coordinator', () => {
+    const consumers = productionTypeScriptFiles(productionRoot).flatMap(sourcePath => {
+      const references = runtimeModuleReferences(readFileSync(sourcePath, 'utf8'), sourcePath);
+      return references.some(reference =>
+        /(?:staging|commit|rollback|cleanup)\.unit(?:\.[cm]?[jt]s)?$/u.test(reference),
+      )
+        ? [sourcePath]
+        : [];
+    });
+
+    expect(productionTypeScriptFiles(transactionRoot)).toEqual(expect.arrayContaining(transactionUnitPaths));
+    expect(consumers).toEqual([migrationTransactionPath]);
+  });
+
   test('keeps FileMigrator and FolderMigrator free of direct writes and AtomicFileWriter usage', () => {
     for (const fileName of ['file.migrator.ts', 'folder.migrator.ts']) {
       const path = join(migratorRoot, fileName);
@@ -218,6 +254,13 @@ describe('migration transaction architecture boundary', { timeout: wholeProjectI
     expect(inspectSemanticAuthorityCalls([migratorPath]).filter(call => forbiddenAuthorities.has(call.name))).toEqual(
       [],
     );
+  });
+
+  test('keeps transaction application authority out of report-only Migrator', () => {
+    const inspection = inspectProject(new Map(), [migratorPath]);
+
+    expect(inspection.transactionApplyCalls).toEqual([]);
+    expect(inspection.filesystemMutationCalls).toEqual([]);
   });
 
   test('reserves AtomicFileWriter for the independent JSON report', () => {

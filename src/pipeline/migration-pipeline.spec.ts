@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import type { MigrationApplication } from '../report/migration-report';
 import { analyzedProject, type AnalyzedProject } from './analyzed-project';
+import { appliedProject } from './applied-project';
 import {
   MigrationPipeline,
   type AnalyzeStage,
@@ -89,7 +90,7 @@ function recordingStages(values: PipelineFixtures): RecordingStages {
       run(validated) {
         calls.push('apply');
         expect(validated).toBe(values.validated);
-        return Promise.resolve({ application: values.application });
+        return Promise.resolve(appliedProject({ validated, application: values.application }));
       },
     },
   };

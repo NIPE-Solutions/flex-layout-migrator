@@ -1,4 +1,4 @@
-import type { MigrationApplication } from '../report/migration-report';
+import type { AppliedProject } from './applied-project';
 import type { AnalyzedProject } from './analyzed-project';
 import { PipelineStageError } from './pipeline-stage.error';
 import type { MigrationInvocation, ProjectManifest } from './project-manifest';
@@ -23,18 +23,11 @@ export interface ValidateStage {
   run(rendered: RenderedProject): Promise<ValidatedProjectPlan>;
 }
 
-export interface ApplyStageResult {
-  readonly application: MigrationApplication;
-}
-
 export interface ApplyStage {
-  run(plan: ValidatedProjectPlan): Promise<ApplyStageResult>;
+  run(plan: ValidatedProjectPlan): Promise<AppliedProject>;
 }
 
-export interface MigrationPipelineResult {
-  readonly validated: ValidatedProjectPlan;
-  readonly application: MigrationApplication;
-}
+export type MigrationPipelineResult = AppliedProject;
 
 export class MigrationPipeline {
   constructor(
@@ -52,7 +45,7 @@ export class MigrationPipeline {
     const validated = await runStage('validate', () => this.validate.run(rendered));
     const applied = await runStage('apply', () => this.apply.run(validated));
 
-    return Object.freeze({ validated, application: Object.freeze({ ...applied.application }) });
+    return applied;
   }
 }
 

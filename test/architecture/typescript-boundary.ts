@@ -3337,7 +3337,7 @@ function contextualSemanticAuthorityName(
   if (normalizedSourcePath.endsWith('/pipeline/analyze/analyze-project.stage.ts') && members.includes('parser')) {
     return 'OriginalTemplateParser.parse';
   }
-  if (normalizedSourcePath.endsWith('/transaction/migration-transaction.ts') && members.includes('parser')) {
+  if (normalizedSourcePath.endsWith('/transaction/transaction-unit.session.ts') && members.includes('parser')) {
     return 'StagedTemplateValidation.parse';
   }
   return config.name;

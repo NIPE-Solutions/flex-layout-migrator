@@ -5,6 +5,7 @@ import { AdapterFactory } from '../../src/adapter/adapter.factory';
 import { TemplateAnalyzer } from '../../src/analyzer/template.analyzer';
 import { ConversionPlanner } from '../../src/planner/conversion-planner';
 import { Migrator } from '../../src/migrator/migrator';
+import { ApplyProjectStage } from '../../src/pipeline/apply/apply-project.stage';
 import type { MigrationMode } from '../../src/migrator/migration-mode';
 import { StylesheetPlanner } from '../../src/migrator/stylesheet.planner';
 import { AnalyzeProjectStage } from '../../src/pipeline/analyze/analyze-project.stage';
@@ -268,8 +269,16 @@ async function executeMigration(
   const analyze = countingAnalyzeStage(counts);
   const render = countingRenderStage(session, counts);
   const validate = countingValidateStage(counts, stylesheetPlanner);
-  const createMigrator: MigratorFactory = validated => new Migrator(validated, () => 0, transaction);
-  await new CurrentMigrationPipeline(render, discover, analyze, createMigrator, () => 0, validate).run(
+  const createMigrator: MigratorFactory = applied => new Migrator(applied, () => 0);
+  await new CurrentMigrationPipeline(
+    render,
+    discover,
+    analyze,
+    createMigrator,
+    () => 0,
+    validate,
+    requestedMode => new ApplyProjectStage(requestedMode, transaction),
+  ).run(
     migrationInvocation({
       inputPath: input,
       outputPath: output,
