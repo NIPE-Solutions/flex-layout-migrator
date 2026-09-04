@@ -4,7 +4,7 @@ This document records the implementation and evidence result for Slice 9 of the 
 
 ## Commit
 
-Commit captured: `6195c90bb736121674dde65dfb9e9e971c82559b`
+Commit captured: `92f720211a04563bd4216b90e52b9a7a230c048b`
 
 This is the final production implementation commit. The evidence-only documentation and test commit follows it and does not alter `src`, package metadata, the benchmark runner, or the benchmark corpus.
 
@@ -17,14 +17,14 @@ This is the final production implementation commit. The evidence-only documentat
 Evidence was generated with:
 
 ```text
-npm run architecture:inventory -- --json /tmp/flex-layout-roadmap-final-fix-inventory.json
+npm run architecture:inventory -- --json /tmp/flex-layout-roadmap-second-remediation-inventory.json
 npm ls --omit=dev --all --json --long
 npm run package:check
 npx vitest run test/performance/migration-workload-counter.test.ts test/compatibility test/cli/cli.test.ts
 npm run build
 npm run package:check
 npm run benchmark:architecture:prepare
-npm run benchmark:architecture -- --json /tmp/flex-layout-roadmap-final-fix-benchmark.json
+npm run benchmark:architecture -- --json /tmp/flex-layout-roadmap-second-remediation-benchmark.json
 ```
 
 The benchmark runner's JSON values are preserved in the tracked artifact `docs/maintenance/evidence/2026-09-04-enterprise-architecture-final-benchmark.json`.
@@ -37,22 +37,22 @@ Every production CLI invocation uses this single route:
 CLI -> Discover -> Analyze -> Render -> Validate -> Apply -> Presentation
 ```
 
-`runCli` composes one `MigrationPipeline`; `MigrationPipeline` invokes each of the five stages once and in order; `MigrationRunner` constructs the report from the applied handoff; `TerminalPresenter` and `JsonReportWriter` observe the completed report. There is no compatibility fallback or second production route.
+`runCli` composes one `MigrationPipeline`. The pipeline first invokes Validate-owned topology prevalidation so the established collision diagnostic wins even when another input is also invalid, then invokes each of the five stage `run` methods once and in order. Validate reuses the same canonical physical checker during its normal stage run to guard against topology changes; the CLI owns only syntax and normalization. `MigrationRunner` constructs the report from the applied handoff; `TerminalPresenter` and `JsonReportWriter` observe the completed report. There is no compatibility fallback or second production route.
 
 ## Ownership map
 
-| Boundary              | Production owner                                                                               | Exclusive authority                                                                                                         |
-| --------------------- | ---------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| CLI composition       | `src/cli/run-cli.ts` (`runCli`)                                                                | Argument validation, stage construction, presentation selection, and exit mapping                                           |
-| Discover              | `src/pipeline/discover/discover-project.stage.ts` (`DiscoverProjectStage`)                     | Topology enumeration, ignore matching, exclusions, deterministic file identity and order                                    |
-| Analyze               | `src/pipeline/analyze/analyze-project.stage.ts` (`AnalyzeProjectStage`)                        | Original template read, initial Angular parse, and source-input analysis                                                    |
-| Render                | `src/pipeline/render/render-project.stage.ts` (`RenderProjectStage`)                           | Semantic-plan consumption, target rendering, and one render-session finalization                                            |
-| Validate              | `src/pipeline/validate/validate-project.stage.ts` (`ValidateProjectStage`)                     | Edit materialization, changed-template reparse, topology, CSS reference collection, stylesheet planning, and canonical plan |
-| Apply                 | `src/pipeline/apply/apply-project.stage.ts` (`ApplyProjectStage`)                              | Mode/error decision and the sole project-level mutation call                                                                |
-| Transaction policy    | `src/transaction/migration-transaction.ts` (`MigrationTransaction`)                            | Preflight seal, state transitions, cancellation scope, rollback/cleanup sequencing, and recovery evidence                   |
-| Transaction mechanics | `src/transaction/staging.unit.ts`, `commit.unit.ts`, `rollback.unit.ts`, and `cleanup.unit.ts` | One focused filesystem responsibility per unit through a phase-specific least-privilege port                                |
-| Report construction   | `src/pipeline/migration-runner.ts` and `src/report/migration-report.builder.ts`                | Mapping the applied handoff to the unchanged public report                                                                  |
-| Presentation          | `src/report/terminal.presenter.ts` and `src/report/json-report.writer.ts`                      | Observer-only terminal and report-file side effects                                                                         |
+| Boundary              | Production owner                                                                               | Exclusive authority                                                                                                                                 |
+| --------------------- | ---------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| CLI composition       | `src/cli/run-cli.ts` (`runCli`)                                                                | Argument validation, stage construction, presentation selection, and exit mapping                                                                   |
+| Discover              | `src/pipeline/discover/discover-project.stage.ts` (`DiscoverProjectStage`)                     | Topology enumeration, ignore matching, exclusions, deterministic file identity and order                                                            |
+| Analyze               | `src/pipeline/analyze/analyze-project.stage.ts` (`AnalyzeProjectStage`)                        | Original template read, initial Angular parse, and source-input analysis                                                                            |
+| Render                | `src/pipeline/render/render-project.stage.ts` (`RenderProjectStage`)                           | Semantic-plan consumption, target rendering, and one render-session finalization                                                                    |
+| Validate              | `src/pipeline/validate/validate-project.stage.ts` (`ValidateProjectStage`)                     | Canonical topology prevalidation, edit materialization, changed-template reparse, CSS reference collection, stylesheet planning, and canonical plan |
+| Apply                 | `src/pipeline/apply/apply-project.stage.ts` (`ApplyProjectStage`)                              | Mode/error decision and the sole project-level mutation call                                                                                        |
+| Transaction policy    | `src/transaction/migration-transaction.ts` (`MigrationTransaction`)                            | Preflight seal, state transitions, cancellation scope, rollback/cleanup sequencing, and recovery evidence                                           |
+| Transaction mechanics | `src/transaction/staging.unit.ts`, `commit.unit.ts`, `rollback.unit.ts`, and `cleanup.unit.ts` | One focused filesystem responsibility per unit through a phase-specific least-privilege port                                                        |
+| Report construction   | `src/pipeline/migration-runner.ts` and `src/report/migration-report.builder.ts`                | Mapping the applied handoff to the unchanged public report                                                                                          |
+| Presentation          | `src/report/terminal.presenter.ts` and `src/report/json-report.writer.ts`                      | Observer-only terminal and report-file side effects                                                                                                 |
 
 ## Inventory evidence
 
@@ -84,10 +84,10 @@ There are 547 total recorded module edges. The runtime-dependency violation list
 | Module                                                                | Physical lines |
 | --------------------------------------------------------------------- | -------------: |
 | `src/semantic/semantic-family-composition.planner.ts`                 |            965 |
+| `src/transaction/transaction-unit.session.ts`                         |            858 |
 | `src/semantic/element-semantic.planner.ts`                            |            796 |
 | `src/adapter/tailwind/tailwind-class-conflict.ts`                     |            650 |
 | `src/adapter/tailwind/extended/tailwind-candidate-classifier.ts`      |            629 |
-| `src/transaction/transaction-unit.session.ts`                         |            588 |
 | `src/semantic/responsive-family.planner.ts`                           |            504 |
 | `src/render/tailwind/tailwind.renderer.ts`                            |            387 |
 | `src/adapter/tailwind/extended/tailwind-arbitrary-value-ownership.ts` |            373 |
@@ -95,16 +95,16 @@ There are 547 total recorded module edges. The runtime-dependency violation list
 | `src/semantic/css-property-ownership.ts`                              |            298 |
 | `src/semantic/extended/extended-semantic.planner.ts`                  |            275 |
 | `src/planner/conversion-planner.ts`                                   |            268 |
-| `src/transaction/cleanup.unit.ts`                                     |            264 |
-| `src/transaction/migration-transaction.ts`                            |            256 |
+| `src/transaction/cleanup.unit.ts`                                     |            252 |
+| `src/transaction/migration-transaction.ts`                            |            247 |
 | `src/adapter/css/stylesheet/owned-stylesheet.merger.ts`               |            245 |
 | `src/pipeline/rendered-project.ts`                                    |            220 |
 | `src/pipeline/validated-project-plan.ts`                              |            220 |
 | `src/semantic/extended/extended-family.planner.ts`                    |            219 |
-| `src/transaction/commit.unit.ts`                                      |            212 |
+| `src/transaction/commit.unit.ts`                                      |            200 |
 | `src/semantic/literal-style-declaration.ts`                           |            188 |
 
-The former 1,245-line transaction is now a 256-line recovery coordinator plus focused units and phase ports. The two largest final modules are shared semantic planners rather than orchestration or filesystem authorities.
+The former 1,245-line transaction is now a 247-line recovery coordinator plus focused units and phase ports. The 858-line coordinator-owned session contains the physical transaction mechanics and creates frozen phase-specific command/view capabilities; no phase unit receives the session or another phase's authority.
 
 ## Dependency and license audit
 
@@ -162,15 +162,15 @@ Plan mode and unchanged writes stage nothing and perform no project write. A par
 
 ## Package evidence
 
-`npm pack --dry-run --json --ignore-scripts` reported exactly 6 files, a 259,725-byte tarball, a 1,286,269-byte unpacked size, and no bundled dependencies. `npm run package:check` installed the generated tarball in a clean temporary project and exercised help, version, Tailwind plan/write, native-CSS plan/write, report schema, exact generated bytes, and unchanged rerun behavior with Node.js `v24.20.0`. The manifest continues to require Node.js `>=24` and exposes `flex-layout-codemod` at `dist/cli.js`.
+`npm pack --dry-run --json --ignore-scripts` reported exactly 6 files, a 264,268-byte tarball, a 1,315,376-byte unpacked size, and no bundled dependencies. `npm run package:check` installed the generated tarball in a clean temporary project and exercised help, version, Tailwind plan/write, native-CSS plan/write, report schema, exact generated bytes, and unchanged rerun behavior with Node.js `v24.20.0`. The manifest continues to require Node.js `>=24` and exposes `flex-layout-codemod` at `dist/cli.js`.
 
 | Package file    |   Bytes |
 | --------------- | ------: |
 | CHANGELOG.md    |   2,625 |
 | LICENSE         |   1,076 |
 | README.md       |  11,114 |
-| dist/cli.js     | 423,503 |
-| dist/cli.js.map | 844,856 |
+| dist/cli.js     | 433,383 |
+| dist/cli.js.map | 864,083 |
 | package.json    |   3,095 |
 
 ## Public parity evidence
@@ -196,24 +196,24 @@ Each digest is SHA-256 over every selected Git path in code-unit order, adding `
 | Runner                     | `4ff7e237feb9052cc263c172d27bb910fd97f8a015a06835013666b8004d92bc` | `4ff7e237feb9052cc263c172d27bb910fd97f8a015a06835013666b8004d92bc` | identical                 |
 | Memory probe               | `6c9aafd10fc39401cf913f2ba13bac3725dda8d753b4eccc9592d30fbf25cd87` | `6c9aafd10fc39401cf913f2ba13bac3725dda8d753b4eccc9592d30fbf25cd87` | identical                 |
 | Product fixtures           | `d8282d7000602d5467144a8cc85c9a4d8af9346630664dcb6ceb5a21d671a842` | `d8282d7000602d5467144a8cc85c9a4d8af9346630664dcb6ceb5a21d671a842` | identical                 |
-| Architecture boundary test | `2ecfa2387c8c65e8110e5a8d06c58988cdcd7f71310406d40a07f237b3a380da` | `a94ca5488c019d8473c81adab5990069b18562ea5ad71a138bca9112de69dfb4` | different; not comparable |
+| Architecture boundary test | `2ecfa2387c8c65e8110e5a8d06c58988cdcd7f71310406d40a07f237b3a380da` | `a8ac66c46838f81e74ebba1992110361f89b2ae7b7ceb97801afa824370a3af8` | different; not comparable |
 
 ## Benchmark results
 
-Generated at `2026-09-04T17:49:45.396Z` from the tracked benchmark artifact.
+Generated at `2026-09-04T18:45:52.479Z` from the tracked benchmark artifact.
 
-| Scenario                | Recorded milliseconds                                                                              |             Median |            Minimum |            Maximum |                MAD | Recorded peak RSS bytes                              |
-| ----------------------- | -------------------------------------------------------------------------------------------------- | -----------------: | -----------------: | -----------------: | -----------------: | ---------------------------------------------------- |
-| `single-tailwind-plan`  | 108.30820800000004; 107.66333400000002; 108.64462500000002; 106.79258300000004; 110.39670799999999 | 108.30820800000004 | 106.79258300000004 | 110.39670799999999 | 0.6448740000000157 | 99254272; 100499456; 98959360; 98484224; 98172928    |
-| `multi-tailwind-plan`   | 130.52033400000005; 126.41404200000011; 136.14745900000003; 130.7506659999999; 128.20675000000006  | 130.52033400000005 | 126.41404200000011 | 136.14745900000003 | 2.3135839999999916 | 102449152; 101842944; 96141312; 102088704; 102383616 |
-| `multi-native-css-plan` | 117.22295800000006; 111.26741700000002; 111.97433400000023; 118.23666700000012; 130.9397909999998  | 117.22295800000006 | 111.26741700000002 |  130.9397909999998 |  5.248623999999836 | 99303424; 100532224; 98713600; 101187584; 100597760  |
-| `unchanged-write`       | 106.36941699999988; 104.10754199999974; 100.33616600000005; 103.88974999999982; 98.50849999999991  | 103.88974999999982 |  98.50849999999991 | 106.36941699999988 |  2.479667000000063 | 98140160; 97239040; 97091584; 98500608; 97468416     |
+| Scenario                | Recorded milliseconds                                                                         |             Median |            Minimum |            Maximum |                 MAD | Recorded peak RSS bytes                             |
+| ----------------------- | --------------------------------------------------------------------------------------------- | -----------------: | -----------------: | -----------------: | ------------------: | --------------------------------------------------- |
+| `single-tailwind-plan`  | 98.026791; 97.16512499999999; 96.53995800000001; 99.90104100000002; 97.505541                 |          97.505541 |  96.53995800000001 |  99.90104100000002 |  0.5212500000000091 | 97157120; 95649792; 97239040; 97533952; 98320384    |
+| `multi-tailwind-plan`   | 115.04529200000002; 113.298; 116.11374999999998; 116.3114579999999; 117.59470899999997        | 116.11374999999998 |            113.298 | 117.59470899999997 |  1.0684579999999642 | 99844096; 99893248; 102793216; 100073472; 100401152 |
+| `multi-native-css-plan` | 103.662916; 102.53041700000017; 102.20958300000007; 104.91941699999984; 104.52279199999998    |         103.662916 | 102.20958300000007 | 104.91941699999984 |  1.1324989999998252 | 88702976; 96813056; 96387072; 96944128; 97615872    |
+| `unchanged-write`       | 93.87854199999992; 93.75329199999987; 91.53929100000005; 91.04437499999995; 91.35708300000033 |  91.53929100000005 |  91.04437499999995 |  93.87854199999992 | 0.49491600000010294 | 96468992; 93601792; 95584256; 95436800; 96124928    |
 
 ## Architecture-test timing
 
-| Command                                                                                          | Recorded milliseconds                                                                            |            Median |            Minimum |           Maximum |               MAD |
-| ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------ | ----------------: | -----------------: | ----------------: | ----------------: |
-| `node node_modules/vitest/vitest.mjs run test/architecture/enterprise-pipeline-boundary.test.ts` | 33250.93554200001; 33695.051290999996; 33759.99395799999; 32074.673665999988; 31353.633709000016 | 33250.93554200001 | 31353.633709000016 | 33759.99395799999 | 509.0584159999853 |
+| Command                                                                                          | Recorded milliseconds                                                                            |            Median |            Minimum |           Maximum |                MAD |
+| ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------ | ----------------: | -----------------: | ----------------: | -----------------: |
+| `node node_modules/vitest/vitest.mjs run test/architecture/enterprise-pipeline-boundary.test.ts` | 31580.424709000006; 31757.07258400001; 31584.92020800001; 31175.262666999988; 31686.095208000013 | 31584.92020800001 | 31175.262666999988 | 31757.07258400001 | 101.17500000000291 |
 
 ## Slice 1 comparison
 
@@ -221,19 +221,19 @@ The same machine and byte-identical product inputs produced these median compari
 
 | Scenario                |     Slice 1 median |       Final median | Final minus Slice 1 | Relative delta |
 | ----------------------- | -----------------: | -----------------: | ------------------: | -------------: |
-| `single-tailwind-plan`  |  98.99062500000002 | 108.30820800000004 |   9.317583000000013 |         +9.41% |
-| `multi-tailwind-plan`   | 115.16966699999989 | 130.52033400000005 |  15.350667000000158 |        +13.33% |
-| `multi-native-css-plan` | 106.70066699999984 | 117.22295800000006 |  10.522291000000223 |         +9.86% |
-| `unchanged-write`       |  92.08108399999992 | 103.88974999999982 |  11.808665999999903 |        +12.82% |
+| `single-tailwind-plan`  |  98.99062500000002 |          97.505541 |  -1.485084000000029 |         -1.50% |
+| `multi-tailwind-plan`   | 115.16966699999989 | 116.11374999999998 |  0.9440830000000915 |         +0.82% |
+| `multi-native-css-plan` | 106.70066699999984 |         103.662916 | -3.0377509999998438 |         -2.85% |
+| `unchanged-write`       |  92.08108399999992 |  91.53929100000005 | -0.5417929999998705 |         -0.59% |
 
-All four product medians are higher in this capture. No repeatable median improvement is claimed. These are observational results from one five-sample run; no causal attribution is made and they do not create a timing gate. The architecture boundary test changed between Slice 1 and the final capture, so its timing is not comparable. Its final five-sample observation remains recorded above without a delta or percentage.
+Three product medians are lower and one is higher in this capture. No repeatable median improvement is claimed. These are observational results from one five-sample run; no causal attribution is made and they do not create a timing gate. The architecture boundary test changed between Slice 1 and the final capture, so its timing is not comparable. Its final five-sample observation remains recorded above without a delta or percentage.
 
 The Slice 1 aggregate workload columns and the final aggregate work remain equivalent for the established scenarios. The final contracts separate original reads from destination reads, changed-template validation from native-CSS reference parsing, and transaction staging verification from Validate. That greater precision is evidence, not a throughput claim.
 
 ## Retained debt
 
-- **Performance evidence — performance owner:** all four comparable product medians are higher than Slice 1. The current architecture-test observation cannot be compared because its test workload changed. A future performance task must profile product startup and current resolved-symbol inspection before proposing an optimization; this rewrite makes no improvement claim.
-- **Large semantic modules — semantic architecture owner:** `SemanticFamilyCompositionPlanner` and `ElementSemanticPlanner` are the two largest production modules. Their size is recorded for maintainability review, but no speculative split is included without a separate responsibility design.
+- **Performance evidence — performance owner:** three comparable product medians are lower and one is higher than Slice 1 in this capture. The current architecture-test observation cannot be compared because its test workload changed. A future performance task must collect repeated benchmark captures and profile product startup and current resolved-symbol inspection before proposing an optimization; this rewrite makes no improvement claim.
+- **Large production modules — architecture owners:** `SemanticFamilyCompositionPlanner`, the coordinator-owned `TransactionUnitSession`, and `ElementSemanticPlanner` are the three largest production modules. The session grew while replacing shared mutable phase state with frozen command/view capabilities; its size and the semantic planners remain recorded for responsibility review, but no speculative split is included without a separate design.
 - **Stable-release compatibility — product owner:** conservative native-CSS limitations, opt-in responsive-image behavior, and other gaps already reserved for the stable-release audit remain unchanged. They are not architecture-rewrite regressions.
 
 There is no retained compatibility façade, dead-module exception, undeclared or unused runtime dependency, package-surface deviation, or known final-evidence mismatch. Independent whole-branch review remains the pull-request gate after this implementation/evidence commit.
