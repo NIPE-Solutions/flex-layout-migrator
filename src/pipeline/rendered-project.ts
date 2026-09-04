@@ -1,9 +1,9 @@
 import * as path from 'node:path';
-import type { AdapterSessionResult } from '../adapter/conversion-adapter.session';
 import type { MediaDefinition } from '../breakpoint/breakpoint-catalog';
 import type { OwnedCssRule } from '../adapter/css/css-artifact.model';
 import { MigrationApplicationError } from '../migrator/migration-application.error';
 import { fileMigrationPlan, type FileMigrationPlan } from '../migrator/migration-plan';
+import type { AdapterSessionResult } from '../render/render-session';
 import { analyzedProject, type AnalyzedProject } from './analyzed-project';
 import type { ManifestTemplate } from './project-manifest';
 

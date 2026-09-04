@@ -1,5 +1,4 @@
 import * as path from 'node:path';
-import type { AdapterSessionResult } from '../adapter/conversion-adapter.session';
 import type { OwnedCssRule } from '../adapter/css/css-artifact.model';
 import type { LocatedFlexLayoutInput } from '../analyzer/flex-layout-attribute.analyzer';
 import type { FileMigrationPlan, MigrationPlan } from '../migrator/migration-plan';
@@ -7,6 +6,7 @@ import { MigrationApplicationError } from '../migrator/migration-application.err
 import type { MigrationOptions } from '../migrator/migrator';
 import type { StylesheetMigrationResult } from '../report/migration-report.builder';
 import type { TemplateParseResult } from '../template/template.model';
+import type { AdapterSessionResult } from '../render/render-session';
 import { analyzedProject, type AnalyzedProject, type AnalyzedTemplate } from './analyzed-project';
 import { migrationInvocation, projectManifest, type ManifestTemplate, type ProjectManifest } from './project-manifest';
 import { renderedProject, type RenderedProject } from './rendered-project';

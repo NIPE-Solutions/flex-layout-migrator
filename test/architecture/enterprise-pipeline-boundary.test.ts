@@ -1164,7 +1164,6 @@ describe('enterprise pipeline dependency boundary', { timeout: wholeProjectInspe
       { source: 'lib/gitignore.helper.ts', authority: 'FileSystem.readFile' },
       { source: 'lib/gitignore.helper.ts', authority: 'IgnoreLibrary.acquire' },
       { source: 'lib/gitignore.helper.ts', authority: 'IgnoreLibrary.createMatcher' },
-      { source: 'migrator/analyzed-file.migrator.ts', authority: 'DestinationTemplateSource.read' },
       { source: 'migrator/destination-template-source.ts', authority: 'FileSystem.acquire.readFile' },
       { source: 'migrator/destination-template-source.ts', authority: 'FileSystem.readFile' },
       { source: 'migrator/migration-path.validator.ts', authority: 'FileSystem.acquire.lstat' },
@@ -1185,6 +1184,7 @@ describe('enterprise pipeline dependency boundary', { timeout: wholeProjectInspe
         source: 'pipeline/discover/discover-project.stage.ts',
         authority: 'GitIgnoreHelper.acquire',
       },
+      { source: 'pipeline/render/compatibility-edit.validator.ts', authority: 'DestinationTemplateSource.read' },
       { source: 'transaction/migration-transaction.ts', authority: 'FileSystem.acquire.access' },
       { source: 'transaction/migration-transaction.ts', authority: 'FileSystem.acquire.lstat' },
       { source: 'transaction/migration-transaction.ts', authority: 'FileSystem.acquire.open' },
@@ -1334,9 +1334,9 @@ describe('enterprise pipeline dependency boundary', { timeout: wholeProjectInspe
       { source: 'pipeline/analyze/analyze-project.stage.ts', authority: 'TemplateSourceReader.read' },
     ]);
     expect(parseCalls).toEqual([
-      { source: 'migrator/analyzed-file.migrator.ts', authority: 'ChangedTemplateValidation.parse' },
       { source: 'migrator/migrator.ts', authority: 'CssReferenceParser.parse' },
       { source: 'pipeline/analyze/analyze-project.stage.ts', authority: 'OriginalTemplateParser.parse' },
+      { source: 'pipeline/render/compatibility-edit.validator.ts', authority: 'AngularTemplateParser.parse' },
       { source: 'transaction/migration-transaction.ts', authority: 'StagedTemplateValidation.parse' },
     ]);
   });

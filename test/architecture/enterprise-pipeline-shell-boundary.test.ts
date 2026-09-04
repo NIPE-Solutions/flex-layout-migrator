@@ -39,11 +39,11 @@ const handoffImports = new Map<string, readonly string[]>([
     [
       './analyzed-project',
       './project-manifest',
-      '../adapter/conversion-adapter.session',
       '../adapter/css/css-artifact.model',
       '../breakpoint/breakpoint-catalog',
       '../migrator/migration-application.error',
       '../migrator/migration-plan',
+      '../render/render-session',
       'node:path',
     ],
   ],
@@ -287,6 +287,7 @@ describe('enterprise pipeline shell dependency boundary', { timeout: 20_000 }, (
     expect(pipelinePaths.map(path => basename(path)).sort()).toEqual([
       'analyze-project.stage.ts',
       'analyzed-project.ts',
+      'compatibility-edit.validator.ts',
       'current-migration.pipeline.ts',
       'discover-project.stage.ts',
       'discovery-file-system.port.ts',
@@ -295,6 +296,7 @@ describe('enterprise pipeline shell dependency boundary', { timeout: 20_000 }, (
       'migration-pipeline.ts',
       'pipeline-stage.error.ts',
       'project-manifest.ts',
+      'render-project.stage.ts',
       'rendered-project.ts',
       'template-input-analyzer.port.ts',
       'template-parser.port.ts',
