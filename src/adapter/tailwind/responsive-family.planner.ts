@@ -3,7 +3,7 @@ import { BreakpointCatalog } from '../../breakpoint/breakpoint-catalog';
 import type { SemanticConversionContext } from '../../semantic/conversion-context';
 import type { ConversionContext, PlannedConversion } from '../conversion-adapter';
 import {
-  ResponsiveFamilyPlanner as SharedResponsiveFamilyPlanner,
+  ResponsiveFamilyPlanner as SemanticResponsiveFamilyPlanner,
   type DirectiveFamily,
   type ResponsivePlanExtendedFamily,
   type ResponsivePlanOne,
@@ -82,8 +82,8 @@ function printCandidate(candidate: string): string {
   return `[@media_print]:${candidate}`;
 }
 
-export class ResponsiveFamilyPlanner {
-  private readonly sharedPlanner: SharedResponsiveFamilyPlanner<PlannedConversion>;
+class TailwindResponsiveFamilyPlanner {
+  private readonly sharedPlanner: SemanticResponsiveFamilyPlanner<PlannedConversion>;
 
   constructor(
     private readonly catalog = new BreakpointCatalog(),
@@ -112,7 +112,7 @@ export class ResponsiveFamilyPlanner {
       decorate: plan => this.decorate(plan),
       addPrintFallback: plan => this.addPrintFallback(plan),
     };
-    this.sharedPlanner = new SharedResponsiveFamilyPlanner(this.catalog, policy);
+    this.sharedPlanner = new SemanticResponsiveFamilyPlanner(this.catalog, policy);
   }
 
   plan(
@@ -154,3 +154,6 @@ export class ResponsiveFamilyPlanner {
     };
   }
 }
+
+/** @deprecated Test-only compatibility alias. Production rendering uses ElementSemanticPlanner. */
+export { TailwindResponsiveFamilyPlanner as ResponsiveFamilyPlanner };

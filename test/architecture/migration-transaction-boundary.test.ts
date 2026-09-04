@@ -5,6 +5,7 @@ import {
   inspectTypeScript,
   inspectTypeScriptProject,
   inspectSemanticAuthorityCalls,
+  inspectRuntimeSymbolProvenance,
   productionTypeScriptFiles,
   type TypeScriptInspection,
   type TypeScriptProjectInspection,
@@ -14,6 +15,7 @@ const productionRoot = join(process.cwd(), 'src');
 const transactionRoot = join(productionRoot, 'transaction');
 const adapterRoot = join(productionRoot, 'adapter');
 const migratorRoot = join(productionRoot, 'migrator');
+const migratorPath = join(migratorRoot, 'migrator.ts');
 const reportRoot = join(productionRoot, 'report');
 const atomicFileWriterPath = join(productionRoot, 'lib', 'atomic-file.writer.ts');
 const jsonReportWriterPath = join(productionRoot, 'report', 'json-report.writer.ts');
@@ -178,6 +180,23 @@ describe('migration transaction architecture boundary', { timeout: wholeProjectI
         relative(process.cwd(), path),
       ).toBeUndefined();
     }
+  });
+
+  test('keeps Migrator downstream of semantic planning, rendering, and render-session finalization', () => {
+    const forbiddenRuntimeSymbols = inspectRuntimeSymbolProvenance([migratorPath]).filter(symbol =>
+      [
+        join(productionRoot, 'semantic'),
+        join(productionRoot, 'render'),
+        join(productionRoot, 'planner', 'conversion-planner.ts'),
+        join(productionRoot, 'adapter', 'conversion-adapter.session.ts'),
+      ].some(namespace => symbol.declarationPath === namespace || symbol.declarationPath.startsWith(`${namespace}/`)),
+    );
+    const renderAuthorities = inspectSemanticAuthorityCalls([migratorPath]).filter(
+      call => call.name === 'RenderProjectStage.run' || call.name === 'RenderSession.finalize',
+    );
+
+    expect(forbiddenRuntimeSymbols).toEqual([]);
+    expect(renderAuthorities).toEqual([]);
   });
 
   test('reserves AtomicFileWriter for the independent JSON report', () => {

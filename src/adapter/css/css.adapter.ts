@@ -2,9 +2,8 @@ import type { BreakpointMigrationConfig } from '../../config/breakpoint-migratio
 import type { ConversionRenderer } from '../../render/conversion-renderer';
 import { CssRenderer } from '../../render/css/css.renderer';
 import { CssRenderSession } from '../../render/render-session';
-import type { ConversionAdapterSession } from '../conversion-adapter.session';
+import type { CompatibilityConversionAdapter, ConversionAdapterSession } from '../conversion-adapter.session';
 import { sessionBoundAdapter } from '../conversion-adapter.session';
-import type { ConversionAdapter } from '../conversion-adapter';
 import { RendererBackedConversionAdapter } from '../renderer-backed-conversion.adapter';
 import { CssArtifactRegistry } from './css-artifact.registry';
 
@@ -24,7 +23,7 @@ export class CssAdapter extends RendererBackedConversionAdapter {
 /** @deprecated Use CssRenderSession. */
 export class CssAdapterSession implements ConversionAdapterSession {
   readonly renderer: ConversionRenderer;
-  readonly adapter: ConversionAdapter;
+  readonly adapter: CompatibilityConversionAdapter;
   private readonly delegate: CssRenderSession;
   private finalized = false;
 

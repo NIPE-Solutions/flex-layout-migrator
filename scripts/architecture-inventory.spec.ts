@@ -11,8 +11,8 @@ const syntheticProject = {
     {
       path: 'src/ä-policy.ts',
       source: [
-        'export class SharedResponsiveFamilyPlanner {}',
-        'export class ConversionPlanner {}',
+        'export class ResponsiveFamilyPlanner {}',
+        'export class ElementSemanticPlanner {}',
         'export class CssArtifactRegistry {}',
         "export type { DiagnosticCode } from './Z-helper.js';",
       ].join('\n'),
@@ -22,7 +22,7 @@ const syntheticProject = {
       source: [
         "import { command } from 'commander/extra';",
         "import { helper } from './Z-helper.js';",
-        "import type { SharedResponsiveFamilyPlanner } from './ä-policy.js';",
+        "import type { ResponsiveFamilyPlanner } from './ä-policy.js';",
         "import type { CompilerOptions } from 'typescript';",
         'const example = "import value from \'not-a-package\'";',
         "// import ignored from 'also-not-a-package';",
@@ -141,8 +141,8 @@ describe('architecture inventory', () => {
       { policy: 'artifact identity', module: 'src/ä-policy.ts', symbol: 'CssArtifactRegistry' },
       { policy: 'breakpoint classification', module: 'src/Z-helper.ts', symbol: 'BreakpointCatalog' },
       { policy: 'diagnostics', module: 'src/Z-helper.ts', symbol: 'DiagnosticCode' },
-      { policy: 'responsive precedence', module: 'src/ä-policy.ts', symbol: 'SharedResponsiveFamilyPlanner' },
-      { policy: 'semantic planning', module: 'src/ä-policy.ts', symbol: 'ConversionPlanner' },
+      { policy: 'responsive precedence', module: 'src/ä-policy.ts', symbol: 'ResponsiveFamilyPlanner' },
+      { policy: 'semantic planning', module: 'src/ä-policy.ts', symbol: 'ElementSemanticPlanner' },
       { policy: 'transaction recovery', module: 'src/Z-helper.ts', symbol: 'MigrationTransaction' },
     ]);
   });

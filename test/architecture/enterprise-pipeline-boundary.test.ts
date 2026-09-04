@@ -8,6 +8,7 @@ import {
   inspectTypeScript,
   inspectTypeScriptProject,
   inspectRuntimeDependencyClosure,
+  inspectRuntimeExportSymbolProvenance,
   inspectRuntimeSymbolProvenance,
   inspectSemanticAuthorityCalls,
   moduleReferenceContainsPath,
@@ -20,8 +21,10 @@ const flexRoot = join(productionRoot, 'flex');
 const pipelineRoot = join(productionRoot, 'pipeline');
 const discoverStagePath = join(pipelineRoot, 'discover', 'discover-project.stage.ts');
 const analyzeStagePath = join(pipelineRoot, 'analyze', 'analyze-project.stage.ts');
+const semanticRoot = join(productionRoot, 'semantic');
 const atomicWriterPath = join(productionRoot, 'lib', 'atomic-file.writer.ts');
 const migratorPath = join(productionRoot, 'migrator', 'migrator.ts');
+const conversionAdapterPath = join(productionRoot, 'adapter', 'conversion-adapter.ts');
 const destinationTemplateSourcePath = join(productionRoot, 'migrator', 'destination-template-source.ts');
 const stylesheetPlannerPath = join(productionRoot, 'migrator', 'stylesheet.planner.ts');
 const legacyResponsiveFamilyPlannerPath = join(productionRoot, 'adapter', 'responsive-family.planner.ts');
@@ -56,6 +59,7 @@ const productionGraphAuthorities = new Set([
   'DiscoverProjectStage.run',
   'MigrationTransaction.apply',
   'Migrator.migrate',
+  'RenderProjectStage.run',
 ]);
 const filesystemOperationAuthorityNames = [
   'FileSystem.access',
@@ -126,6 +130,8 @@ const expectedProductionAuthorityGraph = [
   { source: 'pipeline/current-migration.pipeline.ts', authority: 'AnalyzeProjectStage.run' },
   { source: 'pipeline/current-migration.pipeline.ts', authority: 'DiscoverProjectStage.run' },
   { source: 'pipeline/current-migration.pipeline.ts', authority: 'Migrator.migrate' },
+  { source: 'pipeline/current-migration.pipeline.ts', authority: 'RenderProjectStage.run' },
+  { source: 'pipeline/migration-pipeline.ts', authority: 'RenderProjectStage.run' },
 ] as const;
 const rogueProductionAuthorityCases = [
   {
@@ -758,6 +764,94 @@ describe('enterprise pipeline dependency boundary', { timeout: wholeProjectInspe
     );
   });
 
+  test('keeps responsive-family runtime exports owned only by the target-neutral semantic module', () => {
+    const owners = inspectRuntimeExportSymbolProvenance(productionPaths)
+      .filter(
+        symbol =>
+          symbol.symbolName === 'ResponsiveFamilyPlanner' &&
+          symbol.declarationPath.endsWith('/semantic/responsive-family.planner.ts'),
+      )
+      .map(symbol => relative(productionRoot, symbol.sourcePath).replaceAll('\\', '/'))
+      .sort();
+
+    expect(owners).toEqual(['semantic/responsive-family.planner.ts']);
+  });
+
+  test('keeps the deprecated ConversionAdapter type free of semantic orchestration hooks', () => {
+    const inspection = inspectTypeScript(readFileSync(conversionAdapterPath, 'utf8'), conversionAdapterPath);
+
+    expect(
+      inspection.declaredMethodNames.filter(name =>
+        ['planElement', 'closePlanDependencies', 'acceptPlans'].includes(name),
+      ),
+    ).toEqual([]);
+  });
+
+  test('does not treat a type-only responsive compatibility alias as runtime ownership', () => {
+    const aliasPath = join(productionRoot, '__architecture-fixture__', 'responsive-type-only.alias.ts');
+    const findings = inspectRuntimeExportSymbolProvenance(
+      [aliasPath],
+      new Map([
+        [
+          aliasPath,
+          "export type { ResponsiveFamilyPlanner as SharedResponsiveFamilyPlanner } from '../semantic/responsive-family.planner.js';",
+        ],
+      ]),
+    );
+
+    expect(findings.filter(symbol => symbol.symbolName === 'ResponsiveFamilyPlanner')).toEqual([]);
+  });
+
+  test('keeps semantic production modules independent from targets and side-effect layers', () => {
+    const semanticPaths = productionTypeScriptFiles(semanticRoot);
+    const forbiddenLocalDependencies = inspectRuntimeDependencyClosure(semanticPaths).filter(finding =>
+      [
+        join(productionRoot, 'adapter'),
+        join(productionRoot, 'render'),
+        join(productionRoot, 'edit'),
+        join(productionRoot, 'report'),
+        join(productionRoot, 'transaction'),
+      ].some(namespace => finding.dependencyPath === namespace || finding.dependencyPath.startsWith(`${namespace}/`)),
+    );
+    const filesystemImports = semanticPaths.flatMap(path =>
+      runtimeModuleReferences(readFileSync(path, 'utf8'), path).filter(reference =>
+        /^(?:node:)?fs(?:\/|$)/u.test(reference),
+      ),
+    );
+
+    expect(forbiddenLocalDependencies).toEqual([]);
+    expect(filesystemImports).toEqual([]);
+  });
+
+  test('makes RenderProjectStage the sole caller of RenderSession finalization', () => {
+    expect(normalizedAuthoritySources(productionSemanticAuthorities(), new Set(['RenderSession.finalize']))).toEqual([
+      { source: 'pipeline/render/render-project.stage.ts', authority: 'RenderSession.finalize' },
+    ]);
+  });
+
+  test.each([
+    {
+      label: 'test-double interface',
+      source:
+        'interface RenderSessionDouble { finalize(): void } declare const session: RenderSessionDouble; session.finalize();',
+    },
+    {
+      label: 'compatibility-shaped alias',
+      source:
+        'type CompatibilitySession = { finalize(): void }; declare const session: CompatibilitySession; session.finalize();',
+    },
+    {
+      label: 'unrelated class method',
+      source: 'class ReportBuilder { finalize(): void {} } new ReportBuilder().finalize();',
+    },
+    {
+      label: 'type-only session import',
+      source: "import type { RenderSession } from '../render/render-session.js'; type Session = RenderSession; void 0;",
+    },
+  ])('does not classify a $label as RenderSession finalization authority', ({ source }) => {
+    expect(fixtureSemanticAuthorities(source).filter(name => name === 'RenderSession.finalize')).toEqual([]);
+  });
+
   test.each(rogueProductionAuthorityCases)(
     'rejects a rogue production $authority authority from $sourcePath',
     fixture => {
@@ -1233,10 +1327,7 @@ describe('enterprise pipeline dependency boundary', { timeout: wholeProjectInspe
       'named imports',
       "import { BreakpointCatalog, mediaDefinitionsIntersect } from '../breakpoint/breakpoint-catalog.js';",
     ],
-    [
-      'namespace import',
-      "import * as breakpoints from '../breakpoint/breakpoint-catalog.js'; void breakpoints;",
-    ],
+    ['namespace import', "import * as breakpoints from '../breakpoint/breakpoint-catalog.js'; void breakpoints;"],
     [
       're-export alias',
       "export { BreakpointCatalog as Catalog, mediaRangesIntersect as intersects } from '../breakpoint/breakpoint-catalog.js';",
@@ -1336,7 +1427,7 @@ describe('enterprise pipeline dependency boundary', { timeout: wholeProjectInspe
     expect(parseCalls).toEqual([
       { source: 'migrator/migrator.ts', authority: 'CssReferenceParser.parse' },
       { source: 'pipeline/analyze/analyze-project.stage.ts', authority: 'OriginalTemplateParser.parse' },
-      { source: 'pipeline/render/compatibility-edit.validator.ts', authority: 'AngularTemplateParser.parse' },
+      { source: 'pipeline/render/compatibility-edit.validator.ts', authority: 'ChangedTemplateValidation.parse' },
       { source: 'transaction/migration-transaction.ts', authority: 'StagedTemplateValidation.parse' },
     ]);
   });

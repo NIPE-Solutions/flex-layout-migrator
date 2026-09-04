@@ -28,15 +28,8 @@ export type PlannedConversion =
 export interface ConversionAdapter extends ConversionRenderer {
   readonly name: 'css' | 'tailwind';
   plan(input: LocatedFlexLayoutInput, context: ConversionContext): PlannedConversion;
-  planElement?(inputs: readonly LocatedFlexLayoutInput[], context: ConversionContext): readonly PlannedConversion[];
   resolveClassConflicts?(
     plans: readonly PlannedConversion[],
     existingClassNames: readonly string[],
   ): readonly PlannedConversion[];
-  closePlanDependencies?(
-    plans: readonly PlannedConversion[],
-    context: ConversionContext,
-    plansByInputId: ReadonlyMap<string, PlannedConversion>,
-  ): readonly PlannedConversion[];
-  acceptPlans?(plans: readonly PlannedConversion[]): void;
 }

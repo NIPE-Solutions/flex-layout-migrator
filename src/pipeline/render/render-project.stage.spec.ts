@@ -22,10 +22,7 @@ describe('RenderProjectStage', () => {
 
     const rendered = await stage.run(analyzed);
 
-    expect(plannedPaths).toEqual([
-      '/project/input/first.html',
-      '/project/input/second.html',
-    ]);
+    expect(plannedPaths).toEqual(['/project/input/first.html', '/project/input/second.html']);
     expect(finalize).toHaveBeenCalledOnce();
     expect(rendered.files.map(file => file.file.inputPath)).toEqual([
       '/project/input/first.html',
@@ -70,6 +67,22 @@ describe('RenderProjectStage', () => {
 
     await expect(stage.run(parsedProject())).rejects.toThrow(renderFailure);
 
+    expect(finalize).not.toHaveBeenCalled();
+  });
+
+  test('does not finalize when asynchronous edit validation rejects after an earlier template succeeds', async () => {
+    const validationFailure = new Error('generated template validation failed');
+    const planner: RenderTemplatePlanner = { plan: () => ({ edits: [], results: [] }) };
+    const validate = vi
+      .fn()
+      .mockResolvedValueOnce(unchangedPlan('/project/input/first.html', '/project/output/first.html'))
+      .mockRejectedValueOnce(validationFailure);
+    const finalize = vi.fn(() => ({ target: 'tailwind' as const }));
+    const stage = new RenderProjectStage(sessionDouble(finalize), planner, { validate });
+
+    await expect(stage.run(parsedProject())).rejects.toThrow(validationFailure);
+
+    expect(validate).toHaveBeenCalledTimes(2);
     expect(finalize).not.toHaveBeenCalled();
   });
 });

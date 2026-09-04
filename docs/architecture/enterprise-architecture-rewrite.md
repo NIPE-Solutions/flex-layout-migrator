@@ -161,6 +161,10 @@ Render through Apply remain on the compatibility continuation. `AnalyzedFileMigr
 
 Move target-neutral responsive and dependency policy out of the adapters, then reduce Tailwind and CSS adapters to target rendering and capability decisions. Preserve distinct target constraints and add cross-target semantic parity contracts.
 
+Implemented on the production route. `ElementSemanticPlanner` now owns target-neutral family grouping, responsive activation and precedence, contextual dependency closure, and preservation decisions. `TailwindRenderer` and `CssRenderer` consume the same resolved semantic plans and retain only target capability, syntax, artifact, and conflict behavior. `RenderProjectStage` creates one invocation-scoped render session, processes analyzed templates in manifest order, and finalizes the session exactly once before producing `RenderedProject`; the downstream `Migrator` receives that immutable handoff and cannot plan semantics, render targets, or finalize the session.
+
+`CompatibilityEditValidator` remains the deliberately narrow changed-template edit and reparse boundary. Slice 5 moves that validation into the concrete Validate stage. The generic `MigrationPipeline` compatibility surface remains assigned to Slice 7, while unreachable adapter aliases plus the `FileMigrator` alias and `FolderMigrator` tombstone remain assigned to Slice 8.
+
 ### 5. Validation
 
 Centralize edit, topology, collision, target-finalization, and Angular reparse validation. Make the validated plan the sole Apply input and prove plan/write decision parity.

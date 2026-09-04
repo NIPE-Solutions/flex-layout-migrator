@@ -95,6 +95,7 @@ export interface TypeScriptInspection {
   readonly constructedExpressionNames: readonly string[];
   readonly parameters: readonly InspectedParameter[];
   readonly declaredPropertyNames: readonly string[];
+  readonly declaredMethodNames: readonly string[];
   readonly runtimeImports: readonly InspectedRuntimeImport[];
   readonly exportedFunctions: readonly InspectedExportedFunction[];
 }
@@ -184,6 +185,8 @@ export type SemanticAuthorityName =
   | 'MigrationTransaction.apply'
   | 'Migrator.migrate'
   | 'OriginalTemplateParser.parse'
+  | 'RenderProjectStage.run'
+  | 'RenderSession.finalize'
   | 'StagedTemplateValidation.parse'
   | 'TemplateInputAnalyzer.analyze'
   | 'TemplateSourceReader.read';
@@ -204,6 +207,9 @@ export interface RuntimeSymbolProvenance {
   readonly symbolName: string;
   readonly declarationPath: string;
 }
+
+/** A runtime value exported by a module, resolved through aliases and barrels to its declaration. */
+export type RuntimeExportSymbolProvenance = RuntimeSymbolProvenance;
 
 type FilesystemProvenance = '*' | string;
 const inspectionRootPaths = new WeakMap<ts.Program, ReadonlySet<string>>();
@@ -266,7 +272,9 @@ function expressionName(expression: ts.Expression): string | undefined {
   return undefined;
 }
 
-function declarationPropertyName(node: ts.PropertyDeclaration | ts.PropertySignature): string | undefined {
+function declarationPropertyName(
+  node: ts.PropertyDeclaration | ts.PropertySignature | ts.MethodDeclaration | ts.MethodSignature,
+): string | undefined {
   const name = node.name;
   return ts.isIdentifier(name) || ts.isStringLiteralLike(name) || ts.isNumericLiteral(name) ? name.text : undefined;
 }
@@ -487,6 +495,7 @@ export function inspectTypeScript(source: string, sourcePath: string): TypeScrip
   const constructedExpressionNames: string[] = [];
   const parameters: InspectedParameter[] = [];
   const declaredPropertyNames: string[] = [];
+  const declaredMethodNames: string[] = [];
   const runtimeImports: InspectedRuntimeImport[] = [];
   const exportedFunctions: InspectedExportedFunction[] = [];
 
@@ -532,6 +541,10 @@ export function inspectTypeScript(source: string, sourcePath: string): TypeScrip
     if (ts.isPropertyDeclaration(node) || ts.isPropertySignature(node)) {
       const name = declarationPropertyName(node);
       if (name !== undefined) declaredPropertyNames.push(name);
+    }
+    if (ts.isMethodDeclaration(node) || ts.isMethodSignature(node)) {
+      const name = declarationPropertyName(node);
+      if (name !== undefined) declaredMethodNames.push(name);
     }
     if (ts.isImportDeclaration(node)) runtimeImports.push(...runtimeImportBindings(node));
 
@@ -581,6 +594,7 @@ export function inspectTypeScript(source: string, sourcePath: string): TypeScrip
     constructedExpressionNames,
     parameters,
     declaredPropertyNames,
+    declaredMethodNames,
     runtimeImports,
     exportedFunctions,
   };
@@ -2641,9 +2655,32 @@ const semanticAuthorityConfigs: readonly SemanticAuthorityConfig[] = [
     },
   },
   {
+    name: 'RenderProjectStage.run',
+    methodName: 'run',
+    declarations: [
+      { sourcePathSuffix: '/pipeline/migration-pipeline.ts', containers: ['RenderStage'] },
+      { sourcePathSuffix: '/pipeline/render/render-project.stage.ts', containers: ['RenderProjectStage'] },
+    ],
+    concreteClass: {
+      exportedName: 'RenderProjectStage',
+      sourcePathSuffix: '/pipeline/render/render-project.stage.ts',
+    },
+  },
+  {
+    name: 'RenderSession.finalize',
+    methodName: 'finalize',
+    declarations: [{ sourcePathSuffix: '/render/render-session.ts', containers: ['RenderSession'] }],
+  },
+  {
     name: 'Migrator.migrate',
     methodName: 'migrate',
-    declarations: [{ sourcePathSuffix: '/migrator/migrator.ts', containers: ['Migrator'] }],
+    declarations: [
+      { sourcePathSuffix: '/migrator/migrator.ts', containers: ['Migrator'] },
+      {
+        sourcePathSuffix: '/pipeline/current-migration.pipeline.ts',
+        containers: ['RenderedMigrationContinuation'],
+      },
+    ],
     concreteClass: { exportedName: 'Migrator', sourcePathSuffix: '/migrator/migrator.ts' },
   },
   {
@@ -3180,7 +3217,11 @@ function contextualSemanticAuthorityName(
   const reflected = reflectedApplyInvocation(expression, checker, program, new Set());
   const members = semanticMemberNames(reflected?.target ?? expression.expression, checker);
   const normalizedSourcePath = sourcePath.replaceAll('\\', '/');
-  if (normalizedSourcePath.endsWith('/migrator/analyzed-file.migrator.ts') && members.includes('validationParser')) {
+  if (
+    (normalizedSourcePath.endsWith('/migrator/analyzed-file.migrator.ts') ||
+      normalizedSourcePath.endsWith('/pipeline/render/compatibility-edit.validator.ts')) &&
+    members.includes('validationParser')
+  ) {
     return 'ChangedTemplateValidation.parse';
   }
   if (normalizedSourcePath.endsWith('/migrator/migrator.ts') && members.includes('referenceParser')) {
@@ -4243,6 +4284,52 @@ export function inspectRuntimeSymbolProvenance(
     }
 
     visit(sourceFile);
+  }
+
+  return findings;
+}
+
+/** Resolves each root module's runtime exports through aliases and barrels to canonical value declarations. */
+export function inspectRuntimeExportSymbolProvenance(
+  sourcePaths: readonly string[],
+  sourceOverrides: ReadonlyMap<string, string> = new Map(),
+): readonly RuntimeExportSymbolProvenance[] {
+  const { checker, program, rootPaths } = createProjectProgram(sourcePaths, sourceOverrides);
+  const findings: RuntimeExportSymbolProvenance[] = [];
+  const seenFindings = new Set<string>();
+
+  for (const sourceFile of program.getSourceFiles()) {
+    const sourcePath = resolve(sourceFile.fileName);
+    if (!rootPaths.has(sourcePath)) continue;
+    const moduleSymbol = checker.getSymbolAtLocation(sourceFile);
+    if (moduleSymbol === undefined) continue;
+
+    for (const exported of checker.getExportsOfModule(moduleSymbol)) {
+      const declarations = exported.declarations ?? [];
+      if (
+        declarations.length > 0 &&
+        declarations.every(
+          declaration =>
+            ts.isExportSpecifier(declaration) &&
+            (declaration.isTypeOnly ||
+              (ts.isExportDeclaration(declaration.parent.parent) && declaration.parent.parent.isTypeOnly)),
+        )
+      ) {
+        continue;
+      }
+      const resolved = canonicalRuntimeSymbol(exported, checker);
+      const declaration = resolved.valueDeclaration;
+      if (declaration === undefined) continue;
+      const finding = {
+        sourcePath,
+        symbolName: resolved.getName(),
+        declarationPath: resolve(declaration.getSourceFile().fileName),
+      };
+      const key = `${finding.sourcePath}\0${finding.symbolName}\0${finding.declarationPath}`;
+      if (seenFindings.has(key)) continue;
+      seenFindings.add(key);
+      findings.push(finding);
+    }
   }
 
   return findings;
