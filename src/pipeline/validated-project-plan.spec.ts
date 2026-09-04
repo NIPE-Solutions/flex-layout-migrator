@@ -124,6 +124,22 @@ function captureInternalInvariant(action: () => unknown): MigrationApplicationEr
 }
 
 describe('validatedProjectPlan', () => {
+  test('rejects a renderer/session/plan three-target mismatch as a canonical invariant', () => {
+    const stylesheetPath = path.resolve('generated/flex-layout.css');
+    const rendered = renderedFor(manifestFor([], stylesheetPath), 'tailwind');
+    const mismatchedSession = renderedProject({ ...rendered, session: { target: 'css', rules: [] } });
+
+    const error = captureInternalInvariant(() =>
+      validatedProjectPlan({
+        rendered: mismatchedSession,
+        plan: { target: 'css', files: [], artifacts: [] },
+        stylesheet: { path: stylesheetPath, change: 'unchanged' },
+      }),
+    );
+
+    expect(error.message).toBe('Render session finalized for target "css" but its renderer targets "tailwind".');
+  });
+
   test('requires the plan target to agree with the finalized session target', () => {
     const rendered = renderedFor(manifestFor([]), 'tailwind');
 

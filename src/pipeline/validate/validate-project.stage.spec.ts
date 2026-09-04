@@ -71,13 +71,19 @@ describe('ValidateProjectStage', () => {
     expect(validated.plan.artifacts).toEqual([]);
   });
 
-  test('rejects finalized-session incongruence before validating proposals', async () => {
-    const validate = vi.fn();
+  test('delegates finalized-session congruence to the canonical constructor after validating proposals', async () => {
+    const validate = vi.fn(async (template: AnalyzedTemplate) => ({
+      file: {
+        inputPath: template.file.inputPath,
+        outputPath: template.file.outputPath,
+        changed: false,
+        results: [],
+      },
+    }));
     const rendered = renderedFixture({
       target: 'tailwind',
       finalizedTarget: 'css',
-      stylesheetPath: '/project/flex-layout.css',
-      templates: [],
+      templates: [{ inputPath: '/project/card.html', outputPath: '/project/card.html', source: '<div></div>' }],
     });
 
     await expect(
@@ -87,7 +93,7 @@ describe('ValidateProjectStage', () => {
       message: 'Render session finalized for target "css" but its renderer targets "tailwind".',
       paths: [],
     });
-    expect(validate).not.toHaveBeenCalled();
+    expect(validate).toHaveBeenCalledOnce();
   });
 
   test('collects complete-project CSS references and appends exact stylesheet metadata', async () => {

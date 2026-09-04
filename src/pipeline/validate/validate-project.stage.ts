@@ -23,7 +23,6 @@ export class ValidateProjectStage implements ValidateStage {
 
   public async run(input: RenderedProject): Promise<ValidatedProjectPlan> {
     const rendered = renderedProject(input);
-    this.validateFinalizedSession(rendered);
     this.validateConfiguration(rendered);
 
     const stylesheetPath = rendered.analyzed.manifest.invocation.options.stylesheetPath;
@@ -44,8 +43,8 @@ export class ValidateProjectStage implements ValidateStage {
 
     let stylesheetArtifact: PlannedOutputArtifact | undefined;
     let stylesheet: StylesheetMigrationResult | undefined;
-    if (rendered.session.target === 'css') {
-      const canonicalStylesheetPath = path.resolve(stylesheetPath as string);
+    if (rendered.session.target === 'css' && stylesheetPath !== undefined) {
+      const canonicalStylesheetPath = path.resolve(stylesheetPath);
       const references = await this.cssReferences.collect(rendered, files);
       stylesheetArtifact = await this.stylesheetPlanner.plan(
         canonicalStylesheetPath,
@@ -69,14 +68,6 @@ export class ValidateProjectStage implements ValidateStage {
     await validateMigrationPaths({ templates: plan.files, stylesheetPath, reportPath });
 
     return validatedProjectPlan({ rendered, plan, ...(stylesheet === undefined ? {} : { stylesheet }) });
-  }
-
-  private validateFinalizedSession(rendered: RenderedProject): void {
-    if (rendered.target === rendered.session.target) return;
-    throw new MigrationApplicationError(
-      'internal-invariant',
-      `Render session finalized for target "${rendered.session.target}" but its renderer targets "${rendered.target}".`,
-    );
   }
 
   private validateConfiguration(rendered: RenderedProject): void {

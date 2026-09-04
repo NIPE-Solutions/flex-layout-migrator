@@ -13,6 +13,12 @@ export interface ValidatedProjectPlan {
 
 export function validatedProjectPlan(project: ValidatedProjectPlan): ValidatedProjectPlan {
   const rendered = renderedProject(project.rendered);
+  if (rendered.target !== rendered.session.target) {
+    throw internalInvariant(
+      `Render session finalized for target "${rendered.session.target}" but its renderer targets "${rendered.target}".`,
+    );
+  }
+
   const suppliedPlan = migrationPlan(project.plan);
   if (suppliedPlan.target !== rendered.session.target) {
     throw internalInvariant('Validated migration plan target differs from its finalized adapter session target.');
