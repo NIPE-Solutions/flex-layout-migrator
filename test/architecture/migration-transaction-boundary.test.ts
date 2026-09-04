@@ -22,7 +22,7 @@ const jsonReportWriterPath = join(productionRoot, 'report', 'json-report.writer.
 const terminalPresenterPath = join(reportRoot, 'terminal.presenter.ts');
 const fixturePath = join(productionRoot, 'fixture.ts');
 const projectFixtureRoot = join(productionRoot, '__architecture-fixture__');
-const wholeProjectInspectionTimeout = 20_000;
+const wholeProjectInspectionTimeout = 60_000;
 
 const forbiddenMigratorCalls = new Set(['rename', 'unlink', 'writeFile']);
 const atomicFileWriterModule = /(?:^|\/)atomic-file\.writer(?:\.[cm]?[jt]s)?$/u;

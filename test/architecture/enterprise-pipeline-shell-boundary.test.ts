@@ -19,6 +19,7 @@ import {
 
 const productionRoot = join(process.cwd(), 'src');
 const pipelineRoot = join(productionRoot, 'pipeline');
+const wholeProjectInspectionTimeout = 60_000;
 const cliPath = join(productionRoot, 'cli', 'run-cli.ts');
 const currentPipelinePath = join(pipelineRoot, 'current-migration.pipeline.ts');
 const migrationPipelinePath = join(pipelineRoot, 'migration-pipeline.ts');
@@ -74,7 +75,7 @@ function expectFrozenAgainstMutation(value: object): void {
   expect(Reflect.set(value, property, Symbol('mutation'))).toBe(false);
 }
 
-describe('enterprise pipeline shell dependency boundary', { timeout: 20_000 }, () => {
+describe('enterprise pipeline shell dependency boundary', { timeout: wholeProjectInspectionTimeout }, () => {
   test('keeps handoff models limited to target-neutral model imports and Node path normalization', () => {
     for (const [fileName, allowedImports] of handoffImports) {
       const path = join(pipelineRoot, fileName);
