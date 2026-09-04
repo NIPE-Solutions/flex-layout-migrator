@@ -1,6 +1,7 @@
 import type { BreakpointDefinition } from '../../breakpoint/breakpoint-catalog';
 import { BreakpointCatalog } from '../../breakpoint/breakpoint-catalog';
 import type { BreakpointMigrationConfig } from '../../config/breakpoint-migration-config';
+import type { SemanticConversionContext } from '../../semantic/conversion-context';
 import { planFlexAlignSemantics } from '../../flex/flex-align.semantic';
 import { planFlexFillSemantics } from '../../flex/flex-fill.semantic';
 import { planFlexItemSemantics } from '../../flex/flex-item.semantic';
@@ -13,7 +14,7 @@ import { parseLayout } from '../../flex/layout.semantic';
 import type { AdapterSessionResult, ConversionAdapterSession } from '../conversion-adapter.session';
 import { sessionBoundAdapter } from '../conversion-adapter.session';
 import type { ConversionAdapter, ConversionContext, PlannedConversion } from '../conversion-adapter';
-import { SharedResponsiveFamilyPlanner } from '../responsive-family.planner';
+import { ResponsiveFamilyPlanner } from '../../semantic/responsive-family.planner';
 import type { CssDeclaration, CssSemanticFamily } from './css-artifact.model';
 import { CssArtifactRegistry } from './css-artifact.registry';
 import { cssRuleContext } from './css-breakpoint.context';
@@ -30,6 +31,19 @@ import { renderLayoutCss } from './flex/layout.css-renderer';
 type AdapterInput = Parameters<ConversionAdapter['plan']>[0];
 type AdapterDirective = AdapterInput['directive'];
 type UnresolvedPlan = Exclude<PlannedConversion, { readonly status: 'converted' }>;
+
+function semanticContext(
+  context: ConversionContext,
+  inputs: readonly AdapterInput[],
+): SemanticConversionContext {
+  return {
+    ...context,
+    inputs,
+    parentInputs: context.parentInputs ?? [],
+    existingClassNames: context.existingClassNames ?? [],
+    attributeEvidence: context.attributeEvidence ?? context.element.attributes,
+  };
+}
 
 interface ConvertedCssPlan {
   readonly status: 'converted';
@@ -181,11 +195,11 @@ function closeDisplayDependencies<TPlan extends CssPlan>(
 export class CssAdapter implements ConversionAdapter {
   readonly name = 'css' as const;
   private readonly breakpointCatalog = new BreakpointCatalog();
-  private readonly responsiveFamilyPlanner: SharedResponsiveFamilyPlanner<CssPlan>;
+  private readonly responsiveFamilyPlanner: ResponsiveFamilyPlanner<CssPlan>;
   private readonly referencedClassNamesByInputId = new Map<string, readonly string[]>();
 
   constructor(private readonly registry: CssArtifactRegistry) {
-    this.responsiveFamilyPlanner = new SharedResponsiveFamilyPlanner(this.breakpointCatalog, {
+    this.responsiveFamilyPlanner = new ResponsiveFamilyPlanner(this.breakpointCatalog, {
       emptyPlan: input => this.emptyPlan(input),
       targetEligibility: input => this.targetEligibility(input),
       validateActivation: plan => plan,
@@ -209,7 +223,7 @@ export class CssAdapter implements ConversionAdapter {
 
   planElement(inputs: readonly AdapterInput[], context: ConversionContext): readonly PlannedConversion[] {
     const completeContext: ConversionContext = { ...context, inputs };
-    let plans = this.responsiveFamilyPlanner.plan(inputs, completeContext, (input, itemContext) =>
+    let plans = this.responsiveFamilyPlanner.plan(inputs, semanticContext(completeContext, inputs), (input, itemContext) =>
       this.planSemantic(input, itemContext),
     );
     plans = closeDisplayDependencies(plans, input => displayContextUnverified(input) as CssPlan);
@@ -248,7 +262,7 @@ export class CssAdapter implements ConversionAdapter {
     const currentPlans = new Map(plans.map(plan => [plan.input.id, plan]));
     return this.responsiveFamilyPlanner.closeDependencies(
       inputs,
-      { ...context, inputs },
+      semanticContext(context, inputs),
       (input, itemContext) =>
         currentPlans.get(input.id) ??
         plansByInputId.get(input.id) ??

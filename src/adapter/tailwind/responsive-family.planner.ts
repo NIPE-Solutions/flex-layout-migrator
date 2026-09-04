@@ -1,12 +1,14 @@
 import type { LocatedFlexLayoutInput } from '../../analyzer/flex-layout-attribute.analyzer';
 import { BreakpointCatalog } from '../../breakpoint/breakpoint-catalog';
+import type { SemanticConversionContext } from '../../semantic/conversion-context';
 import type { ConversionContext, PlannedConversion } from '../conversion-adapter';
 import {
-  SharedResponsiveFamilyPlanner,
+  ResponsiveFamilyPlanner as SharedResponsiveFamilyPlanner,
   type DirectiveFamily,
   type ResponsivePlanExtendedFamily,
   type ResponsivePlanOne,
-} from '../responsive-family.planner';
+  type SemanticTargetPolicy,
+} from '../../semantic/responsive-family.planner';
 import { planResponsiveClasses } from './responsive-plan';
 import { ResponsiveVariantEmitter } from './responsive-variant.emitter';
 import type { TailwindStrategyResult } from './tailwind-semantic.model';
@@ -14,6 +16,19 @@ import type { TailwindStrategyResult } from './tailwind-semantic.model';
 export type { DirectiveFamily };
 export type PlanOne = ResponsivePlanOne<PlannedConversion>;
 export type PlanExtendedFamily = ResponsivePlanExtendedFamily<PlannedConversion>;
+
+function semanticContext(
+  context: ConversionContext,
+  inputs: readonly LocatedFlexLayoutInput[],
+): SemanticConversionContext {
+  return {
+    ...context,
+    inputs,
+    parentInputs: context.parentInputs ?? [],
+    existingClassNames: context.existingClassNames ?? [],
+    attributeEvidence: context.attributeEvidence ?? context.element.attributes,
+  };
+}
 
 function converted(input: LocatedFlexLayoutInput, classNames: readonly string[]): PlannedConversion {
   return { status: 'converted', input, classNames };
@@ -74,7 +89,7 @@ export class ResponsiveFamilyPlanner {
     private readonly catalog = new BreakpointCatalog(),
     private readonly emitter = new ResponsiveVariantEmitter(),
   ) {
-    this.sharedPlanner = new SharedResponsiveFamilyPlanner(this.catalog, {
+    const policy: SemanticTargetPolicy<PlannedConversion> = {
       emptyPlan: input => converted(input, []),
       targetEligibility: () => undefined,
       validateActivation: plan => this.validateBreakpoint(plan),
@@ -96,7 +111,8 @@ export class ResponsiveFamilyPlanner {
       }),
       decorate: plan => this.decorate(plan),
       addPrintFallback: plan => this.addPrintFallback(plan),
-    });
+    };
+    this.sharedPlanner = new SharedResponsiveFamilyPlanner(this.catalog, policy);
   }
 
   plan(
@@ -105,7 +121,7 @@ export class ResponsiveFamilyPlanner {
     planOne: PlanOne,
     planExtendedFamily?: PlanExtendedFamily,
   ): readonly PlannedConversion[] {
-    return this.sharedPlanner.plan(inputs, context, planOne, planExtendedFamily);
+    return this.sharedPlanner.plan(inputs, semanticContext(context, inputs), planOne, planExtendedFamily);
   }
 
   closeDependencies(
@@ -113,7 +129,7 @@ export class ResponsiveFamilyPlanner {
     context: ConversionContext,
     planOne: PlanOne,
   ): readonly PlannedConversion[] {
-    return this.sharedPlanner.closeDependencies(inputs, context, planOne);
+    return this.sharedPlanner.closeDependencies(inputs, semanticContext(context, inputs), planOne);
   }
 
   private validateBreakpoint(plan: PlannedConversion): PlannedConversion {

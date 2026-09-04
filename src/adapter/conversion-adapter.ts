@@ -1,16 +1,10 @@
 import type { DiagnosticCode } from '../analyzer/conversion-result';
 import type { LocatedFlexLayoutInput } from '../analyzer/flex-layout-attribute.analyzer';
-import type { TemplateAttribute, TemplateElement } from '../template/template.model';
+import type { SemanticConversionContext } from '../semantic/conversion-context';
 
-export interface ConversionContext {
-  readonly element: TemplateElement;
-  readonly parent?: TemplateElement;
-  readonly inputs?: readonly LocatedFlexLayoutInput[];
-  readonly parentInputs?: readonly LocatedFlexLayoutInput[];
-  readonly activeLayout?: string;
-  readonly activeParentLayout?: string;
-  readonly existingClassNames?: readonly string[];
-  readonly attributeEvidence?: readonly TemplateAttribute[];
+/** Adapter-call compatibility context; responsive planning receives the complete semantic context. */
+export interface ConversionContext extends Partial<SemanticConversionContext> {
+  readonly element: SemanticConversionContext['element'];
 }
 
 export type PlannedConversion =

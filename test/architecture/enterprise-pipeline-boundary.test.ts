@@ -23,6 +23,7 @@ const atomicWriterPath = join(productionRoot, 'lib', 'atomic-file.writer.ts');
 const migratorPath = join(productionRoot, 'migrator', 'migrator.ts');
 const destinationTemplateSourcePath = join(productionRoot, 'migrator', 'destination-template-source.ts');
 const stylesheetPlannerPath = join(productionRoot, 'migrator', 'stylesheet.planner.ts');
+const legacyResponsiveFamilyPlannerPath = join(productionRoot, 'adapter', 'responsive-family.planner.ts');
 const roguePath = join(productionRoot, '__architecture-fixture__', 'rogue.ts');
 const wholeProjectInspectionTimeout = 60_000;
 const productionPaths = productionTypeScriptFiles(productionRoot);
@@ -1182,6 +1183,18 @@ describe('enterprise pipeline dependency boundary', { timeout: wholeProjectInspe
 
       expect(targetImport, relative(process.cwd(), path)).toBeUndefined();
     }
+  });
+
+  test('keeps responsive range ownership out of the adapter compatibility planner', () => {
+    const runtimeImports = inspectTypeScript(
+      readFileSync(legacyResponsiveFamilyPlannerPath, 'utf8'),
+      legacyResponsiveFamilyPlannerPath,
+    ).runtimeImports;
+
+    const importedNames = runtimeImports.map(runtimeImport => runtimeImport.importedName);
+    expect(importedNames).not.toContain('BreakpointCatalog');
+    expect(importedNames).not.toContain('mediaDefinitionsIntersect');
+    expect(importedNames).not.toContain('mediaRangesIntersect');
   });
 
   test('makes Discover the semantic owner of topology and ignore loading', () => {
