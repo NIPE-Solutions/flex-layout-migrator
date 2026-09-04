@@ -1,58 +1,62 @@
 {
-  "generatedAt": "2026-09-04T16:10:49.783Z",
+  "generatedAt": "2026-09-04T17:49:45.396Z",
   "node": "v24.20.0",
   "platform": "darwin-arm64",
-  "commit": "fafb4177d0482303730fe810adb1fdf180c387c5",
+  "commit": "6195c90bb736121674dde65dfb9e9e971c82559b",
   "warmups": 1,
   "samples": 5,
   "scenarios": [
     {
       "name": "single-tailwind-plan",
-      "milliseconds": [104.76083400000002, 102.220417, 104.18812500000001, 105.95458299999996, 104.10058400000003],
-      "medianMilliseconds": 104.18812500000001,
-      "minMilliseconds": 102.220417,
-      "maxMilliseconds": 105.95458299999996,
-      "medianAbsoluteDeviationMilliseconds": 0.5727090000000032,
-      "peakRssBytes": [97566720, 99155968, 99581952, 98893824, 100450304]
+      "milliseconds": [
+        108.30820800000004, 107.66333400000002, 108.64462500000002, 106.79258300000004, 110.39670799999999
+      ],
+      "medianMilliseconds": 108.30820800000004,
+      "minMilliseconds": 106.79258300000004,
+      "maxMilliseconds": 110.39670799999999,
+      "medianAbsoluteDeviationMilliseconds": 0.6448740000000157,
+      "peakRssBytes": [99254272, 100499456, 98959360, 98484224, 98172928]
     },
     {
       "name": "multi-tailwind-plan",
       "milliseconds": [
-        125.77199999999993, 122.49479099999996, 119.94074999999998, 122.06116600000018, 129.64716599999997
+        130.52033400000005, 126.41404200000011, 136.14745900000003, 130.7506659999999, 128.20675000000006
       ],
-      "medianMilliseconds": 122.49479099999996,
-      "minMilliseconds": 119.94074999999998,
-      "maxMilliseconds": 129.64716599999997,
-      "medianAbsoluteDeviationMilliseconds": 2.554040999999984,
-      "peakRssBytes": [102301696, 101285888, 102039552, 100220928, 100220928]
+      "medianMilliseconds": 130.52033400000005,
+      "minMilliseconds": 126.41404200000011,
+      "maxMilliseconds": 136.14745900000003,
+      "medianAbsoluteDeviationMilliseconds": 2.3135839999999916,
+      "peakRssBytes": [102449152, 101842944, 96141312, 102088704, 102383616]
     },
     {
       "name": "multi-native-css-plan",
       "milliseconds": [
-        106.72029099999986, 108.87924999999996, 107.35983299999998, 106.12654099999986, 107.11099999999988
+        117.22295800000006, 111.26741700000002, 111.97433400000023, 118.23666700000012, 130.9397909999998
       ],
-      "medianMilliseconds": 107.11099999999988,
-      "minMilliseconds": 106.12654099999986,
-      "maxMilliseconds": 108.87924999999996,
-      "medianAbsoluteDeviationMilliseconds": 0.3907090000000153,
-      "peakRssBytes": [96256000, 99270656, 98254848, 96862208, 96501760]
+      "medianMilliseconds": 117.22295800000006,
+      "minMilliseconds": 111.26741700000002,
+      "maxMilliseconds": 130.9397909999998,
+      "medianAbsoluteDeviationMilliseconds": 5.248623999999836,
+      "peakRssBytes": [99303424, 100532224, 98713600, 101187584, 100597760]
     },
     {
       "name": "unchanged-write",
-      "milliseconds": [94.771792, 98.54375000000027, 96.9670000000001, 97.878334, 97.37720800000034],
-      "medianMilliseconds": 97.37720800000034,
-      "minMilliseconds": 94.771792,
-      "maxMilliseconds": 98.54375000000027,
-      "medianAbsoluteDeviationMilliseconds": 0.5011259999996582,
-      "peakRssBytes": [94978048, 96649216, 96763904, 95551488, 95977472]
+      "milliseconds": [
+        106.36941699999988, 104.10754199999974, 100.33616600000005, 103.88974999999982, 98.50849999999991
+      ],
+      "medianMilliseconds": 103.88974999999982,
+      "minMilliseconds": 98.50849999999991,
+      "maxMilliseconds": 106.36941699999988,
+      "medianAbsoluteDeviationMilliseconds": 2.479667000000063,
+      "peakRssBytes": [98140160, 97239040, 97091584, 98500608, 97468416]
     }
   ],
   "architectureTest": {
     "command": "node node_modules/vitest/vitest.mjs run test/architecture/enterprise-pipeline-boundary.test.ts",
-    "milliseconds": [31443.481208000005, 40661.387334, 33108.78545800001, 33191.96758299999, 33574.596415999986],
-    "medianMilliseconds": 33191.96758299999,
-    "minMilliseconds": 31443.481208000005,
-    "maxMilliseconds": 40661.387334,
-    "medianAbsoluteDeviationMilliseconds": 382.6288329999952
+    "milliseconds": [33250.93554200001, 33695.051290999996, 33759.99395799999, 32074.673665999988, 31353.633709000016],
+    "medianMilliseconds": 33250.93554200001,
+    "minMilliseconds": 31353.633709000016,
+    "maxMilliseconds": 33759.99395799999,
+    "medianAbsoluteDeviationMilliseconds": 509.0584159999853
   }
 }

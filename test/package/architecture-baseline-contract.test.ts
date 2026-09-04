@@ -20,6 +20,9 @@ const finalBenchmarkPath = 'docs/maintenance/evidence/2026-09-04-enterprise-arch
 const finalBenchmarkUrl = new URL(`../../${finalBenchmarkPath}`, import.meta.url);
 
 interface ArchitectureInventory {
+  readonly productionEntrypoint: string;
+  readonly reachableProductionModules: readonly string[];
+  readonly unreachableProductionModules: readonly string[];
   readonly productionFiles: readonly { readonly path: string; readonly lines: number }[];
   readonly largestFiles: readonly { readonly path: string; readonly lines: number }[];
   readonly moduleEdges: readonly {
@@ -616,6 +619,10 @@ describe('enterprise architecture baseline documentation contract', () => {
       ['Known policy owners', String(inventory.policyOwners.length)],
     ]);
     expect(markdown).toContain(`There are ${inventory.moduleEdges.length} total recorded module edges.`);
+    expect(inventory.productionEntrypoint).toBe('src/main.ts');
+    expect(inventory.reachableProductionModules).toHaveLength(inventory.productionFiles.length);
+    expect(inventory.unreachableProductionModules).toEqual([]);
+    expect(markdown).toContain(`all ${inventory.productionFiles.length} production modules are reachable`);
     expect(inventory.runtimeDependencyViolations).toEqual([]);
     expect(markdown).toContain('The runtime-dependency violation list is empty.');
     expect(tableRows(markdown, 'Policy owners')).toEqual(

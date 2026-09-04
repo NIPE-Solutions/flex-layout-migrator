@@ -4,7 +4,7 @@ This document records the implementation and evidence result for Slice 9 of the 
 
 ## Commit
 
-Commit captured: `fafb4177d0482303730fe810adb1fdf180c387c5`
+Commit captured: `6195c90bb736121674dde65dfb9e9e971c82559b`
 
 This is the final production implementation commit. The evidence-only documentation and test commit follows it and does not alter `src`, package metadata, the benchmark runner, or the benchmark corpus.
 
@@ -17,17 +17,17 @@ This is the final production implementation commit. The evidence-only documentat
 Evidence was generated with:
 
 ```text
-npm run architecture:inventory -- --json /tmp/flex-layout-roadmap-final-inventory.json
+npm run architecture:inventory -- --json /tmp/flex-layout-roadmap-final-fix-inventory.json
 npm ls --omit=dev --all --json --long
 npm run package:check
 npx vitest run test/performance/migration-workload-counter.test.ts test/compatibility test/cli/cli.test.ts
 npm run build
 npm run package:check
 npm run benchmark:architecture:prepare
-npm run benchmark:architecture -- --json /tmp/flex-layout-roadmap-final-benchmark.json
+npm run benchmark:architecture -- --json /tmp/flex-layout-roadmap-final-fix-benchmark.json
 ```
 
-The benchmark runner's JSON output is preserved byte-for-byte as the tracked artifact `docs/maintenance/evidence/2026-09-04-enterprise-architecture-final-benchmark.json`.
+The benchmark runner's JSON values are preserved in the tracked artifact `docs/maintenance/evidence/2026-09-04-enterprise-architecture-final-benchmark.json`.
 
 ## Final route
 
@@ -50,23 +50,23 @@ CLI -> Discover -> Analyze -> Render -> Validate -> Apply -> Presentation
 | Validate              | `src/pipeline/validate/validate-project.stage.ts` (`ValidateProjectStage`)                     | Edit materialization, changed-template reparse, topology, CSS reference collection, stylesheet planning, and canonical plan |
 | Apply                 | `src/pipeline/apply/apply-project.stage.ts` (`ApplyProjectStage`)                              | Mode/error decision and the sole project-level mutation call                                                                |
 | Transaction policy    | `src/transaction/migration-transaction.ts` (`MigrationTransaction`)                            | Preflight seal, state transitions, cancellation scope, rollback/cleanup sequencing, and recovery evidence                   |
-| Transaction mechanics | `src/transaction/staging.unit.ts`, `commit.unit.ts`, `rollback.unit.ts`, and `cleanup.unit.ts` | One focused filesystem responsibility per unit through `TransactionUnitSession`                                             |
+| Transaction mechanics | `src/transaction/staging.unit.ts`, `commit.unit.ts`, `rollback.unit.ts`, and `cleanup.unit.ts` | One focused filesystem responsibility per unit through a phase-specific least-privilege port                                |
 | Report construction   | `src/pipeline/migration-runner.ts` and `src/report/migration-report.builder.ts`                | Mapping the applied handoff to the unchanged public report                                                                  |
 | Presentation          | `src/report/terminal.presenter.ts` and `src/report/json-report.writer.ts`                      | Observer-only terminal and report-file side effects                                                                         |
 
 ## Inventory evidence
 
-The inventory reads Git-tracked production `src/**/*.ts`, excludes specifications, and parses static imports and exports with the TypeScript compiler. Relative edges include runtime and type-only local references. External and built-in edges are runtime references.
+The inventory reads Git-tracked production `src/**/*.ts`, excludes specifications, and parses static imports and exports with the TypeScript compiler. Relative edges include runtime and type-only local references. External and built-in edges are runtime references. Reachability starts only at `src/main.ts`; all 146 production modules are reachable and the unreachable-production-module list is empty.
 
 | Measure                        | Count |
 | ------------------------------ | ----: |
-| Production TypeScript files    |   145 |
-| Relative internal module edges |   495 |
+| Production TypeScript files    |   146 |
+| Relative internal module edges |   507 |
 | Runtime external module edges  |     5 |
-| Runtime built-in module edges  |    36 |
+| Runtime built-in module edges  |    35 |
 | Known policy owners            |     6 |
 
-There are 536 total recorded module edges. The runtime-dependency violation list is empty.
+There are 547 total recorded module edges. The runtime-dependency violation list is empty.
 
 ## Policy owners
 
@@ -87,24 +87,24 @@ There are 536 total recorded module edges. The runtime-dependency violation list
 | `src/semantic/element-semantic.planner.ts`                            |            796 |
 | `src/adapter/tailwind/tailwind-class-conflict.ts`                     |            650 |
 | `src/adapter/tailwind/extended/tailwind-candidate-classifier.ts`      |            629 |
-| `src/transaction/transaction-unit.session.ts`                         |            606 |
+| `src/transaction/transaction-unit.session.ts`                         |            588 |
 | `src/semantic/responsive-family.planner.ts`                           |            504 |
 | `src/render/tailwind/tailwind.renderer.ts`                            |            387 |
 | `src/adapter/tailwind/extended/tailwind-arbitrary-value-ownership.ts` |            373 |
-| `src/analyzer/compatibility-inventory.ts`                             |            331 |
+| `src/migrator/migration-path.validator.ts`                            |            324 |
 | `src/semantic/css-property-ownership.ts`                              |            298 |
 | `src/semantic/extended/extended-semantic.planner.ts`                  |            275 |
-| `src/transaction/cleanup.unit.ts`                                     |            271 |
 | `src/planner/conversion-planner.ts`                                   |            268 |
-| `src/migrator/migration-path.validator.ts`                            |            261 |
+| `src/transaction/cleanup.unit.ts`                                     |            264 |
+| `src/transaction/migration-transaction.ts`                            |            256 |
 | `src/adapter/css/stylesheet/owned-stylesheet.merger.ts`               |            245 |
-| `src/transaction/migration-transaction.ts`                            |            241 |
-| `src/transaction/commit.unit.ts`                                      |            227 |
+| `src/pipeline/rendered-project.ts`                                    |            220 |
 | `src/pipeline/validated-project-plan.ts`                              |            220 |
 | `src/semantic/extended/extended-family.planner.ts`                    |            219 |
-| `src/transaction/rollback.unit.ts`                                    |            196 |
+| `src/transaction/commit.unit.ts`                                      |            212 |
+| `src/semantic/literal-style-declaration.ts`                           |            188 |
 
-The former 1,245-line transaction is now a 241-line recovery coordinator plus focused units. The two largest final modules are shared semantic planners rather than orchestration or filesystem authorities.
+The former 1,245-line transaction is now a 256-line recovery coordinator plus focused units and phase ports. The two largest final modules are shared semantic planners rather than orchestration or filesystem authorities.
 
 ## Dependency and license audit
 
@@ -162,20 +162,20 @@ Plan mode and unchanged writes stage nothing and perform no project write. A par
 
 ## Package evidence
 
-`npm pack --dry-run --json --ignore-scripts` reported exactly 6 files, a 255,903-byte tarball, a 1,262,350-byte unpacked size, and no bundled dependencies. `npm run package:check` installed the generated tarball in a clean temporary project and exercised help, version, Tailwind plan/write, native-CSS plan/write, report schema, exact generated bytes, and unchanged rerun behavior with Node.js `v24.20.0`. The manifest continues to require Node.js `>=24` and exposes `flex-layout-codemod` at `dist/cli.js`.
+`npm pack --dry-run --json --ignore-scripts` reported exactly 6 files, a 259,725-byte tarball, a 1,286,269-byte unpacked size, and no bundled dependencies. `npm run package:check` installed the generated tarball in a clean temporary project and exercised help, version, Tailwind plan/write, native-CSS plan/write, report schema, exact generated bytes, and unchanged rerun behavior with Node.js `v24.20.0`. The manifest continues to require Node.js `>=24` and exposes `flex-layout-codemod` at `dist/cli.js`.
 
 | Package file    |   Bytes |
 | --------------- | ------: |
 | CHANGELOG.md    |   2,625 |
 | LICENSE         |   1,076 |
 | README.md       |  11,114 |
-| dist/cli.js     | 415,669 |
-| dist/cli.js.map | 828,771 |
+| dist/cli.js     | 423,503 |
+| dist/cli.js.map | 844,856 |
 | package.json    |   3,095 |
 
 ## Public parity evidence
 
-The final public parity run passed 8 test files and 105 tests across `test/compatibility` and `test/cli/cli.test.ts`. It covers Tailwind and native-CSS output bytes, responsive images, shared semantic parity, custom and standard breakpoints, plan/write decisions, unchanged reruns, reports, parse and configuration failures, terminal output, exit status, collisions, and interruption-facing CLI behavior. The required combined counter/parity command passed 9 files and 110 tests. The subsequent package check passed the installed-tarball oracle and preserved the six-file public package surface.
+The final public parity run passed 9 test files and 108 tests across `test/compatibility` and `test/cli/cli.test.ts`. It covers Tailwind and native-CSS output bytes, responsive images, shared semantic parity, custom and standard breakpoints, plan/write decisions, unchanged reruns, reports, parse and configuration failures, terminal output, exit status, collisions, and interruption-facing CLI behavior. The required combined counter/parity command passed 10 files and 113 tests. The subsequent package check passed the installed-tarball oracle and preserved the six-file public package surface.
 
 ## Benchmark method
 
@@ -196,24 +196,24 @@ Each digest is SHA-256 over every selected Git path in code-unit order, adding `
 | Runner                     | `4ff7e237feb9052cc263c172d27bb910fd97f8a015a06835013666b8004d92bc` | `4ff7e237feb9052cc263c172d27bb910fd97f8a015a06835013666b8004d92bc` | identical                 |
 | Memory probe               | `6c9aafd10fc39401cf913f2ba13bac3725dda8d753b4eccc9592d30fbf25cd87` | `6c9aafd10fc39401cf913f2ba13bac3725dda8d753b4eccc9592d30fbf25cd87` | identical                 |
 | Product fixtures           | `d8282d7000602d5467144a8cc85c9a4d8af9346630664dcb6ceb5a21d671a842` | `d8282d7000602d5467144a8cc85c9a4d8af9346630664dcb6ceb5a21d671a842` | identical                 |
-| Architecture boundary test | `2ecfa2387c8c65e8110e5a8d06c58988cdcd7f71310406d40a07f237b3a380da` | `9039c9a8713ac82f482b516aae135b1a290cbb8a21e2a340fa78beee8739d8f2` | different; not comparable |
+| Architecture boundary test | `2ecfa2387c8c65e8110e5a8d06c58988cdcd7f71310406d40a07f237b3a380da` | `a94ca5488c019d8473c81adab5990069b18562ea5ad71a138bca9112de69dfb4` | different; not comparable |
 
 ## Benchmark results
 
-Generated at `2026-09-04T16:10:49.783Z` from the tracked benchmark artifact.
+Generated at `2026-09-04T17:49:45.396Z` from the tracked benchmark artifact.
 
-| Scenario                | Recorded milliseconds                                                                              |             Median |            Minimum |            Maximum |                MAD | Recorded peak RSS bytes                               |
-| ----------------------- | -------------------------------------------------------------------------------------------------- | -----------------: | -----------------: | -----------------: | -----------------: | ----------------------------------------------------- |
-| `single-tailwind-plan`  | 104.76083400000002; 102.220417; 104.18812500000001; 105.95458299999996; 104.10058400000003         | 104.18812500000001 |         102.220417 | 105.95458299999996 | 0.5727090000000032 | 97566720; 99155968; 99581952; 98893824; 100450304     |
-| `multi-tailwind-plan`   | 125.77199999999993; 122.49479099999996; 119.94074999999998; 122.06116600000018; 129.64716599999997 | 122.49479099999996 | 119.94074999999998 | 129.64716599999997 |  2.554040999999984 | 102301696; 101285888; 102039552; 100220928; 100220928 |
-| `multi-native-css-plan` | 106.72029099999986; 108.87924999999996; 107.35983299999998; 106.12654099999986; 107.11099999999988 | 107.11099999999988 | 106.12654099999986 | 108.87924999999996 | 0.3907090000000153 | 96256000; 99270656; 98254848; 96862208; 96501760      |
-| `unchanged-write`       | 94.771792; 98.54375000000027; 96.9670000000001; 97.878334; 97.37720800000034                       |  97.37720800000034 |          94.771792 |  98.54375000000027 | 0.5011259999996582 | 94978048; 96649216; 96763904; 95551488; 95977472      |
+| Scenario                | Recorded milliseconds                                                                              |             Median |            Minimum |            Maximum |                MAD | Recorded peak RSS bytes                              |
+| ----------------------- | -------------------------------------------------------------------------------------------------- | -----------------: | -----------------: | -----------------: | -----------------: | ---------------------------------------------------- |
+| `single-tailwind-plan`  | 108.30820800000004; 107.66333400000002; 108.64462500000002; 106.79258300000004; 110.39670799999999 | 108.30820800000004 | 106.79258300000004 | 110.39670799999999 | 0.6448740000000157 | 99254272; 100499456; 98959360; 98484224; 98172928    |
+| `multi-tailwind-plan`   | 130.52033400000005; 126.41404200000011; 136.14745900000003; 130.7506659999999; 128.20675000000006  | 130.52033400000005 | 126.41404200000011 | 136.14745900000003 | 2.3135839999999916 | 102449152; 101842944; 96141312; 102088704; 102383616 |
+| `multi-native-css-plan` | 117.22295800000006; 111.26741700000002; 111.97433400000023; 118.23666700000012; 130.9397909999998  | 117.22295800000006 | 111.26741700000002 |  130.9397909999998 |  5.248623999999836 | 99303424; 100532224; 98713600; 101187584; 100597760  |
+| `unchanged-write`       | 106.36941699999988; 104.10754199999974; 100.33616600000005; 103.88974999999982; 98.50849999999991  | 103.88974999999982 |  98.50849999999991 | 106.36941699999988 |  2.479667000000063 | 98140160; 97239040; 97091584; 98500608; 97468416     |
 
 ## Architecture-test timing
 
-| Command                                                                                          | Recorded milliseconds                                                                      |            Median |            Minimum |      Maximum |               MAD |
-| ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------ | ----------------: | -----------------: | -----------: | ----------------: |
-| `node node_modules/vitest/vitest.mjs run test/architecture/enterprise-pipeline-boundary.test.ts` | 31443.481208000005; 40661.387334; 33108.78545800001; 33191.96758299999; 33574.596415999986 | 33191.96758299999 | 31443.481208000005 | 40661.387334 | 382.6288329999952 |
+| Command                                                                                          | Recorded milliseconds                                                                            |            Median |            Minimum |           Maximum |               MAD |
+| ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------ | ----------------: | -----------------: | ----------------: | ----------------: |
+| `node node_modules/vitest/vitest.mjs run test/architecture/enterprise-pipeline-boundary.test.ts` | 33250.93554200001; 33695.051290999996; 33759.99395799999; 32074.673665999988; 31353.633709000016 | 33250.93554200001 | 31353.633709000016 | 33759.99395799999 | 509.0584159999853 |
 
 ## Slice 1 comparison
 
@@ -221,10 +221,10 @@ The same machine and byte-identical product inputs produced these median compari
 
 | Scenario                |     Slice 1 median |       Final median | Final minus Slice 1 | Relative delta |
 | ----------------------- | -----------------: | -----------------: | ------------------: | -------------: |
-| `single-tailwind-plan`  |  98.99062500000002 | 104.18812500000001 |   5.197499999999991 |         +5.25% |
-| `multi-tailwind-plan`   | 115.16966699999989 | 122.49479099999996 |  7.3251240000000735 |         +6.36% |
-| `multi-native-css-plan` | 106.70066699999984 | 107.11099999999988 |  0.4103330000000369 |         +0.38% |
-| `unchanged-write`       |  92.08108399999992 |  97.37720800000034 |   5.296124000000418 |         +5.75% |
+| `single-tailwind-plan`  |  98.99062500000002 | 108.30820800000004 |   9.317583000000013 |         +9.41% |
+| `multi-tailwind-plan`   | 115.16966699999989 | 130.52033400000005 |  15.350667000000158 |        +13.33% |
+| `multi-native-css-plan` | 106.70066699999984 | 117.22295800000006 |  10.522291000000223 |         +9.86% |
+| `unchanged-write`       |  92.08108399999992 | 103.88974999999982 |  11.808665999999903 |        +12.82% |
 
 All four product medians are higher in this capture. No repeatable median improvement is claimed. These are observational results from one five-sample run; no causal attribution is made and they do not create a timing gate. The architecture boundary test changed between Slice 1 and the final capture, so its timing is not comparable. Its final five-sample observation remains recorded above without a delta or percentage.
 
