@@ -67,6 +67,7 @@ describe('continuous integration', () => {
         steps: [
           {
             uses: 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1',
+            with: { 'fetch-depth': 0 },
           },
           {
             uses: 'actions/setup-node@820762786026740c76f36085b0efc47a31fe5020',
@@ -112,6 +113,24 @@ describe('continuous integration', () => {
     expect(workflow).toContain('npm ci');
     expect(workflow).toContain('contents: read');
     expect(workflow).not.toContain('contents: write');
+  });
+
+  it('checks out complete Git history in the job that runs historical evidence contracts', async () => {
+    const source = await readFile(new URL('../../.github/workflows/ci.yml', import.meta.url), 'utf8');
+    const workflow = parse(source);
+    const testJob = workflow.jobs.test;
+
+    expect(testJob.steps).toContainEqual({ run: 'npm run test:coverage' });
+    expect(
+      testJob.steps.filter(
+        (step: { uses?: string }) => step.uses === 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1',
+      ),
+    ).toEqual([
+      {
+        uses: 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1',
+        with: { 'fetch-depth': 0 },
+      },
+    ]);
   });
 
   it('records the non-thresholded architecture benchmark as a retained CI artifact', async () => {
