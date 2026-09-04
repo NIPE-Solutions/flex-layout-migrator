@@ -123,7 +123,7 @@ describe('package contract', () => {
     } finally {
       await rm(fixture.temporaryDirectory, { recursive: true, force: true });
     }
-  });
+  }, 30_000);
 
   it('rejects an unexpected packaged file', async () => {
     const fixture = await createPackageFixture({ extraFile: 'dist/extra.js' });

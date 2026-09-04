@@ -2,9 +2,19 @@ import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promise
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { AdapterFactory } from '../adapter/adapter.factory';
+import type { ConversionAdapterSession } from '../adapter/conversion-adapter.session';
 import type { OwnedCssReferences } from '../adapter/css/stylesheet/owned-stylesheet.merger';
+import { AnalyzeProjectStage } from '../pipeline/analyze/analyze-project.stage';
+import { analyzedProject } from '../pipeline/analyzed-project';
+import { DiscoverProjectStage } from '../pipeline/discover/discover-project.stage';
+import { remapInvocationErrorPaths } from '../pipeline/invocation-error-path.mapper';
+import { migrationInvocation, projectManifest } from '../pipeline/project-manifest';
+import { AngularTemplateParser } from '../template/angular-template.parser';
 import type { MigrationTransaction } from '../transaction/migration-transaction';
-import { Migrator } from './migrator';
+import { AnalyzedFileMigrator } from './analyzed-file.migrator';
+import { fileMigrationResult } from './file-migration-result';
+import { fileMigrationPlan } from './migration-plan';
+import { Migrator, type MigrationOptions, type MigratorDependencies } from './migrator';
 import type { StylesheetPlanner } from './stylesheet.planner';
 
 describe('Migrator', () => {
@@ -18,6 +28,183 @@ describe('Migrator', () => {
     await rm(temporaryDirectory, { recursive: true, force: true });
   });
 
+  test('renders each authoritative analyzed template once in manifest order without recovering original inputs', async () => {
+    const manifest = projectManifest({
+      invocation: { inputPath: 'templates', outputPath: 'generated', options: { mode: 'plan' } },
+      templates: [
+        { inputPath: 'templates/zeta.html', outputPath: 'generated/zeta.html' },
+        { inputPath: 'templates/alpha.html', outputPath: 'generated/alpha.html' },
+      ],
+    });
+    const analyzed = analyzedProject({
+      manifest,
+      templates: manifest.templates.map(file => ({
+        status: 'parsed' as const,
+        file,
+        source: `<div>${file.inputPath}</div>`,
+        parseResult: { status: 'parsed' as const, elements: [] },
+        inputs: [],
+      })),
+    });
+    const renderedPaths: string[] = [];
+    const destinationTemplates = {
+      read: vi.fn(async () => {
+        throw new Error('Tailwind migration must not read a destination template.');
+      }),
+    };
+    const dependencies = {
+      destinationTemplates,
+      referenceParser: {
+        parse: vi.fn(() => {
+          throw new Error('Tailwind migration must not collect CSS references.');
+        }),
+      },
+      createFileMigrator: vi.fn((_adapter, template, receivedDestinationTemplates) => ({
+        async plan() {
+          expect(receivedDestinationTemplates).toBe(destinationTemplates);
+          renderedPaths.push(template.file.inputPath);
+          return fileMigrationPlan({
+            file: fileMigrationResult({
+              inputPath: template.file.inputPath,
+              outputPath: template.file.outputPath,
+              changed: false,
+              results: [],
+            }),
+          });
+        },
+      })),
+    };
+    const session = tailwindSession();
+    const finalize = vi.spyOn(session, 'finalize');
+
+    const report = await new Migrator(session, analyzed, () => 0, transactionDouble(), undefined, dependencies).migrate(
+      {
+        mode: 'plan',
+      },
+    );
+
+    expect(renderedPaths).toEqual(manifest.templates.map(template => template.inputPath));
+    expect(dependencies.createFileMigrator).toHaveBeenCalledTimes(2);
+    expect(dependencies.destinationTemplates.read).not.toHaveBeenCalled();
+    expect(dependencies.referenceParser.parse).not.toHaveBeenCalled();
+    expect(finalize).toHaveBeenCalledOnce();
+    expect(report.files.map(file => file.path)).toEqual(['alpha.html', 'zeta.html']);
+  });
+
+  test('reuses analyzed source when collecting native CSS references for an unchanged in-place template', async () => {
+    const generatedClass = `flm-${'a'.repeat(64)}`;
+    const inputPath = join(temporaryDirectory, 'input.html');
+    const stylesheetPath = join(temporaryDirectory, 'flex-layout-migration.css');
+    await writeFile(inputPath, `<div class="${generatedClass}"></div>`, 'utf8');
+    const invocation = migrationInvocation({
+      inputPath,
+      outputPath: inputPath,
+      options: { mode: 'plan', stylesheetPath },
+    });
+    const manifest = await new DiscoverProjectStage().run(invocation);
+    const analyzed = await new AnalyzeProjectStage().run(manifest);
+    const readDestination = vi.fn(async () => {
+      throw new Error('An unchanged in-place template must reuse analyzed source.');
+    });
+    const stylesheetPlanner = {
+      plan: vi.fn<StylesheetPlanner['plan']>().mockResolvedValue(undefined),
+    };
+    const dependencies: MigratorDependencies = {
+      destinationTemplates: { read: readDestination },
+      referenceParser: new AngularTemplateParser(),
+      createFileMigrator: (adapter, template, destinationTemplates) =>
+        new AnalyzedFileMigrator(adapter, template, undefined, destinationTemplates),
+    };
+
+    await new Migrator(
+      AdapterFactory.createSession('css'),
+      analyzed,
+      () => 0,
+      transactionDouble(),
+      stylesheetPlanner,
+      dependencies,
+    ).migrate({ mode: 'plan', stylesheetPath });
+
+    expect(readDestination).not.toHaveBeenCalled();
+    const references = stylesheetPlanner.plan.mock.calls[0]?.[2] as OwnedCssReferences;
+    expect([...references.classNames]).toEqual([generatedClass]);
+    expect(references.complete).toBe(true);
+  });
+
+  test('maps an error only at a canonicalized distinct-destination source read boundary', async () => {
+    const invocation = migrationInvocation({
+      inputPath: 'relative-fixtures/input',
+      outputPath: 'relative-fixtures/output',
+      options: { mode: 'plan', stylesheetPath: 'relative-fixtures/flex.css' },
+    });
+    const inputPath = join(invocation.canonicalInputPath, 'nested', 'card.html');
+    const outputPath = join(invocation.canonicalOutputPath, 'nested', 'card.html');
+    const manifest = projectManifest({ invocation, templates: [{ inputPath, outputPath }] });
+    const analyzed = analyzedProject({
+      manifest,
+      templates: [
+        {
+          status: 'parsed',
+          file: manifest.templates[0]!,
+          source: '<div></div>',
+          parseResult: { status: 'parsed', elements: [] },
+          inputs: [],
+        },
+      ],
+    });
+    const cause = new Error('destination cause');
+    const message = `EACCES: permission denied, open '${outputPath}'`;
+    const error = Object.assign(new TypeError(message, { cause }), {
+      code: 'EACCES',
+      errno: -13,
+      syscall: 'open',
+      path: outputPath,
+    });
+    const destinationTemplates = { read: vi.fn(async () => Promise.reject(error)) };
+    const dependencies: MigratorDependencies = {
+      destinationTemplates,
+      referenceParser: new AngularTemplateParser(),
+      createFileMigrator: (_adapter, template) => ({
+        plan: vi.fn(async () =>
+          fileMigrationPlan({
+            file: fileMigrationResult({
+              inputPath: template.file.inputPath,
+              outputPath: template.file.outputPath,
+              changed: false,
+              results: [],
+            }),
+          }),
+        ),
+      }),
+    };
+    const stylesheetPlanner = { plan: vi.fn<StylesheetPlanner['plan']>() };
+    const migrator = new Migrator(
+      AdapterFactory.createSession('css'),
+      analyzed,
+      () => 0,
+      transactionDouble(),
+      stylesheetPlanner,
+      dependencies,
+    );
+
+    const rejected = await rejectedNodeIoError(
+      migrator.migrate(invocation.options, {
+        mapDestinationReadError: candidate => remapInvocationErrorPaths(candidate, invocation),
+      }),
+    );
+
+    expect(rejected).toBe(error);
+    expect(rejected).toBeInstanceOf(TypeError);
+    expect(rejected.message).toBe(
+      `EACCES: permission denied, open '${join(invocation.outputPath, 'nested', 'card.html')}'`,
+    );
+    expect(rejected.path).toBe(join(invocation.outputPath, 'nested', 'card.html'));
+    expect(rejected.code).toBe('EACCES');
+    expect(rejected.cause).toBe(cause);
+    expect(destinationTemplates.read).toHaveBeenCalledWith(outputPath);
+    expect(stylesheetPlanner.plan).not.toHaveBeenCalled();
+  });
+
   test('defaults to a timed plan-only report without writing a changed file', async () => {
     const inputPath = join(temporaryDirectory, 'input', 'card.html');
     const outputPath = join(temporaryDirectory, 'output', 'card.html');
@@ -26,7 +213,7 @@ describe('Migrator', () => {
     const clockValues = [1000, 1125];
     const now = () => clockValues.shift() ?? 1125;
 
-    const report = await new Migrator(tailwindSession(), inputPath, outputPath, now).migrate();
+    const report = await migrationFromPaths(tailwindSession(), inputPath, outputPath, now).migrate();
 
     expect(report).toMatchObject({
       schemaVersion: 2,
@@ -61,7 +248,7 @@ describe('Migrator', () => {
     await writeFile(inputPath, '<div fxLayout="row"></div>', 'utf8');
     const transaction = transactionDouble();
 
-    const report = await new Migrator(tailwindSession(), inputPath, outputPath, () => 0, transaction).migrate({
+    const report = await migrationFromPaths(tailwindSession(), inputPath, outputPath, () => 0, transaction).migrate({
       mode: 'plan',
     });
 
@@ -86,7 +273,7 @@ describe('Migrator', () => {
     await mkdir(join(temporaryDirectory, 'input'), { recursive: true });
     await writeFile(inputPath, '<div fxLayout="row"></div>', 'utf8');
 
-    const report = await new Migrator(
+    const report = await migrationFromPaths(
       tailwindSession(),
       relative(process.cwd(), inputPath),
       relative(process.cwd(), outputPath),
@@ -94,6 +281,11 @@ describe('Migrator', () => {
     ).migrate({ mode: 'plan' });
 
     expect(report.summary).toMatchObject({ filesScanned: 1, filesChanged: 1, converted: 1 });
+    expect({ input: report.input, output: report.output, filePath: report.files[0]?.path }).toEqual({
+      input: 'card.html',
+      output: '../output/card.html',
+      filePath: 'card.html',
+    });
     await expect(access(outputPath)).rejects.toThrow();
   });
 
@@ -103,7 +295,7 @@ describe('Migrator', () => {
     await mkdir(join(temporaryDirectory, 'input'), { recursive: true });
     await writeFile(inputPath, '<div fxLayout="row"></div>', 'utf8');
 
-    const report = await new Migrator(tailwindSession(), inputPath, outputPath, () => 0).migrate({
+    const report = await migrationFromPaths(tailwindSession(), inputPath, outputPath, () => 0).migrate({
       mode: 'write',
     });
 
@@ -118,7 +310,7 @@ describe('Migrator', () => {
     await writeFile(inputPath, '<div fxLayout="row"></div>', 'utf8');
     const transaction = transactionDouble();
 
-    const report = await new Migrator(tailwindSession(), inputPath, outputPath, () => 0, transaction).migrate({
+    const report = await migrationFromPaths(tailwindSession(), inputPath, outputPath, () => 0, transaction).migrate({
       mode: 'write',
     });
 
@@ -136,7 +328,9 @@ describe('Migrator', () => {
     await writeFile(join(inputPath, 'a.html'), '<div fxLayout="column"></div>', 'utf8');
     await writeFile(join(inputPath, 'nested', 'b.html'), '<div class="card"></div>', 'utf8');
 
-    const report = await new Migrator(tailwindSession(), inputPath, outputPath, () => 20).migrate({ mode: 'plan' });
+    const report = await migrationFromPaths(tailwindSession(), inputPath, outputPath, () => 20).migrate({
+      mode: 'plan',
+    });
 
     expect(report.files.map(file => ({ path: file.path, changed: file.changed }))).toEqual([
       { path: 'a.html', changed: true },
@@ -152,7 +346,7 @@ describe('Migrator', () => {
     await writeFile(join(inputPath, 'card.html'), '<div fxLayout="row"></div>', 'utf8');
     await writeFile(join(inputPath, 'nested', 'panel.html'), '<div fxLayout="column"></div>', 'utf8');
 
-    const report = await new Migrator(
+    const report = await migrationFromPaths(
       tailwindSession(),
       relative(process.cwd(), inputPath),
       relative(process.cwd(), outputPath),
@@ -173,7 +367,7 @@ describe('Migrator', () => {
     await writeFile(join(inputPath, 'a-convert.html'), '<div fxLayout="row"></div>', 'utf8');
     await writeFile(join(inputPath, 'z-invalid.html'), '<span fxLayout="row" />', 'utf8');
 
-    const report = await new Migrator(tailwindSession(), inputPath, outputPath, () => 0).migrate({
+    const report = await migrationFromPaths(tailwindSession(), inputPath, outputPath, () => 0).migrate({
       mode: 'write',
     });
 
@@ -190,7 +384,7 @@ describe('Migrator', () => {
     await writeFile(join(inputPath, 'z-invalid.html'), '<span fxLayout="row" />', 'utf8');
     const transaction = transactionDouble();
 
-    const report = await new Migrator(tailwindSession(), inputPath, outputPath, () => 0, transaction).migrate({
+    const report = await migrationFromPaths(tailwindSession(), inputPath, outputPath, () => 0, transaction).migrate({
       mode: 'write',
     });
 
@@ -207,7 +401,7 @@ describe('Migrator', () => {
     await writeFile(join(inputPath, 'invalid.html'), '<span fxLayout="row" />', 'utf8');
     const transaction = transactionDouble();
 
-    const report = await new Migrator(tailwindSession(), inputPath, outputPath, () => 0, transaction).migrate({
+    const report = await migrationFromPaths(tailwindSession(), inputPath, outputPath, () => 0, transaction).migrate({
       mode: 'plan',
     });
 
@@ -227,10 +421,10 @@ describe('Migrator', () => {
     const writeOutputPath = join(temporaryDirectory, 'write-output.html');
     await writeFile(inputPath, '<div fxLayout="row"></div>', 'utf8');
 
-    const planReport = await new Migrator(tailwindSession(), inputPath, planOutputPath, () => 0).migrate({
+    const planReport = await migrationFromPaths(tailwindSession(), inputPath, planOutputPath, () => 0).migrate({
       mode: 'plan',
     });
-    const writeReport = await new Migrator(tailwindSession(), inputPath, writeOutputPath, () => 0).migrate({
+    const writeReport = await migrationFromPaths(tailwindSession(), inputPath, writeOutputPath, () => 0).migrate({
       mode: 'write',
     });
 
@@ -245,7 +439,7 @@ describe('Migrator', () => {
     await writeFile(inputPath, '<div class="card"></div>', 'utf8');
     const transaction = transactionDouble();
 
-    const report = await new Migrator(tailwindSession(), inputPath, outputPath, () => 0, transaction).migrate({
+    const report = await migrationFromPaths(tailwindSession(), inputPath, outputPath, () => 0, transaction).migrate({
       mode: 'write',
     });
 
@@ -259,7 +453,7 @@ describe('Migrator', () => {
     await writeFile(inputPath, '.card {}', 'utf8');
 
     await expect(
-      new Migrator(tailwindSession(), inputPath, inputPath, () => 0).migrate({ mode: 'write' }),
+      migrationFromPaths(tailwindSession(), inputPath, inputPath, () => 0).migrate({ mode: 'write' }),
     ).rejects.toThrow(`Unsupported file type: ${inputPath}`);
   });
 
@@ -270,7 +464,7 @@ describe('Migrator', () => {
     await writeFile(inputPath, '<div fxLayout="row"></div>', 'utf8');
     const transaction = transactionDouble();
 
-    const report = await new Migrator(
+    const report = await migrationFromPaths(
       AdapterFactory.createSession('css'),
       inputPath,
       outputPath,
@@ -306,7 +500,12 @@ describe('Migrator', () => {
     const stylesheetPath = join(temporaryDirectory, 'flex-layout-migration.css');
     await writeFile(inputPath, '<div fxLayout="row"></div>', 'utf8');
 
-    const report = await new Migrator(AdapterFactory.createSession('css'), inputPath, outputPath, () => 0).migrate({
+    const report = await migrationFromPaths(
+      AdapterFactory.createSession('css'),
+      inputPath,
+      outputPath,
+      () => 0,
+    ).migrate({
       mode: 'write',
       stylesheetPath,
     });
@@ -323,12 +522,17 @@ describe('Migrator', () => {
     const outputPath = join(temporaryDirectory, 'output.html');
     const stylesheetPath = join(temporaryDirectory, 'flex-layout-migration.css');
     await writeFile(inputPath, '<div fxLayout="row"></div>', 'utf8');
-    await new Migrator(AdapterFactory.createSession('css'), inputPath, outputPath, () => 0).migrate({
+    await migrationFromPaths(AdapterFactory.createSession('css'), inputPath, outputPath, () => 0).migrate({
       mode: 'write',
       stylesheetPath,
     });
 
-    const report = await new Migrator(AdapterFactory.createSession('css'), inputPath, outputPath, () => 0).migrate({
+    const report = await migrationFromPaths(
+      AdapterFactory.createSession('css'),
+      inputPath,
+      outputPath,
+      () => 0,
+    ).migrate({
       mode: 'write',
       stylesheetPath,
     });
@@ -341,14 +545,19 @@ describe('Migrator', () => {
     const outputPath = join(temporaryDirectory, 'output.html');
     const stylesheetPath = join(temporaryDirectory, 'flex-layout-migration.css');
     await writeFile(inputPath, '<div fxLayout="row"></div>', 'utf8');
-    await new Migrator(AdapterFactory.createSession('css'), inputPath, outputPath, () => 0).migrate({
+    await migrationFromPaths(AdapterFactory.createSession('css'), inputPath, outputPath, () => 0).migrate({
       mode: 'write',
       stylesheetPath,
     });
     const originalStylesheet = await readFile(stylesheetPath, 'utf8');
     await writeFile(inputPath, '<div fxLayout="column"></div>', 'utf8');
 
-    const report = await new Migrator(AdapterFactory.createSession('css'), inputPath, outputPath, () => 0).migrate({
+    const report = await migrationFromPaths(
+      AdapterFactory.createSession('css'),
+      inputPath,
+      outputPath,
+      () => 0,
+    ).migrate({
       mode: 'write',
       stylesheetPath,
     });
@@ -362,13 +571,18 @@ describe('Migrator', () => {
     const outputPath = join(temporaryDirectory, 'output.html');
     const stylesheetPath = join(temporaryDirectory, 'flex-layout-migration.css');
     await writeFile(inputPath, '<div fxLayout="row"></div>', 'utf8');
-    await new Migrator(AdapterFactory.createSession('css'), inputPath, outputPath, () => 0).migrate({
+    await migrationFromPaths(AdapterFactory.createSession('css'), inputPath, outputPath, () => 0).migrate({
       mode: 'write',
       stylesheetPath,
     });
     await writeFile(inputPath, '<div></div>', 'utf8');
 
-    const report = await new Migrator(AdapterFactory.createSession('css'), inputPath, outputPath, () => 0).migrate({
+    const report = await migrationFromPaths(
+      AdapterFactory.createSession('css'),
+      inputPath,
+      outputPath,
+      () => 0,
+    ).migrate({
       mode: 'write',
       stylesheetPath,
     });
@@ -384,14 +598,14 @@ describe('Migrator', () => {
     await writeFile(firstTemplate, '<div fxLayout="row"></div>', 'utf8');
     await writeFile(secondTemplate, '<div fxLayout="column"></div>', 'utf8');
 
-    await new Migrator(AdapterFactory.createSession('css'), firstTemplate, firstTemplate, () => 0).migrate({
+    await migrationFromPaths(AdapterFactory.createSession('css'), firstTemplate, firstTemplate, () => 0).migrate({
       mode: 'write',
       stylesheetPath,
     });
     const firstClass = (await readFile(firstTemplate, 'utf8')).match(/flm-[a-f0-9]{64}/u)?.[0];
     expect(firstClass).toBeDefined();
 
-    await new Migrator(AdapterFactory.createSession('css'), secondTemplate, secondTemplate, () => 0).migrate({
+    await migrationFromPaths(AdapterFactory.createSession('css'), secondTemplate, secondTemplate, () => 0).migrate({
       mode: 'write',
       stylesheetPath,
     });
@@ -408,7 +622,7 @@ describe('Migrator', () => {
     const inputPath = join(temporaryDirectory, 'input.html');
     const stylesheetPath = join(temporaryDirectory, 'flex-layout-migration.css');
     await writeFile(inputPath, '<div fxLayout="row"></div>', 'utf8');
-    await new Migrator(AdapterFactory.createSession('css'), inputPath, inputPath, () => 0).migrate({
+    await migrationFromPaths(AdapterFactory.createSession('css'), inputPath, inputPath, () => 0).migrate({
       mode: 'write',
       stylesheetPath,
     });
@@ -417,10 +631,12 @@ describe('Migrator', () => {
     const stylesheetBefore = await readFile(stylesheetPath, 'utf8');
     await writeFile(inputPath, `<div ngClass="${generatedClass}"></div>`, 'utf8');
 
-    const report = await new Migrator(AdapterFactory.createSession('css'), inputPath, inputPath, () => 0).migrate({
-      mode: 'write',
-      stylesheetPath,
-    });
+    const report = await migrationFromPaths(AdapterFactory.createSession('css'), inputPath, inputPath, () => 0).migrate(
+      {
+        mode: 'write',
+        stylesheetPath,
+      },
+    );
 
     expect(report.stylesheet).toEqual({ path: 'flex-layout-migration.css', change: 'unchanged' });
     expect(await readFile(stylesheetPath, 'utf8')).toBe(stylesheetBefore);
@@ -443,7 +659,7 @@ describe('Migrator', () => {
       };
       await writeFile(inputPath, `<div ${source}></div>`, 'utf8');
 
-      await new Migrator(
+      await migrationFromPaths(
         AdapterFactory.createSession('css'),
         inputPath,
         inputPath,
@@ -463,14 +679,19 @@ describe('Migrator', () => {
     const outputPath = join(temporaryDirectory, 'output.html');
     const stylesheetPath = join(temporaryDirectory, 'flex-layout-migration.css');
     await writeFile(inputPath, '<div fxLayout="row"></div>', 'utf8');
-    await new Migrator(AdapterFactory.createSession('css'), inputPath, outputPath, () => 0).migrate({
+    await migrationFromPaths(AdapterFactory.createSession('css'), inputPath, outputPath, () => 0).migrate({
       mode: 'write',
       stylesheetPath,
     });
     await writeFile(inputPath, '<div></div>', 'utf8');
     await writeFile(outputPath, '<div></div>', 'utf8');
 
-    const report = await new Migrator(AdapterFactory.createSession('css'), inputPath, outputPath, () => 0).migrate({
+    const report = await migrationFromPaths(
+      AdapterFactory.createSession('css'),
+      inputPath,
+      outputPath,
+      () => 0,
+    ).migrate({
       mode: 'write',
       stylesheetPath,
     });
@@ -485,7 +706,7 @@ describe('Migrator', () => {
       const inputPath = join(temporaryDirectory, 'input.html');
       const stylesheetPath = join(temporaryDirectory, 'flex-layout-migration.css');
       await writeFile(inputPath, '<div fxLayout="row"></div>', 'utf8');
-      await new Migrator(AdapterFactory.createSession('css'), inputPath, inputPath, () => 0).migrate({
+      await migrationFromPaths(AdapterFactory.createSession('css'), inputPath, inputPath, () => 0).migrate({
         mode: 'write',
         stylesheetPath,
       });
@@ -493,7 +714,12 @@ describe('Migrator', () => {
       expect(generatedClass).toBeDefined();
       await writeFile(inputPath, `<div ${classAttribute.replace('%s', generatedClass as string)}></div>`, 'utf8');
 
-      const report = await new Migrator(AdapterFactory.createSession('css'), inputPath, inputPath, () => 0).migrate({
+      const report = await migrationFromPaths(
+        AdapterFactory.createSession('css'),
+        inputPath,
+        inputPath,
+        () => 0,
+      ).migrate({
         mode: 'write',
         stylesheetPath,
       });
@@ -506,7 +732,7 @@ describe('Migrator', () => {
     const inputPath = join(temporaryDirectory, 'input.html');
     const stylesheetPath = join(temporaryDirectory, 'flex-layout-migration.css');
     await writeFile(inputPath, '<div fxLayout="row"></div>', 'utf8');
-    await new Migrator(AdapterFactory.createSession('css'), inputPath, inputPath, () => 0).migrate({
+    await migrationFromPaths(AdapterFactory.createSession('css'), inputPath, inputPath, () => 0).migrate({
       mode: 'write',
       stylesheetPath,
     });
@@ -514,10 +740,12 @@ describe('Migrator', () => {
     expect(generatedClass).toBeDefined();
     await writeFile(inputPath, `<div [class.${generatedClass}]="enabled"></div>`, 'utf8');
 
-    const report = await new Migrator(AdapterFactory.createSession('css'), inputPath, inputPath, () => 0).migrate({
-      mode: 'write',
-      stylesheetPath,
-    });
+    const report = await migrationFromPaths(AdapterFactory.createSession('css'), inputPath, inputPath, () => 0).migrate(
+      {
+        mode: 'write',
+        stylesheetPath,
+      },
+    );
 
     expect(report.stylesheet).toEqual({ path: 'flex-layout-migration.css', change: 'unchanged' });
   });
@@ -526,14 +754,14 @@ describe('Migrator', () => {
     const inputPath = join(temporaryDirectory, 'input.html');
     const stylesheetPath = join(temporaryDirectory, 'flex-layout-migration.css');
     await writeFile(inputPath, '<div fxLayout="row"></div>', 'utf8');
-    await new Migrator(AdapterFactory.createSession('css'), inputPath, inputPath, () => 0).migrate({
+    await migrationFromPaths(AdapterFactory.createSession('css'), inputPath, inputPath, () => 0).migrate({
       mode: 'write',
       stylesheetPath,
     });
     await writeFile(inputPath, `<div [class.flm-${'f'.repeat(64)}]="enabled"></div>`, 'utf8');
 
     await expect(
-      new Migrator(AdapterFactory.createSession('css'), inputPath, inputPath, () => 0).migrate({
+      migrationFromPaths(AdapterFactory.createSession('css'), inputPath, inputPath, () => 0).migrate({
         mode: 'write',
         stylesheetPath,
       }),
@@ -544,7 +772,7 @@ describe('Migrator', () => {
     const inputPath = join(temporaryDirectory, 'input.html');
     const stylesheetPath = join(temporaryDirectory, 'flex-layout-migration.css');
     await writeFile(inputPath, '<div fxLayout="row"></div>', 'utf8');
-    await new Migrator(AdapterFactory.createSession('css'), inputPath, inputPath, () => 0).migrate({
+    await migrationFromPaths(AdapterFactory.createSession('css'), inputPath, inputPath, () => 0).migrate({
       mode: 'write',
       stylesheetPath,
     });
@@ -552,10 +780,12 @@ describe('Migrator', () => {
     expect(generatedClass).toBeDefined();
     await writeFile(inputPath, `<div bind-class.${generatedClass}="enabled"></div>`, 'utf8');
 
-    const report = await new Migrator(AdapterFactory.createSession('css'), inputPath, inputPath, () => 0).migrate({
-      mode: 'write',
-      stylesheetPath,
-    });
+    const report = await migrationFromPaths(AdapterFactory.createSession('css'), inputPath, inputPath, () => 0).migrate(
+      {
+        mode: 'write',
+        stylesheetPath,
+      },
+    );
 
     expect(report.stylesheet).toEqual({ path: 'flex-layout-migration.css', change: 'unchanged' });
   });
@@ -564,14 +794,14 @@ describe('Migrator', () => {
     const inputPath = join(temporaryDirectory, 'input.html');
     const stylesheetPath = join(temporaryDirectory, 'flex-layout-migration.css');
     await writeFile(inputPath, '<div fxLayout="row"></div>', 'utf8');
-    await new Migrator(AdapterFactory.createSession('css'), inputPath, inputPath, () => 0).migrate({
+    await migrationFromPaths(AdapterFactory.createSession('css'), inputPath, inputPath, () => 0).migrate({
       mode: 'write',
       stylesheetPath,
     });
     await writeFile(inputPath, `<div bind-class.flm-${'f'.repeat(64)}="enabled"></div>`, 'utf8');
 
     await expect(
-      new Migrator(AdapterFactory.createSession('css'), inputPath, inputPath, () => 0).migrate({
+      migrationFromPaths(AdapterFactory.createSession('css'), inputPath, inputPath, () => 0).migrate({
         mode: 'write',
         stylesheetPath,
       }),
@@ -584,13 +814,18 @@ describe('Migrator', () => {
       const inputPath = join(temporaryDirectory, 'input.html');
       const stylesheetPath = join(temporaryDirectory, 'flex-layout-migration.css');
       await writeFile(inputPath, '<div fxLayout="row"></div>', 'utf8');
-      await new Migrator(AdapterFactory.createSession('css'), inputPath, inputPath, () => 0).migrate({
+      await migrationFromPaths(AdapterFactory.createSession('css'), inputPath, inputPath, () => 0).migrate({
         mode: 'write',
         stylesheetPath,
       });
       await writeFile(inputPath, `<div class="${className}"></div>`, 'utf8');
 
-      const report = await new Migrator(AdapterFactory.createSession('css'), inputPath, inputPath, () => 0).migrate({
+      const report = await migrationFromPaths(
+        AdapterFactory.createSession('css'),
+        inputPath,
+        inputPath,
+        () => 0,
+      ).migrate({
         mode: 'write',
         stylesheetPath,
       });
@@ -603,14 +838,14 @@ describe('Migrator', () => {
     const inputPath = join(temporaryDirectory, 'input.html');
     const stylesheetPath = join(temporaryDirectory, 'flex-layout-migration.css');
     await writeFile(inputPath, '<div fxLayout="row"></div>', 'utf8');
-    await new Migrator(AdapterFactory.createSession('css'), inputPath, inputPath, () => 0).migrate({
+    await migrationFromPaths(AdapterFactory.createSession('css'), inputPath, inputPath, () => 0).migrate({
       mode: 'write',
       stylesheetPath,
     });
     await writeFile(inputPath, `<div class="flm-${'f'.repeat(64)}"></div>`, 'utf8');
 
     await expect(
-      new Migrator(AdapterFactory.createSession('css'), inputPath, inputPath, () => 0).migrate({
+      migrationFromPaths(AdapterFactory.createSession('css'), inputPath, inputPath, () => 0).migrate({
         mode: 'write',
         stylesheetPath,
       }),
@@ -625,7 +860,12 @@ describe('Migrator', () => {
     await writeFile(join(inputPath, 'a.html'), '<div fxLayout="row"></div>', 'utf8');
     await writeFile(join(inputPath, 'b.html'), '<div fxLayout="column"></div>', 'utf8');
 
-    const report = await new Migrator(AdapterFactory.createSession('css'), inputPath, outputPath, () => 0).migrate({
+    const report = await migrationFromPaths(
+      AdapterFactory.createSession('css'),
+      inputPath,
+      outputPath,
+      () => 0,
+    ).migrate({
       mode: 'plan',
       stylesheetPath,
     });
@@ -643,7 +883,7 @@ describe('Migrator', () => {
     await writeFile(join(inputPath, 'z.html'), '<span fxLayout="row" />', 'utf8');
     const transaction = transactionDouble();
 
-    const report = await new Migrator(
+    const report = await migrationFromPaths(
       AdapterFactory.createSession('css'),
       inputPath,
       outputPath,
@@ -668,11 +908,40 @@ function tailwindSession() {
   return AdapterFactory.createSession('tailwind');
 }
 
+function migrationFromPaths(
+  session: ConversionAdapterSession,
+  inputPath: string,
+  outputPath: string,
+  now?: () => number,
+  transaction?: Pick<MigrationTransaction, 'preflight' | 'apply'>,
+  stylesheetPlanner?: Pick<StylesheetPlanner, 'plan'>,
+  dependencies?: MigratorDependencies,
+): Pick<Migrator, 'migrate'> {
+  return {
+    async migrate(options: MigrationOptions = { mode: 'plan' }) {
+      const invocation = migrationInvocation({ inputPath, outputPath, options });
+      const manifest = await new DiscoverProjectStage().run(invocation);
+      const analyzed = await new AnalyzeProjectStage().run(manifest);
+      return new Migrator(session, analyzed, now, transaction, stylesheetPlanner, dependencies).migrate(options);
+    },
+  };
+}
+
 function transactionDouble() {
   return {
     preflight: vi.fn<MigrationTransaction['preflight']>().mockResolvedValue(undefined),
     apply: vi.fn<MigrationTransaction['apply']>().mockResolvedValue(undefined),
   };
+}
+
+async function rejectedNodeIoError(action: Promise<unknown>): Promise<Error & NodeJS.ErrnoException> {
+  try {
+    await action;
+  } catch (error: unknown) {
+    if (error instanceof Error) return error;
+    throw new Error('Expected an Error rejection.', { cause: error });
+  }
+  throw new Error('Expected the action to reject.');
 }
 
 function proposedReport(report: Awaited<ReturnType<Migrator['migrate']>>) {

@@ -78,7 +78,7 @@ describe('smokePackageTarball', () => {
 
     expect(execFileImpl.mock.calls[0]?.slice(0, 2)).toEqual([
       'npm.cmd',
-      ['install', '--ignore-scripts', 'C:\\release\\package.tgz'],
+      ['install', '--ignore-scripts', '--no-audit', '--no-fund', 'C:\\release\\package.tgz'],
     ]);
     for (const call of execFileImpl.mock.calls) expect(call[2]).not.toHaveProperty('shell');
   });

@@ -14,14 +14,27 @@ describe('Vitest discovery', () => {
   it('discovers every pipeline specification through the source specification policy', async () => {
     const config = await readFile(new URL('../../vitest.config.ts', import.meta.url), 'utf8');
     const pipelineDirectory = new URL('../../src/pipeline/', import.meta.url);
-    const pipelineSpecifications = (await readdir(pipelineDirectory, { withFileTypes: true }))
-      .filter(entry => entry.isFile() && entry.name.endsWith('.spec.ts'))
-      .map(entry =>
-        relative(process.cwd(), fileURLToPath(new URL(entry.name, pipelineDirectory))).replaceAll('\\', '/'),
-      );
+    const pipelineSpecifications = await specificationPaths(pipelineDirectory);
 
     expect(config).toContain("'src/**/*.spec.ts'");
     expect(pipelineSpecifications.length).toBeGreaterThan(0);
     expect(pipelineSpecifications.every(path => path.startsWith('src/') && path.endsWith('.spec.ts'))).toBe(true);
+    expect(pipelineSpecifications).toEqual(
+      expect.arrayContaining([
+        'src/pipeline/analyze/analyze-project.stage.spec.ts',
+        'src/pipeline/discover/discover-project.stage.spec.ts',
+      ]),
+    );
   });
 });
+
+async function specificationPaths(directory: URL): Promise<readonly string[]> {
+  const nested = await Promise.all(
+    (await readdir(directory, { withFileTypes: true })).map(async entry => {
+      if (entry.isDirectory()) return specificationPaths(new URL(`${entry.name}/`, directory));
+      if (!entry.isFile() || !entry.name.endsWith('.spec.ts')) return [];
+      return [relative(process.cwd(), fileURLToPath(new URL(entry.name, directory))).replaceAll('\\', '/')];
+    }),
+  );
+  return nested.flat().sort();
+}

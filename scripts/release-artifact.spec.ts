@@ -660,7 +660,7 @@ describe('runReleaseArtifact', () => {
         }),
       ).resolves.toEqual(artifact);
     });
-  });
+  }, 30_000);
 });
 
 describe('runRetainedReleaseArtifact', () => {

@@ -213,6 +213,8 @@ describe('pipeline handoff factories', () => {
 
       const manifest = projectManifest({ invocation, templates: [] });
 
+      expect(manifest.invocation.inputPath).toBe('templates/source');
+      expect(manifest.invocation.outputPath).toBe('generated/output');
       expect(manifest.invocation.canonicalInputPath).toBe(expectedInputPath);
       expect(manifest.invocation.canonicalOutputPath).toBe(expectedOutputPath);
     } finally {

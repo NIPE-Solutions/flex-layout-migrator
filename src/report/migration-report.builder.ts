@@ -31,7 +31,12 @@ export class MigrationReportBuilder {
     files: readonly FileMigrationResult[],
     stylesheet?: StylesheetMigrationResult,
   ): MigrationReport {
-    const pathApi = this.pathApi(inputRoot, stylesheet?.path ?? '', ...files.map(file => file.inputPath));
+    const pathApi = this.pathApi(
+      inputRoot,
+      outputRoot,
+      stylesheet?.path ?? '',
+      ...files.flatMap(file => [file.inputPath, file.outputPath]),
+    );
     const singleFile = files.length === 1 && this.samePath(pathApi, inputRoot, files[0]?.inputPath ?? '');
     const fileReports = files
       .map(file => this.fileReport(pathApi, inputRoot, singleFile, file))
@@ -61,8 +66,9 @@ export class MigrationReportBuilder {
     singleFile: boolean,
     stylesheet: StylesheetMigrationResult,
   ): StylesheetReport {
-    const base = pathApi.resolve(singleFile ? pathApi.dirname(inputRoot) : inputRoot);
-    const relativePath = pathApi.relative(base, stylesheet.path);
+    const inputIdentity = this.absolutePath(pathApi, inputRoot);
+    const base = singleFile ? pathApi.dirname(inputIdentity) : inputIdentity;
+    const relativePath = pathApi.relative(base, this.absolutePath(pathApi, stylesheet.path));
     const displayPath = pathApi.isAbsolute(relativePath) ? pathApi.basename(stylesheet.path) : relativePath;
 
     return { path: this.forwardSlashes(pathApi, displayPath), change: stylesheet.change };
@@ -75,11 +81,13 @@ export class MigrationReportBuilder {
   }
 
   private samePath(pathApi: PathApi, left: string, right: string): boolean {
-    return pathApi.normalize(left) === pathApi.normalize(right);
+    return this.absolutePath(pathApi, left) === this.absolutePath(pathApi, right);
   }
 
   private fileReport(pathApi: PathApi, inputRoot: string, singleFile: boolean, file: FileMigrationResult): FileReport {
-    const relativePath = singleFile ? pathApi.basename(file.inputPath) : pathApi.relative(inputRoot, file.inputPath);
+    const relativePath = singleFile
+      ? pathApi.basename(inputRoot)
+      : pathApi.relative(this.absolutePath(pathApi, inputRoot), this.absolutePath(pathApi, file.inputPath));
     return {
       path: this.forwardSlashes(pathApi, relativePath),
       changed: file.changed,
@@ -124,9 +132,10 @@ export class MigrationReportBuilder {
     outputRoot: string,
     singleFile: boolean,
   ): { readonly input: string; readonly output: string } {
-    const base = singleFile ? pathApi.dirname(inputRoot) : inputRoot;
+    const inputIdentity = this.absolutePath(pathApi, inputRoot);
+    const base = singleFile ? pathApi.dirname(inputIdentity) : inputIdentity;
     const input = singleFile ? pathApi.basename(inputRoot) : '.';
-    const relativeOutput = pathApi.relative(base, outputRoot);
+    const relativeOutput = pathApi.relative(base, this.absolutePath(pathApi, outputRoot));
     const output = pathApi.isAbsolute(relativeOutput) ? pathApi.basename(outputRoot) : relativeOutput || '.';
 
     return {
@@ -137,6 +146,10 @@ export class MigrationReportBuilder {
 
   private forwardSlashes(pathApi: PathApi, value: string): string {
     return value.split(pathApi.sep).join('/');
+  }
+
+  private absolutePath(pathApi: PathApi, value: string): string {
+    return pathApi.normalize(pathApi.resolve(value));
   }
 
   private summary(files: readonly FileReport[]): MigrationSummary {

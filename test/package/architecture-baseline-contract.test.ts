@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { describe, expect, test } from 'vitest';
 
 const baselineUrl = new URL('../../docs/maintenance/2026-09-03-enterprise-architecture-baseline.md', import.meta.url);
+const slice3Url = new URL('../../docs/maintenance/2026-09-03-enterprise-discovery-analysis.md', import.meta.url);
 
 const requiredSections = [
   'Commit',
@@ -47,6 +48,15 @@ const workloadRows = [
   ['Two-file CSS folder write', '1', '2', '2', '2', '4', '2', '0', '3'],
   ['Unchanged Tailwind rerun', '1', '1', '2', '1', '1', '1', '0', '0'],
   ['Unchanged CSS folder rerun', '1', '2', '6', '2', '4', '2', '1', '0'],
+] as const;
+
+const slice3WorkloadRows = [
+  ['Single-file Tailwind plan', '1', '1', '1', '1', '1', '1', '0', '0'],
+  ['Single-file Tailwind write', '1', '1', '1', '1', '1', '1', '0', '1'],
+  ['Two-file CSS folder plan', '1', '2', '2', '2', '2', '2', '0', '0'],
+  ['Two-file CSS folder write', '1', '2', '2', '2', '2', '2', '0', '3'],
+  ['Unchanged Tailwind rerun', '1', '1', '1', '1', '1', '1', '0', '0'],
+  ['Unchanged CSS folder rerun', '1', '2', '2', '2', '2', '2', '1', '0'],
 ] as const;
 
 const policyOwnerRows = [
@@ -173,6 +183,38 @@ describe('enterprise architecture baseline documentation contract', () => {
   test('never makes a machine-specific wall-clock observation a CI threshold', async () => {
     const markdown = await readFile(baselineUrl, 'utf8');
 
+    expect(wallClockThresholdSegments(markdown)).toEqual([]);
+  });
+
+  test('publishes Slice 3 ownership, inventory, workload, and observational benchmark evidence', async () => {
+    const markdown = await readFile(slice3Url, 'utf8');
+
+    for (const section of [
+      'Commit',
+      'Environment',
+      'Behavior oracle',
+      'Workload counters',
+      'Inventory evidence',
+      'Benchmark method',
+      'Benchmark results',
+      'Architecture-test timing',
+      'Ownership transition',
+      'Retained compatibility',
+    ]) {
+      expect(markdown).toContain(`## ${section}`);
+    }
+    expect(markdown).toMatch(/Commit captured: `[0-9a-f]{40}`/u);
+    expect(markdown).toMatch(/Node\.js: `v\d+\.\d+\.\d+`/u);
+    expect(markdown).toMatch(/npm: `\d+\.\d+\.\d+`/u);
+    expect(tableRows(markdown, 'Workload counters')).toEqual(slice3WorkloadRows);
+    expect(tableRows(markdown, 'Benchmark results').map(row => row[0])).toEqual([
+      'single-tailwind-plan',
+      'multi-tailwind-plan',
+      'multi-native-css-plan',
+      'unchanged-write',
+    ]);
+    expect(tableRows(markdown, 'Architecture-test timing')[0]?.[1]?.split('; ')).toHaveLength(5);
+    expect(markdown).toContain('Timings are observational');
     expect(wallClockThresholdSegments(markdown)).toEqual([]);
   });
 

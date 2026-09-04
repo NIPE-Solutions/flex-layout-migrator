@@ -1,20 +1,21 @@
-import { readFile, stat } from 'node:fs/promises';
 import * as path from 'node:path';
+import type { ConversionAdapter } from '../adapter/conversion-adapter';
 import type { ConversionAdapterSession } from '../adapter/conversion-adapter.session';
-import { loadGitIgnore } from '../lib/gitignore.helper';
-import { MigrationReportBuilder, type StylesheetMigrationResult } from '../report/migration-report.builder';
-import type { MigrationApplication, MigrationReport } from '../report/migration-report';
-import { AngularTemplateParser } from '../template/angular-template.parser';
-import { MigrationTransaction } from '../transaction/migration-transaction';
-import { FileMigrator, type FileMigratorDependencies } from './file.migrator';
-import { FolderMigrator } from './folder.migrator';
-import { MigrationApplicationError } from './migration-application.error';
-import { validateMigrationPaths } from './migration-path.validator';
-import { migrationPlan, type FileMigrationPlan, type PlannedOutputArtifact } from './migration-plan';
-import { StylesheetPlanner } from './stylesheet.planner';
 import type { OwnedCssReferences } from '../adapter/css/stylesheet/owned-stylesheet.merger';
+import type { TemplateParser } from '../pipeline/analyze/template-parser.port';
+import type { AnalyzedProject, AnalyzedTemplate } from '../pipeline/analyzed-project';
+import type { MigrationApplication, MigrationReport } from '../report/migration-report';
+import { MigrationReportBuilder, type StylesheetMigrationResult } from '../report/migration-report.builder';
+import { AngularTemplateParser } from '../template/angular-template.parser';
 import { templateAttributeKeys } from '../template/template-attribute';
+import { MigrationTransaction } from '../transaction/migration-transaction';
+import { AnalyzedFileMigrator } from './analyzed-file.migrator';
+import { nodeDestinationTemplateSource, type DestinationTemplateSource } from './destination-template-source';
 import type { MigrationMode } from './migration-mode';
+import { MigrationApplicationError } from './migration-application.error';
+import { migrationPlan, type FileMigrationPlan, type PlannedOutputArtifact } from './migration-plan';
+import { validateMigrationPaths } from './migration-path.validator';
+import { StylesheetPlanner } from './stylesheet.planner';
 
 export interface MigrationOptions {
   readonly mode: MigrationMode;
@@ -23,65 +24,62 @@ export interface MigrationOptions {
   readonly reportPath?: string;
 }
 
+export interface MigrationExecutionContext {
+  readonly mapDestinationReadError?: (error: unknown) => unknown;
+  readonly now?: () => number;
+  readonly startedAt?: number;
+}
+
+export type AnalyzedFileMigratorFactory = (
+  adapter: ConversionAdapter,
+  template: AnalyzedTemplate,
+  destinationTemplates: DestinationTemplateSource,
+) => Pick<AnalyzedFileMigrator, 'plan'>;
+
 export interface MigratorDependencies {
-  readonly fileMigratorDependencies?: () => FileMigratorDependencies;
-  readonly onDiscoveryPass?: () => void;
-  readonly readTemplate: (path: string) => Promise<string>;
-  readonly parser: AngularTemplateParser;
+  readonly destinationTemplates: DestinationTemplateSource;
+  readonly referenceParser: TemplateParser;
+  readonly createFileMigrator: AnalyzedFileMigratorFactory;
 }
 
 export class Migrator {
   constructor(
     private readonly session: ConversionAdapterSession,
-    private readonly inputPath: string,
-    private readonly outputPath: string,
+    private readonly analyzed: AnalyzedProject,
     private readonly now: () => number = Date.now,
     private readonly transaction: Pick<MigrationTransaction, 'preflight' | 'apply'> = new MigrationTransaction(),
     private readonly stylesheetPlanner: Pick<StylesheetPlanner, 'plan'> = new StylesheetPlanner(),
     private readonly dependencies: MigratorDependencies = defaultMigratorDependencies(),
   ) {}
 
-  public async migrate(options: MigrationOptions = { mode: 'plan' }): Promise<MigrationReport> {
+  public async migrate(
+    options: MigrationOptions = { mode: 'plan' },
+    execution: MigrationExecutionContext = {},
+  ): Promise<MigrationReport> {
     this.validateOptions(options);
 
-    const startedAt = this.now();
-    const inputStat = await stat(this.inputPath);
-
-    await loadGitIgnore(this.inputPath);
-
-    let filePlans: readonly FileMigrationPlan[];
-    if (inputStat.isFile()) {
-      if (path.extname(this.inputPath).toLowerCase() !== '.html') {
-        throw new Error(`Unsupported file type: ${this.inputPath}`);
-      }
-      if (path.extname(this.outputPath).toLowerCase() !== '.html') {
-        throw new Error('Single-file output path must have a .html extension.');
-      }
-      this.dependencies.onDiscoveryPass?.();
-      filePlans = [
-        await new FileMigrator(
-          this.session.adapter,
-          this.inputPath,
-          this.outputPath,
-          undefined,
-          this.dependencies.fileMigratorDependencies?.(),
-        ).plan({
+    const now = execution.now ?? this.now;
+    const startedAt = execution.startedAt ?? now();
+    const readDestinationTemplate = mapDestinationReadErrors(
+      this.dependencies.destinationTemplates,
+      execution.mapDestinationReadError,
+    );
+    const destinationTemplates =
+      execution.mapDestinationReadError === undefined
+        ? this.dependencies.destinationTemplates
+        : Object.freeze({ read: readDestinationTemplate });
+    const filePlans: FileMigrationPlan[] = [];
+    for (const template of this.analyzed.templates) {
+      const analyzedFileMigrator = this.dependencies.createFileMigrator(
+        this.session.adapter,
+        template,
+        destinationTemplates,
+      );
+      filePlans.push(
+        await analyzedFileMigrator.plan({
           responsiveImages: options.responsiveImages ?? false,
         }),
-      ];
-    } else if (inputStat.isDirectory()) {
-      filePlans = await new FolderMigrator(
-        this.session.adapter,
-        this.inputPath,
-        this.outputPath,
-        options.stylesheetPath === undefined ? [] : [options.stylesheetPath],
-        this.dependencies.fileMigratorDependencies,
-        this.dependencies.onDiscoveryPass,
-      ).plan({
-        responsiveImages: options.responsiveImages ?? false,
-      });
-    } else {
-      throw new Error(`Unsupported input type: ${this.inputPath}`);
+      );
     }
 
     // Validate all selected destinations before reference collection reads a
@@ -104,7 +102,7 @@ export class Migrator {
       stylesheetArtifact = await this.stylesheetPlanner.plan(
         stylesheetPath,
         sessionResult.rules,
-        await this.referencedCssClasses(filePlans),
+        await this.referencedCssClasses(filePlans, readDestinationTemplate),
       );
       stylesheetResult = {
         path: stylesheetPath,
@@ -139,12 +137,12 @@ export class Migrator {
     }
 
     return new MigrationReportBuilder().build(
-      this.inputPath,
-      this.outputPath,
+      this.analyzed.manifest.invocation.inputPath,
+      this.analyzed.manifest.invocation.outputPath,
       sessionResult.target,
       options.mode,
       application,
-      this.now() - startedAt,
+      now() - startedAt,
       plan.files,
       stylesheetResult,
     );
@@ -161,17 +159,30 @@ export class Migrator {
     }
   }
 
-  private async referencedCssClasses(filePlans: readonly FileMigrationPlan[]): Promise<OwnedCssReferences> {
+  private async referencedCssClasses(
+    filePlans: readonly FileMigrationPlan[],
+    readDestinationTemplate: DestinationTemplateSource['read'],
+  ): Promise<OwnedCssReferences> {
     const templates = await Promise.all(
-      filePlans.map(async filePlan => {
+      filePlans.map(async (filePlan, index) => {
+        const analyzedTemplate = this.analyzed.templates[index];
+        if (analyzedTemplate === undefined) {
+          throw new MigrationApplicationError(
+            'internal-invariant',
+            'Rendered file plans must match analyzed templates one-to-one and in the same order.',
+          );
+        }
         if (filePlan.artifact?.kind === 'template' && filePlan.artifact.proposed.status === 'present') {
           return { contents: filePlan.artifact.proposed.contents, complete: true };
         }
         if (path.resolve(filePlan.file.inputPath) === path.resolve(filePlan.file.outputPath)) {
-          return { contents: await this.dependencies.readTemplate(filePlan.file.inputPath), complete: true };
+          return { contents: analyzedTemplate.source, complete: true };
         }
         try {
-          return { contents: await this.dependencies.readTemplate(filePlan.file.outputPath), complete: true };
+          return {
+            contents: await readDestinationTemplate(filePlan.file.outputPath),
+            complete: true,
+          };
         } catch (error: unknown) {
           if (isEnoent(error)) return { contents: '', complete: false };
           throw error;
@@ -182,7 +193,7 @@ export class Migrator {
     let complete = true;
     for (const template of templates) {
       complete &&= template.complete;
-      const parsed = this.dependencies.parser.parse(template.contents, 'proposed-template.html');
+      const parsed = this.dependencies.referenceParser.parse(template.contents, 'proposed-template.html');
       if (parsed.status === 'parse-error') {
         complete = false;
         continue;
@@ -220,10 +231,25 @@ export class Migrator {
   }
 }
 
+function mapDestinationReadErrors(
+  source: DestinationTemplateSource,
+  mapper: MigrationExecutionContext['mapDestinationReadError'],
+): DestinationTemplateSource['read'] {
+  return async (path: string): Promise<string> => {
+    try {
+      return await source.read(path);
+    } catch (error: unknown) {
+      throw mapper === undefined ? error : mapper(error);
+    }
+  };
+}
+
 function defaultMigratorDependencies(): MigratorDependencies {
   return {
-    readTemplate: path => readFile(path, 'utf8'),
-    parser: new AngularTemplateParser(),
+    destinationTemplates: nodeDestinationTemplateSource,
+    referenceParser: new AngularTemplateParser(),
+    createFileMigrator: (adapter, template, destinationTemplates) =>
+      new AnalyzedFileMigrator(adapter, template, undefined, destinationTemplates),
   };
 }
 

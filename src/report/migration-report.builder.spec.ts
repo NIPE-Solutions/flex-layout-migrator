@@ -1,3 +1,4 @@
+import { resolve } from 'node:path';
 import type { ConversionResult } from '../analyzer/conversion-result';
 import type { FileMigrationResult } from '../migrator/file-migration-result';
 import { MigrationReportBuilder } from './migration-report.builder';
@@ -207,6 +208,24 @@ describe('MigrationReportBuilder', () => {
     expect(report.files[0]?.path).toBe('card.component.html');
     expect(JSON.stringify(report)).not.toContain('/private/checkout');
     expect(JSON.stringify(report)).not.toContain('/private/output');
+  });
+
+  test('preserves relative single-file report paths for canonical file identities', () => {
+    const report = new MigrationReportBuilder().build(
+      'input.html',
+      'output.html',
+      'tailwind',
+      'plan',
+      { status: 'skipped', reason: 'plan-only' },
+      0,
+      [file(resolve('input.html'), resolve('output.html'), true, [])],
+    );
+
+    expect({ input: report.input, output: report.output, filePath: report.files[0]?.path }).toEqual({
+      input: 'input.html',
+      output: 'output.html',
+      filePath: 'input.html',
+    });
   });
 
   test.each(['created', 'updated', 'removed', 'unchanged'] as const)(
