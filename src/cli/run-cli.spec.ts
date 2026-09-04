@@ -538,16 +538,17 @@ describe('runCli', () => {
 
   test.each([
     ['input', (root: string) => join(root, 'missing.html'), undefined],
-    ['output', (root: string) => join(root, 'stylesheet.css'), undefined],
+    ['output', (root: string) => join(root, 'stylesheet.html'), undefined],
     ['report', (root: string) => join(root, 'stylesheet.json'), (root: string) => join(root, 'stylesheet.json')],
   ] as const)(
-    'rejects a stylesheet collision with the %s path before discovering a missing input',
+    'rejects a stylesheet collision with the %s path during Validate without mutating output',
     async (_name, stylesheetFor, reportFor) => {
-      const missingInput = join(temporaryDirectory, 'missing.html');
-      const output = join(temporaryDirectory, 'stylesheet.css');
+      const input = join(temporaryDirectory, 'missing.html');
+      const output = join(temporaryDirectory, 'stylesheet.html');
       const stylesheet = stylesheetFor(temporaryDirectory);
       const report = reportFor?.(temporaryDirectory);
-      const arguments_ = [missingInput, '--output', output, '--target', 'css', '--stylesheet', stylesheet];
+      await writeFile(input, '<div></div>', 'utf8');
+      const arguments_ = [input, '--output', output, '--target', 'css', '--stylesheet', stylesheet];
       if (report !== undefined) arguments_.push('--report', report);
 
       const result = await run(arguments_);
@@ -570,13 +571,14 @@ describe('runCli', () => {
       'report ancestor of stylesheet',
       (root: string) => [join(root, 'report.json', 'flex.css'), join(root, 'report.json')] as const,
     ],
-  ])('rejects a %s path collision before discovering a missing input', async (_name, pathsFor) => {
-    const missingInput = join(temporaryDirectory, 'missing.html');
+  ])('rejects a %s path collision during Validate without mutating output', async (_name, pathsFor) => {
+    const input = join(temporaryDirectory, 'missing.html');
     const output = join(temporaryDirectory, 'output.html');
     const [stylesheet, reportPath] = pathsFor(temporaryDirectory);
+    await writeFile(input, '<div></div>', 'utf8');
 
     const result = await run([
-      missingInput,
+      input,
       '--output',
       output,
       '--target',
@@ -591,7 +593,8 @@ describe('runCli', () => {
     expect(result.stdout).toBe('');
     expect(result.stderr).toContain('Stylesheet path collides with another migration path');
     expect(result.stderr).not.toContain('ENOENT');
-    for (const candidate of [missingInput, output, stylesheet, reportPath]) {
+    expect(await readFile(input, 'utf8')).toBe('<div></div>');
+    for (const candidate of [output, stylesheet, reportPath]) {
       await expect(access(candidate)).rejects.toMatchObject({ code: 'ENOENT' });
     }
   });
@@ -661,17 +664,18 @@ describe('runCli', () => {
   });
 
   test.each(['directory', 'symlink'] as const)(
-    'rejects a stylesheet %s before discovering templates and preserves every existing file',
+    'rejects a stylesheet %s during Validate and preserves every existing file',
     async kind => {
-      const missingInput = join(temporaryDirectory, 'missing.html');
+      const input = join(temporaryDirectory, 'missing.html');
       const output = join(temporaryDirectory, 'output.html');
       const stylesheet = join(temporaryDirectory, 'flex.css');
       const preserved = join(temporaryDirectory, 'preserved.css');
+      await writeFile(input, '<div></div>', 'utf8');
       await writeFile(preserved, 'preserve me', 'utf8');
       if (kind === 'directory') await mkdir(stylesheet);
       else await symlink(preserved, stylesheet);
 
-      const result = await run([missingInput, '--output', output, '--target', 'css', '--stylesheet', stylesheet]);
+      const result = await run([input, '--output', output, '--target', 'css', '--stylesheet', stylesheet]);
 
       expect(result.exitCode).toBe(1);
       expect(result.stdout).toBe('');

@@ -73,6 +73,8 @@ describe('architecture inventory', () => {
           readonly symbol: string;
         }[];
         readonly runtimeDependencyViolations?: readonly unknown[];
+        readonly productionEntrypoint?: string;
+        readonly unreachableProductionModules?: readonly string[];
       };
       const paths = inventory.productionFiles.map(file => file.path);
 
@@ -82,6 +84,8 @@ describe('architecture inventory', () => {
       expect(paths).not.toContain('src/logger.spec.ts');
       expect(paths.some(path => path.endsWith('.spec.ts'))).toBe(false);
       expect(inventory.runtimeDependencyViolations).toEqual([]);
+      expect(inventory.productionEntrypoint).toBe('src/main.ts');
+      expect(inventory.unreachableProductionModules).toEqual([]);
       expect(inventory.policyOwners).toEqual([
         {
           policy: 'artifact identity',
@@ -207,5 +211,29 @@ describe('architecture inventory', () => {
     expect(JSON.stringify(inventoryProject(reversed), null, 2)).toBe(
       JSON.stringify(inventoryProject(syntheticProject), null, 2),
     );
+  });
+
+  it('derives reachability from src/main.ts without letting a dead type-only chain appear reachable', () => {
+    const inventory = inventoryProject({
+      productionFiles: [
+        { path: 'src/main.ts', source: "import './live.js';" },
+        {
+          path: 'src/live.ts',
+          source: "import type { LiveContract } from './live-contract.js'; export const live = 1;",
+        },
+        { path: 'src/live-contract.ts', source: 'export interface LiveContract { readonly value: string }' },
+        {
+          path: 'src/dead.ts',
+          source: "import type { DeadContract } from './dead-contract.js'; export const dead = 1;",
+        },
+        { path: 'src/dead-contract.ts', source: 'export interface DeadContract { readonly value: string }' },
+      ],
+      packageJson: { dependencies: {} },
+      packageLock: { packages: {} },
+    });
+
+    expect(inventory.productionEntrypoint).toBe('src/main.ts');
+    expect(inventory.reachableProductionModules).toEqual(['src/live-contract.ts', 'src/live.ts', 'src/main.ts']);
+    expect(inventory.unreachableProductionModules).toEqual(['src/dead-contract.ts', 'src/dead.ts']);
   });
 });

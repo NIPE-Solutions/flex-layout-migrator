@@ -55,6 +55,7 @@ let cachedFilesystemNamespaceUnionAuthorities: ReturnType<typeof inspectSemantic
 let cachedFilesystemPluralProvenanceAuthorities: ReturnType<typeof inspectSemanticAuthorityCalls> | undefined;
 const productionGraphAuthorities = new Set([
   'AnalyzeProjectStage.run',
+  'ApplyProjectStage.run',
   'DiscoverProjectStage.run',
   'MigrationRunner.run',
   'MigrationTransaction.apply',
@@ -127,6 +128,9 @@ const resourceAuthorityNames = new Set([
 const expectedProductionAuthorityGraph = [
   { source: 'cli/run-cli.ts', authority: 'MigrationRunner.run' },
   { source: 'pipeline/apply/apply-project.stage.ts', authority: 'MigrationTransaction.apply' },
+  { source: 'pipeline/migration-pipeline.ts', authority: 'AnalyzeProjectStage.run' },
+  { source: 'pipeline/migration-pipeline.ts', authority: 'ApplyProjectStage.run' },
+  { source: 'pipeline/migration-pipeline.ts', authority: 'DiscoverProjectStage.run' },
   { source: 'pipeline/migration-pipeline.ts', authority: 'RenderProjectStage.run' },
   { source: 'pipeline/migration-pipeline.ts', authority: 'ValidateProjectStage.run' },
 ] as const;
@@ -165,6 +169,15 @@ const rogueProductionAuthorityCases = [
       import type { MigrationTransaction } from '../../transaction/migration-transaction.js';
       declare const transaction: MigrationTransaction;
       void transaction.apply(undefined as never);
+    `,
+  },
+  {
+    sourcePath: join(productionRoot, 'report', 'json-report.writer.ts'),
+    authority: 'ApplyProjectStage.run',
+    source: `
+      import type { ApplyProjectStage } from '../pipeline/apply/apply-project.stage.js';
+      declare const apply: ApplyProjectStage;
+      void apply.run(undefined as never);
     `,
   },
 ] as const;
@@ -761,6 +774,21 @@ describe('enterprise pipeline dependency boundary', { timeout: wholeProjectInspe
     );
   });
 
+  test('resolves all five MigrationPipeline stage calls exactly once and in source order', () => {
+    const route = productionSemanticAuthorities()
+      .filter(call => call.sourcePath === join(pipelineRoot, 'migration-pipeline.ts'))
+      .map(call => call.name)
+      .filter(name => productionGraphAuthorities.has(name));
+
+    expect(route).toEqual([
+      'DiscoverProjectStage.run',
+      'AnalyzeProjectStage.run',
+      'RenderProjectStage.run',
+      'ValidateProjectStage.run',
+      'ApplyProjectStage.run',
+    ]);
+  });
+
   test('keeps responsive-family runtime exports owned only by the target-neutral semantic module', () => {
     const owners = [
       ...new Set(
@@ -1013,6 +1041,7 @@ describe('enterprise pipeline dependency boundary', { timeout: wholeProjectInspe
       'CssReferenceParser.parse',
       'DestinationTemplateSource.read',
       'MigrationPathValidation.validate',
+      'StylesheetRootTopologyValidation.validate',
       'SourceEditor.apply',
       'StylesheetPlanner.plan',
       'TemplateProposalValidator.validate',
@@ -1037,6 +1066,10 @@ describe('enterprise pipeline dependency boundary', { timeout: wholeProjectInspe
       { source: 'pipeline/validate/validate-project.stage.ts', authority: 'MigrationPathValidation.validate' },
       { source: 'pipeline/validate/validate-project.stage.ts', authority: 'MigrationPathValidation.validate' },
       { source: 'pipeline/validate/validate-project.stage.ts', authority: 'StylesheetPlanner.plan' },
+      {
+        source: 'pipeline/validate/validate-project.stage.ts',
+        authority: 'StylesheetRootTopologyValidation.validate',
+      },
       { source: 'pipeline/validate/validate-project.stage.ts', authority: 'TemplateProposalValidator.validate' },
     ]);
   });
@@ -1474,8 +1507,6 @@ describe('enterprise pipeline dependency boundary', { timeout: wholeProjectInspe
 
   test('keeps direct filesystem and ignore authorities at their named production owners', () => {
     expect(normalizedAuthoritySources(productionSemanticAuthorities(), resourceAuthorityNames)).toEqual([
-      { source: 'cli/stylesheet-path.validator.ts', authority: 'FileSystem.acquire.lstat' },
-      { source: 'cli/stylesheet-path.validator.ts', authority: 'FileSystem.lstat' },
       { source: 'lib/atomic-file.writer.ts', authority: 'FileSystem.acquire.lstat' },
       { source: 'lib/atomic-file.writer.ts', authority: 'FileSystem.acquire.open' },
       { source: 'lib/gitignore.helper.ts', authority: 'FileSystem.acquire.*' },
@@ -1487,6 +1518,7 @@ describe('enterprise pipeline dependency boundary', { timeout: wholeProjectInspe
       { source: 'migrator/destination-template-source.ts', authority: 'FileSystem.readFile' },
       { source: 'migrator/migration-path.validator.ts', authority: 'FileSystem.acquire.lstat' },
       { source: 'migrator/migration-path.validator.ts', authority: 'FileSystem.acquire.stat' },
+      { source: 'migrator/migration-path.validator.ts', authority: 'FileSystem.lstat' },
       { source: 'migrator/migration-path.validator.ts', authority: 'FileSystem.lstat' },
       { source: 'migrator/migration-path.validator.ts', authority: 'FileSystem.stat' },
       { source: 'migrator/stylesheet.planner.ts', authority: 'FileSystem.acquire.lstat' },

@@ -1,4 +1,5 @@
 import type { MigrationMode } from '../../migrator/migration-mode';
+import { MigrationApplicationError } from '../../migrator/migration-application.error';
 import { MigrationTransaction } from '../../transaction/migration-transaction';
 import { appliedProject, type AppliedProject } from '../applied-project';
 import type { ApplyStage } from '../migration-pipeline';
@@ -13,6 +14,13 @@ export class ApplyProjectStage implements ApplyStage {
   ) {}
 
   public async run(validated: ValidatedProjectPlan): Promise<AppliedProject> {
+    const manifestMode = validated.rendered.analyzed.manifest.invocation.options.mode;
+    if (this.mode !== manifestMode) {
+      throw new MigrationApplicationError(
+        'internal-invariant',
+        `Apply stage mode "${this.mode}" differs from validated manifest mode "${manifestMode}".`,
+      );
+    }
     const plan = validated.plan;
     const hasParseError = plan.files.some(file => file.results.some(result => result.status === 'parse-error'));
     if (this.mode === 'plan') {

@@ -10,6 +10,14 @@ export interface MigrationPathValidationRequest {
   readonly reportPath?: string;
 }
 
+export interface StylesheetRootTopologyRequest {
+  readonly stylesheetPath?: string;
+  readonly stylesheetPathInput?: string;
+  readonly inputPath: string;
+  readonly outputPath: string;
+  readonly reportPath?: string;
+}
+
 interface PathClaim {
   readonly path: string;
   readonly kind: 'template-input' | 'template-output' | 'stylesheet' | 'report';
@@ -44,6 +52,61 @@ export async function validateMigrationPaths(
   const destinations = claims.filter(claim => claim.kind !== 'template-input');
   for (const destination of destinations) {
     await validateDestination(destination.path);
+  }
+}
+
+export async function validateStylesheetRootTopology(
+  request: StylesheetRootTopologyRequest,
+  pathApi: PathApi = path,
+): Promise<void> {
+  if (request.stylesheetPath === undefined) return;
+  const stylesheetPath = pathApi.resolve(request.stylesheetPath);
+  const templateRoots = [request.inputPath, request.outputPath].map(claim => pathApi.resolve(claim));
+  const reportPath = request.reportPath === undefined ? undefined : pathApi.resolve(request.reportPath);
+  const exactCollision = (
+    await Promise.all(
+      [...templateRoots, reportPath].map(claim =>
+        claim === undefined ? Promise.resolve(false) : pathsEquivalentOnFileSystem(stylesheetPath, claim, pathApi),
+      ),
+    )
+  ).some(Boolean);
+  const reportHierarchyCollision =
+    reportPath !== undefined && (await pathsOverlapOnFileSystem(stylesheetPath, reportPath, pathApi));
+  if (exactCollision || reportHierarchyCollision) {
+    const collisionPaths =
+      reportHierarchyCollision &&
+      reportPath !== undefined &&
+      !(await pathsEquivalentOnFileSystem(stylesheetPath, reportPath, pathApi))
+        ? [stylesheetPath, reportPath]
+        : [stylesheetPath];
+    throw new MigrationApplicationError(
+      'path-collision',
+      `Stylesheet path collides with another migration path: ${request.stylesheetPathInput ?? request.stylesheetPath}`,
+      collisionPaths,
+    );
+  }
+
+  let stylesheetStat: Awaited<ReturnType<typeof lstat>>;
+  try {
+    stylesheetStat = await lstat(stylesheetPath);
+  } catch (error: unknown) {
+    if (isEnoent(error)) return;
+    throw error;
+  }
+  const sourcePath = request.stylesheetPathInput ?? request.stylesheetPath;
+  if (stylesheetStat.isSymbolicLink()) {
+    throw new MigrationApplicationError(
+      'unsupported-path-type',
+      `Stylesheet path must not be a symbolic link: ${sourcePath}`,
+      [stylesheetPath],
+    );
+  }
+  if (!stylesheetStat.isFile()) {
+    throw new MigrationApplicationError(
+      'unsupported-path-type',
+      `Stylesheet path must be a regular file: ${sourcePath}`,
+      [stylesheetPath],
+    );
   }
 }
 

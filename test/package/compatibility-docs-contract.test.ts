@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { describe, expect, it } from 'vitest';
-import { COMPATIBILITY_INVENTORY } from '../../src/analyzer/compatibility-inventory';
+import { COMPATIBILITY_INVENTORY } from '../compatibility/compatibility-inventory';
 
 const compatibilityUrl = new URL('../../docs/compatibility.md', import.meta.url);
 const conversionSafetyUrl = new URL('../../docs/architecture/conversion-safety.md', import.meta.url);

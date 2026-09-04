@@ -38,7 +38,10 @@ describe('FileSystemStagingUnit', () => {
     const artifacts = [artifact(join(root, 'ä.html')), artifact(join(root, 'a.html')), artifact(join(root, 'Z.html'))];
     const session = new TransactionUnitSession(operations);
 
-    const staged = await new FileSystemStagingUnit(session).stage(artifacts, new AbortController().signal);
+    const staged = await new FileSystemStagingUnit(session.stagingPort()).stage(
+      artifacts,
+      new AbortController().signal,
+    );
 
     expect(staged.map(item => basename(item.artifact.path))).toEqual(['Z.html', 'a.html', 'ä.html']);
     expect(staged.every(item => Object.isFrozen(item))).toBe(true);
@@ -65,7 +68,7 @@ describe('FileSystemStagingUnit', () => {
     const session = new TransactionUnitSession(operationsWith());
 
     await expect(
-      new FileSystemStagingUnit(session).stage([artifact(join(root, 'card.html'))], controller.signal),
+      new FileSystemStagingUnit(session.stagingPort()).stage([artifact(join(root, 'card.html'))], controller.signal),
     ).rejects.toThrow('cancelled');
     await expect(access(join(root, 'card.html'))).rejects.toMatchObject({ code: 'ENOENT' });
     expect(await readdir(root)).toEqual([]);
@@ -102,7 +105,7 @@ describe('FileSystemStagingUnit', () => {
     );
 
     const error = await captureError(
-      new FileSystemStagingUnit(session).stage([artifact(target)], new AbortController().signal),
+      new FileSystemStagingUnit(session.stagingPort()).stage([artifact(target)], new AbortController().signal),
     );
 
     expect(error).toBeInstanceOf(StagingUnitError);
@@ -111,7 +114,7 @@ describe('FileSystemStagingUnit', () => {
     expect(events).toEqual([`open:${stagingPath}:wx`, `write:${stagingPath}`, `sync:${stagingPath}`]);
     expect(await readdir(dirname(stagingPath))).toEqual(['stage']);
 
-    await new FileSystemCleanupUnit(session, 'recovery').cleanup((error as StagingUnitError).staged);
+    await new FileSystemCleanupUnit(session.cleanupPort(), 'recovery').cleanup((error as StagingUnitError).staged);
     expect(await readdir(root)).toEqual([]);
   });
 });

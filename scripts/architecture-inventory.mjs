@@ -181,8 +181,31 @@ export function inventoryProject(input) {
   const policyOwners = policySymbols.flatMap(([policy, symbol]) =>
     inspections.filter(file => file.symbols.has(symbol)).map(file => ({ policy, module: file.path, symbol })),
   );
+  const productionEntrypoint = 'src/main.ts';
+  const relativeTargets = new Map();
+  for (const edge of moduleEdges) {
+    if (edge.kind !== 'relative' || !knownPaths.has(edge.to)) continue;
+    const targets = relativeTargets.get(edge.from) ?? new Set();
+    targets.add(edge.to);
+    relativeTargets.set(edge.from, targets);
+  }
+  const reachable = new Set();
+  const pending = knownPaths.has(productionEntrypoint) ? [productionEntrypoint] : [];
+  while (pending.length > 0) {
+    const current = pending.pop();
+    if (current === undefined || reachable.has(current)) continue;
+    reachable.add(current);
+    for (const target of relativeTargets.get(current) ?? []) {
+      if (!reachable.has(target)) pending.push(target);
+    }
+  }
+  const reachableProductionModules = [...reachable].sort(compareCodeUnits);
+  const unreachableProductionModules = [...knownPaths].filter(path => !reachable.has(path)).sort(compareCodeUnits);
 
   return {
+    productionEntrypoint,
+    reachableProductionModules,
+    unreachableProductionModules,
     productionFiles,
     runtimeDependencies,
     runtimeDependencyViolations,

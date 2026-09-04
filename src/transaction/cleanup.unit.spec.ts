@@ -45,9 +45,12 @@ describe('FileSystemCleanupUnit', () => {
       },
     });
     const session = new TransactionUnitSession(operations);
-    const staged = await new FileSystemStagingUnit(session).stage([artifact(target)], new AbortController().signal);
+    const staged = await new FileSystemStagingUnit(session.stagingPort()).stage(
+      [artifact(target)],
+      new AbortController().signal,
+    );
 
-    const unresolved = await new FileSystemCleanupUnit(session, 'recovery').cleanup(staged);
+    const unresolved = await new FileSystemCleanupUnit(session.cleanupPort(), 'recovery').cleanup(staged);
 
     expect(unresolved).toEqual([]);
     expect(removed).toEqual([staged[0]!.stagingPath]);
@@ -70,9 +73,12 @@ describe('FileSystemCleanupUnit', () => {
       },
     });
     const session = new TransactionUnitSession(operations);
-    const staged = await new FileSystemStagingUnit(session).stage([artifact(target)], new AbortController().signal);
+    const staged = await new FileSystemStagingUnit(session.stagingPort()).stage(
+      [artifact(target)],
+      new AbortController().signal,
+    );
 
-    const error = await captureError(new FileSystemCleanupUnit(session, 'recovery').cleanup(staged));
+    const error = await captureError(new FileSystemCleanupUnit(session.cleanupPort(), 'recovery').cleanup(staged));
 
     expect(error).toBeInstanceOf(RecoveryUnitError);
     expect(error).toMatchObject({ paths: [target], failures: [failure] });
@@ -96,11 +102,16 @@ describe('FileSystemCleanupUnit', () => {
         },
       }),
     );
-    const staged = await new FileSystemStagingUnit(session).stage([artifact(target)], new AbortController().signal);
+    const staged = await new FileSystemStagingUnit(session.stagingPort()).stage(
+      [artifact(target)],
+      new AbortController().signal,
+    );
     const foreign = artifact(join(root, 'foreign.html'));
     cleaning = true;
 
-    const error = await captureError(new FileSystemCleanupUnit(session, 'recovery').cleanup([{ artifact: foreign }]));
+    const error = await captureError(
+      new FileSystemCleanupUnit(session.cleanupPort(), 'recovery').cleanup([{ artifact: foreign }]),
+    );
 
     expect(error).toBeInstanceOf(RecoveryUnitError);
     expect(error).toMatchObject({ paths: [foreign.path], failures: [{ code: 'internal-invariant' }] });

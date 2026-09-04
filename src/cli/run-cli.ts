@@ -145,6 +145,7 @@ export async function runCli(
             mode,
             responsiveImages: options.responsiveImages,
             stylesheetPath,
+            stylesheetPathInput: options.stylesheet,
             reportPath,
           },
         }),

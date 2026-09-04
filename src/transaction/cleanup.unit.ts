@@ -1,14 +1,13 @@
 import type { StagedArtifact } from './staging.unit';
+import type { CleanupPort } from './transaction-unit.ports';
 import {
   RecoveryUnitError,
-  TransactionUnitSession,
   identity,
   isDirectoryNotEmpty,
   isEnoent,
   pathDepth,
   recoveryOutcome,
   recoveryUnitError,
-  runtimeArtifact,
   sameArtifactState,
   sameIdentity,
   type MigrationTransactionStat,
@@ -16,11 +15,10 @@ import {
   type OwnedFile,
   type RecoveryOutcome,
   type RuntimeArtifact,
-  type TransactionUnitContext,
-} from './transaction-unit.session';
+} from './transaction-unit.state';
 import { compareCodeUnits } from '../util/compare-code-units';
 
-export { RecoveryUnitError } from './transaction-unit.session';
+export { RecoveryUnitError } from './transaction-unit.state';
 
 export interface CleanupUnit {
   cleanup(staged: readonly StagedArtifact[]): Promise<readonly string[]>;
@@ -29,44 +27,39 @@ export interface CleanupUnit {
 export type CleanupKind = 'committed' | 'recovery';
 
 export class FileSystemCleanupUnit implements CleanupUnit {
-  private readonly context: TransactionUnitContext;
-
   constructor(
-    private readonly session: TransactionUnitSession,
+    private readonly port: CleanupPort,
     private readonly kind: CleanupKind,
-    context: TransactionUnitContext = session.context,
-  ) {
-    this.context = context;
-  }
+  ) {}
 
   public async cleanup(staged: readonly StagedArtifact[]): Promise<readonly string[]> {
     const failures: unknown[] = [];
     const paths = new Set<string>();
     let stagedItems: RuntimeArtifact[];
     try {
-      stagedItems = staged.map(entry => runtimeArtifact(this.context, entry.artifact));
+      stagedItems = staged.map(entry => this.port.runtimeArtifact(entry.artifact));
     } catch (error: unknown) {
       throw recoveryUnitError(error);
     }
     const items = this.kind === 'recovery' ? stagedItems.reverse() : stagedItems;
     for (const item of items) {
-      await this.session.closeReadHandles(item, failures);
+      await this.port.closeReadHandles(item, failures);
       await this.closeOpenHandle(item, failures);
       const ownedFiles = this.kind === 'recovery' ? [...item.ownedFiles].reverse() : item.ownedFiles;
       for (const owned of ownedFiles) {
-        if (this.kind === 'recovery' && owned === item.backup && this.context.restored.get(item) === false) {
+        if (this.kind === 'recovery' && owned === item.backup && this.port.journal.restored.get(item) === false) {
           if (owned.exists) paths.add(item.artifact.path);
           continue;
         }
         await this.removeOwnedFile(item, owned, paths, failures);
       }
       await this.removeNamespace(item, paths, failures);
-      this.context.ownershipChanged();
+      this.port.journal.ownershipChanged();
     }
     await this.removeCreatedDirectories(paths, failures);
     await this.collectUnconfirmedPaths(paths, failures);
     if (this.kind === 'recovery') {
-      for (const item of this.context.items) {
+      for (const item of this.port.journal.items) {
         if (!(await this.verifyOriginal(item, failures))) paths.add(item.artifact.path);
       }
     }
@@ -95,8 +88,8 @@ export class FileSystemCleanupUnit implements CleanupUnit {
       return;
     }
     try {
-      await this.session.assertNamespace(item);
-      const before = await this.session.operations.lstat(owned.path);
+      await this.port.assertNamespace(item);
+      const before = await this.port.lstat(owned.path);
       if (!sameIdentity(identity(before), owned.identity) || before.isSymbolicLink() || !before.isFile()) {
         paths.add(owned.publicPath);
         failures.push(new Error('Invocation-owned file identity could not be confirmed.'));
@@ -112,12 +105,12 @@ export class FileSystemCleanupUnit implements CleanupUnit {
       return;
     }
     try {
-      await this.session.operations.unlink(owned.path);
+      await this.port.unlink(owned.path);
     } catch (error: unknown) {
       if (!isEnoent(error)) failures.push(error);
     }
     try {
-      await this.session.operations.lstat(owned.path);
+      await this.port.lstat(owned.path);
       paths.add(owned.publicPath);
     } catch (error: unknown) {
       if (isEnoent(error)) owned.exists = false;
@@ -136,7 +129,7 @@ export class FileSystemCleanupUnit implements CleanupUnit {
       return;
     }
     try {
-      const namespaceStat = await this.session.operations.lstat(namespace.path);
+      const namespaceStat = await this.port.lstat(namespace.path);
       if (
         !sameIdentity(identity(namespaceStat), namespace.identity) ||
         namespaceStat.isSymbolicLink() ||
@@ -156,12 +149,12 @@ export class FileSystemCleanupUnit implements CleanupUnit {
       return;
     }
     try {
-      await this.session.operations.rmdir(namespace.path);
+      await this.port.rmdir(namespace.path);
     } catch (error: unknown) {
       if (!isDirectoryNotEmpty(error) && !isEnoent(error)) failures.push(error);
     }
     try {
-      await this.session.operations.lstat(namespace.path);
+      await this.port.lstat(namespace.path);
       paths.add(namespace.publicPath);
     } catch (error: unknown) {
       if (isEnoent(error)) namespace.exists = false;
@@ -173,14 +166,14 @@ export class FileSystemCleanupUnit implements CleanupUnit {
   }
 
   private async removeCreatedDirectories(paths: Set<string>, failures: unknown[]): Promise<void> {
-    const directories = [...this.context.createdDirectories.values()].sort(
+    const directories = [...this.port.journal.createdDirectories.values()].sort(
       (left, right) => pathDepth(right.path) - pathDepth(left.path) || compareCodeUnits(right.path, left.path),
     );
     for (const directory of directories) {
       if (!directory.exists) continue;
       if (
         this.kind === 'committed' &&
-        this.context.items.some(
+        this.port.journal.items.some(
           item =>
             item.artifact.proposed.status === 'present' &&
             item.directories.some(expectation => expectation.path === directory.path),
@@ -194,11 +187,11 @@ export class FileSystemCleanupUnit implements CleanupUnit {
       }
       let before: MigrationTransactionStat;
       try {
-        before = await this.session.operations.lstat(directory.path);
+        before = await this.port.lstat(directory.path);
       } catch (error: unknown) {
         if (isEnoent(error)) {
           directory.exists = false;
-          this.context.ownershipChanged();
+          this.port.journal.ownershipChanged();
           continue;
         }
         for (const publicPath of directory.publicPaths) paths.add(publicPath);
@@ -211,13 +204,13 @@ export class FileSystemCleanupUnit implements CleanupUnit {
       }
       let removalFailure: unknown;
       try {
-        await this.session.operations.rmdir(directory.path);
+        await this.port.rmdir(directory.path);
       } catch (error: unknown) {
         removalFailure = error;
       }
       let after: MigrationTransactionStat | 'absent';
       try {
-        after = await this.session.lstatOrAbsent(directory.path);
+        after = await this.port.lstatOrAbsent(directory.path);
       } catch (error: unknown) {
         for (const publicPath of directory.publicPaths) paths.add(publicPath);
         if (removalFailure !== undefined && !isEnoent(removalFailure)) failures.push(removalFailure);
@@ -227,7 +220,7 @@ export class FileSystemCleanupUnit implements CleanupUnit {
       if (after === 'absent') {
         directory.exists = false;
         if (removalFailure !== undefined && !isEnoent(removalFailure)) failures.push(removalFailure);
-        this.context.ownershipChanged();
+        this.port.journal.ownershipChanged();
         continue;
       }
       for (const publicPath of directory.publicPaths) paths.add(publicPath);
@@ -236,9 +229,9 @@ export class FileSystemCleanupUnit implements CleanupUnit {
   }
 
   private async collectUnconfirmedPaths(paths: Set<string>, failures: unknown[]): Promise<void> {
-    for (const [candidate, publicPaths] of this.context.unconfirmedEntries) {
+    for (const [candidate, publicPaths] of this.port.journal.unconfirmedEntries) {
       try {
-        await this.session.operations.lstat(candidate);
+        await this.port.lstat(candidate);
       } catch (error: unknown) {
         if (isEnoent(error)) continue;
         failures.push(error);
@@ -249,7 +242,7 @@ export class FileSystemCleanupUnit implements CleanupUnit {
 
   private async verifyOriginal(item: RuntimeArtifact, failures: unknown[]): Promise<boolean> {
     try {
-      return this.isConfirmedOriginal(item, await this.session.observePublic(item, this.context));
+      return this.isConfirmedOriginal(item, await this.port.observePublic(item));
     } catch (error: unknown) {
       failures.push(error);
       return false;

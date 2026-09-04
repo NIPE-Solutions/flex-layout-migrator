@@ -25,7 +25,10 @@ const cliPath = join(productionRoot, 'cli', 'run-cli.ts');
 const migrationPipelinePath = join(pipelineRoot, 'migration-pipeline.ts');
 const migrationRunnerPath = join(pipelineRoot, 'migration-runner.ts');
 const handoffImports = new Map<string, readonly string[]>([
-  ['applied-project.ts', ['./validated-project-plan', '../report/migration-report']],
+  [
+    'applied-project.ts',
+    ['./validated-project-plan', '../migrator/migration-application.error', '../report/migration-report'],
+  ],
   [
     'analyzed-project.ts',
     [

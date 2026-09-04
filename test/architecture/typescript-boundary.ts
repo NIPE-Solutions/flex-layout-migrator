@@ -167,6 +167,7 @@ const filesystemNamespaceMemberNames = new Set(['default', 'promises']);
 
 export type SemanticAuthorityName =
   | 'AnalyzeProjectStage.run'
+  | 'ApplyProjectStage.run'
   | 'AngularTemplateParser.parse'
   | 'ChangedTemplateValidation.parse'
   | 'CssReferenceCollector.collect'
@@ -189,6 +190,7 @@ export type SemanticAuthorityName =
   | 'IgnoreMatcherFactory.load'
   | 'MigrationTransaction.apply'
   | 'MigrationPathValidation.validate'
+  | 'StylesheetRootTopologyValidation.validate'
   | 'Migrator.migrate'
   | 'SourceEditor.apply'
   | 'StylesheetPlanner.plan'
@@ -626,6 +628,30 @@ export function inspectTypeScript(source: string, sourcePath: string): TypeScrip
     runtimeImports,
     exportedFunctions,
   };
+}
+
+/** Resolves the structural surface accepted by a concrete class constructor parameter. */
+export function resolvedConstructorParameterProperties(
+  sourcePath: string,
+  className: string,
+  parameterIndex = 0,
+): readonly string[] {
+  const project = createProjectProgram([sourcePath], new Map());
+  const sourceFile = project.program.getSourceFile(resolve(sourcePath));
+  if (sourceFile === undefined) throw new Error(`Missing TypeScript source: ${sourcePath}`);
+  const declaration = sourceFile.statements.find(
+    (statement): statement is ts.ClassDeclaration =>
+      ts.isClassDeclaration(statement) && statement.name?.text === className,
+  );
+  const constructor = declaration?.members.find(ts.isConstructorDeclaration);
+  const parameter = constructor?.parameters[parameterIndex];
+  if (parameter === undefined) {
+    throw new Error(`Missing constructor parameter ${parameterIndex} on ${className}.`);
+  }
+  return project.checker
+    .getPropertiesOfType(project.checker.getTypeAtLocation(parameter))
+    .map(property => property.getName())
+    .sort();
 }
 
 function createProjectProgram(
@@ -2640,6 +2666,10 @@ const semanticAuthorityConfigs: readonly SemanticAuthorityConfig[] = [
     methodName: 'run',
     declarations: [
       {
+        sourcePathSuffix: '/pipeline/migration-pipeline.ts',
+        containers: ['DiscoverStage'],
+      },
+      {
         sourcePathSuffix: '/pipeline/discover/discover-project.stage.ts',
         containers: ['DiscoverProjectStage'],
       },
@@ -2653,6 +2683,10 @@ const semanticAuthorityConfigs: readonly SemanticAuthorityConfig[] = [
     name: 'AnalyzeProjectStage.run',
     methodName: 'run',
     declarations: [
+      {
+        sourcePathSuffix: '/pipeline/migration-pipeline.ts',
+        containers: ['AnalyzeStage'],
+      },
       {
         sourcePathSuffix: '/pipeline/analyze/analyze-project.stage.ts',
         containers: ['AnalyzeProjectStage'],
@@ -2685,6 +2719,18 @@ const semanticAuthorityConfigs: readonly SemanticAuthorityConfig[] = [
     concreteClass: {
       exportedName: 'ValidateProjectStage',
       sourcePathSuffix: '/pipeline/validate/validate-project.stage.ts',
+    },
+  },
+  {
+    name: 'ApplyProjectStage.run',
+    methodName: 'run',
+    declarations: [
+      { sourcePathSuffix: '/pipeline/migration-pipeline.ts', containers: ['ApplyStage'] },
+      { sourcePathSuffix: '/pipeline/apply/apply-project.stage.ts', containers: ['ApplyProjectStage'] },
+    ],
+    concreteClass: {
+      exportedName: 'ApplyProjectStage',
+      sourcePathSuffix: '/pipeline/apply/apply-project.stage.ts',
     },
   },
   {
@@ -2773,6 +2819,11 @@ const semanticAuthorityConfigs: readonly SemanticAuthorityConfig[] = [
   {
     name: 'MigrationPathValidation.validate',
     methodName: 'validateMigrationPaths',
+    declarations: [{ sourcePathSuffix: '/migrator/migration-path.validator.ts' }],
+  },
+  {
+    name: 'StylesheetRootTopologyValidation.validate',
+    methodName: 'validateStylesheetRootTopology',
     declarations: [{ sourcePathSuffix: '/migrator/migration-path.validator.ts' }],
   },
   {

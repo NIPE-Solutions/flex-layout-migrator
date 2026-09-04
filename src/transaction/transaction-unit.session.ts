@@ -2,39 +2,59 @@ import { constants } from 'node:fs';
 import { access, link, lstat, mkdir, open, rename, rmdir, stat, unlink } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { MigrationApplicationError } from '../migrator/migration-application.error';
-import type { ArtifactState, PlannedOutputArtifact } from '../migrator/migration-plan';
+import type { PlannedOutputArtifact } from '../migrator/migration-plan';
 import { AngularTemplateParser } from '../template/angular-template.parser';
 import { compareCodeUnits } from '../util/compare-code-units';
+import type { CleanupPort, CommitPort, RollbackPort, StagingPort } from './transaction-unit.ports';
+import {
+  fileMode,
+  identity,
+  isEnoent,
+  required,
+  runtimeArtifact,
+  sameArtifactState,
+  sameIdentity,
+  type DirectoryExpectation,
+  type FileIdentity,
+  type MigrationTransactionFileHandle,
+  type MigrationTransactionOperations,
+  type MigrationTransactionStat,
+  type ObservedState,
+  type OwnedFile,
+  type RuntimeArtifact,
+  type TransactionUnitContext,
+} from './transaction-unit.state';
 
-export interface MigrationTransactionFileHandle {
-  chmod(mode: number): Promise<void>;
-  writeFile(contents: string, encoding: BufferEncoding): Promise<void>;
-  readFile(options: { readonly encoding: 'utf8' }): Promise<string>;
-  stat(): Promise<MigrationTransactionStat>;
-  sync(): Promise<void>;
-  close(): Promise<void>;
-}
-
-export interface MigrationTransactionStat {
-  readonly dev: number | bigint;
-  readonly ino: number | bigint;
-  readonly mode: number | bigint;
-  isDirectory(): boolean;
-  isFile(): boolean;
-  isSymbolicLink(): boolean;
-}
-
-export interface MigrationTransactionOperations {
-  access(path: string, mode: number): Promise<void>;
-  link(existingPath: string, newPath: string): Promise<void>;
-  lstat(path: string): Promise<MigrationTransactionStat>;
-  mkdir(path: string, options?: { readonly recursive?: boolean; readonly mode?: number }): Promise<unknown>;
-  open(path: string, flags: 'r' | 'wx'): Promise<MigrationTransactionFileHandle>;
-  rename(source: string, destination: string): Promise<void>;
-  rmdir(path: string): Promise<void>;
-  stat(path: string): Promise<MigrationTransactionStat>;
-  unlink(path: string): Promise<void>;
-}
+export {
+  RecoveryUnitError,
+  fileMode,
+  identity,
+  isDirectoryNotEmpty,
+  isEnoent,
+  pathDepth,
+  recoveryOutcome,
+  recoveryUnitError,
+  required,
+  runtimeArtifact,
+  sameArtifactState,
+  sameIdentity,
+  sortedUnique,
+} from './transaction-unit.state';
+export type {
+  CreatedDirectory,
+  DirectoryExpectation,
+  FileIdentity,
+  MigrationTransactionFileHandle,
+  MigrationTransactionOperations,
+  MigrationTransactionStat,
+  ObservedPresentState,
+  ObservedState,
+  OwnedFile,
+  OwnedNamespace,
+  RecoveryOutcome,
+  RuntimeArtifact,
+  TransactionUnitContext,
+} from './transaction-unit.state';
 
 export const nodeTransactionOperations: MigrationTransactionOperations = {
   access,
@@ -47,92 +67,6 @@ export const nodeTransactionOperations: MigrationTransactionOperations = {
   stat,
   unlink,
 };
-
-export interface FileIdentity {
-  readonly dev: string;
-  readonly ino: string;
-}
-
-export interface DirectoryExpectation {
-  readonly path: string;
-  readonly original:
-    | 'absent'
-    | { readonly identity: FileIdentity; readonly kind: 'directory' }
-    | { readonly identity: FileIdentity; readonly kind: 'symbolic-link'; readonly followedIdentity: FileIdentity };
-}
-
-export interface CreatedDirectory {
-  readonly path: string;
-  identity?: FileIdentity;
-  readonly publicPaths: Set<string>;
-  exists: boolean;
-}
-
-export interface OwnedNamespace {
-  readonly path: string;
-  identity?: FileIdentity;
-  readonly publicPath: string;
-  exists: boolean;
-}
-
-export interface OwnedFile {
-  readonly path: string;
-  readonly publicPath: string;
-  identity?: FileIdentity;
-  exists: boolean;
-  preserve: boolean;
-}
-
-export interface ObservedPresentState {
-  readonly status: 'present';
-  readonly contents: string;
-  readonly identity: FileIdentity;
-  readonly mode: number;
-}
-
-export type ObservedState = { readonly status: 'absent' } | ObservedPresentState;
-
-export interface RuntimeArtifact {
-  readonly artifact: PlannedOutputArtifact;
-  readonly directories: readonly DirectoryExpectation[];
-  readonly quarantines: OwnedFile[];
-  readonly ownedFiles: OwnedFile[];
-  readonly readHandles: Set<MigrationTransactionFileHandle>;
-  originalIdentity?: FileIdentity;
-  originalMode?: number;
-  namespace?: OwnedNamespace;
-  stage?: OwnedFile;
-  backup?: OwnedFile;
-  openHandle?: MigrationTransactionFileHandle;
-  installedIdentity?: FileIdentity;
-  restoredIdentity?: FileIdentity;
-}
-
-export interface TransactionUnitContext {
-  readonly items: RuntimeArtifact[];
-  readonly createdDirectories: Map<string, CreatedDirectory>;
-  readonly unconfirmedEntries: Map<string, Set<string>>;
-  readonly recoveryFailures: unknown[];
-  readonly restored: Map<RuntimeArtifact, boolean>;
-  readonly ownershipChanged: () => void;
-}
-
-export interface RecoveryOutcome {
-  readonly paths: readonly string[];
-  readonly failures: readonly unknown[];
-}
-
-export class RecoveryUnitError extends Error {
-  constructor(
-    readonly paths: readonly string[],
-    readonly failures: readonly unknown[],
-  ) {
-    super('Transaction recovery was incomplete.');
-    this.name = 'RecoveryUnitError';
-    this.paths = Object.freeze([...paths]);
-    this.failures = Object.freeze([...failures]);
-  }
-}
 
 export class TransactionUnitSession {
   readonly context: TransactionUnitContext;
@@ -150,6 +84,116 @@ export class TransactionUnitSession {
       restored: new Map(),
       ownershipChanged,
     };
+  }
+
+  public stagingPort(): StagingPort {
+    const journal = Object.freeze({
+      items: this.context.items,
+      createdDirectories: this.context.createdDirectories,
+      unconfirmedEntries: this.context.unconfirmedEntries,
+      ownershipChanged: this.context.ownershipChanged,
+    });
+    return Object.freeze({
+      journal,
+      prepare: (artifacts: readonly PlannedOutputArtifact[]) => this.prepare(this.context, artifacts),
+      assertDirectoryExpectation: (
+        path: string,
+        expected: Exclude<DirectoryExpectation['original'], 'absent'>,
+        publicPath: string,
+      ) => this.assertDirectoryExpectation(path, expected, publicPath),
+      assertDirectoryIdentity: (path: string, expected: FileIdentity, publicPath: string) =>
+        this.assertDirectoryIdentity(path, expected, publicPath),
+      assertExpectedAbsent: (path: string, publicPath: string) => this.assertExpectedAbsent(path, publicPath),
+      assertExpectedDirectory: (expectation: DirectoryExpectation, item: RuntimeArtifact) =>
+        this.assertExpectedDirectory(expectation, item, this.context),
+      assertNotInterrupted: (signal: AbortSignal) => this.assertNotInterrupted(signal),
+      assertParentChain: (item: RuntimeArtifact) => this.assertParentChain(item, this.context),
+      concurrentModification: (publicPath: string, cause?: unknown) => this.concurrentModification(publicPath, cause),
+      createOwnedFile: (
+        item: RuntimeArtifact,
+        name: 'backup' | 'stage',
+        contents: string,
+        signal: AbortSignal,
+        mode?: number,
+      ) => this.createOwnedFile(item, name, contents, this.context, signal, mode),
+      lstat: (path: string) => this.operations.lstat(path),
+      mkdir: (path: string, options?: { readonly recursive?: boolean; readonly mode?: number }) =>
+        this.operations.mkdir(path, options),
+      readOwnedFile: (item: RuntimeArtifact, owned: OwnedFile) => this.readOwnedFile(item, owned),
+      validateStagedTemplate: (publicPath: string, contents: string) =>
+        this.validateStagedTemplate(publicPath, contents),
+    });
+  }
+
+  public commitPort(): CommitPort {
+    const journal = Object.freeze({
+      items: this.context.items,
+      recoveryFailures: this.context.recoveryFailures,
+    });
+    return Object.freeze({
+      journal,
+      assertExpectedAbsent: (path: string, publicPath: string) => this.assertExpectedAbsent(path, publicPath),
+      assertNamespace: (item: RuntimeArtifact) => this.assertNamespace(item),
+      assertNotInterrupted: (signal: AbortSignal) => this.assertNotInterrupted(signal),
+      assertOwnedIdentity: (item: RuntimeArtifact, owned: OwnedFile) => this.assertOwnedIdentity(item, owned),
+      assertParentChain: (item: RuntimeArtifact) => this.assertParentChain(item, this.context),
+      concurrentModification: (publicPath: string, cause?: unknown) => this.concurrentModification(publicPath, cause),
+      createOwnedFile: (
+        item: RuntimeArtifact,
+        name: 'backup' | 'stage',
+        contents: string,
+        signal: AbortSignal,
+        mode?: number,
+      ) => this.createOwnedFile(item, name, contents, this.context, signal, mode),
+      link: (existingPath: string, newPath: string) => this.operations.link(existingPath, newPath),
+      lstatOrAbsent: (path: string) => this.lstatOrAbsent(path),
+      observePublic: (item: RuntimeArtifact) => this.observePublic(item, this.context),
+      ownershipFailure: (publicPath: string) => this.ownershipFailure(publicPath),
+      readOwnedFile: (item: RuntimeArtifact, owned: OwnedFile) => this.readOwnedFile(item, owned),
+      rename: (source: string, destination: string) => this.operations.rename(source, destination),
+      runtimeArtifact: (artifact: PlannedOutputArtifact) => runtimeArtifact(this.context, artifact),
+    });
+  }
+
+  public rollbackPort(): RollbackPort {
+    const journal = Object.freeze({
+      items: this.context.items,
+      recoveryFailures: this.context.recoveryFailures,
+      restored: this.context.restored,
+    });
+    return Object.freeze({
+      journal,
+      assertExpectedAbsent: (path: string, publicPath: string) => this.assertExpectedAbsent(path, publicPath),
+      assertNamespace: (item: RuntimeArtifact) => this.assertNamespace(item),
+      assertParentChain: (item: RuntimeArtifact) => this.assertParentChain(item, this.context),
+      link: (existingPath: string, newPath: string) => this.operations.link(existingPath, newPath),
+      lstatOrAbsent: (path: string) => this.lstatOrAbsent(path),
+      observePublic: (item: RuntimeArtifact) => this.observePublic(item, this.context),
+      readOwnedFile: (item: RuntimeArtifact, owned: OwnedFile) => this.readOwnedFile(item, owned),
+      rename: (source: string, destination: string) => this.operations.rename(source, destination),
+      runtimeArtifact: (artifact: PlannedOutputArtifact) => runtimeArtifact(this.context, artifact),
+    });
+  }
+
+  public cleanupPort(): CleanupPort {
+    const journal = Object.freeze({
+      items: this.context.items,
+      createdDirectories: this.context.createdDirectories,
+      unconfirmedEntries: this.context.unconfirmedEntries,
+      restored: this.context.restored,
+      ownershipChanged: this.context.ownershipChanged,
+    });
+    return Object.freeze({
+      journal,
+      assertNamespace: (item: RuntimeArtifact) => this.assertNamespace(item),
+      closeReadHandles: (item: RuntimeArtifact, failures: unknown[]) => this.closeReadHandles(item, failures),
+      lstat: (path: string) => this.operations.lstat(path),
+      lstatOrAbsent: (path: string) => this.lstatOrAbsent(path),
+      observePublic: (item: RuntimeArtifact) => this.observePublic(item, this.context),
+      rmdir: (path: string) => this.operations.rmdir(path),
+      runtimeArtifact: (artifact: PlannedOutputArtifact) => runtimeArtifact(this.context, artifact),
+      unlink: (path: string) => this.operations.unlink(path),
+    });
   }
 
   public async prepare(
@@ -530,68 +574,6 @@ export class TransactionUnitSession {
       [publicPath],
     );
   }
-}
-
-export function runtimeArtifact(context: TransactionUnitContext, artifact: PlannedOutputArtifact): RuntimeArtifact {
-  const item = context.items.find(candidate => candidate.artifact === artifact);
-  if (item) return item;
-  throw new MigrationApplicationError(
-    'internal-invariant',
-    `Migration transaction journal contains an unknown artifact: ${artifact.path}`,
-    [artifact.path],
-  );
-}
-
-export function identity(stat: MigrationTransactionStat): FileIdentity {
-  return { dev: String(stat.dev), ino: String(stat.ino) };
-}
-
-export function fileMode(stat: MigrationTransactionStat): number {
-  return Number(stat.mode) & 0o7777;
-}
-
-export function sameIdentity(left: FileIdentity, right: FileIdentity): boolean {
-  return left.dev === right.dev && left.ino === right.ino;
-}
-
-export function sameArtifactState(left: ObservedState, right: ArtifactState): boolean {
-  if (left.status !== right.status) return false;
-  if (left.status === 'absent') return true;
-  return right.status === 'present' && left.contents === right.contents;
-}
-
-export function required<T>(value: T | undefined): T {
-  if (value === undefined) throw new Error('Missing transaction state.');
-  return value;
-}
-
-export function isEnoent(error: unknown): error is NodeJS.ErrnoException {
-  return typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT';
-}
-
-export function isDirectoryNotEmpty(error: unknown): error is NodeJS.ErrnoException {
-  return (
-    typeof error === 'object' &&
-    error !== null &&
-    'code' in error &&
-    (error.code === 'ENOTEMPTY' || error.code === 'EEXIST')
-  );
-}
-
-export function pathDepth(path: string): number {
-  return path.split(/[\\/]/u).filter(Boolean).length;
-}
-
-export function recoveryOutcome(paths: Iterable<string>, failures: readonly unknown[]): RecoveryOutcome {
-  return { paths: sortedUnique(paths), failures: Object.freeze([...failures]) };
-}
-
-export function recoveryUnitError(error: unknown): RecoveryUnitError {
-  return new RecoveryUnitError(error instanceof MigrationApplicationError ? error.paths : [], [error]);
-}
-
-export function sortedUnique(paths: Iterable<string>): readonly string[] {
-  return [...new Set(paths)].sort(compareCodeUnits);
 }
 
 function directoryChain(path: string): readonly string[] {

@@ -185,12 +185,34 @@ describe('ValidateProjectStage', () => {
     ).rejects.toMatchObject({ code: 'path-collision', paths: ['/project/shared.html'] });
     expect(validate).not.toHaveBeenCalled();
   });
+
+  test('owns stylesheet root collision validation with raw-path wording before proposal or stylesheet work', async () => {
+    const validate = vi.fn();
+    const collect = vi.fn();
+    const plan = vi.fn();
+    const rendered = renderedFixture({
+      target: 'css',
+      stylesheetPath: '/project/output',
+      stylesheetPathInput: 'generated/../output',
+      templates: [],
+    });
+
+    await expect(new ValidateProjectStage({ validate }, { collect }, { plan }).run(rendered)).rejects.toMatchObject({
+      code: 'path-collision',
+      message: 'Stylesheet path collides with another migration path: generated/../output',
+      paths: ['/project/output'],
+    });
+    expect(validate).not.toHaveBeenCalled();
+    expect(collect).not.toHaveBeenCalled();
+    expect(plan).not.toHaveBeenCalled();
+  });
 });
 
 interface RenderedFixtureOptions {
   readonly target: 'css' | 'tailwind';
   readonly finalizedTarget?: 'css' | 'tailwind';
   readonly stylesheetPath?: string;
+  readonly stylesheetPathInput?: string;
   readonly templates: readonly {
     readonly inputPath: string;
     readonly outputPath: string;
@@ -207,6 +229,7 @@ function renderedFixture(options: RenderedFixtureOptions): RenderedProject {
       options: {
         mode: 'plan',
         ...(options.stylesheetPath === undefined ? {} : { stylesheetPath: options.stylesheetPath }),
+        ...(options.stylesheetPathInput === undefined ? {} : { stylesheetPathInput: options.stylesheetPathInput }),
       },
     },
     templates: options.templates.map(({ inputPath, outputPath }) => ({ inputPath, outputPath })),

@@ -5,6 +5,7 @@ export interface MigrationOptions {
   readonly mode: MigrationMode;
   readonly responsiveImages?: boolean;
   readonly stylesheetPath?: string;
+  readonly stylesheetPathInput?: string;
   readonly reportPath?: string;
 }
 

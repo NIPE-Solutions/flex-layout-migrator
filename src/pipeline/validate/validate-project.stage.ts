@@ -1,7 +1,7 @@
 import * as path from 'node:path';
 import { MigrationApplicationError } from '../../migrator/migration-application.error';
 import { migrationPlan, type FileMigrationPlan, type PlannedOutputArtifact } from '../../migrator/migration-plan';
-import { validateMigrationPaths } from '../../migrator/migration-path.validator';
+import { validateMigrationPaths, validateStylesheetRootTopology } from '../../migrator/migration-path.validator';
 import { StylesheetPlanner } from '../../migrator/stylesheet.planner';
 import type { StylesheetMigrationResult } from '../../report/migration-report.builder';
 import type { ValidateStage } from '../migration-pipeline';
@@ -27,6 +27,14 @@ export class ValidateProjectStage implements ValidateStage {
 
     const stylesheetPath = rendered.analyzed.manifest.invocation.options.stylesheetPath;
     const reportPath = rendered.analyzed.manifest.invocation.options.reportPath;
+    const invocation = rendered.analyzed.manifest.invocation;
+    await validateStylesheetRootTopology({
+      stylesheetPath,
+      stylesheetPathInput: invocation.options.stylesheetPathInput,
+      inputPath: invocation.canonicalInputPath,
+      outputPath: invocation.canonicalOutputPath,
+      reportPath,
+    });
     await validateMigrationPaths({ templates: rendered.files, stylesheetPath, reportPath });
 
     const files: FileMigrationPlan[] = [];

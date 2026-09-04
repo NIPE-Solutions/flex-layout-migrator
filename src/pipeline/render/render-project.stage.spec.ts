@@ -1,6 +1,7 @@
 import type { ConversionRenderer } from '../../render/conversion-renderer';
 import type { AdapterSessionResult, RenderSession } from '../../render/render-session';
 import { TailwindRenderer } from '../../render/tailwind/tailwind.renderer';
+import type { LocatedFlexLayoutInput } from '../../analyzer/flex-layout-attribute.analyzer';
 import { analyzedProject, type AnalyzedProject } from '../analyzed-project';
 import { projectManifest } from '../project-manifest';
 import type { RenderTemplatePlanner } from './render-project.stage';
@@ -32,32 +33,40 @@ describe('RenderProjectStage', () => {
 
   test('returns unresolved edit proposals without materializing template artifacts', async () => {
     const edits = [{ range: { start: 0, end: 3 }, text: 'new', inputId: 'replacement' }];
+    const analyzed = parsedProject([
+      {
+        id: '/project/input/first.html:0',
+        fileName: '/project/input/first.html',
+        elementId: '0',
+        sourceName: 'fxLayout',
+        directive: 'fxLayout',
+        value: 'row',
+        binding: 'literal',
+        breakpoint: undefined,
+        source: { start: 0, end: 3 },
+        nameSource: { start: 0, end: 3 },
+      },
+    ]);
+    const first = analyzed.templates[0];
+    if (first?.status !== 'parsed') throw new Error('Expected a parsed template fixture.');
     const results = [
       {
         status: 'invalid' as const,
-        input: {
-          id: '/project/input/first.html:0',
-          fileName: '/project/input/first.html',
-          elementId: '0',
-          sourceName: 'fxLayout',
-          directive: 'fxLayout' as const,
-          value: 'row',
-          binding: 'literal' as const,
-          breakpoint: undefined,
-          source: { start: 0, end: 3 },
-          nameSource: { start: 0, end: 3 },
-        },
+        input: first.inputs[0]!,
         code: 'invalid-value' as const,
         reason: 'fixture result',
         suggestion: 'fixture suggestion',
       },
     ];
-    const planner: RenderTemplatePlanner = { plan: () => ({ edits, results }) };
+    const planner: RenderTemplatePlanner = {
+      plan: template =>
+        template.file.inputPath.endsWith('first.html') ? { edits, results } : { edits: [], results: [] },
+    };
 
     const rendered = await new RenderProjectStage(
       sessionDouble(vi.fn(() => ({ target: 'tailwind' as const }))),
       planner,
-    ).run(parsedProject());
+    ).run(analyzed);
 
     expect(rendered.files[0]).toEqual({
       inputPath: '/project/input/first.html',
@@ -125,7 +134,7 @@ function sessionDouble(finalize: () => AdapterSessionResult): RenderSession {
   };
 }
 
-function parsedProject(): AnalyzedProject {
+function parsedProject(firstInputs: readonly LocatedFlexLayoutInput[] = []): AnalyzedProject {
   const manifest = projectManifest({
     invocation: {
       inputPath: '/project/input',
@@ -139,12 +148,12 @@ function parsedProject(): AnalyzedProject {
   });
   return analyzedProject({
     manifest,
-    templates: manifest.templates.map(file => ({
+    templates: manifest.templates.map((file, index) => ({
       status: 'parsed' as const,
       file,
       source: '<div></div>',
       parseResult: { status: 'parsed' as const, elements: [] },
-      inputs: [],
+      inputs: index === 0 ? firstInputs : [],
     })),
   });
 }

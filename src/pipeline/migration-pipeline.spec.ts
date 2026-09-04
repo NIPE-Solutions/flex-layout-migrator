@@ -39,7 +39,7 @@ function fixtures(): PipelineFixtures {
   const analyzed = analyzedProject({ manifest, templates: [] });
   const rendered = renderedProject({ analyzed, target: 'tailwind', files: [], session: { target: 'tailwind' } });
   const validated = validatedProjectPlan({ rendered, plan: { target: 'tailwind', files: [], artifacts: [] } });
-  const application: MigrationApplication = { status: 'applied' };
+  const application: MigrationApplication = { status: 'skipped', reason: 'plan-only' };
 
   return { invocation, manifest, analyzed, rendered, validated, application };
 }

@@ -197,6 +197,48 @@ describe('MigrationTransaction', () => {
     await expect(access(target)).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
+  test('rejects an overlapping preflight and lets only the active owner publish its seal', async () => {
+    const firstTarget = join(directory, 'first.html');
+    const secondTarget = join(directory, 'second.html');
+    const firstPlan = plan([template(firstTarget, absent(), present('<div>first</div>'))]);
+    const secondPlan = plan([template(secondTarget, absent(), present('<div>second</div>'))]);
+    let releaseFirst!: () => void;
+    let markFirstBlocked!: () => void;
+    const firstBlocked = new Promise<void>(resolve => {
+      markFirstBlocked = resolve;
+    });
+    const release = new Promise<void>(resolve => {
+      releaseFirst = resolve;
+    });
+    let blocked = false;
+    const operations: MigrationTransactionOperations = {
+      ...nodeOperations,
+      lstat: async candidate => {
+        if (candidate === firstTarget && !blocked) {
+          blocked = true;
+          markFirstBlocked();
+          await release;
+        }
+        return nodeOperations.lstat(candidate);
+      },
+    };
+    const transaction = new MigrationTransaction(operations);
+    const firstPreflight = transaction.preflight(firstPlan);
+    await firstBlocked;
+
+    await expect(transaction.preflight(secondPlan)).rejects.toMatchObject({
+      code: 'internal-invariant',
+      message: 'Migration transaction cannot preflight while another preflight is active.',
+      paths: [secondTarget],
+    });
+    releaseFirst();
+    await firstPreflight;
+    await expect(transaction.apply(secondPlan)).rejects.toMatchObject({ code: 'internal-invariant' });
+    await expect(transaction.apply(firstPlan)).resolves.toBeUndefined();
+    expect(await readFile(firstTarget, 'utf8')).toBe('<div>first</div>');
+    await expect(access(secondTarget)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
   test('defensively rejects a plan containing a template parse error', async () => {
     const invalidPlan = migrationPlan({
       target: 'tailwind',

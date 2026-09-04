@@ -1,4 +1,4 @@
-import { FLEX_LAYOUT_DIRECTIVES } from './flex-layout.catalog';
+import { FLEX_LAYOUT_DIRECTIVES } from '../../src/analyzer/flex-layout.catalog';
 import { COMPATIBILITY_INVENTORY } from './compatibility-inventory';
 
 describe('compatibility inventory', () => {

@@ -36,6 +36,7 @@ export class MigrationTransaction {
   private interruptedBy: NodeJS.Signals | undefined;
   private unregisterSignals: (() => void) | undefined;
   private preflightSeal: PreflightSeal | undefined;
+  private activePreflight: symbol | undefined;
   private applying = false;
 
   constructor(
@@ -46,11 +47,25 @@ export class MigrationTransaction {
 
   public async preflight(plan: MigrationPlan): Promise<void> {
     if (this.applying) throw this.invalidTransition('preflight', plan);
+    if (this.activePreflight !== undefined) {
+      throw new MigrationApplicationError(
+        'internal-invariant',
+        'Migration transaction cannot preflight while another preflight is active.',
+        sortedUnique(plan.artifacts.map(artifact => artifact.path)),
+      );
+    }
+    const owner = Symbol('preflight');
+    this.activePreflight = owner;
     this.preflightSeal = undefined;
-    this.rejectParseErrors(plan);
-    const session = new TransactionUnitSession(this.operations, this.parser);
-    await session.prepare(session.context, plan.artifacts);
-    this.preflightSeal = { plan, contents: planContents(plan) };
+    try {
+      this.rejectParseErrors(plan);
+      const session = new TransactionUnitSession(this.operations, this.parser);
+      await session.prepare(session.context, plan.artifacts);
+      if (this.activePreflight !== owner) throw this.invalidTransition('preflight', plan);
+      this.preflightSeal = { plan, contents: planContents(plan) };
+    } finally {
+      if (this.activePreflight === owner) this.activePreflight = undefined;
+    }
   }
 
   public async apply(plan: MigrationPlan): Promise<void> {
@@ -65,9 +80,9 @@ export class MigrationTransaction {
     const session = new TransactionUnitSession(this.operations, this.parser, () => {
       this.syncSignalScope(session.context, controller);
     });
-    const stagingUnit = new FileSystemStagingUnit(session);
-    const commitUnit = new FileSystemCommitUnit(session);
-    const rollbackUnit = new FileSystemRollbackUnit(session);
+    const stagingUnit = new FileSystemStagingUnit(session.stagingPort());
+    const commitUnit = new FileSystemCommitUnit(session.commitPort());
+    const rollbackUnit = new FileSystemRollbackUnit(session.rollbackPort());
 
     let staged: readonly StagedArtifact[] = [];
     try {
@@ -161,7 +176,7 @@ export class MigrationTransaction {
     kind: 'committed' | 'recovery',
   ): Promise<RecoveryOutcome> {
     try {
-      return { paths: await new FileSystemCleanupUnit(session, kind).cleanup(staged), failures: [] };
+      return { paths: await new FileSystemCleanupUnit(session.cleanupPort(), kind).cleanup(staged), failures: [] };
     } catch (error: unknown) {
       if (error instanceof RecoveryUnitError) return { paths: error.paths, failures: error.failures };
       return { paths: [], failures: [error] };

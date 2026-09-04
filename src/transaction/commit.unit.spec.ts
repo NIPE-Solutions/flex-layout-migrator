@@ -47,7 +47,7 @@ describe('FileSystemCommitUnit', () => {
     });
     const session = new TransactionUnitSession(operations);
     const signal = new AbortController().signal;
-    const staged = await new FileSystemStagingUnit(session).stage(
+    const staged = await new FileSystemStagingUnit(session.stagingPort()).stage(
       [
         artifact(first, 'first before', '<div>first after</div>'),
         artifact(second, 'second before', '<div>second after</div>'),
@@ -55,7 +55,7 @@ describe('FileSystemCommitUnit', () => {
       signal,
     );
 
-    const committed = await new FileSystemCommitUnit(session).commit(staged, signal);
+    const committed = await new FileSystemCommitUnit(session.commitPort()).commit(staged, signal);
 
     expect(installed).toEqual([first, second]);
     expect(committed.map(item => item.artifact.path)).toEqual([first, second]);
@@ -77,12 +77,12 @@ describe('FileSystemCommitUnit', () => {
     });
     const session = new TransactionUnitSession(operations);
     const signal = new AbortController().signal;
-    const staged = await new FileSystemStagingUnit(session).stage(
+    const staged = await new FileSystemStagingUnit(session.stagingPort()).stage(
       [artifact(first, undefined, '<div>first</div>'), artifact(second, undefined, '<div>second</div>')],
       signal,
     );
 
-    const error = await captureError(new FileSystemCommitUnit(session).commit(staged, signal));
+    const error = await captureError(new FileSystemCommitUnit(session.commitPort()).commit(staged, signal));
 
     expect(error).toBeInstanceOf(CommitUnitError);
     expect(error).toMatchObject({ cause: failure });
@@ -96,12 +96,12 @@ describe('FileSystemCommitUnit', () => {
     await chmod(target, 0o600);
     const session = new TransactionUnitSession(operationsWith());
     const signal = new AbortController().signal;
-    const staged = await new FileSystemStagingUnit(session).stage(
+    const staged = await new FileSystemStagingUnit(session.stagingPort()).stage(
       [artifact(target, 'private before', '<div>private after</div>')],
       signal,
     );
 
-    await new FileSystemCommitUnit(session).commit(staged, signal);
+    await new FileSystemCommitUnit(session.commitPort()).commit(staged, signal);
 
     expect((await stat(target)).mode & 0o777).toBe(0o600);
   });
@@ -123,9 +123,14 @@ describe('FileSystemCommitUnit', () => {
       }),
     );
     const signal = new AbortController().signal;
-    await new FileSystemStagingUnit(session).stage([artifact(target, undefined, '<div>after</div>')], signal);
+    await new FileSystemStagingUnit(session.stagingPort()).stage(
+      [artifact(target, undefined, '<div>after</div>')],
+      signal,
+    );
 
-    const error = await captureError(new FileSystemCommitUnit(session).commit([{ artifact: foreign }], signal));
+    const error = await captureError(
+      new FileSystemCommitUnit(session.commitPort()).commit([{ artifact: foreign }], signal),
+    );
 
     expect(error).toBeInstanceOf(CommitUnitError);
     expect(error).toMatchObject({

@@ -3,8 +3,8 @@ import {
   FLEX_LAYOUT_DIRECTIVES,
   ORIENTATION_BREAKPOINTS,
   SPECIAL_BREAKPOINTS,
-} from './flex-layout.catalog';
-import type { FlexLayoutDirective } from './flex-layout.catalog';
+} from '../../src/analyzer/flex-layout.catalog';
+import type { FlexLayoutDirective } from '../../src/analyzer/flex-layout.catalog';
 
 export type CompatibilityLevel = 'limited' | 'planned' | 'preserved' | 'not-applicable';
 

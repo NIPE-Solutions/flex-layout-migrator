@@ -54,17 +54,17 @@ describe('FileSystemRollbackUnit', () => {
     });
     const session = new TransactionUnitSession(operations);
     const signal = new AbortController().signal;
-    const staged = await new FileSystemStagingUnit(session).stage(
+    const staged = await new FileSystemStagingUnit(session.stagingPort()).stage(
       [
         artifact(first, 'first before', '<div>first after</div>'),
         artifact(second, 'second before', '<div>second after</div>'),
       ],
       signal,
     );
-    const committed = await new FileSystemCommitUnit(session).commit(staged, signal);
+    const committed = await new FileSystemCommitUnit(session.commitPort()).commit(staged, signal);
     recovery = true;
 
-    const unresolved = await new FileSystemRollbackUnit(session).rollback([...committed].reverse());
+    const unresolved = await new FileSystemRollbackUnit(session.rollbackPort()).rollback([...committed].reverse());
 
     expect(unresolved).toEqual([]);
     expect(recoveryOrder).toEqual([second, first]);
@@ -93,17 +93,17 @@ describe('FileSystemRollbackUnit', () => {
       }),
     );
     const signal = new AbortController().signal;
-    const staged = await new FileSystemStagingUnit(session).stage(
+    const staged = await new FileSystemStagingUnit(session.stagingPort()).stage(
       [
         artifact(first, 'first before', '<div>first after</div>'),
         artifact(second, 'second before', '<div>second after</div>'),
       ],
       signal,
     );
-    const commitError = await captureError(new FileSystemCommitUnit(session).commit(staged, signal));
+    const commitError = await captureError(new FileSystemCommitUnit(session.commitPort()).commit(staged, signal));
     if (!(commitError instanceof CommitUnitError)) throw commitError;
 
-    await new FileSystemRollbackUnit(session).rollback([...commitError.committed].reverse());
+    await new FileSystemRollbackUnit(session.rollbackPort()).rollback([...commitError.committed].reverse());
 
     expect(await readFile(first, 'utf8')).toBe('first before');
     expect(await readFile(second, 'utf8')).toBe('second before');
@@ -136,14 +136,16 @@ describe('FileSystemRollbackUnit', () => {
       }),
     );
     const signal = new AbortController().signal;
-    const staged = await new FileSystemStagingUnit(session).stage(
+    const staged = await new FileSystemStagingUnit(session.stagingPort()).stage(
       [artifact(target, 'private before', '<div>private after</div>')],
       signal,
     );
-    const committed = await new FileSystemCommitUnit(session).commit(staged, signal);
+    const committed = await new FileSystemCommitUnit(session.commitPort()).commit(staged, signal);
     recovering = true;
 
-    const error = await captureError(new FileSystemRollbackUnit(session).rollback([...committed].reverse()));
+    const error = await captureError(
+      new FileSystemRollbackUnit(session.rollbackPort()).rollback([...committed].reverse()),
+    );
 
     expect(error).toBeInstanceOf(RecoveryUnitError);
     expect(error).toMatchObject({ paths: [target], failures: [failure] });
@@ -175,16 +177,16 @@ describe('FileSystemRollbackUnit', () => {
       }),
     );
     const signal = new AbortController().signal;
-    const staged = await new FileSystemStagingUnit(session).stage(
+    const staged = await new FileSystemStagingUnit(session.stagingPort()).stage(
       [artifact(target, 'before', '<div>after</div>')],
       signal,
     );
-    await new FileSystemCommitUnit(session).commit(staged, signal);
+    await new FileSystemCommitUnit(session.commitPort()).commit(staged, signal);
     const foreign = artifact(join(root, 'foreign.html'), 'foreign before', '<div>foreign after</div>');
     recovering = true;
 
     const error = await captureError(
-      new FileSystemRollbackUnit(session).rollback([{ artifact: foreign, committed: true }]),
+      new FileSystemRollbackUnit(session.rollbackPort()).rollback([{ artifact: foreign, committed: true }]),
     );
 
     expect(error).toBeInstanceOf(RecoveryUnitError);

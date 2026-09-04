@@ -5,7 +5,7 @@ import type { MediaDefinition } from '../breakpoint/breakpoint-catalog';
 import type { SourceEdit } from '../edit/source-edit';
 import { MigrationApplicationError } from '../migrator/migration-application.error';
 import type { AdapterSessionResult } from '../render/render-session';
-import { analyzedProject, type AnalyzedProject } from './analyzed-project';
+import { analyzedProject, type AnalyzedProject, type AnalyzedTemplate } from './analyzed-project';
 import type { ManifestTemplate } from './project-manifest';
 
 export interface RenderedTemplateFile {
@@ -39,12 +39,17 @@ export function renderedProject(project: RenderedProject): RenderedProject {
         [file.inputPath, file.outputPath],
       );
     }
+    const suppliedTemplate = project.analyzed.templates[index];
+    if (template.status === 'parsed') {
+      if (suppliedTemplate?.status !== 'parsed') throw sequenceInvariant([file.inputPath, file.outputPath]);
+      assertParsedResultCorrespondence(suppliedTemplate, file.results);
+    }
     const identity = template.file;
     return freezeRenderedFile({
       inputPath: identity.inputPath,
       outputPath: identity.outputPath,
       edits: file.edits,
-      results: file.results,
+      results: template.status === 'parsed' ? canonicalParsedResults(template, file.results) : file.results,
     });
   });
 
@@ -54,6 +59,54 @@ export function renderedProject(project: RenderedProject): RenderedProject {
     files: Object.freeze(files),
     session: freezeSessionResult(project.session),
   });
+}
+
+function assertParsedResultCorrespondence(
+  template: Extract<AnalyzedTemplate, { readonly status: 'parsed' }>,
+  results: readonly ConversionResult[],
+): void {
+  const paths = [template.file.inputPath, template.file.outputPath];
+  if (results.length !== template.inputs.length) {
+    throw internalInvariant('Parsed render results must match analyzed inputs one-to-one and in stable order.', paths);
+  }
+
+  const seen = new Set<string>();
+  for (let index = 0; index < results.length; index += 1) {
+    const result = results[index]!;
+    if (result.status === 'parse-error') {
+      throw internalInvariant('Parsed render results cannot contain parse-error results.', paths);
+    }
+    const actual = result.input;
+    const expected = template.inputs[index]!;
+    if (!('id' in actual) || typeof actual.id !== 'string') {
+      throw internalInvariant('Parsed render results must retain analyzed input IDs.', paths);
+    }
+    if (seen.has(actual.id)) {
+      throw internalInvariant(`Parsed render results contain duplicate input ID "${actual.id}".`, paths);
+    }
+    seen.add(actual.id);
+    if (actual.id !== expected.id) {
+      throw internalInvariant(
+        `Parsed render result input ID "${actual.id}" at index ${index} does not match analyzed input ID "${expected.id}".`,
+        paths,
+      );
+    }
+    if (actual !== expected) {
+      throw internalInvariant(`Parsed render result replaced analyzed input identity "${expected.id}".`, paths);
+    }
+  }
+}
+
+function canonicalParsedResults(
+  template: Extract<AnalyzedTemplate, { readonly status: 'parsed' }>,
+  results: readonly ConversionResult[],
+): readonly ConversionResult[] {
+  return Object.freeze(
+    results.map((result, index) => {
+      if (result.status === 'parse-error') throw new Error('Parsed render-result validation was bypassed.');
+      return Object.freeze({ ...result, input: template.inputs[index]! });
+    }),
+  );
 }
 
 function parseErrorResults(
@@ -80,7 +133,9 @@ function freezeRenderedFile(file: RenderedTemplateFile): RenderedTemplateFile {
         }),
       ),
     ),
-    results: freezeValue([...file.results]),
+    results: Object.freeze(
+      file.results.map(result => (result.status === 'parse-error' ? freezeValue(result) : result)),
+    ),
   });
 }
 

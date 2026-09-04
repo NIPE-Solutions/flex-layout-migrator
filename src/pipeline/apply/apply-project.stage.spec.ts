@@ -15,7 +15,7 @@ describe('ApplyProjectStage', () => {
     'applies the canonical validated plan for %s mode',
     async (mode, parseErrors, status, reason, preflights, applies) => {
       const transaction = transactionSpy();
-      const validated = validatedFixture({ parseErrors });
+      const validated = validatedFixture({ parseErrors, mode });
 
       const result = await new ApplyProjectStage(mode, transaction).run(validated);
 
@@ -43,7 +43,7 @@ describe('ApplyProjectStage', () => {
 
   test('keeps plan mode plan-only when stored parse diagnostics make preflight illegal', async () => {
     const transaction = transactionSpy();
-    const validated = validatedFixture({ parseErrors: true });
+    const validated = validatedFixture({ parseErrors: true, mode: 'plan' });
 
     const result = await new ApplyProjectStage('plan', transaction).run(validated);
 
@@ -51,6 +51,25 @@ describe('ApplyProjectStage', () => {
     expect(transaction.preflight).not.toHaveBeenCalled();
     expect(transaction.apply).not.toHaveBeenCalled();
   });
+
+  test.each([
+    ['plan', 'write'],
+    ['write', 'plan'],
+  ] as const)(
+    'rejects constructor mode %s when the canonical manifest mode is %s before transaction work',
+    async (stageMode, manifestMode) => {
+      const transaction = transactionSpy();
+      const validated = validatedFixture({ parseErrors: false, mode: manifestMode });
+
+      await expect(new ApplyProjectStage(stageMode, transaction).run(validated)).rejects.toMatchObject({
+        code: 'internal-invariant',
+        message: `Apply stage mode "${stageMode}" differs from validated manifest mode "${manifestMode}".`,
+        paths: [],
+      });
+      expect(transaction.preflight).not.toHaveBeenCalled();
+      expect(transaction.apply).not.toHaveBeenCalled();
+    },
+  );
 });
 
 function transactionSpy(): MigrationTransactionPort & {
@@ -66,11 +85,12 @@ function transactionSpy(): MigrationTransactionPort & {
 function validatedFixture(options: {
   readonly parseErrors: boolean;
   readonly artifacts?: boolean;
+  readonly mode?: 'plan' | 'write';
 }): ValidatedProjectPlan {
   const inputPath = path.resolve('input/card.html');
   const outputPath = path.resolve('output/card.html');
   const manifest = projectManifest({
-    invocation: { inputPath, outputPath, options: { mode: 'write' } },
+    invocation: { inputPath, outputPath, options: { mode: options.mode ?? 'write' } },
     templates: [{ inputPath, outputPath }],
   });
   const diagnostic = { message: 'Unexpected closing tag', source: { start: 0, end: 1 } };

@@ -7,6 +7,7 @@ import {
   inspectTypeScriptProject,
   inspectSemanticAuthorityCalls,
   productionTypeScriptFiles,
+  resolvedConstructorParameterProperties,
   runtimeModuleReferences,
   type TypeScriptInspection,
   type TypeScriptProjectInspection,
@@ -206,6 +207,90 @@ describe('migration transaction architecture boundary', { timeout: wholeProjectI
 
     expect(productionTypeScriptFiles(transactionRoot)).toEqual(expect.arrayContaining(transactionUnitPaths));
     expect(consumers).toEqual([migrationTransactionPath]);
+  });
+
+  test.each([
+    [
+      'staging',
+      'FileSystemStagingUnit',
+      [
+        'assertDirectoryExpectation',
+        'assertDirectoryIdentity',
+        'assertExpectedAbsent',
+        'assertExpectedDirectory',
+        'assertNotInterrupted',
+        'assertParentChain',
+        'concurrentModification',
+        'createOwnedFile',
+        'journal',
+        'lstat',
+        'mkdir',
+        'prepare',
+        'readOwnedFile',
+        'validateStagedTemplate',
+      ],
+    ],
+    [
+      'commit',
+      'FileSystemCommitUnit',
+      [
+        'assertExpectedAbsent',
+        'assertNamespace',
+        'assertNotInterrupted',
+        'assertOwnedIdentity',
+        'assertParentChain',
+        'concurrentModification',
+        'createOwnedFile',
+        'journal',
+        'link',
+        'lstatOrAbsent',
+        'observePublic',
+        'ownershipFailure',
+        'readOwnedFile',
+        'rename',
+        'runtimeArtifact',
+      ],
+    ],
+    [
+      'rollback',
+      'FileSystemRollbackUnit',
+      [
+        'assertExpectedAbsent',
+        'assertNamespace',
+        'assertParentChain',
+        'journal',
+        'link',
+        'lstatOrAbsent',
+        'observePublic',
+        'readOwnedFile',
+        'rename',
+        'runtimeArtifact',
+      ],
+    ],
+    [
+      'cleanup',
+      'FileSystemCleanupUnit',
+      [
+        'assertNamespace',
+        'closeReadHandles',
+        'journal',
+        'lstat',
+        'lstatOrAbsent',
+        'observePublic',
+        'rmdir',
+        'runtimeArtifact',
+        'unlink',
+      ],
+    ],
+  ] as const)('gives the %s unit only its resolved phase capability port', (unit, className, expected) => {
+    const sourcePath = join(transactionRoot, `${unit}.unit.ts`);
+
+    expect(resolvedConstructorParameterProperties(sourcePath, className)).toEqual(expected);
+    expect(
+      inspectTypeScript(readFileSync(sourcePath, 'utf8'), sourcePath).moduleReferences.filter(reference =>
+        /transaction-unit\.session(?:\.[cm]?[jt]s)?$/u.test(reference),
+      ),
+    ).toEqual([]);
   });
 
   test('keeps obsolete migrator mutation facades out of production', () => {
