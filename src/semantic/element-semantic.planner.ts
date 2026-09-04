@@ -3,7 +3,7 @@ import { BreakpointCatalog, type BreakpointClassification } from '../breakpoint/
 import type { BreakpointMigrationConfig } from '../config/breakpoint-migration-config';
 import { planFlexAlignSemantics } from '../flex/flex-align.semantic';
 import { planFlexFillSemantics } from '../flex/flex-fill.semantic';
-import { planFlexItemSemantics } from '../flex/flex-item.semantic';
+import { planFlexItemSemantics, type FlexItemSemantics } from '../flex/flex-item.semantic';
 import { planFlexOffsetSemantics } from '../flex/flex-offset.semantic';
 import { planFlexOrderSemantics } from '../flex/flex-order.semantic';
 import type { SemanticResult } from '../flex/flex-semantic.model';
@@ -217,8 +217,16 @@ function sameSemanticOutput(left: SemanticPlanningPlan, right: SemanticPlanningP
     left.status === 'converted' &&
     right.status === 'converted' &&
     left.family === right.family &&
-    JSON.stringify(left.value) === JSON.stringify(right.value)
+    JSON.stringify(semanticEffect(left)) === JSON.stringify(semanticEffect(right))
   );
+}
+
+function semanticEffect(plan: ResolvedSemanticPlan): ResolvedSemanticValue | Omit<FlexItemSemantics, 'axis'> {
+  if (plan.family !== 'flex-item') return plan.value;
+  const value = plan.value as FlexItemSemantics;
+  if (value.min !== undefined || value.max !== undefined) return value;
+  const { axis: _axis, ...effect } = value;
+  return effect;
 }
 
 function semanticPolicy(catalog: BreakpointCatalog): SemanticTargetPolicy<SemanticPlanningPlan> {

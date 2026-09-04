@@ -1,11 +1,13 @@
 import type { LocatedFlexLayoutInput } from '../analyzer/flex-layout-attribute.analyzer';
 import type { ConversionContext, PlannedConversion } from '../adapter/conversion-adapter';
+import { MigrationApplicationError } from '../migrator/migration-application.error';
 import type { ConversionRenderer } from '../render/conversion-renderer';
 import type { SemanticConversionContext } from '../semantic/conversion-context';
 import { ElementSemanticPlanner } from '../semantic/element-semantic.planner';
 import type { ResolvedSemanticPlan, UnresolvedSemanticPlan } from '../semantic/semantic-plan';
 
 type TargetDiagnostic = Exclude<PlannedConversion, { readonly status: 'converted' }>;
+type ResultBoundary = 'Initial target rendering' | 'Target conflict resolution';
 
 const familyContextDirectives = new Set<LocatedFlexLayoutInput['directive']>([
   'fxShow',
@@ -76,6 +78,7 @@ export class SemanticRenderCoordinator {
     context: ConversionContext,
     record = true,
   ): readonly PlannedConversion[] {
+    this.assertUniqueInputIds(inputs);
     const semanticContext = completeContext(context, inputs);
     const semanticPlans = this.semanticPlanner.plan(inputs, semanticContext, {
       breakpointConfig: this.renderer.breakpointConfig,
@@ -90,7 +93,9 @@ export class SemanticRenderCoordinator {
     const rendered = locallyClosed.map(plan =>
       plan.status === 'converted' ? this.renderer.render(plan, semanticContext) : plan,
     );
+    this.assertResultCorrespondence(inputs, rendered, 'Initial target rendering');
     const resolved = this.renderer.resolveConflicts(rendered, semanticContext);
+    this.assertResultCorrespondence(inputs, resolved, 'Target conflict resolution');
     if (record) this.record(resolved);
     return resolved;
   }
@@ -103,7 +108,8 @@ export class SemanticRenderCoordinator {
     plans: readonly PlannedConversion[],
     existingClassNames: readonly string[],
   ): readonly PlannedConversion[] {
-    return this.renderer.resolveConflicts(plans, {
+    this.assertUniqueInputIds(plans.map(plan => plan.input));
+    const resolved = this.renderer.resolveConflicts(plans, {
       element: {
         id: `${this.renderer.target}-adapter-compatibility`,
         name: 'div',
@@ -117,6 +123,12 @@ export class SemanticRenderCoordinator {
       existingClassNames,
       attributeEvidence: [],
     });
+    this.assertResultCorrespondence(
+      plans.map(plan => plan.input),
+      resolved,
+      'Target conflict resolution',
+    );
+    return resolved;
   }
 
   closeDependencies(
@@ -162,4 +174,64 @@ export class SemanticRenderCoordinator {
     }
     return plan;
   }
+
+  private assertUniqueInputIds(inputs: readonly LocatedFlexLayoutInput[]): void {
+    const seen = new Set<string>();
+    for (const input of inputs) {
+      if (seen.has(input.id)) {
+        throw internalInvariant(`Semantic render inputs contain duplicate ID "${input.id}".`, inputPaths(inputs));
+      }
+      seen.add(input.id);
+    }
+  }
+
+  private assertResultCorrespondence(
+    inputs: readonly LocatedFlexLayoutInput[],
+    results: readonly PlannedConversion[],
+    boundary: ResultBoundary,
+  ): void {
+    const paths = inputPaths(inputs, results);
+    if (results.length !== inputs.length) {
+      throw internalInvariant(
+        `${boundary} returned ${results.length} ${results.length === 1 ? 'result' : 'results'} for ${inputs.length} inputs; results must be one-to-one and in stable order.`,
+        paths,
+      );
+    }
+
+    const seen = new Set<string>();
+    for (const result of results) {
+      if (seen.has(result.input.id)) {
+        throw internalInvariant(`${boundary} returned duplicate input ID "${result.input.id}".`, paths);
+      }
+      seen.add(result.input.id);
+    }
+
+    for (let index = 0; index < inputs.length; index += 1) {
+      const expected = inputs[index]!;
+      const result = results[index]!;
+      if (result.input.id !== expected.id) {
+        throw internalInvariant(
+          `${boundary} returned input ID "${result.input.id}" at index ${index}; expected "${expected.id}".`,
+          paths,
+        );
+      }
+      if (result.input !== expected) {
+        throw internalInvariant(
+          `${boundary} replaced the input identity for ID "${expected.id}" at index ${index}.`,
+          paths,
+        );
+      }
+    }
+  }
+}
+
+function inputPaths(
+  inputs: readonly LocatedFlexLayoutInput[],
+  results: readonly PlannedConversion[] = [],
+): readonly string[] {
+  return [...new Set([...inputs.map(input => input.fileName), ...results.map(result => result.input.fileName)])];
+}
+
+function internalInvariant(message: string, paths: readonly string[]): MigrationApplicationError {
+  return new MigrationApplicationError('internal-invariant', message, paths);
 }

@@ -239,6 +239,58 @@ describe('shared semantic target parity', () => {
 
   test.each([
     {
+      value: 'auto',
+      tailwind: ['[flex:1_1_auto]', 'box-border'],
+      css: [
+        { property: 'flex', value: '1 1 auto' },
+        { property: 'box-sizing', value: 'border-box' },
+      ],
+    },
+    {
+      value: 'none',
+      tailwind: ['[flex:0_0_auto]', 'box-border'],
+      css: [
+        { property: 'flex', value: '0 0 auto' },
+        { property: 'box-sizing', value: 'border-box' },
+      ],
+    },
+  ])('converts fxFlex=$value when responsive parent axes emit identical target effects', row => {
+    const subject = input({ directive: 'fxFlex', sourceName: 'fxFlex', value: row.value });
+    const context = responsiveParentContext([subject]);
+    const tailwind = planAndResolve([subject], context, new TailwindRenderer())[0];
+    const registry = new CssArtifactRegistry();
+    const css = planAndResolve([subject], context, new CssRenderer(registry))[0];
+
+    expect(tailwind).toEqual({ status: 'converted', input: subject, classNames: row.tailwind });
+    expect(cssDeclarations(css!, registry)).toEqual(row.css);
+  });
+
+  test('preserves constrained flex sizing when responsive parent axes emit different target effects', () => {
+    const subject = input({ directive: 'fxFlex', sourceName: 'fxFlex', value: '25' });
+    const context = responsiveParentContext([subject]);
+
+    expect(planAndResolve([subject], context, new TailwindRenderer())).toEqual([
+      {
+        status: 'review',
+        input: subject,
+        code: 'context-unverified',
+        reason: 'This directive emits different utilities across its active responsive layout contexts.',
+        suggestion: 'Migrate the responsive context and its dependent directive families together manually.',
+      },
+    ]);
+    expect(planAndResolve([subject], context, new CssRenderer())).toEqual([
+      {
+        status: 'review',
+        input: subject,
+        code: 'context-unverified',
+        reason: 'This directive emits different declarations across its active responsive layout contexts.',
+        suggestion: 'Migrate the responsive context and its dependent directive families together manually.',
+      },
+    ]);
+  });
+
+  test.each([
+    {
       label: 'Grid',
       input: { directive: 'gdColumns' as const, sourceName: 'gdColumns', value: '1fr' },
       tailwind: { status: 'converted', classNames: ['grid', '[grid-template-columns:1fr]'] },
@@ -408,6 +460,26 @@ function semanticContext(
     attributeEvidence: [],
     activeLayout: 'row',
     activeParentLayout: 'row',
+  };
+}
+
+function responsiveParentContext(inputs: readonly LocatedFlexLayoutInput[]): SemanticConversionContext {
+  const parent: TemplateElement = { ...element, id: 'parent' };
+  return {
+    ...semanticContext(inputs),
+    parent,
+    parentInputs: [
+      input({ id: 'parent:layout', elementId: parent.id, directive: 'fxLayout', sourceName: 'fxLayout', value: 'row' }),
+      input({
+        id: 'parent:layout.gt-sm',
+        elementId: parent.id,
+        directive: 'fxLayout',
+        sourceName: 'fxLayout.gt-sm',
+        breakpoint: 'gt-sm',
+        value: 'column',
+      }),
+    ],
+    activeParentLayout: undefined,
   };
 }
 

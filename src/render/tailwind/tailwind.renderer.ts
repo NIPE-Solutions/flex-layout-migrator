@@ -1,5 +1,6 @@
 import type { LocatedFlexLayoutInput } from '../../analyzer/flex-layout-attribute.analyzer';
 import type { BreakpointMigrationConfig } from '../../config/breakpoint-migration-config';
+import { MigrationApplicationError } from '../../migrator/migration-application.error';
 import type { FlexAlignSemantics } from '../../flex/flex-align.semantic';
 import type { FlexFillSemantics } from '../../flex/flex-fill.semantic';
 import type { FlexItemSemantics } from '../../flex/flex-item.semantic';
@@ -132,6 +133,15 @@ export class TailwindRenderer implements ConversionRenderer {
   }
 
   render(plan: ResolvedSemanticPlan, _context: SemanticConversionContext): PlannedConversion {
+    const inputFamily = directiveFamily(plan.input.directive);
+    if (inputFamily !== plan.family) {
+      throw new MigrationApplicationError(
+        'internal-invariant',
+        `Tailwind renderer received semantic family "${String(plan.family)}" for directive "${plan.input.directive}", which belongs to "${String(inputFamily)}".`,
+        [plan.input.fileName],
+      );
+    }
+
     let classNames: readonly string[];
     switch (plan.family) {
       case 'layout':
@@ -174,8 +184,25 @@ export class TailwindRenderer implements ConversionRenderer {
         return this.renderExtendedClass(plan, plan.value as ExtendedClassSemantics);
       case 'extended-style':
         return this.renderExtendedStyle(plan, plan.value as ExtendedStyleSemantics);
-      default:
+      case 'grid-align-columns':
+      case 'grid-align-rows':
+      case 'grid-area':
+      case 'grid-areas':
+      case 'grid-auto':
+      case 'grid-column':
+      case 'grid-columns':
+      case 'grid-gap':
+      case 'grid-align':
+      case 'grid-inline':
+      case 'grid-row':
+      case 'grid-rows':
         return this.renderGrid(plan, plan.value as GridSemanticPlan);
+      default:
+        throw new MigrationApplicationError(
+          'internal-invariant',
+          `Tailwind renderer does not handle semantic family "${String(plan.family)}".`,
+          [plan.input.fileName],
+        );
     }
     return {
       status: 'converted',

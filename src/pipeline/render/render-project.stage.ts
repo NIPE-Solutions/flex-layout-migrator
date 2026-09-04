@@ -1,4 +1,5 @@
 import type { ConversionResult } from '../../analyzer/conversion-result';
+import { MigrationApplicationError } from '../../migrator/migration-application.error';
 import { fileMigrationPlan, type FileMigrationPlan } from '../../migrator/migration-plan';
 import { ConversionPlanner, type ConversionPlanningOptions, type FilePlan } from '../../planner/conversion-planner';
 import type { ConversionRenderer } from '../../render/conversion-renderer';
@@ -55,7 +56,14 @@ export class RenderProjectStage implements RenderStage {
       files.push(await this.editValidator.validate(template, plan));
     }
 
-    return renderedProject({ analyzed, files, session: this.session.finalize() });
+    const finalizedSession = this.session.finalize();
+    if (finalizedSession.target !== this.session.renderer.target) {
+      throw new MigrationApplicationError(
+        'internal-invariant',
+        `Render session finalized for target "${finalizedSession.target}" but its renderer targets "${this.session.renderer.target}".`,
+      );
+    }
+    return renderedProject({ analyzed, files, session: finalizedSession });
   }
 }
 

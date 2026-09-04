@@ -1,8 +1,10 @@
 import type { ConversionRenderer } from '../../render/conversion-renderer';
 import type { AdapterSessionResult, RenderSession } from '../../render/render-session';
+import { TailwindRenderer } from '../../render/tailwind/tailwind.renderer';
 import { analyzedProject, type AnalyzedProject } from '../analyzed-project';
 import { projectManifest } from '../project-manifest';
 import { fileMigrationPlan, type FileMigrationPlan } from '../../migrator/migration-plan';
+import { MigrationApplicationError } from '../../migrator/migration-application.error';
 import type { RenderTemplatePlanner } from './render-project.stage';
 import { RenderProjectStage } from './render-project.stage';
 
@@ -84,6 +86,21 @@ describe('RenderProjectStage', () => {
 
     expect(validate).toHaveBeenCalledTimes(2);
     expect(finalize).not.toHaveBeenCalled();
+  });
+
+  test('fails closed when finalization returns a different target from the session renderer', async () => {
+    const planner: RenderTemplatePlanner = { plan: () => ({ edits: [], results: [] }) };
+    const validate = vi.fn(async template => unchangedPlan(template.file.inputPath, template.file.outputPath));
+    const finalize = vi.fn(() => ({ target: 'css' as const, rules: [] }));
+    const stage = new RenderProjectStage({ renderer: new TailwindRenderer(), finalize }, planner, { validate });
+
+    await expect(stage.run(parsedProject())).rejects.toMatchObject({
+      name: MigrationApplicationError.name,
+      code: 'internal-invariant',
+      message: 'Render session finalized for target "css" but its renderer targets "tailwind".',
+      paths: [],
+    });
+    expect(finalize).toHaveBeenCalledOnce();
   });
 });
 
