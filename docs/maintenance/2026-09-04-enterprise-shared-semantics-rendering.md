@@ -4,7 +4,7 @@ This report records the Slice 4 semantic-policy and production Render cutover fr
 
 ## Commit
 
-Commit captured: `8d52ed0ceb7c88cb03f674efaf46b816ed63d823`
+Commit captured: `a5ff9ce5bd63b0f1d156e424654745429f352f8a`
 
 The inventory and benchmark were regenerated from the committed Task 5 fix-round implementation above. The subsequent evidence commit changes no production source, architecture assertion, or benchmark workload.
 
@@ -67,12 +67,12 @@ Generated with `npm run architecture:inventory -- --json <temporary-path>` from 
 
 | Measure                                                       | Slice 1 baseline | Slice 4 |
 | ------------------------------------------------------------- | ---------------: | ------: |
-| Production TypeScript files                                   |              122 |     165 |
+| Production TypeScript files                                   |              122 |     164 |
 | Runtime dependency entries                                    |                5 |       5 |
-| Static internal and runtime external or built-in module edges |              416 |     619 |
+| Static internal and runtime external or built-in module edges |              416 |     611 |
 | Known policy owners                                           |                6 |       6 |
 
-The file and edge increases are the immutable stage handoffs, Discover/Analyze/Render stages and ports, shared semantic planners, target renderers, compatibility validation boundary, and structural safeguards delivered through Slices 2–4. Slice 4 deletes the superseded adapter responsive-family barrel. It adds no runtime dependency or Changeset; `ignore` remains the single known undeclared runtime import reserved for Slice 8.
+The file and edge increases are the immutable stage handoffs, Discover/Analyze/Render stages and ports, shared semantic planners, target renderers, compatibility validation boundary, and structural safeguards delivered through Slices 2–4. Slice 4 deletes the superseded adapter responsive-family barrel and the unreachable Tailwind responsive-policy facade that runtime-exported the old owner name. It adds no runtime dependency or Changeset; `ignore` remains the single known undeclared runtime import reserved for Slice 8.
 
 ## Policy owners
 
@@ -95,22 +95,22 @@ Timings are observational. The result is mixed relative to the Slice 1 medians, 
 
 ## Benchmark results
 
-Generated at `2026-09-04T11:19:48.981Z`. Millisecond and peak-RSS values are machine-specific observations.
+Generated at `2026-09-04T11:45:33.734Z`. Millisecond and peak-RSS values are machine-specific observations.
 
-| Scenario                | Recorded milliseconds                                                                              |             Median |            Minimum |            Maximum |                MAD | Recorded peak RSS bytes                            |
-| ----------------------- | -------------------------------------------------------------------------------------------------- | -----------------: | -----------------: | -----------------: | -----------------: | -------------------------------------------------- |
-| `single-tailwind-plan`  | 98.56095900000003; 102.67216599999983; 100.46191700000008; 101.359375; 99.32887500000015           | 100.46191700000008 |  98.56095900000003 | 102.67216599999983 | 1.1330419999999322 | 97648640; 97583104; 96092160; 97058816; 97255424   |
-| `multi-tailwind-plan`   | 120.73641599999996; 115.93299999999999; 114.2638750000001; 112.63012499999991; 112.96124999999984  |  114.2638750000001 | 112.63012499999991 | 120.73641599999996 |  1.633750000000191 | 101318656; 99368960; 100876288; 99434496; 99008512 |
-| `multi-native-css-plan` | 104.96466699999974; 102.35191600000007; 104.24058299999979; 107.70495900000014; 105.00645900000018 | 104.96466699999974 | 102.35191600000007 | 107.70495900000014 |  0.724083999999948 | 97992704; 97042432; 96468992; 96518144; 97107968   |
-| `unchanged-write`       | 89.46720800000003; 91.63341700000001; 90.86845799999992; 94.70074999999997; 105.7410420000001      |  91.63341700000001 |  89.46720800000003 |  105.7410420000001 | 2.1662089999999807 | 94388224; 94797824; 93192192; 93585408; 96681984   |
+| Scenario                | Recorded milliseconds                                                                           |            Median |            Minimum |            Maximum |                 MAD | Recorded peak RSS bytes                          |
+| ----------------------- | ----------------------------------------------------------------------------------------------- | ----------------: | -----------------: | -----------------: | ------------------: | ------------------------------------------------ |
+| `single-tailwind-plan`  | 97.126083; 99.30850000000001; 95.518708; 93.39712500000002; 95.248333                           |         95.518708 |  93.39712500000002 |  99.30850000000001 |  1.6073749999999905 | 97632256; 97566720; 96354304; 96010240; 96763904 |
+| `multi-tailwind-plan`   | 112.48354099999995; 109.38633300000004; 112.04370799999992; 110.30037500000003; 110.70425       |         110.70425 | 109.38633300000004 | 112.48354099999995 |  1.3179169999999658 | 99827712; 98484224; 99008512; 98205696; 98353152 |
+| `multi-native-css-plan` | 100.90091700000016; 98.89208299999996; 98.92816700000003; 100.87916599999994; 99.24849999999992 | 99.24849999999992 |  98.89208299999996 | 100.90091700000016 |  0.3564169999999649 | 95911936; 95535104; 95469568; 97107968; 95109120 |
+| `unchanged-write`       | 86.41325000000029; 87.46341699999994; 86.06412500000033; 86.22512499999993; 86.93970799999988   | 86.41325000000029 |  86.06412500000033 |  87.46341699999994 | 0.34912499999995816 | 93683712; 92815360; 93061120; 93372416; 94142464 |
 
 ## Architecture-test timing
 
 The architecture suite is measured separately from the product scenarios.
 
-| Command                                                                                          | Recorded milliseconds                                                                       |       Median |            Minimum |            Maximum |               MAD |
-| ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------- | -----------: | -----------------: | -----------------: | ----------------: |
-| `node node_modules/vitest/vitest.mjs run test/architecture/enterprise-pipeline-boundary.test.ts` | 31338.378916; 32256.915374999997; 31503.737292000005; 30670.33529199999; 30016.220415999996 | 31338.378916 | 30016.220415999996 | 32256.915374999997 | 668.0436240000126 |
+| Command                                                                                          | Recorded milliseconds                                                                       |             Median |      Minimum |            Maximum |               MAD |
+| ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------- | -----------------: | -----------: | -----------------: | ----------------: |
+| `node node_modules/vitest/vitest.mjs run test/architecture/enterprise-pipeline-boundary.test.ts` | 30018.390459; 31619.712459000002; 31486.310666999998; 30926.492541999993; 30744.83054200001 | 30926.492541999993 | 30018.390459 | 31619.712459000002 | 559.8181250000052 |
 
 ## Ownership transition
 

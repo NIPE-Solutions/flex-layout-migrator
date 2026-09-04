@@ -64,9 +64,9 @@ const slice3WorkloadRows = [
 ] as const;
 
 const slice4InventoryRows = [
-  ['Production TypeScript files', '122', '165'],
+  ['Production TypeScript files', '122', '164'],
   ['Runtime dependency entries', '5', '5'],
-  ['Static internal and runtime external or built-in module edges', '416', '619'],
+  ['Static internal and runtime external or built-in module edges', '416', '611'],
   ['Known policy owners', '6', '6'],
 ] as const;
 
