@@ -102,6 +102,9 @@ function stages(values: RunnerFixtures, calls: string[]) {
     },
   };
   const validate: ValidateStage = {
+    async prevalidate(invocation) {
+      expect(invocation).toBe(values.invocation);
+    },
     async run(rendered) {
       calls.push('validate');
       expect(rendered).toBe(values.rendered);

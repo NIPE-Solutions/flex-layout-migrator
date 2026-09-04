@@ -789,6 +789,15 @@ describe('enterprise pipeline dependency boundary', { timeout: wholeProjectInspe
     ]);
   });
 
+  test('routes project-topology prevalidation through concrete Validate before the five-stage run', () => {
+    expect(
+      normalizedAuthoritySources(productionSemanticAuthorities(), new Set(['ValidateProjectStage.prevalidate'])),
+    ).toEqual([
+      { source: 'pipeline/migration-pipeline.ts', authority: 'ValidateProjectStage.prevalidate' },
+      { source: 'pipeline/validate/validate-project.stage.ts', authority: 'ValidateProjectStage.prevalidate' },
+    ]);
+  });
+
   test('keeps responsive-family runtime exports owned only by the target-neutral semantic module', () => {
     const owners = [
       ...new Set(

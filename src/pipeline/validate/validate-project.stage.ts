@@ -5,6 +5,7 @@ import { validateMigrationPaths, validateStylesheetRootTopology } from '../../mi
 import { StylesheetPlanner } from '../../migrator/stylesheet.planner';
 import type { StylesheetMigrationResult } from '../../report/migration-report.builder';
 import type { ValidateStage } from '../migration-pipeline';
+import type { MigrationInvocation } from '../project-manifest';
 import { renderedProject, type RenderedProject } from '../rendered-project';
 import { validatedProjectPlan, type ValidatedProjectPlan } from '../validated-project-plan';
 import { CssReferenceCollector } from './css-reference.collector';
@@ -21,6 +22,16 @@ export class ValidateProjectStage implements ValidateStage {
     private readonly stylesheetPlanner: StylesheetPlannerPort = new StylesheetPlanner(),
   ) {}
 
+  public async prevalidate(invocation: MigrationInvocation): Promise<void> {
+    await validateStylesheetRootTopology({
+      stylesheetPath: invocation.options.stylesheetPath,
+      stylesheetPathInput: invocation.options.stylesheetPathInput,
+      inputPath: invocation.canonicalInputPath,
+      outputPath: invocation.canonicalOutputPath,
+      reportPath: invocation.options.reportPath,
+    });
+  }
+
   public async run(input: RenderedProject): Promise<ValidatedProjectPlan> {
     const rendered = renderedProject(input);
     this.validateConfiguration(rendered);
@@ -28,13 +39,7 @@ export class ValidateProjectStage implements ValidateStage {
     const stylesheetPath = rendered.analyzed.manifest.invocation.options.stylesheetPath;
     const reportPath = rendered.analyzed.manifest.invocation.options.reportPath;
     const invocation = rendered.analyzed.manifest.invocation;
-    await validateStylesheetRootTopology({
-      stylesheetPath,
-      stylesheetPathInput: invocation.options.stylesheetPathInput,
-      inputPath: invocation.canonicalInputPath,
-      outputPath: invocation.canonicalOutputPath,
-      reportPath,
-    });
+    await this.prevalidate(invocation);
     await validateMigrationPaths({ templates: rendered.files, stylesheetPath, reportPath });
 
     const files: FileMigrationPlan[] = [];

@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { basename, dirname, join } from 'node:path';
 import type { PlannedOutputArtifact } from '../migrator/migration-plan';
-import type { StagingJournal, StagingPort } from './transaction-unit.ports';
-import { identity, required, type CreatedDirectory, type RuntimeArtifact } from './transaction-unit.state';
+import type { StagingArtifactView, StagingPort } from './transaction-unit.ports';
+import { identity, required } from './transaction-unit.state';
 
 export interface StagedArtifact {
   readonly artifact: PlannedOutputArtifact;
@@ -33,29 +33,24 @@ export class FileSystemStagingUnit implements StagingUnit {
     signal: AbortSignal,
   ): Promise<readonly StagedArtifact[]> {
     try {
-      await this.port.prepare(artifacts);
-      for (const item of this.port.journal.items) await this.ensureParentDirectories(item, signal);
-      for (const item of this.port.journal.items) await this.createNamespace(item);
-      for (const item of this.port.journal.items) {
+      await this.port.journal.prepare(artifacts);
+      const items = this.port.journal.artifacts();
+      for (const item of items) await this.ensureParentDirectories(item, signal);
+      for (const item of items) await this.createNamespace(item);
+      for (const item of items) {
         if (item.artifact.proposed.status === 'absent') continue;
         this.port.assertNotInterrupted(signal);
-        item.stage = await this.port.createOwnedFile(
-          item,
-          'stage',
-          item.artifact.proposed.contents,
-          signal,
-          item.originalMode,
-        );
-        const staged = await this.port.readOwnedFile(item, item.stage);
+        const stage = await this.port.createStageFile(item, item.artifact.proposed.contents, signal, item.originalMode);
+        const staged = await this.port.readOwnedFile(item, stage.path);
         if (item.artifact.kind === 'template') this.port.validateStagedTemplate(item.artifact.path, staged);
       }
-      return stagedArtifacts(this.port.journal);
+      return stagedArtifacts(this.port.journal.artifacts());
     } catch (error: unknown) {
-      throw new StagingUnitError(error, stagedArtifacts(this.port.journal));
+      throw new StagingUnitError(error, stagedArtifacts(this.port.journal.artifacts()));
     }
   }
 
-  private async ensureParentDirectories(item: RuntimeArtifact, signal: AbortSignal): Promise<void> {
+  private async ensureParentDirectories(item: StagingArtifactView, signal: AbortSignal): Promise<void> {
     for (let index = 0; index < item.directories.length; index++) {
       this.port.assertNotInterrupted(signal);
       const expectation = item.directories[index];
@@ -64,9 +59,9 @@ export class FileSystemStagingUnit implements StagingUnit {
         await this.port.assertDirectoryExpectation(expectation.path, expectation.original, item.artifact.path);
         continue;
       }
-      const existingCreation = this.port.journal.createdDirectories.get(expectation.path);
+      const existingCreation = this.port.journal.createdDirectory(expectation.path);
       if (existingCreation) {
-        existingCreation.publicPaths.add(item.artifact.path);
+        this.port.journal.addCreatedDirectoryPublicPath(expectation.path, item.artifact.path);
         await this.port.assertDirectoryIdentity(
           expectation.path,
           required(existingCreation.identity),
@@ -80,61 +75,47 @@ export class FileSystemStagingUnit implements StagingUnit {
       try {
         await this.port.mkdir(expectation.path, { mode: 0o755 });
       } catch (error: unknown) {
-        trackUnconfirmedEntry(this.port.journal, expectation.path, item.artifact.path);
+        this.port.journal.recordUnconfirmedEntry(expectation.path, item.artifact.path);
         throw error;
       }
-      const created: CreatedDirectory = {
-        path: expectation.path,
-        publicPaths: new Set([item.artifact.path]),
-        exists: true,
-      };
-      this.port.journal.createdDirectories.set(expectation.path, created);
-      this.port.journal.ownershipChanged();
+      this.port.journal.recordCreatedDirectory(expectation.path, item.artifact.path);
       const createdStat = await this.port.lstat(expectation.path);
       if (createdStat.isSymbolicLink() || !createdStat.isDirectory()) {
         throw this.port.concurrentModification(item.artifact.path);
       }
-      created.identity = identity(createdStat);
+      this.port.journal.confirmCreatedDirectory(expectation.path, identity(createdStat));
       if (parentExpectation) await this.port.assertExpectedDirectory(parentExpectation, item);
     }
     await this.port.assertParentChain(item);
   }
 
-  private async createNamespace(item: RuntimeArtifact): Promise<void> {
+  private async createNamespace(item: StagingArtifactView): Promise<void> {
     await this.port.assertParentChain(item);
     const namespacePath = join(dirname(item.artifact.path), `.${basename(item.artifact.path)}.${randomUUID()}.txn`);
     await this.port.assertExpectedAbsent(namespacePath, item.artifact.path);
     try {
       await this.port.mkdir(namespacePath, { mode: 0o700 });
     } catch (error: unknown) {
-      trackUnconfirmedEntry(this.port.journal, namespacePath, item.artifact.path);
+      this.port.journal.recordUnconfirmedEntry(namespacePath, item.artifact.path);
       throw error;
     }
-    item.namespace = { path: namespacePath, publicPath: item.artifact.path, exists: true };
-    this.port.journal.ownershipChanged();
+    this.port.journal.recordNamespace(item, namespacePath);
     const namespaceStat = await this.port.lstat(namespacePath);
     if (namespaceStat.isSymbolicLink() || !namespaceStat.isDirectory()) {
       throw this.port.concurrentModification(item.artifact.path);
     }
-    item.namespace.identity = identity(namespaceStat);
+    this.port.journal.confirmNamespace(item, identity(namespaceStat));
     await this.port.assertParentChain(item);
   }
 }
 
-export function stagedArtifacts(context: Pick<StagingJournal, 'items'>): readonly StagedArtifact[] {
-  return Object.freeze(context.items.map(item => stagedArtifact(item)));
+function stagedArtifacts(items: readonly StagingArtifactView[]): readonly StagedArtifact[] {
+  return Object.freeze(items.map(item => stagedArtifact(item)));
 }
 
-export function stagedArtifact(item: RuntimeArtifact): StagedArtifact {
+function stagedArtifact(item: StagingArtifactView): StagedArtifact {
   return Object.freeze({
     artifact: item.artifact,
-    ...(item.stage === undefined ? {} : { stagingPath: item.stage.path }),
-    ...(item.backup === undefined ? {} : { backupPath: item.backup.path }),
+    ...(item.stagingPath === undefined ? {} : { stagingPath: item.stagingPath }),
   });
-}
-
-function trackUnconfirmedEntry(context: StagingJournal, path: string, publicPath: string): void {
-  const publicPaths = context.unconfirmedEntries.get(path) ?? new Set<string>();
-  publicPaths.add(publicPath);
-  context.unconfirmedEntries.set(path, publicPaths);
 }

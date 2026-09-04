@@ -74,6 +74,38 @@ describe('FileSystemStagingUnit', () => {
     expect(await readdir(root)).toEqual([]);
   });
 
+  test('publishes frozen phase ports without cross-phase file creation or mutable journal collections', () => {
+    const session = new TransactionUnitSession(operationsWith());
+    const staging = session.stagingPort() as unknown as Record<string, unknown>;
+    const commit = session.commitPort() as unknown as Record<string, unknown>;
+
+    expect(Object.isFrozen(staging)).toBe(true);
+    expect(Object.isFrozen(staging.journal)).toBe(true);
+    expect(staging).toHaveProperty('createStageFile');
+    expect(staging).not.toHaveProperty('createBackupFile');
+    expect(staging).not.toHaveProperty('createOwnedFile');
+    expect(commit).toHaveProperty('createBackupFile');
+    expect(commit).not.toHaveProperty('createStageFile');
+    expect(commit).not.toHaveProperty('createOwnedFile');
+    expect(staging.journal).not.toHaveProperty('items');
+    expect(staging.journal).not.toHaveProperty('createdDirectories');
+    expect(staging.journal).not.toHaveProperty('unconfirmedEntries');
+  });
+
+  test('returns immutable staging views whose mutation cannot alter coordinator state', async () => {
+    const session = new TransactionUnitSession(operationsWith());
+    const port = session.stagingPort();
+    await new FileSystemStagingUnit(port).stage([artifact(join(root, 'card.html'))], new AbortController().signal);
+
+    const first = port.journal.artifacts()[0]!;
+    const stagingPath = first.stagingPath;
+
+    expect(Object.isFrozen(first)).toBe(true);
+    expect(Object.isFrozen(first.directories)).toBe(true);
+    expect(Reflect.set(first, 'stagingPath', 'forged')).toBe(false);
+    expect(port.journal.artifacts()[0]!.stagingPath).toBe(stagingPath);
+  });
+
   test('exposes exact namespace recovery evidence when durable staging fails', async () => {
     const target = join(root, 'card.html');
     const failure = new Error('stage sync failed');

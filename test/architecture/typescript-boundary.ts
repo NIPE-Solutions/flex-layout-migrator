@@ -195,6 +195,7 @@ export type SemanticAuthorityName =
   | 'SourceEditor.apply'
   | 'StylesheetPlanner.plan'
   | 'TemplateProposalValidator.validate'
+  | 'ValidateProjectStage.prevalidate'
   | 'ValidateProjectStage.run'
   | 'OriginalTemplateParser.parse'
   | 'RenderProjectStage.run'
@@ -652,6 +653,90 @@ export function resolvedConstructorParameterProperties(
     .getPropertiesOfType(project.checker.getTypeAtLocation(parameter))
     .map(property => property.getName())
     .sort();
+}
+
+export interface ResolvedMethodParameter {
+  readonly name: string;
+  readonly type: string;
+}
+
+/** Resolves a nested property surface on a concrete class constructor parameter. */
+export function resolvedConstructorParameterNestedProperties(
+  sourcePath: string,
+  className: string,
+  propertyName: string,
+  parameterIndex = 0,
+): readonly string[] {
+  const { checker, parameter } = resolvedConstructorParameter(sourcePath, className, parameterIndex);
+  const parameterType = checker.getTypeAtLocation(parameter);
+  const property = checker.getPropertyOfType(parameterType, propertyName);
+  if (property === undefined)
+    throw new Error(`Missing constructor parameter property ${propertyName} on ${className}.`);
+  const propertyType = checker.getTypeOfSymbolAtLocation(property, parameter);
+  return checker
+    .getPropertiesOfType(propertyType)
+    .map(member => member.getName())
+    .sort();
+}
+
+/** Resolves one constructor-port method's parameter names and types. */
+export function resolvedConstructorParameterMethodParameters(
+  sourcePath: string,
+  className: string,
+  methodName: string,
+  parameterIndex = 0,
+): readonly ResolvedMethodParameter[] {
+  const { checker, parameter } = resolvedConstructorParameter(sourcePath, className, parameterIndex);
+  const parameterType = checker.getTypeAtLocation(parameter);
+  const method = checker.getPropertyOfType(parameterType, methodName);
+  if (method === undefined) throw new Error(`Missing constructor parameter method ${methodName} on ${className}.`);
+  const signature = checker.getSignaturesOfType(
+    checker.getTypeOfSymbolAtLocation(method, parameter),
+    ts.SignatureKind.Call,
+  )[0];
+  if (signature === undefined)
+    throw new Error(`Constructor parameter member ${methodName} on ${className} is not callable.`);
+  return signature.getParameters().map(methodParameter => ({
+    name: methodParameter.getName(),
+    type: checker.typeToString(checker.getTypeOfSymbolAtLocation(methodParameter, parameter)),
+  }));
+}
+
+/** Resolves the property surface of a named type declaration through a real project Program. */
+export function resolvedTypeProperties(sourcePath: string, typeName: string): readonly string[] {
+  const project = createProjectProgram([sourcePath], new Map());
+  const sourceFile = project.program.getSourceFile(resolve(sourcePath));
+  if (sourceFile === undefined) throw new Error(`Missing TypeScript source: ${sourcePath}`);
+  const declaration = sourceFile.statements.find(
+    (statement): statement is ts.InterfaceDeclaration | ts.TypeAliasDeclaration =>
+      (ts.isInterfaceDeclaration(statement) || ts.isTypeAliasDeclaration(statement)) &&
+      statement.name.text === typeName,
+  );
+  if (declaration === undefined) throw new Error(`Missing type declaration ${typeName}.`);
+  return project.checker
+    .getPropertiesOfType(project.checker.getTypeAtLocation(declaration))
+    .map(property => property.getName())
+    .sort();
+}
+
+function resolvedConstructorParameter(
+  sourcePath: string,
+  className: string,
+  parameterIndex: number,
+): { readonly checker: ts.TypeChecker; readonly parameter: ts.ParameterDeclaration } {
+  const project = createProjectProgram([sourcePath], new Map());
+  const sourceFile = project.program.getSourceFile(resolve(sourcePath));
+  if (sourceFile === undefined) throw new Error(`Missing TypeScript source: ${sourcePath}`);
+  const declaration = sourceFile.statements.find(
+    (statement): statement is ts.ClassDeclaration =>
+      ts.isClassDeclaration(statement) && statement.name?.text === className,
+  );
+  const constructor = declaration?.members.find(ts.isConstructorDeclaration);
+  const parameter = constructor?.parameters[parameterIndex];
+  if (parameter === undefined) {
+    throw new Error(`Missing constructor parameter ${parameterIndex} on ${className}.`);
+  }
+  return { checker: project.checker, parameter };
 }
 
 function createProjectProgram(
@@ -2707,6 +2792,18 @@ const semanticAuthorityConfigs: readonly SemanticAuthorityConfig[] = [
     concreteClass: {
       exportedName: 'RenderProjectStage',
       sourcePathSuffix: '/pipeline/render/render-project.stage.ts',
+    },
+  },
+  {
+    name: 'ValidateProjectStage.prevalidate',
+    methodName: 'prevalidate',
+    declarations: [
+      { sourcePathSuffix: '/pipeline/migration-pipeline.ts', containers: ['ValidateStage'] },
+      { sourcePathSuffix: '/pipeline/validate/validate-project.stage.ts', containers: ['ValidateProjectStage'] },
+    ],
+    concreteClass: {
+      exportedName: 'ValidateProjectStage',
+      sourcePathSuffix: '/pipeline/validate/validate-project.stage.ts',
     },
   },
   {

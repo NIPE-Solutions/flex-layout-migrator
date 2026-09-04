@@ -492,6 +492,7 @@ function countingValidateStage(counts: MigrationWorkloadCounts, stylesheetPlanne
     stylesheetPlanner,
   );
   return {
+    prevalidate: invocation => validate.prevalidate(invocation),
     async run(rendered) {
       counts.pipelineStages++;
       const validated = await validate.run(rendered);

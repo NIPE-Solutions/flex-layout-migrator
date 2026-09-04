@@ -7,7 +7,10 @@ import {
   inspectTypeScriptProject,
   inspectSemanticAuthorityCalls,
   productionTypeScriptFiles,
+  resolvedConstructorParameterMethodParameters,
+  resolvedConstructorParameterNestedProperties,
   resolvedConstructorParameterProperties,
+  resolvedTypeProperties,
   runtimeModuleReferences,
   type TypeScriptInspection,
   type TypeScriptProjectInspection,
@@ -221,11 +224,10 @@ describe('migration transaction architecture boundary', { timeout: wholeProjectI
         'assertNotInterrupted',
         'assertParentChain',
         'concurrentModification',
-        'createOwnedFile',
+        'createStageFile',
         'journal',
         'lstat',
         'mkdir',
-        'prepare',
         'readOwnedFile',
         'validateStagedTemplate',
       ],
@@ -240,7 +242,7 @@ describe('migration transaction architecture boundary', { timeout: wholeProjectI
         'assertOwnedIdentity',
         'assertParentChain',
         'concurrentModification',
-        'createOwnedFile',
+        'createBackupFile',
         'journal',
         'link',
         'lstatOrAbsent',
@@ -248,7 +250,6 @@ describe('migration transaction architecture boundary', { timeout: wholeProjectI
         'ownershipFailure',
         'readOwnedFile',
         'rename',
-        'runtimeArtifact',
       ],
     ],
     [
@@ -264,7 +265,6 @@ describe('migration transaction architecture boundary', { timeout: wholeProjectI
         'observePublic',
         'readOwnedFile',
         'rename',
-        'runtimeArtifact',
       ],
     ],
     [
@@ -272,13 +272,13 @@ describe('migration transaction architecture boundary', { timeout: wholeProjectI
       'FileSystemCleanupUnit',
       [
         'assertNamespace',
+        'closeOpenHandle',
         'closeReadHandles',
         'journal',
         'lstat',
         'lstatOrAbsent',
         'observePublic',
         'rmdir',
-        'runtimeArtifact',
         'unlink',
       ],
     ],
@@ -291,6 +291,102 @@ describe('migration transaction architecture boundary', { timeout: wholeProjectI
         /transaction-unit\.session(?:\.[cm]?[jt]s)?$/u.test(reference),
       ),
     ).toEqual([]);
+  });
+
+  test.each([
+    [
+      'staging',
+      'FileSystemStagingUnit',
+      [
+        'addCreatedDirectoryPublicPath',
+        'artifacts',
+        'confirmCreatedDirectory',
+        'confirmNamespace',
+        'createdDirectory',
+        'prepare',
+        'recordCreatedDirectory',
+        'recordNamespace',
+        'recordUnconfirmedEntry',
+      ],
+    ],
+    [
+      'commit',
+      'FileSystemCommitUnit',
+      [
+        'addQuarantine',
+        'artifact',
+        'artifacts',
+        'confirmOwnedFile',
+        'recordInstalledIdentity',
+        'recordRecoveryFailure',
+        'setOwnedFilePreserved',
+      ],
+    ],
+    [
+      'rollback',
+      'FileSystemRollbackUnit',
+      [
+        'addQuarantine',
+        'artifact',
+        'artifacts',
+        'confirmOwnedFile',
+        'recordRestored',
+        'recordRestoredIdentity',
+        'recoveryFailures',
+        'setOwnedFilePreserved',
+      ],
+    ],
+    [
+      'cleanup',
+      'FileSystemCleanupUnit',
+      [
+        'artifact',
+        'artifacts',
+        'createdDirectories',
+        'finishArtifactCleanup',
+        'markCreatedDirectoryAbsent',
+        'markNamespaceAbsent',
+        'markOwnedFileAbsent',
+        'restored',
+        'unconfirmedEntries',
+      ],
+    ],
+  ] as const)('exposes only %s phase-scoped journal commands and immutable views', (unit, className, expected) => {
+    const sourcePath = join(transactionRoot, `${unit}.unit.ts`);
+
+    expect(resolvedConstructorParameterNestedProperties(sourcePath, className, 'journal')).toEqual(expected);
+  });
+
+  test.each([
+    ['staging', 'FileSystemStagingUnit', 'createStageFile', 'StagingArtifactView'],
+    ['commit', 'FileSystemCommitUnit', 'createBackupFile', 'CommitArtifactView'],
+  ] as const)('gives %s a phase-specific owned-file creation signature', (unit, className, method, view) => {
+    expect(
+      resolvedConstructorParameterMethodParameters(join(transactionRoot, `${unit}.unit.ts`), className, method),
+    ).toEqual([
+      { name: 'item', type: view },
+      { name: 'contents', type: 'string' },
+      { name: 'signal', type: 'AbortSignal' },
+      { name: 'mode', type: 'number | undefined' },
+    ]);
+  });
+
+  test.each([
+    ['StagingArtifactView', ['artifact', 'directories', 'originalMode', 'stagingPath']],
+    [
+      'CommitArtifactView',
+      ['artifact', 'backup', 'installedIdentity', 'namespace', 'originalIdentity', 'quarantines', 'stage'],
+    ],
+    [
+      'RollbackArtifactView',
+      ['artifact', 'backup', 'installedIdentity', 'namespace', 'originalIdentity', 'restoredIdentity', 'stage'],
+    ],
+    [
+      'CleanupArtifactView',
+      ['artifact', 'backupPath', 'directories', 'namespace', 'originalIdentity', 'ownedFiles', 'restoredIdentity'],
+    ],
+  ] as const)('keeps the resolved %s surface phase-limited', (typeName, expected) => {
+    expect(resolvedTypeProperties(join(transactionRoot, 'transaction-unit.ports.ts'), typeName)).toEqual(expected);
   });
 
   test('keeps obsolete migrator mutation facades out of production', () => {

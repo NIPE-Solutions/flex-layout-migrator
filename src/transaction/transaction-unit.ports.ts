@@ -4,19 +4,86 @@ import type {
   FileIdentity,
   MigrationTransactionStat,
   ObservedState,
-  OwnedFile,
-  RuntimeArtifact,
-  TransactionUnitContext,
 } from './transaction-unit.state';
 
-export type StagingJournal = Pick<
-  TransactionUnitContext,
-  'items' | 'createdDirectories' | 'unconfirmedEntries' | 'ownershipChanged'
->;
+export interface OwnedFileView {
+  readonly path: string;
+  readonly publicPath: string;
+  readonly identity?: FileIdentity;
+  readonly exists: boolean;
+  readonly preserve: boolean;
+}
+
+export interface OwnedNamespaceView {
+  readonly path: string;
+  readonly publicPath: string;
+  readonly identity?: FileIdentity;
+  readonly exists: boolean;
+}
+
+export interface CreatedDirectoryView {
+  readonly path: string;
+  readonly identity?: FileIdentity;
+  readonly publicPaths: readonly string[];
+  readonly exists: boolean;
+}
+
+export interface UnconfirmedEntryView {
+  readonly path: string;
+  readonly publicPaths: readonly string[];
+}
+
+export interface StagingArtifactView {
+  readonly artifact: PlannedOutputArtifact;
+  readonly directories: readonly DirectoryExpectation[];
+  readonly originalMode?: number;
+  readonly stagingPath?: string;
+}
+
+export interface CommitArtifactView {
+  readonly artifact: PlannedOutputArtifact;
+  readonly originalIdentity?: FileIdentity;
+  readonly namespace?: OwnedNamespaceView;
+  readonly stage?: OwnedFileView;
+  readonly backup?: OwnedFileView;
+  readonly quarantines: readonly OwnedFileView[];
+  readonly installedIdentity?: FileIdentity;
+}
+
+export interface RollbackArtifactView {
+  readonly artifact: PlannedOutputArtifact;
+  readonly originalIdentity?: FileIdentity;
+  readonly namespace?: OwnedNamespaceView;
+  readonly stage?: OwnedFileView;
+  readonly backup?: OwnedFileView;
+  readonly installedIdentity?: FileIdentity;
+  readonly restoredIdentity?: FileIdentity;
+}
+
+export interface CleanupArtifactView {
+  readonly artifact: PlannedOutputArtifact;
+  readonly directories: readonly DirectoryExpectation[];
+  readonly originalIdentity?: FileIdentity;
+  readonly namespace?: OwnedNamespaceView;
+  readonly ownedFiles: readonly OwnedFileView[];
+  readonly backupPath?: string;
+  readonly restoredIdentity?: FileIdentity;
+}
+
+export interface StagingJournal {
+  prepare(artifacts: readonly PlannedOutputArtifact[]): Promise<void>;
+  artifacts(): readonly StagingArtifactView[];
+  createdDirectory(path: string): CreatedDirectoryView | undefined;
+  addCreatedDirectoryPublicPath(path: string, publicPath: string): void;
+  recordUnconfirmedEntry(path: string, publicPath: string): void;
+  recordCreatedDirectory(path: string, publicPath: string): void;
+  confirmCreatedDirectory(path: string, identity: FileIdentity): void;
+  recordNamespace(item: StagingArtifactView, path: string): void;
+  confirmNamespace(item: StagingArtifactView, identity: FileIdentity): void;
+}
 
 export interface StagingPort {
   readonly journal: StagingJournal;
-  prepare(artifacts: readonly PlannedOutputArtifact[]): Promise<readonly RuntimeArtifact[]>;
   assertDirectoryExpectation(
     path: string,
     expected: Exclude<DirectoryExpectation['original'], 'absent'>,
@@ -24,77 +91,97 @@ export interface StagingPort {
   ): Promise<void>;
   assertDirectoryIdentity(path: string, expected: FileIdentity, publicPath: string): Promise<void>;
   assertExpectedAbsent(path: string, publicPath: string): Promise<void>;
-  assertExpectedDirectory(expectation: DirectoryExpectation, item: RuntimeArtifact): Promise<void>;
+  assertExpectedDirectory(expectation: DirectoryExpectation, item: StagingArtifactView): Promise<void>;
   assertNotInterrupted(signal: AbortSignal): void;
-  assertParentChain(item: RuntimeArtifact): Promise<void>;
+  assertParentChain(item: StagingArtifactView): Promise<void>;
   concurrentModification(publicPath: string, cause?: unknown): Error;
-  createOwnedFile(
-    item: RuntimeArtifact,
-    name: 'backup' | 'stage',
+  createStageFile(
+    item: StagingArtifactView,
     contents: string,
     signal: AbortSignal,
     mode?: number,
-  ): Promise<OwnedFile>;
+  ): Promise<OwnedFileView>;
   lstat(path: string): Promise<MigrationTransactionStat>;
   mkdir(path: string, options?: { readonly recursive?: boolean; readonly mode?: number }): Promise<unknown>;
-  readOwnedFile(item: RuntimeArtifact, owned: OwnedFile): Promise<string>;
+  readOwnedFile(item: StagingArtifactView, ownedPath: string): Promise<string>;
   validateStagedTemplate(publicPath: string, contents: string): void;
 }
 
-export type CommitJournal = Pick<TransactionUnitContext, 'items' | 'recoveryFailures'>;
+export interface CommitJournal {
+  artifact(artifact: PlannedOutputArtifact): CommitArtifactView;
+  artifacts(): readonly CommitArtifactView[];
+  addQuarantine(item: CommitArtifactView, path: string): OwnedFileView;
+  confirmOwnedFile(item: CommitArtifactView, ownedPath: string, identity: FileIdentity): OwnedFileView;
+  setOwnedFilePreserved(item: CommitArtifactView, ownedPath: string, preserve: boolean): void;
+  recordInstalledIdentity(item: CommitArtifactView, identity: FileIdentity): void;
+  recordRecoveryFailure(error: unknown): void;
+}
 
 export interface CommitPort {
   readonly journal: CommitJournal;
   assertExpectedAbsent(path: string, publicPath: string): Promise<void>;
-  assertNamespace(item: RuntimeArtifact): Promise<void>;
+  assertNamespace(item: CommitArtifactView): Promise<void>;
   assertNotInterrupted(signal: AbortSignal): void;
-  assertOwnedIdentity(item: RuntimeArtifact, owned: OwnedFile): Promise<void>;
-  assertParentChain(item: RuntimeArtifact): Promise<void>;
+  assertOwnedIdentity(item: CommitArtifactView, ownedPath: string): Promise<void>;
+  assertParentChain(item: CommitArtifactView): Promise<void>;
   concurrentModification(publicPath: string, cause?: unknown): Error;
-  createOwnedFile(
-    item: RuntimeArtifact,
-    name: 'backup' | 'stage',
+  createBackupFile(
+    item: CommitArtifactView,
     contents: string,
     signal: AbortSignal,
     mode?: number,
-  ): Promise<OwnedFile>;
+  ): Promise<OwnedFileView>;
   link(existingPath: string, newPath: string): Promise<void>;
   lstatOrAbsent(path: string): Promise<MigrationTransactionStat | 'absent'>;
-  observePublic(item: RuntimeArtifact): Promise<ObservedState>;
+  observePublic(item: CommitArtifactView): Promise<ObservedState>;
   ownershipFailure(publicPath: string): Error;
-  readOwnedFile(item: RuntimeArtifact, owned: OwnedFile): Promise<string>;
+  readOwnedFile(item: CommitArtifactView, ownedPath: string): Promise<string>;
   rename(source: string, destination: string): Promise<void>;
-  runtimeArtifact(artifact: PlannedOutputArtifact): RuntimeArtifact;
 }
 
-export type RollbackJournal = Pick<TransactionUnitContext, 'items' | 'recoveryFailures' | 'restored'>;
+export interface RollbackJournal {
+  artifact(artifact: PlannedOutputArtifact): RollbackArtifactView;
+  artifacts(): readonly RollbackArtifactView[];
+  recoveryFailures(): readonly unknown[];
+  addQuarantine(item: RollbackArtifactView, path: string): OwnedFileView;
+  confirmOwnedFile(item: RollbackArtifactView, ownedPath: string, identity: FileIdentity): OwnedFileView;
+  setOwnedFilePreserved(item: RollbackArtifactView, ownedPath: string, preserve: boolean): void;
+  recordRestoredIdentity(item: RollbackArtifactView, identity: FileIdentity): void;
+  recordRestored(item: RollbackArtifactView, restored: boolean): void;
+}
 
 export interface RollbackPort {
   readonly journal: RollbackJournal;
   assertExpectedAbsent(path: string, publicPath: string): Promise<void>;
-  assertNamespace(item: RuntimeArtifact): Promise<void>;
-  assertParentChain(item: RuntimeArtifact): Promise<void>;
+  assertNamespace(item: RollbackArtifactView): Promise<void>;
+  assertParentChain(item: RollbackArtifactView): Promise<void>;
   link(existingPath: string, newPath: string): Promise<void>;
   lstatOrAbsent(path: string): Promise<MigrationTransactionStat | 'absent'>;
-  observePublic(item: RuntimeArtifact): Promise<ObservedState>;
-  readOwnedFile(item: RuntimeArtifact, owned: OwnedFile): Promise<string>;
+  observePublic(item: RollbackArtifactView): Promise<ObservedState>;
+  readOwnedFile(item: RollbackArtifactView, ownedPath: string): Promise<string>;
   rename(source: string, destination: string): Promise<void>;
-  runtimeArtifact(artifact: PlannedOutputArtifact): RuntimeArtifact;
 }
 
-export type CleanupJournal = Pick<
-  TransactionUnitContext,
-  'items' | 'createdDirectories' | 'unconfirmedEntries' | 'restored' | 'ownershipChanged'
->;
+export interface CleanupJournal {
+  artifact(artifact: PlannedOutputArtifact): CleanupArtifactView;
+  artifacts(): readonly CleanupArtifactView[];
+  createdDirectories(): readonly CreatedDirectoryView[];
+  unconfirmedEntries(): readonly UnconfirmedEntryView[];
+  restored(item: CleanupArtifactView): boolean | undefined;
+  markOwnedFileAbsent(item: CleanupArtifactView, ownedPath: string): void;
+  markNamespaceAbsent(item: CleanupArtifactView): void;
+  markCreatedDirectoryAbsent(path: string): void;
+  finishArtifactCleanup(): void;
+}
 
 export interface CleanupPort {
   readonly journal: CleanupJournal;
-  assertNamespace(item: RuntimeArtifact): Promise<void>;
-  closeReadHandles(item: RuntimeArtifact, failures: unknown[]): Promise<void>;
+  assertNamespace(item: CleanupArtifactView): Promise<void>;
+  closeReadHandles(item: CleanupArtifactView, failures: unknown[]): Promise<void>;
+  closeOpenHandle(item: CleanupArtifactView, failures: unknown[]): Promise<void>;
   lstat(path: string): Promise<MigrationTransactionStat>;
   lstatOrAbsent(path: string): Promise<MigrationTransactionStat | 'absent'>;
-  observePublic(item: RuntimeArtifact): Promise<ObservedState>;
+  observePublic(item: CleanupArtifactView): Promise<ObservedState>;
   rmdir(path: string): Promise<void>;
-  runtimeArtifact(artifact: PlannedOutputArtifact): RuntimeArtifact;
   unlink(path: string): Promise<void>;
 }

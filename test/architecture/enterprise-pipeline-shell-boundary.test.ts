@@ -279,7 +279,7 @@ describe('enterprise pipeline shell dependency boundary', { timeout: wholeProjec
       { run: () => Promise.resolve(manifest) },
       { run: () => Promise.resolve(analyzed) },
       { run: () => Promise.resolve(rendered) },
-      { run: () => Promise.resolve(validated) },
+      { prevalidate: () => Promise.resolve(), run: () => Promise.resolve(validated) },
       {
         run: () =>
           Promise.resolve(appliedProject({ validated, application: { status: 'skipped', reason: 'plan-only' } })),

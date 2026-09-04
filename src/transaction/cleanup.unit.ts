@@ -1,5 +1,5 @@
 import type { StagedArtifact } from './staging.unit';
-import type { CleanupPort } from './transaction-unit.ports';
+import type { CleanupArtifactView, CleanupPort, OwnedFileView } from './transaction-unit.ports';
 import {
   RecoveryUnitError,
   identity,
@@ -12,9 +12,7 @@ import {
   sameIdentity,
   type MigrationTransactionStat,
   type ObservedState,
-  type OwnedFile,
   type RecoveryOutcome,
-  type RuntimeArtifact,
 } from './transaction-unit.state';
 import { compareCodeUnits } from '../util/compare-code-units';
 
@@ -35,50 +33,40 @@ export class FileSystemCleanupUnit implements CleanupUnit {
   public async cleanup(staged: readonly StagedArtifact[]): Promise<readonly string[]> {
     const failures: unknown[] = [];
     const paths = new Set<string>();
-    let stagedItems: RuntimeArtifact[];
+    let stagedItems: CleanupArtifactView[];
     try {
-      stagedItems = staged.map(entry => this.port.runtimeArtifact(entry.artifact));
+      stagedItems = staged.map(entry => this.port.journal.artifact(entry.artifact));
     } catch (error: unknown) {
       throw recoveryUnitError(error);
     }
     const items = this.kind === 'recovery' ? stagedItems.reverse() : stagedItems;
     for (const item of items) {
       await this.port.closeReadHandles(item, failures);
-      await this.closeOpenHandle(item, failures);
+      await this.port.closeOpenHandle(item, failures);
       const ownedFiles = this.kind === 'recovery' ? [...item.ownedFiles].reverse() : item.ownedFiles;
       for (const owned of ownedFiles) {
-        if (this.kind === 'recovery' && owned === item.backup && this.port.journal.restored.get(item) === false) {
+        if (this.kind === 'recovery' && owned.path === item.backupPath && this.port.journal.restored(item) === false) {
           if (owned.exists) paths.add(item.artifact.path);
           continue;
         }
         await this.removeOwnedFile(item, owned, paths, failures);
       }
       await this.removeNamespace(item, paths, failures);
-      this.port.journal.ownershipChanged();
+      this.port.journal.finishArtifactCleanup();
     }
     await this.removeCreatedDirectories(paths, failures);
     await this.collectUnconfirmedPaths(paths, failures);
     if (this.kind === 'recovery') {
-      for (const item of this.port.journal.items) {
+      for (const item of this.port.journal.artifacts()) {
         if (!(await this.verifyOriginal(item, failures))) paths.add(item.artifact.path);
       }
     }
     return recoveryResult(recoveryOutcome(paths, failures));
   }
 
-  private async closeOpenHandle(item: RuntimeArtifact, failures: unknown[]): Promise<void> {
-    if (!item.openHandle) return;
-    try {
-      await item.openHandle.close();
-    } catch (error: unknown) {
-      failures.push(error);
-    }
-    item.openHandle = undefined;
-  }
-
   private async removeOwnedFile(
-    item: RuntimeArtifact,
-    owned: OwnedFile | undefined,
+    item: CleanupArtifactView,
+    owned: OwnedFileView | undefined,
     paths: Set<string>,
     failures: unknown[],
   ): Promise<void> {
@@ -97,7 +85,7 @@ export class FileSystemCleanupUnit implements CleanupUnit {
       }
     } catch (error: unknown) {
       if (isEnoent(error)) {
-        owned.exists = false;
+        this.port.journal.markOwnedFileAbsent(item, owned.path);
         return;
       }
       paths.add(owned.publicPath);
@@ -113,7 +101,7 @@ export class FileSystemCleanupUnit implements CleanupUnit {
       await this.port.lstat(owned.path);
       paths.add(owned.publicPath);
     } catch (error: unknown) {
-      if (isEnoent(error)) owned.exists = false;
+      if (isEnoent(error)) this.port.journal.markOwnedFileAbsent(item, owned.path);
       else {
         paths.add(owned.publicPath);
         failures.push(error);
@@ -121,7 +109,7 @@ export class FileSystemCleanupUnit implements CleanupUnit {
     }
   }
 
-  private async removeNamespace(item: RuntimeArtifact, paths: Set<string>, failures: unknown[]): Promise<void> {
+  private async removeNamespace(item: CleanupArtifactView, paths: Set<string>, failures: unknown[]): Promise<void> {
     const namespace = item.namespace;
     if (!namespace?.exists) return;
     if (!namespace.identity) {
@@ -141,7 +129,7 @@ export class FileSystemCleanupUnit implements CleanupUnit {
       }
     } catch (error: unknown) {
       if (isEnoent(error)) {
-        namespace.exists = false;
+        this.port.journal.markNamespaceAbsent(item);
         return;
       }
       paths.add(namespace.publicPath);
@@ -157,7 +145,7 @@ export class FileSystemCleanupUnit implements CleanupUnit {
       await this.port.lstat(namespace.path);
       paths.add(namespace.publicPath);
     } catch (error: unknown) {
-      if (isEnoent(error)) namespace.exists = false;
+      if (isEnoent(error)) this.port.journal.markNamespaceAbsent(item);
       else {
         paths.add(namespace.publicPath);
         failures.push(error);
@@ -166,18 +154,20 @@ export class FileSystemCleanupUnit implements CleanupUnit {
   }
 
   private async removeCreatedDirectories(paths: Set<string>, failures: unknown[]): Promise<void> {
-    const directories = [...this.port.journal.createdDirectories.values()].sort(
+    const directories = [...this.port.journal.createdDirectories()].sort(
       (left, right) => pathDepth(right.path) - pathDepth(left.path) || compareCodeUnits(right.path, left.path),
     );
     for (const directory of directories) {
       if (!directory.exists) continue;
       if (
         this.kind === 'committed' &&
-        this.port.journal.items.some(
-          item =>
-            item.artifact.proposed.status === 'present' &&
-            item.directories.some(expectation => expectation.path === directory.path),
-        )
+        this.port.journal
+          .artifacts()
+          .some(
+            item =>
+              item.artifact.proposed.status === 'present' &&
+              item.directories.some(expectation => expectation.path === directory.path),
+          )
       ) {
         continue;
       }
@@ -190,8 +180,7 @@ export class FileSystemCleanupUnit implements CleanupUnit {
         before = await this.port.lstat(directory.path);
       } catch (error: unknown) {
         if (isEnoent(error)) {
-          directory.exists = false;
-          this.port.journal.ownershipChanged();
+          this.port.journal.markCreatedDirectoryAbsent(directory.path);
           continue;
         }
         for (const publicPath of directory.publicPaths) paths.add(publicPath);
@@ -218,9 +207,8 @@ export class FileSystemCleanupUnit implements CleanupUnit {
         continue;
       }
       if (after === 'absent') {
-        directory.exists = false;
+        this.port.journal.markCreatedDirectoryAbsent(directory.path);
         if (removalFailure !== undefined && !isEnoent(removalFailure)) failures.push(removalFailure);
-        this.port.journal.ownershipChanged();
         continue;
       }
       for (const publicPath of directory.publicPaths) paths.add(publicPath);
@@ -229,7 +217,7 @@ export class FileSystemCleanupUnit implements CleanupUnit {
   }
 
   private async collectUnconfirmedPaths(paths: Set<string>, failures: unknown[]): Promise<void> {
-    for (const [candidate, publicPaths] of this.port.journal.unconfirmedEntries) {
+    for (const { path: candidate, publicPaths } of this.port.journal.unconfirmedEntries()) {
       try {
         await this.port.lstat(candidate);
       } catch (error: unknown) {
@@ -240,7 +228,7 @@ export class FileSystemCleanupUnit implements CleanupUnit {
     }
   }
 
-  private async verifyOriginal(item: RuntimeArtifact, failures: unknown[]): Promise<boolean> {
+  private async verifyOriginal(item: CleanupArtifactView, failures: unknown[]): Promise<boolean> {
     try {
       return this.isConfirmedOriginal(item, await this.port.observePublic(item));
     } catch (error: unknown) {
@@ -249,7 +237,7 @@ export class FileSystemCleanupUnit implements CleanupUnit {
     }
   }
 
-  private isConfirmedOriginal(item: RuntimeArtifact, observed: ObservedState): boolean {
+  private isConfirmedOriginal(item: CleanupArtifactView, observed: ObservedState): boolean {
     if (!sameArtifactState(observed, item.artifact.original)) return false;
     if (observed.status === 'absent') return true;
     return [item.originalIdentity, item.restoredIdentity].some(

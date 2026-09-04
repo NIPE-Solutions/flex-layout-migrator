@@ -20,6 +20,7 @@ export interface RenderStage {
 }
 
 export interface ValidateStage {
+  prevalidate(invocation: MigrationInvocation): Promise<void>;
   run(rendered: RenderedProject): Promise<ValidatedProjectPlan>;
 }
 
@@ -39,6 +40,7 @@ export class MigrationPipeline {
   ) {}
 
   public async run(invocation: MigrationInvocation): Promise<MigrationPipelineResult> {
+    await this.validate.prevalidate(invocation);
     const manifest = await runStage('discover', () => this.discover.run(invocation));
     const analyzed = await runStage('analyze', () => this.analyze.run(manifest));
     const rendered = await runStage('render', () => this.render.run(analyzed));

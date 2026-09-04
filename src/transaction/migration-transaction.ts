@@ -15,7 +15,6 @@ import {
   type MigrationTransactionOperations,
   type MigrationTransactionStat,
   type RecoveryOutcome,
-  type TransactionUnitContext,
 } from './transaction-unit.session';
 
 export type { MigrationTransactionFileHandle, MigrationTransactionOperations, MigrationTransactionStat };
@@ -60,7 +59,7 @@ export class MigrationTransaction {
     try {
       this.rejectParseErrors(plan);
       const session = new TransactionUnitSession(this.operations, this.parser);
-      await session.prepare(session.context, plan.artifacts);
+      await session.prepareForPreflight(plan.artifacts);
       if (this.activePreflight !== owner) throw this.invalidTransition('preflight', plan);
       this.preflightSeal = { plan, contents: planContents(plan) };
     } finally {
@@ -78,7 +77,7 @@ export class MigrationTransaction {
     this.interruptedBy = undefined;
     const controller = new AbortController();
     const session = new TransactionUnitSession(this.operations, this.parser, () => {
-      this.syncSignalScope(session.context, controller);
+      this.syncSignalScope(session, controller);
     });
     const stagingUnit = new FileSystemStagingUnit(session.stagingPort());
     const commitUnit = new FileSystemCommitUnit(session.commitPort());
@@ -204,16 +203,8 @@ export class MigrationTransaction {
     );
   }
 
-  private syncSignalScope(context: TransactionUnitContext, controller: AbortController): void {
-    const hasOwnedArtifacts =
-      [...context.createdDirectories.values()].some(directory => directory.exists) ||
-      context.items.some(
-        item =>
-          item.namespace?.exists ||
-          item.stage?.exists ||
-          item.backup?.exists ||
-          item.quarantines.some(quarantine => quarantine.exists),
-      );
+  private syncSignalScope(session: TransactionUnitSession, controller: AbortController): void {
+    const hasOwnedArtifacts = session.hasOwnedArtifacts();
     if (hasOwnedArtifacts && !this.unregisterSignals) {
       this.unregisterSignals = this.signalRegistrar.register(signal => {
         this.interruptedBy ??= signal;

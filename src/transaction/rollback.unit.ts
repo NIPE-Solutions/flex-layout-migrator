@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import type { CommittedArtifact } from './commit.unit';
-import type { RollbackPort } from './transaction-unit.ports';
+import type { OwnedFileView, RollbackArtifactView, RollbackPort } from './transaction-unit.ports';
 import {
   RecoveryUnitError,
   identity,
@@ -12,9 +12,7 @@ import {
   sameIdentity,
   type ObservedPresentState,
   type ObservedState,
-  type OwnedFile,
   type RecoveryOutcome,
-  type RuntimeArtifact,
 } from './transaction-unit.state';
 
 export interface RollbackUnit {
@@ -25,24 +23,24 @@ export class FileSystemRollbackUnit implements RollbackUnit {
   constructor(private readonly port: RollbackPort) {}
 
   public async rollback(committed: readonly CommittedArtifact[]): Promise<readonly string[]> {
-    let items: readonly RuntimeArtifact[];
+    let items: readonly RollbackArtifactView[];
     try {
-      items = committed.map(entry => this.port.runtimeArtifact(entry.artifact));
+      items = committed.map(entry => this.port.journal.artifact(entry.artifact));
     } catch (error: unknown) {
       throw recoveryUnitError(error);
     }
-    const failures = [...this.port.journal.recoveryFailures];
+    const failures = [...this.port.journal.recoveryFailures()];
     for (const item of items) await this.restoreOriginal(item, failures);
     const paths = new Set<string>();
-    for (const item of this.port.journal.items) {
+    for (const item of this.port.journal.artifacts()) {
       const restored = await this.verifyOriginal(item, failures);
-      this.port.journal.restored.set(item, restored);
+      this.port.journal.recordRestored(item, restored);
       if (!restored) paths.add(item.artifact.path);
     }
     return recoveryResult(recoveryOutcome(paths, failures));
   }
 
-  private async restoreOriginal(item: RuntimeArtifact, failures: unknown[]): Promise<void> {
+  private async restoreOriginal(item: RollbackArtifactView, failures: unknown[]): Promise<void> {
     let current: ObservedState | 'unknown';
     try {
       current = await this.port.observePublic(item);
@@ -59,7 +57,7 @@ export class FileSystemRollbackUnit implements RollbackUnit {
         current.contents !== item.artifact.proposed.contents
       ) {
         if (item.stage && item.installedIdentity && sameIdentity(current.identity, item.installedIdentity)) {
-          item.stage.preserve = true;
+          this.port.journal.setOwnedFilePreserved(item, item.stage.path, true);
         }
         return;
       }
@@ -71,7 +69,7 @@ export class FileSystemRollbackUnit implements RollbackUnit {
     const backup = item.backup;
     if (!backup) return;
     try {
-      if ((await this.port.readOwnedFile(item, backup)) !== item.artifact.original.contents) return;
+      if ((await this.port.readOwnedFile(item, backup.path)) !== item.artifact.original.contents) return;
       await this.port.assertParentChain(item);
       await this.port.assertExpectedAbsent(item.artifact.path, item.artifact.path);
       try {
@@ -87,7 +85,7 @@ export class FileSystemRollbackUnit implements RollbackUnit {
         backup.identity &&
         sameIdentity(identity(restored), backup.identity)
       ) {
-        item.restoredIdentity = backup.identity;
+        this.port.journal.recordRestoredIdentity(item, backup.identity);
       }
     } catch (error: unknown) {
       failures.push(error);
@@ -95,18 +93,14 @@ export class FileSystemRollbackUnit implements RollbackUnit {
   }
 
   private async recoveryQuarantine(
-    item: RuntimeArtifact,
+    item: RollbackArtifactView,
     current: ObservedPresentState,
     failures: unknown[],
   ): Promise<boolean> {
-    const quarantine: OwnedFile = {
-      path: join(required(item.namespace).path, `quarantine-rollback-${randomUUID()}`),
-      publicPath: item.artifact.path,
-      exists: false,
-      preserve: false,
-    };
-    item.quarantines.push(quarantine);
-    item.ownedFiles.push(quarantine);
+    let quarantine = this.port.journal.addQuarantine(
+      item,
+      join(required(item.namespace).path, `quarantine-rollback-${randomUUID()}`),
+    );
     try {
       await this.port.assertParentChain(item);
       await this.port.assertNamespace(item);
@@ -126,18 +120,17 @@ export class FileSystemRollbackUnit implements RollbackUnit {
       }
       const quarantined = await this.port.lstatOrAbsent(quarantine.path);
       if (quarantined === 'absent') return false;
-      quarantine.exists = true;
-      quarantine.identity = identity(quarantined);
-      quarantine.preserve = true;
-      if (!sameIdentity(quarantine.identity, current.identity)) {
+      quarantine = this.port.journal.confirmOwnedFile(item, quarantine.path, identity(quarantined));
+      this.port.journal.setOwnedFilePreserved(item, quarantine.path, true);
+      if (!sameIdentity(required(quarantine.identity), current.identity)) {
         await this.restorePreservedQuarantine(item, quarantine, failures);
         return false;
       }
-      if ((await this.port.readOwnedFile(item, quarantine)) !== current.contents) {
+      if ((await this.port.readOwnedFile(item, quarantine.path)) !== current.contents) {
         await this.restorePreservedQuarantine(item, quarantine, failures);
         return false;
       }
-      quarantine.preserve = false;
+      this.port.journal.setOwnedFilePreserved(item, quarantine.path, false);
       return (await this.port.lstatOrAbsent(item.artifact.path)) === 'absent';
     } catch (error: unknown) {
       failures.push(error);
@@ -146,8 +139,8 @@ export class FileSystemRollbackUnit implements RollbackUnit {
   }
 
   private async restorePreservedQuarantine(
-    item: RuntimeArtifact,
-    quarantine: OwnedFile,
+    item: RollbackArtifactView,
+    quarantine: OwnedFileView,
     failures: unknown[],
   ): Promise<void> {
     const quarantineIdentity = required(quarantine.identity);
@@ -159,11 +152,11 @@ export class FileSystemRollbackUnit implements RollbackUnit {
     }
     const destination = await this.port.lstatOrAbsent(item.artifact.path);
     if (destination !== 'absent' && sameIdentity(identity(destination), quarantineIdentity)) {
-      quarantine.preserve = false;
+      this.port.journal.setOwnedFilePreserved(item, quarantine.path, false);
     }
   }
 
-  private async verifyOriginal(item: RuntimeArtifact, failures: unknown[]): Promise<boolean> {
+  private async verifyOriginal(item: RollbackArtifactView, failures: unknown[]): Promise<boolean> {
     try {
       return this.isConfirmedOriginal(item, await this.port.observePublic(item));
     } catch (error: unknown) {
@@ -172,7 +165,7 @@ export class FileSystemRollbackUnit implements RollbackUnit {
     }
   }
 
-  private isConfirmedOriginal(item: RuntimeArtifact, observed: ObservedState): boolean {
+  private isConfirmedOriginal(item: RollbackArtifactView, observed: ObservedState): boolean {
     if (!sameArtifactState(observed, item.artifact.original)) return false;
     if (observed.status === 'absent') return true;
     return [item.originalIdentity, item.restoredIdentity].some(

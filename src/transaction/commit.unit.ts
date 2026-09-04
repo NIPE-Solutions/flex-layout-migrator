@@ -1,17 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
-import type { PlannedOutputArtifact } from '../migrator/migration-plan';
 import type { StagedArtifact } from './staging.unit';
-import type { CommitJournal, CommitPort } from './transaction-unit.ports';
+import type { CommitArtifactView, CommitPort, OwnedFileView } from './transaction-unit.ports';
 import {
   identity,
   required,
-  runtimeArtifact,
   sameArtifactState,
   sameIdentity,
   type ObservedPresentState,
-  type OwnedFile,
-  type RuntimeArtifact,
 } from './transaction-unit.state';
 
 export interface CommittedArtifact extends StagedArtifact {
@@ -40,9 +36,9 @@ export class FileSystemCommitUnit implements CommitUnit {
 
   public async commit(staged: readonly StagedArtifact[], signal: AbortSignal): Promise<readonly CommittedArtifact[]> {
     const committed: CommittedArtifact[] = [];
-    let items: readonly RuntimeArtifact[];
+    let items: readonly CommitArtifactView[];
     try {
-      items = staged.map(entry => this.port.runtimeArtifact(entry.artifact));
+      items = staged.map(entry => this.port.journal.artifact(entry.artifact));
     } catch (error: unknown) {
       throw new CommitUnitError(error, staged, committed);
     }
@@ -52,18 +48,19 @@ export class FileSystemCommitUnit implements CommitUnit {
         if (item.artifact.original.status === 'present') await this.captureOriginal(item, signal);
         this.port.assertNotInterrupted(signal);
         if (item.artifact.proposed.status === 'present') await this.installProposed(item);
-        committed.push(committedArtifact(item));
+        committed.push(committedArtifact(this.port.journal.artifact(item.artifact)));
       } catch (error: unknown) {
-        if (transitionStarted(item) && !committed.some(candidate => candidate.artifact === item.artifact)) {
-          committed.push(committedArtifact(item));
+        const current = this.port.journal.artifact(item.artifact);
+        if (transitionStarted(current) && !committed.some(candidate => candidate.artifact === item.artifact)) {
+          committed.push(committedArtifact(current));
         }
-        throw new CommitUnitError(error, currentStagedArtifacts(this.port.journal), committed);
+        throw new CommitUnitError(error, currentStagedArtifacts(this.port.journal.artifacts()), committed);
       }
     }
     return Object.freeze(committed);
   }
 
-  private async captureOriginal(item: RuntimeArtifact, signal: AbortSignal): Promise<void> {
+  private async captureOriginal(item: CommitArtifactView, signal: AbortSignal): Promise<void> {
     const firstCapture = await this.port.observePublic(item);
     if (
       !sameArtifactState(firstCapture, item.artifact.original) ||
@@ -73,8 +70,8 @@ export class FileSystemCommitUnit implements CommitUnit {
     ) {
       throw this.port.concurrentModification(item.artifact.path);
     }
-    item.backup = await this.port.createOwnedFile(item, 'backup', firstCapture.contents, signal, firstCapture.mode);
-    if ((await this.port.readOwnedFile(item, item.backup)) !== firstCapture.contents) {
+    const backup = await this.port.createBackupFile(item, firstCapture.contents, signal, firstCapture.mode);
+    if ((await this.port.readOwnedFile(item, backup.path)) !== firstCapture.contents) {
       throw this.port.ownershipFailure(item.artifact.path);
     }
     const secondCapture = await this.port.observePublic(item);
@@ -88,7 +85,7 @@ export class FileSystemCommitUnit implements CommitUnit {
     await this.quarantineOriginal(item, firstCapture);
   }
 
-  private async quarantineOriginal(item: RuntimeArtifact, captured: ObservedPresentState): Promise<void> {
+  private async quarantineOriginal(item: CommitArtifactView, captured: ObservedPresentState): Promise<void> {
     await this.port.assertParentChain(item);
     await this.port.assertNamespace(item);
     const immediatelyBefore = await this.port.observePublic(item);
@@ -99,14 +96,10 @@ export class FileSystemCommitUnit implements CommitUnit {
     ) {
       throw this.port.concurrentModification(item.artifact.path);
     }
-    const quarantine: OwnedFile = {
-      path: join(required(item.namespace).path, `quarantine-${randomUUID()}`),
-      publicPath: item.artifact.path,
-      exists: false,
-      preserve: false,
-    };
-    item.quarantines.push(quarantine);
-    item.ownedFiles.push(quarantine);
+    let quarantine = this.port.journal.addQuarantine(
+      item,
+      join(required(item.namespace).path, `quarantine-${randomUUID()}`),
+    );
     await this.port.assertExpectedAbsent(quarantine.path, item.artifact.path);
     let renameFailure: unknown;
     try {
@@ -116,11 +109,13 @@ export class FileSystemCommitUnit implements CommitUnit {
     }
     const quarantinedStat = await this.port.lstatOrAbsent(quarantine.path);
     if (quarantinedStat !== 'absent') {
-      quarantine.exists = true;
-      quarantine.identity = identity(quarantinedStat);
-      const quarantinedContents = await this.port.readOwnedFile(item, quarantine);
-      if (!sameIdentity(quarantine.identity, captured.identity) || quarantinedContents !== captured.contents) {
-        quarantine.preserve = true;
+      quarantine = this.port.journal.confirmOwnedFile(item, quarantine.path, identity(quarantinedStat));
+      const quarantinedContents = await this.port.readOwnedFile(item, quarantine.path);
+      if (
+        !sameIdentity(required(quarantine.identity), captured.identity) ||
+        quarantinedContents !== captured.contents
+      ) {
+        this.port.journal.setOwnedFilePreserved(item, quarantine.path, true);
         await this.restorePreservedQuarantine(item, quarantine);
         throw this.port.concurrentModification(item.artifact.path, renameFailure);
       }
@@ -141,9 +136,9 @@ export class FileSystemCommitUnit implements CommitUnit {
     throw this.port.concurrentModification(item.artifact.path, renameFailure);
   }
 
-  private async installProposed(item: RuntimeArtifact): Promise<void> {
+  private async installProposed(item: CommitArtifactView): Promise<void> {
     const stage = required(item.stage);
-    await this.port.assertOwnedIdentity(item, stage);
+    await this.port.assertOwnedIdentity(item, stage.path);
     await this.port.assertParentChain(item);
     await this.port.assertExpectedAbsent(item.artifact.path, item.artifact.path);
     let linkFailure: unknown;
@@ -154,7 +149,7 @@ export class FileSystemCommitUnit implements CommitUnit {
     }
     const destination = await this.port.lstatOrAbsent(item.artifact.path);
     if (destination !== 'absent' && stage.identity && sameIdentity(identity(destination), stage.identity)) {
-      item.installedIdentity = stage.identity;
+      this.port.journal.recordInstalledIdentity(item, stage.identity);
       await this.port.assertParentChain(item);
       if (linkFailure !== undefined) throw linkFailure;
       return;
@@ -164,22 +159,22 @@ export class FileSystemCommitUnit implements CommitUnit {
     throw this.port.ownershipFailure(item.artifact.path);
   }
 
-  private async restorePreservedQuarantine(item: RuntimeArtifact, quarantine: OwnedFile): Promise<void> {
+  private async restorePreservedQuarantine(item: CommitArtifactView, quarantine: OwnedFileView): Promise<void> {
     const quarantineIdentity = required(quarantine.identity);
     if ((await this.port.lstatOrAbsent(item.artifact.path)) !== 'absent') return;
     try {
       await this.port.link(quarantine.path, item.artifact.path);
     } catch (error: unknown) {
-      this.port.journal.recoveryFailures.push(error);
+      this.port.journal.recordRecoveryFailure(error);
     }
     const destination = await this.port.lstatOrAbsent(item.artifact.path);
     if (destination !== 'absent' && sameIdentity(identity(destination), quarantineIdentity)) {
-      quarantine.preserve = false;
+      this.port.journal.setOwnedFilePreserved(item, quarantine.path, false);
     }
   }
 }
 
-function committedArtifact(item: RuntimeArtifact): CommittedArtifact {
+function committedArtifact(item: CommitArtifactView): CommittedArtifact {
   return Object.freeze({
     artifact: item.artifact,
     committed: true,
@@ -188,20 +183,13 @@ function committedArtifact(item: RuntimeArtifact): CommittedArtifact {
   });
 }
 
-function transitionStarted(item: RuntimeArtifact): boolean {
+function transitionStarted(item: CommitArtifactView): boolean {
   return item.installedIdentity !== undefined || item.quarantines.some(quarantine => quarantine.exists);
 }
 
-export function committedArtifacts(
-  context: CommitJournal,
-  artifacts: readonly PlannedOutputArtifact[] = context.items.map(item => item.artifact),
-): readonly CommittedArtifact[] {
-  return Object.freeze(artifacts.map(artifact => committedArtifact(runtimeArtifact(context, artifact))));
-}
-
-function currentStagedArtifacts(context: CommitJournal): readonly StagedArtifact[] {
+function currentStagedArtifacts(items: readonly CommitArtifactView[]): readonly StagedArtifact[] {
   return Object.freeze(
-    context.items.map(item =>
+    items.map(item =>
       Object.freeze({
         artifact: item.artifact,
         ...(item.stage === undefined ? {} : { stagingPath: item.stage.path }),

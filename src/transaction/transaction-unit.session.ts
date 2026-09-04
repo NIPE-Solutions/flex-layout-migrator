@@ -5,7 +5,23 @@ import { MigrationApplicationError } from '../migrator/migration-application.err
 import type { PlannedOutputArtifact } from '../migrator/migration-plan';
 import { AngularTemplateParser } from '../template/angular-template.parser';
 import { compareCodeUnits } from '../util/compare-code-units';
-import type { CleanupPort, CommitPort, RollbackPort, StagingPort } from './transaction-unit.ports';
+import type {
+  CleanupArtifactView,
+  CleanupJournal,
+  CleanupPort,
+  CommitArtifactView,
+  CommitJournal,
+  CommitPort,
+  CreatedDirectoryView,
+  OwnedFileView,
+  RollbackArtifactView,
+  RollbackJournal,
+  RollbackPort,
+  StagingArtifactView,
+  StagingJournal,
+  StagingPort,
+  UnconfirmedEntryView,
+} from './transaction-unit.ports';
 import {
   fileMode,
   identity,
@@ -14,6 +30,7 @@ import {
   runtimeArtifact,
   sameArtifactState,
   sameIdentity,
+  type CreatedDirectory,
   type DirectoryExpectation,
   type FileIdentity,
   type MigrationTransactionFileHandle,
@@ -21,6 +38,7 @@ import {
   type MigrationTransactionStat,
   type ObservedState,
   type OwnedFile,
+  type OwnedNamespace,
   type RuntimeArtifact,
   type TransactionUnitContext,
 } from './transaction-unit.state';
@@ -69,10 +87,10 @@ export const nodeTransactionOperations: MigrationTransactionOperations = {
 };
 
 export class TransactionUnitSession {
-  readonly context: TransactionUnitContext;
+  private readonly context: TransactionUnitContext;
 
   constructor(
-    readonly operations: MigrationTransactionOperations = nodeTransactionOperations,
+    private readonly operations: MigrationTransactionOperations = nodeTransactionOperations,
     private readonly parser: AngularTemplateParser = new AngularTemplateParser(),
     ownershipChanged: () => void = () => undefined,
   ) {
@@ -87,15 +105,24 @@ export class TransactionUnitSession {
   }
 
   public stagingPort(): StagingPort {
-    const journal = Object.freeze({
-      items: this.context.items,
-      createdDirectories: this.context.createdDirectories,
-      unconfirmedEntries: this.context.unconfirmedEntries,
-      ownershipChanged: this.context.ownershipChanged,
+    const journal: StagingJournal = Object.freeze({
+      prepare: (artifacts: readonly PlannedOutputArtifact[]) => this.prepare(artifacts),
+      artifacts: () => Object.freeze(this.context.items.map(stagingArtifactView)),
+      createdDirectory: (path: string) => createdDirectoryView(this.context.createdDirectories.get(path)),
+      addCreatedDirectoryPublicPath: (path: string, publicPath: string) =>
+        required(this.context.createdDirectories.get(path)).publicPaths.add(publicPath),
+      recordUnconfirmedEntry: (path: string, publicPath: string) => this.recordUnconfirmedEntry(path, publicPath),
+      recordCreatedDirectory: (path: string, publicPath: string) => this.recordCreatedDirectory(path, publicPath),
+      confirmCreatedDirectory: (path: string, expected: FileIdentity) => {
+        required(this.context.createdDirectories.get(path)).identity = expected;
+      },
+      recordNamespace: (item: StagingArtifactView, path: string) => this.recordNamespace(item.artifact, path),
+      confirmNamespace: (item: StagingArtifactView, expected: FileIdentity) => {
+        required(this.runtimeArtifact(item.artifact).namespace).identity = expected;
+      },
     });
     return Object.freeze({
       journal,
-      prepare: (artifacts: readonly PlannedOutputArtifact[]) => this.prepare(this.context, artifacts),
       assertDirectoryExpectation: (
         path: string,
         expected: Exclude<DirectoryExpectation['original'], 'absent'>,
@@ -104,102 +131,160 @@ export class TransactionUnitSession {
       assertDirectoryIdentity: (path: string, expected: FileIdentity, publicPath: string) =>
         this.assertDirectoryIdentity(path, expected, publicPath),
       assertExpectedAbsent: (path: string, publicPath: string) => this.assertExpectedAbsent(path, publicPath),
-      assertExpectedDirectory: (expectation: DirectoryExpectation, item: RuntimeArtifact) =>
-        this.assertExpectedDirectory(expectation, item, this.context),
+      assertExpectedDirectory: (expectation: DirectoryExpectation, item: StagingArtifactView) =>
+        this.assertExpectedDirectory(expectation, this.runtimeArtifact(item.artifact), this.context),
       assertNotInterrupted: (signal: AbortSignal) => this.assertNotInterrupted(signal),
-      assertParentChain: (item: RuntimeArtifact) => this.assertParentChain(item, this.context),
+      assertParentChain: (item: StagingArtifactView) =>
+        this.assertParentChain(this.runtimeArtifact(item.artifact), this.context),
       concurrentModification: (publicPath: string, cause?: unknown) => this.concurrentModification(publicPath, cause),
-      createOwnedFile: (
-        item: RuntimeArtifact,
-        name: 'backup' | 'stage',
-        contents: string,
-        signal: AbortSignal,
-        mode?: number,
-      ) => this.createOwnedFile(item, name, contents, this.context, signal, mode),
+      createStageFile: (item: StagingArtifactView, contents: string, signal: AbortSignal, mode?: number) =>
+        this.createStageFile(this.runtimeArtifact(item.artifact), contents, signal, mode),
       lstat: (path: string) => this.operations.lstat(path),
       mkdir: (path: string, options?: { readonly recursive?: boolean; readonly mode?: number }) =>
         this.operations.mkdir(path, options),
-      readOwnedFile: (item: RuntimeArtifact, owned: OwnedFile) => this.readOwnedFile(item, owned),
+      readOwnedFile: (item: StagingArtifactView, ownedPath: string) => {
+        const runtime = this.runtimeArtifact(item.artifact);
+        return this.readOwnedFile(runtime, this.ownedFile(runtime, ownedPath));
+      },
       validateStagedTemplate: (publicPath: string, contents: string) =>
         this.validateStagedTemplate(publicPath, contents),
     });
   }
 
   public commitPort(): CommitPort {
-    const journal = Object.freeze({
-      items: this.context.items,
-      recoveryFailures: this.context.recoveryFailures,
+    const journal: CommitJournal = Object.freeze({
+      artifact: (artifact: PlannedOutputArtifact) => commitArtifactView(this.runtimeArtifact(artifact)),
+      artifacts: () => Object.freeze(this.context.items.map(commitArtifactView)),
+      addQuarantine: (item: CommitArtifactView, path: string) =>
+        ownedFileView(this.addQuarantine(this.runtimeArtifact(item.artifact), path)),
+      confirmOwnedFile: (item: CommitArtifactView, ownedPath: string, expected: FileIdentity) =>
+        ownedFileView(this.confirmOwnedFile(this.runtimeArtifact(item.artifact), ownedPath, expected)),
+      setOwnedFilePreserved: (item: CommitArtifactView, ownedPath: string, preserve: boolean) => {
+        this.ownedFile(this.runtimeArtifact(item.artifact), ownedPath).preserve = preserve;
+      },
+      recordInstalledIdentity: (item: CommitArtifactView, expected: FileIdentity) => {
+        this.runtimeArtifact(item.artifact).installedIdentity = expected;
+      },
+      recordRecoveryFailure: (error: unknown) => this.context.recoveryFailures.push(error),
     });
     return Object.freeze({
       journal,
       assertExpectedAbsent: (path: string, publicPath: string) => this.assertExpectedAbsent(path, publicPath),
-      assertNamespace: (item: RuntimeArtifact) => this.assertNamespace(item),
+      assertNamespace: (item: CommitArtifactView) => this.assertNamespace(this.runtimeArtifact(item.artifact)),
       assertNotInterrupted: (signal: AbortSignal) => this.assertNotInterrupted(signal),
-      assertOwnedIdentity: (item: RuntimeArtifact, owned: OwnedFile) => this.assertOwnedIdentity(item, owned),
-      assertParentChain: (item: RuntimeArtifact) => this.assertParentChain(item, this.context),
+      assertOwnedIdentity: (item: CommitArtifactView, ownedPath: string) => {
+        const runtime = this.runtimeArtifact(item.artifact);
+        return this.assertOwnedIdentity(runtime, this.ownedFile(runtime, ownedPath));
+      },
+      assertParentChain: (item: CommitArtifactView) =>
+        this.assertParentChain(this.runtimeArtifact(item.artifact), this.context),
       concurrentModification: (publicPath: string, cause?: unknown) => this.concurrentModification(publicPath, cause),
-      createOwnedFile: (
-        item: RuntimeArtifact,
-        name: 'backup' | 'stage',
-        contents: string,
-        signal: AbortSignal,
-        mode?: number,
-      ) => this.createOwnedFile(item, name, contents, this.context, signal, mode),
+      createBackupFile: (item: CommitArtifactView, contents: string, signal: AbortSignal, mode?: number) =>
+        this.createBackupFile(this.runtimeArtifact(item.artifact), contents, signal, mode),
       link: (existingPath: string, newPath: string) => this.operations.link(existingPath, newPath),
       lstatOrAbsent: (path: string) => this.lstatOrAbsent(path),
-      observePublic: (item: RuntimeArtifact) => this.observePublic(item, this.context),
+      observePublic: (item: CommitArtifactView) =>
+        this.observePublic(this.runtimeArtifact(item.artifact), this.context),
       ownershipFailure: (publicPath: string) => this.ownershipFailure(publicPath),
-      readOwnedFile: (item: RuntimeArtifact, owned: OwnedFile) => this.readOwnedFile(item, owned),
+      readOwnedFile: (item: CommitArtifactView, ownedPath: string) => {
+        const runtime = this.runtimeArtifact(item.artifact);
+        return this.readOwnedFile(runtime, this.ownedFile(runtime, ownedPath));
+      },
       rename: (source: string, destination: string) => this.operations.rename(source, destination),
-      runtimeArtifact: (artifact: PlannedOutputArtifact) => runtimeArtifact(this.context, artifact),
     });
   }
 
   public rollbackPort(): RollbackPort {
-    const journal = Object.freeze({
-      items: this.context.items,
-      recoveryFailures: this.context.recoveryFailures,
-      restored: this.context.restored,
+    const journal: RollbackJournal = Object.freeze({
+      artifact: (artifact: PlannedOutputArtifact) => rollbackArtifactView(this.runtimeArtifact(artifact)),
+      artifacts: () => Object.freeze(this.context.items.map(rollbackArtifactView)),
+      recoveryFailures: () => Object.freeze([...this.context.recoveryFailures]),
+      addQuarantine: (item: RollbackArtifactView, path: string) =>
+        ownedFileView(this.addQuarantine(this.runtimeArtifact(item.artifact), path)),
+      confirmOwnedFile: (item: RollbackArtifactView, ownedPath: string, expected: FileIdentity) =>
+        ownedFileView(this.confirmOwnedFile(this.runtimeArtifact(item.artifact), ownedPath, expected)),
+      setOwnedFilePreserved: (item: RollbackArtifactView, ownedPath: string, preserve: boolean) => {
+        this.ownedFile(this.runtimeArtifact(item.artifact), ownedPath).preserve = preserve;
+      },
+      recordRestoredIdentity: (item: RollbackArtifactView, expected: FileIdentity) => {
+        this.runtimeArtifact(item.artifact).restoredIdentity = expected;
+      },
+      recordRestored: (item: RollbackArtifactView, restored: boolean) => {
+        this.context.restored.set(this.runtimeArtifact(item.artifact), restored);
+      },
     });
     return Object.freeze({
       journal,
       assertExpectedAbsent: (path: string, publicPath: string) => this.assertExpectedAbsent(path, publicPath),
-      assertNamespace: (item: RuntimeArtifact) => this.assertNamespace(item),
-      assertParentChain: (item: RuntimeArtifact) => this.assertParentChain(item, this.context),
+      assertNamespace: (item: RollbackArtifactView) => this.assertNamespace(this.runtimeArtifact(item.artifact)),
+      assertParentChain: (item: RollbackArtifactView) =>
+        this.assertParentChain(this.runtimeArtifact(item.artifact), this.context),
       link: (existingPath: string, newPath: string) => this.operations.link(existingPath, newPath),
       lstatOrAbsent: (path: string) => this.lstatOrAbsent(path),
-      observePublic: (item: RuntimeArtifact) => this.observePublic(item, this.context),
-      readOwnedFile: (item: RuntimeArtifact, owned: OwnedFile) => this.readOwnedFile(item, owned),
+      observePublic: (item: RollbackArtifactView) =>
+        this.observePublic(this.runtimeArtifact(item.artifact), this.context),
+      readOwnedFile: (item: RollbackArtifactView, ownedPath: string) => {
+        const runtime = this.runtimeArtifact(item.artifact);
+        return this.readOwnedFile(runtime, this.ownedFile(runtime, ownedPath));
+      },
       rename: (source: string, destination: string) => this.operations.rename(source, destination),
-      runtimeArtifact: (artifact: PlannedOutputArtifact) => runtimeArtifact(this.context, artifact),
     });
   }
 
   public cleanupPort(): CleanupPort {
-    const journal = Object.freeze({
-      items: this.context.items,
-      createdDirectories: this.context.createdDirectories,
-      unconfirmedEntries: this.context.unconfirmedEntries,
-      restored: this.context.restored,
-      ownershipChanged: this.context.ownershipChanged,
+    const journal: CleanupJournal = Object.freeze({
+      artifact: (artifact: PlannedOutputArtifact) => cleanupArtifactView(this.runtimeArtifact(artifact)),
+      artifacts: () => Object.freeze(this.context.items.map(cleanupArtifactView)),
+      createdDirectories: () =>
+        Object.freeze([...this.context.createdDirectories.values()].map(directory => createdDirectoryView(directory)!)),
+      unconfirmedEntries: () => this.unconfirmedEntryViews(),
+      restored: (item: CleanupArtifactView) => this.context.restored.get(this.runtimeArtifact(item.artifact)),
+      markOwnedFileAbsent: (item: CleanupArtifactView, ownedPath: string) => {
+        this.ownedFile(this.runtimeArtifact(item.artifact), ownedPath).exists = false;
+      },
+      markNamespaceAbsent: (item: CleanupArtifactView) => {
+        required(this.runtimeArtifact(item.artifact).namespace).exists = false;
+      },
+      markCreatedDirectoryAbsent: (path: string) => {
+        required(this.context.createdDirectories.get(path)).exists = false;
+        this.context.ownershipChanged();
+      },
+      finishArtifactCleanup: () => this.context.ownershipChanged(),
     });
     return Object.freeze({
       journal,
-      assertNamespace: (item: RuntimeArtifact) => this.assertNamespace(item),
-      closeReadHandles: (item: RuntimeArtifact, failures: unknown[]) => this.closeReadHandles(item, failures),
+      assertNamespace: (item: CleanupArtifactView) => this.assertNamespace(this.runtimeArtifact(item.artifact)),
+      closeReadHandles: (item: CleanupArtifactView, failures: unknown[]) =>
+        this.closeReadHandles(this.runtimeArtifact(item.artifact), failures),
+      closeOpenHandle: (item: CleanupArtifactView, failures: unknown[]) =>
+        this.closeOpenHandle(this.runtimeArtifact(item.artifact), failures),
       lstat: (path: string) => this.operations.lstat(path),
       lstatOrAbsent: (path: string) => this.lstatOrAbsent(path),
-      observePublic: (item: RuntimeArtifact) => this.observePublic(item, this.context),
+      observePublic: (item: CleanupArtifactView) =>
+        this.observePublic(this.runtimeArtifact(item.artifact), this.context),
       rmdir: (path: string) => this.operations.rmdir(path),
-      runtimeArtifact: (artifact: PlannedOutputArtifact) => runtimeArtifact(this.context, artifact),
       unlink: (path: string) => this.operations.unlink(path),
     });
   }
 
-  public async prepare(
-    context: TransactionUnitContext,
-    artifacts: readonly PlannedOutputArtifact[],
-  ): Promise<readonly RuntimeArtifact[]> {
+  public async prepareForPreflight(artifacts: readonly PlannedOutputArtifact[]): Promise<void> {
+    await this.prepare(artifacts);
+  }
+
+  public hasOwnedArtifacts(): boolean {
+    return (
+      [...this.context.createdDirectories.values()].some(directory => directory.exists) ||
+      this.context.items.some(
+        item =>
+          item.namespace?.exists ||
+          item.stage?.exists ||
+          item.backup?.exists ||
+          item.quarantines.some(quarantine => quarantine.exists),
+      )
+    );
+  }
+
+  private async prepare(artifacts: readonly PlannedOutputArtifact[]): Promise<void> {
     const ordered = [...artifacts].sort((left, right) => compareCodeUnits(resolve(left.path), resolve(right.path)));
     for (let index = 1; index < ordered.length; index++) {
       const previous = ordered[index - 1];
@@ -219,7 +304,7 @@ export class TransactionUnitSession {
           item.originalIdentity = current.identity;
           item.originalMode = current.mode;
         }
-        context.items.push(item);
+        this.context.items.push(item);
       } catch (error: unknown) {
         const closeFailures: unknown[] = [];
         if (item) await this.closeReadHandles(item, closeFailures);
@@ -233,10 +318,9 @@ export class TransactionUnitSession {
         );
       }
     }
-    return context.items;
   }
 
-  public async inspectDirectoryChain(parent: string, publicPath: string): Promise<readonly DirectoryExpectation[]> {
+  private async inspectDirectoryChain(parent: string, publicPath: string): Promise<readonly DirectoryExpectation[]> {
     const result: DirectoryExpectation[] = [];
     let missing = false;
     for (const candidate of directoryChain(parent)) {
@@ -288,29 +372,57 @@ export class TransactionUnitSession {
     return result;
   }
 
-  public async createOwnedFile(
+  private async createStageFile(
     item: RuntimeArtifact,
-    name: 'backup' | 'stage',
     contents: string,
-    context: TransactionUnitContext,
     signal: AbortSignal,
     mode?: number,
-  ): Promise<OwnedFile> {
+  ): Promise<OwnedFileView> {
     await this.assertNamespace(item);
     const namespace = required(item.namespace);
+    const owned = this.registerOwnedFile(item, join(namespace.path, 'stage'));
+    item.stage = owned;
+    await this.writeOwnedFile(item, owned, contents, signal, mode);
+    return ownedFileView(owned);
+  }
+
+  private async createBackupFile(
+    item: RuntimeArtifact,
+    contents: string,
+    signal: AbortSignal,
+    mode?: number,
+  ): Promise<OwnedFileView> {
+    await this.assertNamespace(item);
+    const namespace = required(item.namespace);
+    const owned = this.registerOwnedFile(item, join(namespace.path, 'backup'));
+    item.backup = owned;
+    await this.writeOwnedFile(item, owned, contents, signal, mode);
+    return ownedFileView(owned);
+  }
+
+  private registerOwnedFile(item: RuntimeArtifact, path: string): OwnedFile {
     const owned: OwnedFile = {
-      path: join(namespace.path, name),
+      path,
       publicPath: item.artifact.path,
       exists: false,
       preserve: false,
     };
     item.ownedFiles.push(owned);
-    item[name] = owned;
+    return owned;
+  }
+
+  private async writeOwnedFile(
+    item: RuntimeArtifact,
+    owned: OwnedFile,
+    contents: string,
+    signal: AbortSignal,
+    mode?: number,
+  ): Promise<void> {
     await this.assertExpectedAbsent(owned.path, item.artifact.path);
     const handle = await this.operations.open(owned.path, 'wx');
     owned.exists = true;
     item.openHandle = handle;
-    context.ownershipChanged();
+    this.context.ownershipChanged();
     if (mode !== undefined) await handle.chmod(mode);
     owned.identity = identity(await handle.stat());
     this.assertNotInterrupted(signal);
@@ -322,10 +434,75 @@ export class TransactionUnitSession {
     item.openHandle = undefined;
     this.assertNotInterrupted(signal);
     await this.assertOwnedIdentity(item, owned);
+  }
+
+  private runtimeArtifact(artifact: PlannedOutputArtifact): RuntimeArtifact {
+    return runtimeArtifact(this.context, artifact);
+  }
+
+  private ownedFile(item: RuntimeArtifact, path: string): OwnedFile {
+    const owned = item.ownedFiles.find(candidate => candidate.path === path);
+    if (owned !== undefined) return owned;
+    throw new MigrationApplicationError(
+      'internal-invariant',
+      `Migration transaction journal contains an unknown invocation-owned file: ${path}`,
+      [item.artifact.path],
+    );
+  }
+
+  private addQuarantine(item: RuntimeArtifact, path: string): OwnedFile {
+    const quarantine = this.registerOwnedFile(item, path);
+    item.quarantines.push(quarantine);
+    return quarantine;
+  }
+
+  private confirmOwnedFile(item: RuntimeArtifact, path: string, expected: FileIdentity): OwnedFile {
+    const owned = this.ownedFile(item, path);
+    owned.exists = true;
+    owned.identity = expected;
     return owned;
   }
 
-  public validateStagedTemplate(publicPath: string, contents: string): void {
+  private recordNamespace(artifact: PlannedOutputArtifact, path: string): void {
+    const item = this.runtimeArtifact(artifact);
+    item.namespace = { path, publicPath: item.artifact.path, exists: true };
+    this.context.ownershipChanged();
+  }
+
+  private recordCreatedDirectory(path: string, publicPath: string): void {
+    this.context.createdDirectories.set(path, {
+      path,
+      publicPaths: new Set([publicPath]),
+      exists: true,
+    });
+    this.context.ownershipChanged();
+  }
+
+  private recordUnconfirmedEntry(path: string, publicPath: string): void {
+    const publicPaths = this.context.unconfirmedEntries.get(path) ?? new Set<string>();
+    publicPaths.add(publicPath);
+    this.context.unconfirmedEntries.set(path, publicPaths);
+  }
+
+  private unconfirmedEntryViews(): readonly UnconfirmedEntryView[] {
+    return Object.freeze(
+      [...this.context.unconfirmedEntries].map(([path, publicPaths]) =>
+        Object.freeze({ path, publicPaths: Object.freeze([...publicPaths]) }),
+      ),
+    );
+  }
+
+  private async closeOpenHandle(item: RuntimeArtifact, failures: unknown[]): Promise<void> {
+    if (!item.openHandle) return;
+    try {
+      await item.openHandle.close();
+    } catch (error: unknown) {
+      failures.push(error);
+    }
+    item.openHandle = undefined;
+  }
+
+  private validateStagedTemplate(publicPath: string, contents: string): void {
     if (this.parser.parse(contents, publicPath).status !== 'parse-error') return;
     throw new MigrationApplicationError(
       'internal-invariant',
@@ -334,7 +511,7 @@ export class TransactionUnitSession {
     );
   }
 
-  public async observePublic(item: RuntimeArtifact, context?: TransactionUnitContext): Promise<ObservedState> {
+  private async observePublic(item: RuntimeArtifact, context?: TransactionUnitContext): Promise<ObservedState> {
     await this.assertParentChain(item, context);
     const before = await this.lstatOrAbsent(item.artifact.path);
     if (before === 'absent') return { status: 'absent' };
@@ -368,7 +545,7 @@ export class TransactionUnitSession {
     return { status: 'present', contents, identity: beforeIdentity, mode: fileMode(before) };
   }
 
-  public async readOwnedFile(item: RuntimeArtifact, owned: OwnedFile): Promise<string> {
+  private async readOwnedFile(item: RuntimeArtifact, owned: OwnedFile): Promise<string> {
     await this.assertOwnedIdentity(item, owned);
     const expected = required(owned.identity);
     const handle = await this.operations.open(owned.path, 'r');
@@ -384,7 +561,7 @@ export class TransactionUnitSession {
     return contents;
   }
 
-  public async readThroughHandle<T>(
+  private async readThroughHandle<T>(
     item: RuntimeArtifact,
     handle: MigrationTransactionFileHandle,
     read: () => Promise<T>,
@@ -420,7 +597,7 @@ export class TransactionUnitSession {
     return value as T;
   }
 
-  public attachRecoveryFailures(publicPath: string, error: unknown, recoveryFailures: readonly unknown[]): unknown {
+  private attachRecoveryFailures(publicPath: string, error: unknown, recoveryFailures: readonly unknown[]): unknown {
     if (recoveryFailures.length === 0) return error;
     if (error instanceof MigrationApplicationError) {
       return new MigrationApplicationError(error.code, error.message, error.paths, {
@@ -439,7 +616,7 @@ export class TransactionUnitSession {
     );
   }
 
-  public async assertOwnedIdentity(item: RuntimeArtifact, owned: OwnedFile): Promise<void> {
+  private async assertOwnedIdentity(item: RuntimeArtifact, owned: OwnedFile): Promise<void> {
     await this.assertNamespace(item);
     if (!owned.identity) throw this.ownershipFailure(owned.publicPath);
     const ownedStat = await this.operations.lstat(owned.path);
@@ -449,7 +626,7 @@ export class TransactionUnitSession {
     await this.assertNamespace(item);
   }
 
-  public async assertNamespace(item: RuntimeArtifact): Promise<void> {
+  private async assertNamespace(item: RuntimeArtifact): Promise<void> {
     const namespace = required(item.namespace);
     const expectedIdentity = required(namespace.identity);
     const namespaceStat = await this.operations.lstat(namespace.path);
@@ -462,11 +639,11 @@ export class TransactionUnitSession {
     }
   }
 
-  public async assertParentChain(item: RuntimeArtifact, context?: TransactionUnitContext): Promise<void> {
+  private async assertParentChain(item: RuntimeArtifact, context?: TransactionUnitContext): Promise<void> {
     for (const expectation of item.directories) await this.assertExpectedDirectory(expectation, item, context);
   }
 
-  public async assertExpectedDirectory(
+  private async assertExpectedDirectory(
     expectation: DirectoryExpectation,
     item: RuntimeArtifact,
     context?: TransactionUnitContext,
@@ -483,7 +660,7 @@ export class TransactionUnitSession {
     await this.assertDirectoryExpectation(expectation.path, expectation.original, item.artifact.path);
   }
 
-  public async assertDirectoryExpectation(
+  private async assertDirectoryExpectation(
     path: string,
     expected: Exclude<DirectoryExpectation['original'], 'absent'>,
     publicPath: string,
@@ -511,7 +688,7 @@ export class TransactionUnitSession {
     }
   }
 
-  public async assertDirectoryIdentity(path: string, expected: FileIdentity, publicPath: string): Promise<void> {
+  private async assertDirectoryIdentity(path: string, expected: FileIdentity, publicPath: string): Promise<void> {
     let pathStat: MigrationTransactionStat;
     try {
       pathStat = await this.operations.lstat(path);
@@ -523,7 +700,7 @@ export class TransactionUnitSession {
     }
   }
 
-  public async assertExpectedAbsent(path: string, publicPath: string): Promise<void> {
+  private async assertExpectedAbsent(path: string, publicPath: string): Promise<void> {
     try {
       await this.operations.lstat(path);
     } catch (error: unknown) {
@@ -533,7 +710,7 @@ export class TransactionUnitSession {
     throw this.concurrentModification(publicPath);
   }
 
-  public async lstatOrAbsent(path: string): Promise<MigrationTransactionStat | 'absent'> {
+  private async lstatOrAbsent(path: string): Promise<MigrationTransactionStat | 'absent'> {
     try {
       return await this.operations.lstat(path);
     } catch (error: unknown) {
@@ -542,7 +719,7 @@ export class TransactionUnitSession {
     }
   }
 
-  public async closeReadHandles(item: RuntimeArtifact, failures: unknown[]): Promise<void> {
+  private async closeReadHandles(item: RuntimeArtifact, failures: unknown[]): Promise<void> {
     for (const handle of item.readHandles) {
       try {
         await handle.close();
@@ -553,12 +730,12 @@ export class TransactionUnitSession {
     }
   }
 
-  public assertNotInterrupted(signal: AbortSignal): void {
+  private assertNotInterrupted(signal: AbortSignal): void {
     if (!signal.aborted) return;
     throw signal.reason instanceof Error ? signal.reason : new Error('Migration transaction interrupted.');
   }
 
-  public concurrentModification(publicPath: string, cause?: unknown): MigrationApplicationError {
+  private concurrentModification(publicPath: string, cause?: unknown): MigrationApplicationError {
     return new MigrationApplicationError(
       'concurrent-modification',
       `Migration destination changed after planning: ${publicPath}`,
@@ -567,7 +744,7 @@ export class TransactionUnitSession {
     );
   }
 
-  public ownershipFailure(publicPath: string): MigrationApplicationError {
+  private ownershipFailure(publicPath: string): MigrationApplicationError {
     return new MigrationApplicationError(
       'transaction-io',
       `Migration transaction ownership could not be confirmed: ${publicPath}`,
@@ -585,4 +762,97 @@ function directoryChain(path: string): readonly string[] {
     if (parent === current) return result;
     current = parent;
   }
+}
+
+function frozenIdentity(value: FileIdentity | undefined): FileIdentity | undefined {
+  return value === undefined ? undefined : Object.freeze({ ...value });
+}
+
+function ownedFileView(owned: OwnedFile): OwnedFileView {
+  return Object.freeze({
+    path: owned.path,
+    publicPath: owned.publicPath,
+    ...(owned.identity === undefined ? {} : { identity: frozenIdentity(owned.identity) }),
+    exists: owned.exists,
+    preserve: owned.preserve,
+  });
+}
+
+function ownedNamespaceView(namespace: OwnedNamespace | undefined) {
+  if (namespace === undefined) return undefined;
+  return Object.freeze({
+    path: namespace.path,
+    publicPath: namespace.publicPath,
+    ...(namespace.identity === undefined ? {} : { identity: frozenIdentity(namespace.identity) }),
+    exists: namespace.exists,
+  });
+}
+
+function directoryExpectationView(expectation: DirectoryExpectation): DirectoryExpectation {
+  if (expectation.original === 'absent') return Object.freeze({ path: expectation.path, original: 'absent' });
+  return Object.freeze({
+    path: expectation.path,
+    original: Object.freeze({
+      ...expectation.original,
+      identity: frozenIdentity(expectation.original.identity)!,
+      ...(expectation.original.kind === 'symbolic-link'
+        ? { followedIdentity: frozenIdentity(expectation.original.followedIdentity)! }
+        : {}),
+    }),
+  });
+}
+
+function stagingArtifactView(item: RuntimeArtifact): StagingArtifactView {
+  return Object.freeze({
+    artifact: item.artifact,
+    directories: Object.freeze(item.directories.map(directoryExpectationView)),
+    ...(item.originalMode === undefined ? {} : { originalMode: item.originalMode }),
+    ...(item.stage === undefined ? {} : { stagingPath: item.stage.path }),
+  });
+}
+
+function commitArtifactView(item: RuntimeArtifact): CommitArtifactView {
+  return Object.freeze({
+    artifact: item.artifact,
+    ...(item.originalIdentity === undefined ? {} : { originalIdentity: frozenIdentity(item.originalIdentity) }),
+    ...(item.namespace === undefined ? {} : { namespace: ownedNamespaceView(item.namespace) }),
+    ...(item.stage === undefined ? {} : { stage: ownedFileView(item.stage) }),
+    ...(item.backup === undefined ? {} : { backup: ownedFileView(item.backup) }),
+    quarantines: Object.freeze(item.quarantines.map(ownedFileView)),
+    ...(item.installedIdentity === undefined ? {} : { installedIdentity: frozenIdentity(item.installedIdentity) }),
+  });
+}
+
+function rollbackArtifactView(item: RuntimeArtifact): RollbackArtifactView {
+  return Object.freeze({
+    artifact: item.artifact,
+    ...(item.originalIdentity === undefined ? {} : { originalIdentity: frozenIdentity(item.originalIdentity) }),
+    ...(item.namespace === undefined ? {} : { namespace: ownedNamespaceView(item.namespace) }),
+    ...(item.stage === undefined ? {} : { stage: ownedFileView(item.stage) }),
+    ...(item.backup === undefined ? {} : { backup: ownedFileView(item.backup) }),
+    ...(item.installedIdentity === undefined ? {} : { installedIdentity: frozenIdentity(item.installedIdentity) }),
+    ...(item.restoredIdentity === undefined ? {} : { restoredIdentity: frozenIdentity(item.restoredIdentity) }),
+  });
+}
+
+function cleanupArtifactView(item: RuntimeArtifact): CleanupArtifactView {
+  return Object.freeze({
+    artifact: item.artifact,
+    directories: Object.freeze(item.directories.map(directoryExpectationView)),
+    ...(item.originalIdentity === undefined ? {} : { originalIdentity: frozenIdentity(item.originalIdentity) }),
+    ...(item.namespace === undefined ? {} : { namespace: ownedNamespaceView(item.namespace) }),
+    ownedFiles: Object.freeze(item.ownedFiles.map(ownedFileView)),
+    ...(item.backup === undefined ? {} : { backupPath: item.backup.path }),
+    ...(item.restoredIdentity === undefined ? {} : { restoredIdentity: frozenIdentity(item.restoredIdentity) }),
+  });
+}
+
+function createdDirectoryView(directory: CreatedDirectory | undefined): CreatedDirectoryView | undefined {
+  if (directory === undefined) return undefined;
+  return Object.freeze({
+    path: directory.path,
+    ...(directory.identity === undefined ? {} : { identity: frozenIdentity(directory.identity) }),
+    publicPaths: Object.freeze([...directory.publicPaths]),
+    exists: directory.exists,
+  });
 }
