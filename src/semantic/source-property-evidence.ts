@@ -23,8 +23,7 @@ export type SourceClassTokenClassification =
   | { readonly status: 'unverified'; readonly reason: string };
 
 export type SourceStyleDeclarationClassification =
-  | { readonly status: 'verified' }
-  | { readonly status: 'unverified'; readonly priorityText: boolean };
+  { readonly status: 'verified' } | { readonly status: 'unverified'; readonly priorityText: boolean };
 
 /**
  * Supplies semantic planning with property/category facts without exposing any

@@ -1,9 +1,5 @@
 import type { LocatedFlexLayoutInput } from '../analyzer/flex-layout-attribute.analyzer';
-import {
-  mediaRangesIntersect,
-  type BreakpointCatalog,
-  type MediaRange,
-} from '../breakpoint/breakpoint-catalog';
+import { mediaRangesIntersect, type BreakpointCatalog, type MediaRange } from '../breakpoint/breakpoint-catalog';
 import type { PlannedConversion } from '../adapter/conversion-adapter';
 import type { FlexFillSemantics } from '../flex/flex-fill.semantic';
 import type { FlexItemSemantics } from '../flex/flex-item.semantic';
@@ -25,10 +21,7 @@ import {
   type SuppressedSemanticEffect,
   type VisibilitySemantics,
 } from './semantic-plan';
-import {
-  type SourceClassTokenEvidence,
-  type SourcePropertyEvidence,
-} from './source-property-evidence';
+import { type SourceClassTokenEvidence, type SourcePropertyEvidence } from './source-property-evidence';
 
 type UnresolvedConversion = Exclude<PlannedConversion, { readonly status: 'converted' }>;
 export type SemanticCompositionPlan = ResolvedSemanticPlan | UnresolvedConversion;
@@ -101,8 +94,7 @@ function sameActivation(left: SemanticActivation, right: SemanticActivation): bo
   if (left.kind !== right.kind) return false;
   if (left.kind === 'base' || right.kind === 'base') return true;
   return (
-    left.definition.range.min === right.definition.range.min &&
-    left.definition.range.max === right.definition.range.max
+    left.definition.range.min === right.definition.range.min && left.definition.range.max === right.definition.range.max
   );
 }
 
@@ -197,9 +189,7 @@ function authority(family: DirectiveFamily): PropertyAuthority {
 function displayIntent(value: string | undefined): PropertyEffect['display'] {
   if (value === undefined) return undefined;
   if (value === 'none') return { intent: 'hidden', value };
-  return restorationDisplays.has(value)
-    ? { intent: 'shown', value }
-    : { intent: 'unverified', value };
+  return restorationDisplays.has(value) ? { intent: 'shown', value } : { intent: 'unverified', value };
 }
 
 function makeEffect(
@@ -228,7 +218,9 @@ function makeEffect(
   };
 }
 
-function ordinaryPropertyGroups(plan: ResolvedSemanticPlan): readonly { properties: readonly string[]; signature: string; display?: PropertyEffect['display'] }[] {
+function ordinaryPropertyGroups(
+  plan: ResolvedSemanticPlan,
+): readonly { properties: readonly string[]; signature: string; display?: PropertyEffect['display'] }[] {
   switch (plan.family) {
     case 'layout': {
       const value = plan.value as LayoutSemantics;
@@ -329,26 +321,18 @@ function semanticEffects(plan: ResolvedSemanticPlan): readonly PropertyEffect[] 
           state.activations.flatMap(activation =>
             state.tokens.flatMap((token, tokenIndex) => {
               if (token.properties.length === 0) return [];
-              const controlsDisplay = token.properties.some(property =>
-                cssPropertiesOverlap(property, 'display'),
-              );
+              const controlsDisplay = token.properties.some(property => cssPropertiesOverlap(property, 'display'));
               return [
-                makeEffect(
-                  plan,
-                  activation,
-                  token.properties,
-                  `class:${stateIndex}:${tokenIndex}:${token.source}`,
-                  {
-                    important: token.important,
-                    suppressible: true,
-                    display:
-                      token.display === undefined
-                        ? controlsDisplay
-                          ? { intent: 'unverified' }
-                          : undefined
-                        : displayIntent(token.display),
-                  },
-                ),
+                makeEffect(plan, activation, token.properties, `class:${stateIndex}:${tokenIndex}:${token.source}`, {
+                  important: token.important,
+                  suppressible: true,
+                  display:
+                    token.display === undefined
+                      ? controlsDisplay
+                        ? { intent: 'unverified' }
+                        : undefined
+                      : displayIntent(token.display),
+                }),
               ];
             }),
           ),
@@ -356,9 +340,7 @@ function semanticEffects(plan: ResolvedSemanticPlan): readonly PropertyEffect[] 
       : [];
     const retained = value.retainedTokens.flatMap((token, tokenIndex) => {
       if (token.properties.length === 0) return [];
-      const controlsDisplay = token.properties.some(property =>
-        cssPropertiesOverlap(property, 'display'),
-      );
+      const controlsDisplay = token.properties.some(property => cssPropertiesOverlap(property, 'display'));
       return [
         makeEffect(plan, { kind: 'base' }, token.properties, `retained:${tokenIndex}:${token.source}`, {
           important: token.important,
@@ -443,7 +425,8 @@ function sourceAuthorities(
       continue;
     }
     const parsed = parseLiteralStyleDeclarations(input.value);
-    const properties = parsed.status === 'parsed' ? parsed.declarations.map(declaration => declaration.property) : undefined;
+    const properties =
+      parsed.status === 'parsed' ? parsed.declarations.map(declaration => declaration.property) : undefined;
     authorities.push({
       input,
       family,
@@ -526,9 +509,7 @@ export class SemanticFamilyCompositionPlanner {
     inputPlans: readonly SemanticCompositionPlan[],
     context: SemanticConversionContext,
   ): readonly SemanticCompositionPlan[] {
-    const allEffects = inputPlans.flatMap(plan =>
-      plan.status === 'converted' ? semanticEffects(plan) : [],
-    );
+    const allEffects = inputPlans.flatMap(plan => (plan.status === 'converted' ? semanticEffects(plan) : []));
     const sources = sourceAuthorities(inputPlans, this.catalog, this.evidence);
     let plans = this.composeGeneratedProperties(inputPlans, allEffects, sources);
     plans = this.composeExtendedDisplayWithLayout(plans, allEffects, sources);
@@ -753,16 +734,15 @@ export class SemanticFamilyCompositionPlanner {
     let effects = this.activeEffects(plans, allEffects);
     const extendedDisplayFamilies = new Set(
       effects
-        .filter(effect =>
-          (effect.family === 'extended-class' || effect.family === 'extended-style') && effect.display !== undefined,
+        .filter(
+          effect =>
+            (effect.family === 'extended-class' || effect.family === 'extended-style') && effect.display !== undefined,
         )
         .map(effect => effect.family),
     );
     if (!visibilityResolved) {
-      return updatePlans(
-        plans,
-        extendedDisplayFamilies,
-        input => contextUnverified(input, 'The visibility family is unresolved and may override display.'),
+      return updatePlans(plans, extendedDisplayFamilies, input =>
+        contextUnverified(input, 'The visibility family is unresolved and may override display.'),
       );
     }
 
@@ -838,7 +818,7 @@ export class SemanticFamilyCompositionPlanner {
     effects = this.activeEffects(plans, allEffects);
     const existingDisplays = context.existingClassNames
       .map(className => this.evidence.classifyClassToken(className))
-      .flatMap(item => item.status === 'verified' && item.evidence.display !== undefined ? [item.evidence] : []);
+      .flatMap(item => (item.status === 'verified' && item.evidence.display !== undefined ? [item.evidence] : []));
     const responsiveStyleIsUnresolved = sources.some(source => {
       const current = plans.find(plan => plan.input.id === source.input.id);
       return source.family === 'extended-style' && current?.status !== 'converted' && source.mayControlDisplay;
@@ -855,9 +835,13 @@ export class SemanticFamilyCompositionPlanner {
       effect =>
         (effect.family === 'extended-class' || effect.family === 'extended-style') &&
         effect.display !== undefined &&
-        (effect.family === 'extended-style' || effect.important || !visibilityOwnsHiddenRange(activationRange(effect.activation))),
+        (effect.family === 'extended-style' ||
+          effect.important ||
+          !visibilityOwnsHiddenRange(activationRange(effect.activation))),
     );
-    const effectiveShownRanges = states.some(state => state.activation.kind === 'base') ? shownRanges : [{}, ...shownRanges];
+    const effectiveShownRanges = states.some(state => state.activation.kind === 'base')
+      ? shownRanges
+      : [{}, ...shownRanges];
     if (
       displayReason === undefined &&
       relevantExtended.some(
@@ -895,7 +879,10 @@ export class SemanticFamilyCompositionPlanner {
     });
     const existingRestoration = (() => {
       const descriptor = existingDisplays.length === 1 ? existingDisplays[0] : undefined;
-      return descriptor !== undefined && plainBaseDisplay(descriptor) && descriptor.display !== undefined && restorationDisplays.has(descriptor.display)
+      return descriptor !== undefined &&
+        plainBaseDisplay(descriptor) &&
+        descriptor.display !== undefined &&
+        restorationDisplays.has(descriptor.display)
         ? descriptor.display
         : undefined;
     })();
@@ -914,7 +901,8 @@ export class SemanticFamilyCompositionPlanner {
         );
         if (overlapping) return null;
         const exact = layoutDisplays.filter(display => sameActivation(display.activation, state.activation));
-        const applicable = exact.length > 0 ? exact : layoutDisplays.filter(display => display.activation.kind === 'base');
+        const applicable =
+          exact.length > 0 ? exact : layoutDisplays.filter(display => display.activation.kind === 'base');
         const displays = [...new Set(applicable.map(display => display.display))];
         return displays.length === 0 ? existingRestoration : displays.length === 1 ? displays[0] : null;
       });
@@ -971,9 +959,7 @@ export class SemanticFamilyCompositionPlanner {
           },
         };
       }
-      return layoutSuppressions
-        .filter(effect => effect.planId === plan.input.id)
-        .reduce(addSuppression, plan);
+      return layoutSuppressions.filter(effect => effect.planId === plan.input.id).reduce(addSuppression, plan);
     });
     return plans;
   }

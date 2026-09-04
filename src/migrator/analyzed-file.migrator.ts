@@ -45,10 +45,10 @@ export class AnalyzedFileMigrator {
       this.adapter,
       { responsiveImages: options.responsiveImages ?? false },
     );
-    return new DefaultCompatibilityEditValidator(this.dependencies.validationParser, this.destinationTemplates).validate(
-      this.template,
-      conversionPlan,
-    );
+    return new DefaultCompatibilityEditValidator(
+      this.dependencies.validationParser,
+      this.destinationTemplates,
+    ).validate(this.template, conversionPlan);
   }
 
   private planResult(changed: boolean, results: readonly ConversionResult[]): FileMigrationPlan {

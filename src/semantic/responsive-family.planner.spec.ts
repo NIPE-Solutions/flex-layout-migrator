@@ -46,7 +46,12 @@ const responsive = (
   value: string,
   breakpoint: string,
   binding: LocatedFlexLayoutInput['binding'] = 'literal',
-) => input(`${binding === 'property' ? `[${directive}.${breakpoint}]` : `${directive}.${breakpoint}`}`, value, { directive, binding, breakpoint });
+) =>
+  input(`${binding === 'property' ? `[${directive}.${breakpoint}]` : `${directive}.${breakpoint}`}`, value, {
+    directive,
+    binding,
+    breakpoint,
+  });
 
 interface FixturePlan extends ResponsiveOrchestrationPlan {
   readonly output?: string;
@@ -59,11 +64,7 @@ function converted(input: LocatedFlexLayoutInput, output: string): FixturePlan {
   return { status: 'converted', input, output };
 }
 
-function unresolved(
-  input: LocatedFlexLayoutInput,
-  code: string,
-  reason: string,
-): FixturePlan {
+function unresolved(input: LocatedFlexLayoutInput, code: string, reason: string): FixturePlan {
   return { status: 'review', input, code, reason, suggestion: 'migrate manually' };
 }
 
@@ -73,7 +74,8 @@ const policy: SemanticTargetPolicy<FixturePlan> = {
   validateActivation: plan => plan,
   isTargetEligibilityFailure: plan =>
     plan.status !== 'converted' && (plan.code === 'breakpoint-unverified' || plan.code === 'custom-breakpoint'),
-  sameOutput: (left, right) => left.status === 'converted' && right.status === 'converted' && left.output === right.output,
+  sameOutput: (left, right) =>
+    left.status === 'converted' && right.status === 'converted' && left.output === right.output,
   contextUnverified: (item, reason) => unresolved(item, 'context-unverified', reason),
   contextualOutputUnverified: item => unresolved(item, 'context-unverified', 'layout output differs'),
   responsivePrecedenceUnverified: item =>
@@ -106,11 +108,8 @@ describe('ResponsiveFamilyPlanner', () => {
       responsive('style', 'display:block', 'md'),
     ];
 
-    const plans = planner.plan(
-      members,
-      context,
-      planOne,
-      (family, familyMembers) => familyMembers.map(member => converted(member, family)),
+    const plans = planner.plan(members, context, planOne, (family, familyMembers) =>
+      familyMembers.map(member => converted(member, family)),
     );
 
     expect(plans).toEqual([
@@ -264,9 +263,7 @@ describe('ResponsiveFamilyPlanner', () => {
     const show = literal('fxShow', '');
     const hide = responsive('fxHide', '', 'sm');
     const plans = planner.closeDependencies([show, hide], context, item =>
-      item.id === show.id
-        ? unresolved(item, 'class-conflict', 'conflict')
-        : converted(item, 'hidden'),
+      item.id === show.id ? unresolved(item, 'class-conflict', 'conflict') : converted(item, 'hidden'),
     );
 
     expect(plans).toEqual([
@@ -285,8 +282,10 @@ describe('ResponsiveFamilyPlanner', () => {
       [dynamic.id, unresolved(dynamic, 'dynamic-binding', 'dynamic binding')],
     ]);
 
-    const plans = planner.closeDependencies([optional, custom, dynamic], context, item =>
-      existing.get(item.id) ?? planOne(item, context),
+    const plans = planner.closeDependencies(
+      [optional, custom, dynamic],
+      context,
+      item => existing.get(item.id) ?? planOne(item, context),
     );
 
     expect(plans).toEqual([

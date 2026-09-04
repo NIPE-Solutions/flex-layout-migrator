@@ -2,8 +2,16 @@ import * as path from 'node:path';
 import type { ConversionResult } from '../../analyzer/conversion-result';
 import { SourceEditor } from '../../edit/source-editor';
 import { fileMigrationResult, type FileMigrationResult } from '../../migrator/file-migration-result';
-import { nodeDestinationTemplateSource, type DestinationTemplateSource } from '../../migrator/destination-template-source';
-import { fileMigrationPlan, plannedOutputArtifact, type ArtifactState, type FileMigrationPlan } from '../../migrator/migration-plan';
+import {
+  nodeDestinationTemplateSource,
+  type DestinationTemplateSource,
+} from '../../migrator/destination-template-source';
+import {
+  fileMigrationPlan,
+  plannedOutputArtifact,
+  type ArtifactState,
+  type FileMigrationPlan,
+} from '../../migrator/migration-plan';
 import type { FilePlan } from '../../planner/conversion-planner';
 import { AngularTemplateParser } from '../../template/angular-template.parser';
 import type { TemplateParser } from '../analyze/template-parser.port';
@@ -66,7 +74,6 @@ export class DefaultCompatibilityEditValidator implements CompatibilityEditValid
       }),
     });
   }
-
 }
 
 async function originalState(

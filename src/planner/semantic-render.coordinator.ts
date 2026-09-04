@@ -26,10 +26,7 @@ function completeContext(
   };
 }
 
-function standaloneContextReason(
-  renderer: ConversionRenderer,
-  input: LocatedFlexLayoutInput,
-): string | undefined {
+function standaloneContextReason(renderer: ConversionRenderer, input: LocatedFlexLayoutInput): string | undefined {
   if (renderer.target !== 'tailwind' || !familyContextDirectives.has(input.directive)) return undefined;
   return input.directive === 'fxShow' || input.directive === 'fxHide'
     ? 'Visibility requires complete element-family context before conversion.'
@@ -107,7 +104,10 @@ export class SemanticRenderCoordinator {
   ): readonly PlannedConversion[] {
     return this.semanticPlanner.closeDependencies(
       plans,
-      completeContext(context, plans.map(plan => plan.input)),
+      completeContext(
+        context,
+        plans.map(plan => plan.input),
+      ),
       plansByInputId,
       this.renderer.sourcePropertyEvidence,
     );

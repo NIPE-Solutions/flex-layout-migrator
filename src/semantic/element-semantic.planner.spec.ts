@@ -272,10 +272,9 @@ describe('ElementSemanticPlanner', () => {
       renderer,
     );
 
-    expect(renderer.renderedPlans[0]?.activations.map(item => (item.kind === 'media' ? item.definition.alias : 'base'))).toEqual([
-      'md',
-      'print',
-    ]);
+    expect(
+      renderer.renderedPlans[0]?.activations.map(item => (item.kind === 'media' ? item.definition.alias : 'base')),
+    ).toEqual(['md', 'print']);
   });
 
   test('Tailwind conflict resolution cannot reparse poisoned sibling source', () => {

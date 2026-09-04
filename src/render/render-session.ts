@@ -5,18 +5,14 @@ import type { ConversionRenderer } from './conversion-renderer';
 import { TailwindRenderer } from './tailwind/tailwind.renderer';
 
 export type AdapterSessionResult =
-  | { readonly target: 'tailwind' }
-  | { readonly target: 'css'; readonly rules: readonly OwnedCssRule[] };
+  { readonly target: 'tailwind' } | { readonly target: 'css'; readonly rules: readonly OwnedCssRule[] };
 
 export interface RenderSession {
   readonly renderer: ConversionRenderer;
   finalize(): AdapterSessionResult;
 }
 
-export function sessionBoundRenderer(
-  renderer: ConversionRenderer,
-  assertActive: () => void,
-): ConversionRenderer {
+export function sessionBoundRenderer(renderer: ConversionRenderer, assertActive: () => void): ConversionRenderer {
   return Object.freeze({
     target: renderer.target,
     breakpointConfig: renderer.breakpointConfig,
@@ -25,10 +21,7 @@ export function sessionBoundRenderer(
       assertActive();
       return renderer.eligibility(input);
     },
-    render(
-      plan: Parameters<ConversionRenderer['render']>[0],
-      context: Parameters<ConversionRenderer['render']>[1],
-    ) {
+    render(plan: Parameters<ConversionRenderer['render']>[0], context: Parameters<ConversionRenderer['render']>[1]) {
       assertActive();
       return renderer.render(plan, context);
     },

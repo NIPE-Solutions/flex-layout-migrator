@@ -9,7 +9,10 @@ describe('DefaultCompatibilityEditValidator', () => {
     const parser = parserDouble();
     const read = vi.fn();
 
-    const plan = await new DefaultCompatibilityEditValidator(parser, { read }).validate(template('<div></div>'), emptyPlan());
+    const plan = await new DefaultCompatibilityEditValidator(parser, { read }).validate(
+      template('<div></div>'),
+      emptyPlan(),
+    );
 
     expect(plan).toEqual({
       file: {
@@ -39,7 +42,10 @@ describe('DefaultCompatibilityEditValidator', () => {
     });
     const read = vi.fn();
 
-    const plan = await new DefaultCompatibilityEditValidator(parser, { read }).validate(template('<div></div>'), replacementPlan());
+    const plan = await new DefaultCompatibilityEditValidator(parser, { read }).validate(
+      template('<div></div>'),
+      replacementPlan(),
+    );
 
     expect(plan.file).toEqual({
       inputPath: '/project/input.html',
@@ -77,7 +83,10 @@ describe('DefaultCompatibilityEditValidator', () => {
   test('records a distinct destination present state before replacing it', async () => {
     const read = vi.fn().mockResolvedValue('<main></main>');
 
-    const plan = await new DefaultCompatibilityEditValidator(parserDouble(), { read }).validate(template('<div></div>'), replacementPlan());
+    const plan = await new DefaultCompatibilityEditValidator(parserDouble(), { read }).validate(
+      template('<div></div>'),
+      replacementPlan(),
+    );
 
     expect(plan.artifact).toMatchObject({
       original: { status: 'present', contents: '<main></main>' },
@@ -89,7 +98,10 @@ describe('DefaultCompatibilityEditValidator', () => {
   test('records a distinct absent destination state before creating it', async () => {
     const read = vi.fn().mockRejectedValue(Object.assign(new Error('missing'), { code: 'ENOENT' }));
 
-    const plan = await new DefaultCompatibilityEditValidator(parserDouble(), { read }).validate(template('<div></div>'), replacementPlan());
+    const plan = await new DefaultCompatibilityEditValidator(parserDouble(), { read }).validate(
+      template('<div></div>'),
+      replacementPlan(),
+    );
 
     expect(plan.artifact).toMatchObject({
       original: { status: 'absent' },
@@ -102,7 +114,10 @@ describe('DefaultCompatibilityEditValidator', () => {
     const read = vi.fn().mockRejectedValue(readFailure);
 
     await expect(
-      new DefaultCompatibilityEditValidator(parserDouble(), { read }).validate(template('<div></div>'), replacementPlan()),
+      new DefaultCompatibilityEditValidator(parserDouble(), { read }).validate(
+        template('<div></div>'),
+        replacementPlan(),
+      ),
     ).rejects.toBe(readFailure);
   });
 });

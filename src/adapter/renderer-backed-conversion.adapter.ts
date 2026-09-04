@@ -24,10 +24,7 @@ export class RendererBackedConversionAdapter implements ConversionAdapter {
     return this.coordinator.plan(input, context);
   }
 
-  planElement(
-    inputs: readonly LocatedFlexLayoutInput[],
-    context: ConversionContext,
-  ): readonly PlannedConversion[] {
+  planElement(inputs: readonly LocatedFlexLayoutInput[], context: ConversionContext): readonly PlannedConversion[] {
     return this.coordinator.planElement(inputs, context);
   }
 

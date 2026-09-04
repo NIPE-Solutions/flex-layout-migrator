@@ -41,17 +41,27 @@ function normalizeProperty(property: string): NormalizedProperty | undefined {
 }
 
 function transformUpstreamRawList(value: string): ResponsiveStyleValueResult {
-  const rawDeclarations = String(value).trim().split(';').map(item => item.trim()).filter(Boolean);
+  const rawDeclarations = String(value)
+    .trim()
+    .split(';')
+    .map(item => item.trim())
+    .filter(Boolean);
   const declarationsByExactProperty = new Map<string, LiteralStyleDeclaration>();
   for (const rawDeclaration of rawDeclarations) {
     const [rawKey, ...rawValues] = rawDeclaration.split(':');
     if (rawValues.length === 0) {
-      return { status: 'unverified', reason: 'Upstream semicolon splitting produced a style entry without a property separator.' };
+      return {
+        status: 'unverified',
+        reason: 'Upstream semicolon splitting produced a style entry without a property separator.',
+      };
     }
     const property = (rawKey ?? '').replace(/['"]/gu, '').trim();
     const transformedValue = rawValues.join(':').replace(/['"]/gu, '').trim().replace(/;/u, '');
     if (!property || !transformedValue) {
-      return { status: 'unverified', reason: 'Upstream raw-string transformation produced an empty style key or value.' };
+      return {
+        status: 'unverified',
+        reason: 'Upstream raw-string transformation produced an empty style key or value.',
+      };
     }
     declarationsByExactProperty.set(property, { property, value: transformedValue });
   }
@@ -89,12 +99,14 @@ function normalizeDeclaration(
     sanitizerSensitiveFunction.test(declaration.value) ||
     targetBuildFunction.test(declaration.value) ||
     urlScheme.test(declaration.value)
-  ) return undefined;
-  const value = normalized.unit === undefined
-    ? declaration.value
-    : unitlessNumber.test(declaration.value)
-      ? `${declaration.value}${normalized.unit}`
-      : undefined;
+  )
+    return undefined;
+  const value =
+    normalized.unit === undefined
+      ? declaration.value
+      : unitlessNumber.test(declaration.value)
+        ? `${declaration.value}${normalized.unit}`
+        : undefined;
   if (value === undefined) return undefined;
   const result = { property: normalized.property, value };
   return evidence.classifyStyleDeclaration(result).status === 'verified' ? result : undefined;
@@ -126,9 +138,9 @@ export function parseLiteralResponsiveStyleValue(
   }
   const declarations = [...declarationsByProperty.values()];
   for (const [index, declaration] of declarations.entries()) {
-    const overlapping = declarations.slice(index + 1).find(candidate =>
-      cssPropertiesOverlap(declaration.property, candidate.property),
-    );
+    const overlapping = declarations
+      .slice(index + 1)
+      .find(candidate => cssPropertiesOverlap(declaration.property, candidate.property));
     if (overlapping !== undefined) {
       return {
         status: 'unverified',

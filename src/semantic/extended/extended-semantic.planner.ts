@@ -6,10 +6,7 @@ import { cssPropertiesOverlap } from '../css-property-ownership';
 import { parseLiteralStyleDeclarations } from '../literal-style-declaration';
 import type { SourceClassTokenEvidence, SourcePropertyEvidence } from '../source-property-evidence';
 import type { ExtendedFamilyPlan, ExtendedResponsiveState } from './responsive-class.model';
-import {
-  parseLiteralResponsiveClassValue,
-  type SemanticResponsiveClassValue,
-} from './responsive-class-value.parser';
+import { parseLiteralResponsiveClassValue, type SemanticResponsiveClassValue } from './responsive-class-value.parser';
 import type { ResponsiveStyleValue } from './responsive-style.model';
 import {
   parseLiteralResponsiveStyleValue,
@@ -40,8 +37,7 @@ export type ExtendedSemanticPlan =
   | { readonly status: 'unresolved'; readonly plans: readonly PlannedConversion[] };
 
 type AnyExtendedState =
-  | ExtendedResponsiveState<SemanticResponsiveClassValue>
-  | ExtendedResponsiveState<ResponsiveStyleValue>;
+  ExtendedResponsiveState<SemanticResponsiveClassValue> | ExtendedResponsiveState<ResponsiveStyleValue>;
 
 function boundClassAuthority(attribute: TemplateAttribute): boolean {
   if (attribute.binding !== 'property') return false;
@@ -83,8 +79,10 @@ function unsuffixedAuthority(
 }
 
 function equalClassValues(left: SemanticResponsiveClassValue, right: SemanticResponsiveClassValue): boolean {
-  return left.tokens.length === right.tokens.length &&
-    left.tokens.every((token, index) => token.source === right.tokens[index]?.source);
+  return (
+    left.tokens.length === right.tokens.length &&
+    left.tokens.every((token, index) => token.source === right.tokens[index]?.source)
+  );
 }
 
 function diagnostic(
@@ -232,9 +230,9 @@ export class ExtendedSemanticPlanner {
         'Remove or reconcile the bound style before migrating this family.',
       );
     }
-    const generatedProperties = new Set(states.flatMap(state =>
-      state.value.declarations.map(declaration => declaration.property),
-    ));
+    const generatedProperties = new Set(
+      states.flatMap(state => state.value.declarations.map(declaration => declaration.property)),
+    );
     if (hasOutput && this.literalStyleConflicts(attributes, generatedProperties)) {
       return this.unresolved(
         states,

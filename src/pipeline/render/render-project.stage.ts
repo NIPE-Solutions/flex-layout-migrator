@@ -6,10 +6,7 @@ import type { RenderSession } from '../../render/render-session';
 import type { AnalyzedTemplate, AnalyzedProject } from '../analyzed-project';
 import type { RenderStage } from '../migration-pipeline';
 import { renderedProject, type RenderedProject } from '../rendered-project';
-import {
-  DefaultCompatibilityEditValidator,
-  type CompatibilityEditValidator,
-} from './compatibility-edit.validator';
+import { DefaultCompatibilityEditValidator, type CompatibilityEditValidator } from './compatibility-edit.validator';
 
 export interface RenderTemplatePlanner {
   plan(
@@ -25,7 +22,13 @@ const defaultTemplatePlanner: RenderTemplatePlanner = Object.freeze({
     renderer: ConversionRenderer,
     options: ConversionPlanningOptions,
   ): FilePlan {
-    return new ConversionPlanner().plan(template.source, template.parseResult.elements, template.inputs, renderer, options);
+    return new ConversionPlanner().plan(
+      template.source,
+      template.parseResult.elements,
+      template.inputs,
+      renderer,
+      options,
+    );
   },
 });
 

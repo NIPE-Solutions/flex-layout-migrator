@@ -47,9 +47,7 @@ function compareText(left: string, right: string): number {
   return 0;
 }
 
-function canonicalStates<T>(
-  states: readonly ExtendedResponsiveState<T>[],
-): readonly ExtendedResponsiveState<T>[] {
+function canonicalStates<T>(states: readonly ExtendedResponsiveState<T>[]): readonly ExtendedResponsiveState<T>[] {
   return [...states].sort((left, right) => {
     const priority = right.activation.definition.priority - left.activation.definition.priority;
     if (priority) return priority;

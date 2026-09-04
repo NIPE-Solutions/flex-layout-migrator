@@ -53,12 +53,7 @@ const sharedDirectives = new Set<LocatedFlexLayoutInput['directive']>([
   'fxFlexOrder',
 ]);
 const visibilityDirectives = new Set<LocatedFlexLayoutInput['directive']>(['fxShow', 'fxHide']);
-const extendedDirectives = new Set<LocatedFlexLayoutInput['directive']>([
-  'class',
-  'ngClass',
-  'style',
-  'ngStyle',
-]);
+const extendedDirectives = new Set<LocatedFlexLayoutInput['directive']>(['class', 'ngClass', 'style', 'ngStyle']);
 const gridDirectives = new Set<LocatedFlexLayoutInput['directive']>([
   'gdAlignColumns',
   'gdAlignRows',
@@ -271,15 +266,21 @@ export class TailwindRenderer implements ConversionRenderer {
 
   private renderVisibility(plan: ResolvedSemanticPlan, value: VisibilitySemantics): PlannedConversion {
     const classNames = value.emit
-      ? [...new Set(value.states.flatMap(state => this.visibilityEmitter.emit({ ...state, input: plan.input }, value.restorationDisplay)))]
+      ? [
+          ...new Set(
+            value.states.flatMap(state =>
+              this.visibilityEmitter.emit({ ...state, input: plan.input }, value.restorationDisplay),
+            ),
+          ),
+        ]
       : [];
     return { status: 'converted', input: plan.input, classNames };
   }
 
   private renderExtendedClass(plan: ResolvedSemanticPlan, value: ExtendedClassSemantics): PlannedConversion {
     const classNames = value.emit
-      ? [...
-          new Set(
+      ? [
+          ...new Set(
             value.states.flatMap(state =>
               state.activations.flatMap(itemActivation => {
                 if (itemActivation.kind !== 'media') return [];
@@ -305,8 +306,8 @@ export class TailwindRenderer implements ConversionRenderer {
 
   private renderExtendedStyle(plan: ResolvedSemanticPlan, value: ExtendedStyleSemantics): PlannedConversion {
     const classNames = value.emit
-      ? [...
-          new Set(
+      ? [
+          ...new Set(
             value.states.flatMap(state =>
               state.activations.flatMap(itemActivation => {
                 if (itemActivation.kind !== 'media') return [];
@@ -323,10 +324,7 @@ export class TailwindRenderer implements ConversionRenderer {
     return { status: 'converted', input: plan.input, classNames: this.applySemanticSuppressions(classNames, plan) };
   }
 
-  private applySemanticSuppressions(
-    classNames: readonly string[],
-    plan: ResolvedSemanticPlan,
-  ): readonly string[] {
+  private applySemanticSuppressions(classNames: readonly string[], plan: ResolvedSemanticPlan): readonly string[] {
     if (!plan.suppressedProperties?.length && !plan.suppressedEffects?.length) return classNames;
     return classNames.filter(className => {
       const descriptor = describeTailwindUtility(className);
@@ -348,7 +346,8 @@ export class TailwindRenderer implements ConversionRenderer {
         }
         if (suppression.activation.kind === 'base') return descriptor.activation.kind === 'base';
         if (descriptor.activation.kind !== 'media') return false;
-        if ((descriptor.activation.mediaType ?? 'screen') !== suppression.activation.definition.media.type) return false;
+        if ((descriptor.activation.mediaType ?? 'screen') !== suppression.activation.definition.media.type)
+          return false;
         const descriptorActivation = descriptor.activation;
         return suppression.activation.definition.media.clauses.some(
           range =>

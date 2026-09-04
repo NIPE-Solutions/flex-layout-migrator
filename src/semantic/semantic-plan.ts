@@ -53,8 +53,7 @@ export type SemanticPlan<TValue> =
     };
 
 export type SemanticActivation =
-  | { readonly kind: 'base' }
-  | { readonly kind: 'media'; readonly definition: BreakpointDefinition };
+  { readonly kind: 'base' } | { readonly kind: 'media'; readonly definition: BreakpointDefinition };
 
 export interface VisibilitySemantics {
   readonly kind: 'visibility';
@@ -165,8 +164,6 @@ const familyByDirective = new Map<LocatedFlexLayoutInput['directive'], Directive
   ['gdRows', 'grid-rows'],
 ]);
 
-export function directiveFamily(
-  directive: LocatedFlexLayoutInput['directive'],
-): DirectiveFamily | undefined {
+export function directiveFamily(directive: LocatedFlexLayoutInput['directive']): DirectiveFamily | undefined {
   return familyByDirective.get(directive);
 }

@@ -1,9 +1,6 @@
 import type { LocatedFlexLayoutInput } from '../analyzer/flex-layout-attribute.analyzer';
 import type { PlannedConversion } from '../adapter/conversion-adapter';
-import {
-  BreakpointCatalog,
-  type BreakpointClassification,
-} from '../breakpoint/breakpoint-catalog';
+import { BreakpointCatalog, type BreakpointClassification } from '../breakpoint/breakpoint-catalog';
 import type { BreakpointMigrationConfig } from '../config/breakpoint-migration-config';
 import { planFlexAlignSemantics } from '../flex/flex-align.semantic';
 import { planFlexFillSemantics } from '../flex/flex-fill.semantic';
@@ -22,10 +19,7 @@ import type { SemanticConversionContext } from './conversion-context';
 import { cssPropertiesOverlap } from './css-property-ownership';
 import { ExtendedFamilyPlanner } from './extended/extended-family.planner';
 import { ExtendedSemanticPlanner } from './extended/extended-semantic.planner';
-import {
-  parseResponsiveClassValue,
-  type SemanticResponsiveClassValue,
-} from './extended/responsive-class-value.parser';
+import { parseResponsiveClassValue, type SemanticResponsiveClassValue } from './extended/responsive-class-value.parser';
 import type { ResponsiveStyleValue } from './extended/responsive-style.model';
 import { parseResponsiveStyleValue } from './extended/responsive-style-value.parser';
 import { SemanticFamilyCompositionPlanner } from './semantic-family-composition.planner';
@@ -39,10 +33,7 @@ import {
   type SemanticActivation,
   type VisibilitySemantics,
 } from './semantic-plan';
-import {
-  type SourcePropertyEvidence,
-  unknownSourcePropertyEvidence,
-} from './source-property-evidence';
+import { type SourcePropertyEvidence, unknownSourcePropertyEvidence } from './source-property-evidence';
 import { VisibilityStatePlanner } from './visibility/visibility-state.planner';
 import { parseVisibilityValue } from './visibility/visibility-value.parser';
 
@@ -274,7 +265,9 @@ function semanticPolicy(
     },
     isTargetEligibilityFailure: plan =>
       plan.status !== 'converted' &&
-      (plan.code === 'target-unsupported' || plan.code === 'breakpoint-unverified' || plan.code === 'custom-breakpoint'),
+      (plan.code === 'target-unsupported' ||
+        plan.code === 'breakpoint-unverified' ||
+        plan.code === 'custom-breakpoint'),
     sameOutput: sameSemanticOutput,
     contextUnverified,
     contextualOutputUnverified: input =>
@@ -301,8 +294,10 @@ function semanticPolicy(
 }
 
 function equalClassValues(left: SemanticResponsiveClassValue, right: SemanticResponsiveClassValue): boolean {
-  return left.tokens.length === right.tokens.length &&
-    left.tokens.every((token, index) => token.source === right.tokens[index]?.source);
+  return (
+    left.tokens.length === right.tokens.length &&
+    left.tokens.every((token, index) => token.source === right.tokens[index]?.source)
+  );
 }
 
 function equalStyleValues(left: ResponsiveStyleValue, right: ResponsiveStyleValue): boolean {
@@ -316,23 +311,25 @@ function equalStyleValues(left: ResponsiveStyleValue, right: ResponsiveStyleValu
   );
 }
 
-function extendedMayControlDisplay(
-  input: LocatedFlexLayoutInput,
-  evidence: SourcePropertyEvidence,
-): boolean {
+function extendedMayControlDisplay(input: LocatedFlexLayoutInput, evidence: SourcePropertyEvidence): boolean {
   if (input.binding !== 'literal') return true;
   if (extendedStyleDirectives.has(input.directive)) {
     const parsed = parseLiteralStyleDeclarations(input.value);
-    return parsed.status === 'unverified' || parsed.declarations.some(declaration =>
-      cssPropertiesOverlap(declaration.property, 'display'),
+    return (
+      parsed.status === 'unverified' ||
+      parsed.declarations.some(declaration => cssPropertiesOverlap(declaration.property, 'display'))
     );
   }
-  return input.value.split(/\s+/u).filter(Boolean).some(token => {
-    const classification = evidence.classifyClassToken(token);
-    return classification.status === 'unverified' || classification.evidence.properties.some(property =>
-      cssPropertiesOverlap(property, 'display'),
-    );
-  });
+  return input.value
+    .split(/\s+/u)
+    .filter(Boolean)
+    .some(token => {
+      const classification = evidence.classifyClassToken(token);
+      return (
+        classification.status === 'unverified' ||
+        classification.evidence.properties.some(property => cssPropertiesOverlap(property, 'display'))
+      );
+    });
 }
 
 function hasLiteralGridParentClass(context: SemanticConversionContext): boolean {
@@ -408,9 +405,7 @@ export class ElementSemanticPlanner {
       renderer.sourcePropertyEvidence ?? unknownSourcePropertyEvidence,
     ).compose(closed, completeContext);
 
-    return closed.map(plan =>
-      plan.status === 'converted' ? renderer.render(plan, completeContext) : plan,
-    );
+    return closed.map(plan => (plan.status === 'converted' ? renderer.render(plan, completeContext) : plan));
   }
 
   closeDependencies(
@@ -478,10 +473,7 @@ export class ElementSemanticPlanner {
     };
   }
 
-  private planFlexItem(
-    input: LocatedFlexLayoutInput,
-    context: SemanticConversionContext,
-  ): SemanticPlanningPlan {
+  private planFlexItem(input: LocatedFlexLayoutInput, context: SemanticConversionContext): SemanticPlanningPlan {
     const flexInputs = context.inputs.filter(item => flexItemDirectives.has(item.directive));
     const atBreakpoint = (directive: LocatedFlexLayoutInput['directive']) =>
       flexInputs.filter(item => item.directive === directive && item.breakpoint === input.breakpoint);
@@ -517,10 +509,7 @@ export class ElementSemanticPlanner {
     );
   }
 
-  private planGrid(
-    input: LocatedFlexLayoutInput,
-    context: SemanticConversionContext,
-  ): SemanticPlanningPlan {
+  private planGrid(input: LocatedFlexLayoutInput, context: SemanticConversionContext): SemanticPlanningPlan {
     const parsed = parseGridValue(input);
     if (parsed.status === 'review') {
       return {
@@ -595,7 +584,11 @@ export class ElementSemanticPlanner {
       const eligibility = new Map(familyInputs.map(input => [input.id, rendererEligibility(renderer, input)]));
       if ([...eligibility.values()].some(plan => plan !== undefined)) {
         for (const input of familyInputs) {
-          plansById.set(input.id, eligibility.get(input.id) ?? contextUnverified(input, 'Another member of this responsive family is unresolved.'));
+          plansById.set(
+            input.id,
+            eligibility.get(input.id) ??
+              contextUnverified(input, 'Another member of this responsive family is unresolved.'),
+          );
         }
         continue;
       }
@@ -636,10 +629,7 @@ export class ElementSemanticPlanner {
         }
         const printOwner = configuredPrintOwner(familyInputs, catalog);
         const states = familyPlan.states.map(state => ({
-          activations: [
-            state.activation,
-            ...(printOwner?.inputId === state.input.id ? [printOwner.activation] : []),
-          ],
+          activations: [state.activation, ...(printOwner?.inputId === state.input.id ? [printOwner.activation] : [])],
           tokens: state.value.tokens,
         }));
         for (const input of familyInputs) {
@@ -647,9 +637,10 @@ export class ElementSemanticPlanner {
             ...resolved(input, {
               kind: 'extended-class',
               emit: decision.ownerInputId === input.id,
-              retainedTokens: decision.ownerInputId === undefined && input.id === familyPlan.states[0]?.input.id
-                ? decision.retainedTokens
-                : [],
+              retainedTokens:
+                decision.ownerInputId === undefined && input.id === familyPlan.states[0]?.input.id
+                  ? decision.retainedTokens
+                  : [],
               states,
             }),
             activations: [],
@@ -693,10 +684,7 @@ export class ElementSemanticPlanner {
       }
       const printOwner = configuredPrintOwner(familyInputs, catalog);
       const states = familyPlan.states.map(state => ({
-        activations: [
-          state.activation,
-          ...(printOwner?.inputId === state.input.id ? [printOwner.activation] : []),
-        ],
+        activations: [state.activation, ...(printOwner?.inputId === state.input.id ? [printOwner.activation] : [])],
         declarations: state.value.declarations,
       }));
       for (const input of familyInputs) {
@@ -720,12 +708,12 @@ export class ElementSemanticPlanner {
     renderer: ConversionRenderer,
     responsive: ResponsiveFamilyPlanner<SemanticPlanningPlan>,
   ): readonly SemanticPlanningPlan[] {
-    const responsiveInputs = plans
-      .map(plan => plan.input)
-      .filter(input => !extendedDirectives.has(input.directive));
+    const responsiveInputs = plans.map(plan => plan.input).filter(input => !extendedDirectives.has(input.directive));
     const current = new Map(plans.map(plan => [plan.input.id, plan]));
-    const closed = responsive.closeDependencies(responsiveInputs, context, (input, itemContext) =>
-      current.get(input.id) ?? this.planOne(input, itemContext, renderer),
+    const closed = responsive.closeDependencies(
+      responsiveInputs,
+      context,
+      (input, itemContext) => current.get(input.id) ?? this.planOne(input, itemContext, renderer),
     );
     const closedById = new Map(closed.map(plan => [plan.input.id, plan]));
     return plans.map(plan => closedById.get(plan.input.id) ?? plan);
@@ -748,7 +736,8 @@ export class ElementSemanticPlanner {
           (plan.value as VisibilitySemantics).states.every(state => state.intent === 'shown'),
       );
     if ((!layoutPlans.length && !authorityPlans.length) || !visibilityPlans.length || visibilityIsNoOp) return plans;
-    if (![...layoutPlans, ...visibilityPlans, ...authorityPlans].some(plan => plan.status !== 'converted')) return plans;
+    if (![...layoutPlans, ...visibilityPlans, ...authorityPlans].some(plan => plan.status !== 'converted'))
+      return plans;
 
     const affected = new Set([...layoutPlans, ...visibilityPlans, ...authorityPlans].map(plan => plan.input.id));
     return plans.map(plan =>
@@ -756,9 +745,7 @@ export class ElementSemanticPlanner {
     );
   }
 
-  private closeGridContainerDependencies(
-    plans: readonly SemanticPlanningPlan[],
-  ): readonly SemanticPlanningPlan[] {
+  private closeGridContainerDependencies(plans: readonly SemanticPlanningPlan[]): readonly SemanticPlanningPlan[] {
     const containerPlans = plans.filter(
       plan => gridContainerDirectives.has(plan.input.directive) || plan.input.directive === 'gdInline',
     );
@@ -771,9 +758,7 @@ export class ElementSemanticPlanner {
     );
   }
 
-  private assignGridDisplayOwnership(
-    plans: readonly SemanticPlanningPlan[],
-  ): readonly SemanticPlanningPlan[] {
+  private assignGridDisplayOwnership(plans: readonly SemanticPlanningPlan[]): readonly SemanticPlanningPlan[] {
     const hasBaseInline = plans.some(
       plan => plan.status === 'converted' && plan.input.directive === 'gdInline' && plan.input.breakpoint === undefined,
     );
@@ -838,11 +823,10 @@ export class ElementSemanticPlanner {
     );
     const visibilityIsNoOp =
       visibilityPlans.length > 0 &&
-      visibilityPlans.every(
-        plan => plan.status === 'converted' && parseVisibilityValue(plan.input) === 'shown',
-      );
+      visibilityPlans.every(plan => plan.status === 'converted' && parseVisibilityValue(plan.input) === 'shown');
     if ((!layoutPlans.length && !authorityPlans.length) || !visibilityPlans.length || visibilityIsNoOp) return plans;
-    if (![...layoutPlans, ...visibilityPlans, ...authorityPlans].some(plan => plan.status !== 'converted')) return plans;
+    if (![...layoutPlans, ...visibilityPlans, ...authorityPlans].some(plan => plan.status !== 'converted'))
+      return plans;
     const affected = new Set([...layoutPlans, ...visibilityPlans, ...authorityPlans].map(plan => plan.input.id));
     return plans.map(plan =>
       plan.status === 'converted' && affected.has(plan.input.id) ? displayContextUnverified(plan.input) : plan,
