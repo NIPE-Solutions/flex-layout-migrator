@@ -17,6 +17,7 @@ export function sessionBoundAdapter(adapter: ConversionAdapter, assertActive: ()
   return Object.freeze({
     name: adapter.name,
     target: adapter.target,
+    breakpointConfig: adapter.breakpointConfig,
     plan(input: AdapterInput, context: ConversionContext): PlannedConversion {
       assertActive();
       return adapter.plan(input, context);

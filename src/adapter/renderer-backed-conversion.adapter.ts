@@ -1,90 +1,39 @@
 import type { LocatedFlexLayoutInput } from '../analyzer/flex-layout-attribute.analyzer';
+import { SemanticRenderCoordinator } from '../planner/semantic-render.coordinator';
 import type { ConversionRenderer } from '../render/conversion-renderer';
 import type { SemanticConversionContext } from '../semantic/conversion-context';
-import { ElementSemanticPlanner } from '../semantic/element-semantic.planner';
 import type { ConversionAdapter, ConversionContext, PlannedConversion } from './conversion-adapter';
-
-type StandaloneContextReason = (input: LocatedFlexLayoutInput) => string | undefined;
-
-function completeContext(
-  context: ConversionContext,
-  inputs: readonly LocatedFlexLayoutInput[],
-): SemanticConversionContext {
-  return {
-    ...context,
-    inputs,
-    parentInputs: context.parentInputs ?? [],
-    existingClassNames: context.existingClassNames ?? [],
-    attributeEvidence: context.attributeEvidence ?? context.element.attributes,
-  };
-}
-
-function contextUnverified(input: LocatedFlexLayoutInput, reason: string): PlannedConversion {
-  return {
-    status: 'review',
-    input,
-    code: 'context-unverified',
-    reason,
-    suggestion: 'Migrate the complete layout and visibility context together manually.',
-  };
-}
 
 /** Shared forwarding shell retained only for pre-Slice-8 adapter compatibility. */
 export class RendererBackedConversionAdapter implements ConversionAdapter {
   readonly name: 'css' | 'tailwind';
   readonly target: 'css' | 'tailwind';
-  private readonly semanticPlanner = new ElementSemanticPlanner();
+  readonly breakpointConfig;
+  private readonly coordinator: SemanticRenderCoordinator;
 
-  constructor(
-    protected readonly delegate: ConversionRenderer,
-    private readonly standaloneContextReason: StandaloneContextReason = () => undefined,
-  ) {
+  constructor(protected readonly delegate: ConversionRenderer) {
     this.name = delegate.target;
     this.target = delegate.target;
+    this.breakpointConfig = delegate.breakpointConfig;
+    this.coordinator = new SemanticRenderCoordinator(delegate);
   }
 
   plan(input: LocatedFlexLayoutInput, context: ConversionContext): PlannedConversion {
-    const inputs = context.inputs?.length ? context.inputs : [input];
-    const semanticContext = completeContext(context, inputs);
-    const reason = this.standaloneContextReason(input);
-    const plan =
-      reason === undefined
-        ? this.semanticPlanner.planInput(input, semanticContext, this.delegate)
-        : this.planElement(inputs, semanticContext).find(candidate => candidate.input.id === input.id);
-    if (!plan) throw new Error(`${this.name} adapter did not plan input ${input.id}`);
-    this.delegate.record([plan]);
-    return reason !== undefined && plan.status === 'converted' ? contextUnverified(input, reason) : plan;
+    return this.coordinator.plan(input, context);
   }
 
   planElement(
     inputs: readonly LocatedFlexLayoutInput[],
     context: ConversionContext,
   ): readonly PlannedConversion[] {
-    const semanticContext = completeContext(context, inputs);
-    const plans = this.semanticPlanner.plan(inputs, semanticContext, this.delegate);
-    const resolved = this.delegate.resolveConflicts(plans, semanticContext);
-    this.delegate.record(resolved);
-    return resolved;
+    return this.coordinator.planElement(inputs, context);
   }
 
   resolveClassConflicts(
     plans: readonly PlannedConversion[],
     existingClassNames: readonly string[],
   ): readonly PlannedConversion[] {
-    return this.delegate.resolveConflicts(plans, {
-      element: {
-        id: `${this.name}-adapter-compatibility`,
-        name: 'div',
-        source: { start: 0, end: 0 },
-        startTag: { start: 0, end: 0 },
-        structural: false,
-        attributes: [],
-      },
-      inputs: plans.map(plan => plan.input),
-      parentInputs: [],
-      existingClassNames,
-      attributeEvidence: [],
-    });
+    return this.coordinator.resolveClassConflicts(plans, existingClassNames);
   }
 
   closePlanDependencies(
@@ -92,11 +41,7 @@ export class RendererBackedConversionAdapter implements ConversionAdapter {
     context: ConversionContext,
     plansByInputId: ReadonlyMap<string, PlannedConversion>,
   ): readonly PlannedConversion[] {
-    return this.semanticPlanner.closeDependencies(
-      plans,
-      completeContext(context, plans.map(plan => plan.input)),
-      plansByInputId,
-    );
+    return this.coordinator.closeDependencies(plans, context, plansByInputId);
   }
 
   acceptPlans(plans: readonly PlannedConversion[]): void {

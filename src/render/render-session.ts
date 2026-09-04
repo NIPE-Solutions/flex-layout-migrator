@@ -19,6 +19,7 @@ export function sessionBoundRenderer(
 ): ConversionRenderer {
   return Object.freeze({
     target: renderer.target,
+    breakpointConfig: renderer.breakpointConfig,
     eligibility(input: Parameters<ConversionRenderer['eligibility']>[0]) {
       assertActive();
       return renderer.eligibility(input);
@@ -76,10 +77,11 @@ export class TailwindRenderSession extends SingleUseRenderSession {
 
 export class CssRenderSession extends SingleUseRenderSession {
   readonly renderer: ConversionRenderer;
-  private readonly cssRenderer = new CssRenderer();
+  private readonly cssRenderer: CssRenderer;
 
-  constructor(_config: BreakpointMigrationConfig = { orientationBreakpoints: false }) {
+  constructor(config: BreakpointMigrationConfig = { orientationBreakpoints: false }) {
     super();
+    this.cssRenderer = new CssRenderer(undefined, config);
     this.renderer = sessionBoundRenderer(this.cssRenderer, () => this.assertActive());
   }
 

@@ -1,5 +1,6 @@
 import type { LocatedFlexLayoutInput } from '../analyzer/flex-layout-attribute.analyzer';
 import type { PlannedConversion } from '../adapter/conversion-adapter';
+import type { BreakpointMigrationConfig } from '../config/breakpoint-migration-config';
 import type { SemanticConversionContext } from '../semantic/conversion-context';
 import type { ResolvedSemanticPlan } from '../semantic/semantic-plan';
 
@@ -11,6 +12,7 @@ export interface RenderedConversion {
 
 export interface ConversionRenderer {
   readonly target: 'tailwind' | 'css';
+  readonly breakpointConfig?: BreakpointMigrationConfig;
   eligibility(input: LocatedFlexLayoutInput): PlannedConversion | undefined;
   render(plan: ResolvedSemanticPlan, context: SemanticConversionContext): PlannedConversion;
   resolveConflicts(

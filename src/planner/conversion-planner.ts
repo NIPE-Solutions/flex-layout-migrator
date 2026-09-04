@@ -11,6 +11,7 @@ import { PictureRenderer } from '../image/picture.renderer';
 import type { ConversionRenderer } from '../render/conversion-renderer';
 import type { SemanticConversionContext } from '../semantic/conversion-context';
 import { ElementSemanticPlanner } from '../semantic/element-semantic.planner';
+import { SemanticRenderCoordinator } from './semantic-render.coordinator';
 
 export interface FilePlan {
   readonly edits: readonly SourceEdit[];
@@ -90,8 +91,9 @@ export class ConversionPlanner {
     inputs: readonly LocatedFlexLayoutInput[],
     renderer: ConversionRenderer,
     options: ConversionPlanningOptions = { responsiveImages: false },
-    semanticPlanner: ElementSemanticPlanner = new ElementSemanticPlanner(),
+    semanticPlanner: ElementSemanticPlanner = new ElementSemanticPlanner(renderer.breakpointConfig),
   ): FilePlan {
+    const coordinator = new SemanticRenderCoordinator(renderer, semanticPlanner);
     const elementById = new Map(elements.map(element => [element.id, element]));
     const inputsByElementId = new Map<string, LocatedFlexLayoutInput[]>();
     for (const input of inputs) {
@@ -123,8 +125,7 @@ export class ConversionPlanner {
           ? { parent, parentInputs: inputsByElementId.get(parent.id) ?? [] }
           : { parentInputs: [] as readonly LocatedFlexLayoutInput[] }),
       };
-      let plans = semanticPlanner.plan(elementInputs, context, renderer);
-      plans = renderer.resolveConflicts(plans, context);
+      let plans = coordinator.planElement(elementInputs, context, false);
       const hasBoundClass = element.attributes.some(isBoundClassAttribute);
       if (hasBoundClass) {
         plans = plans.map(plan =>
@@ -140,7 +141,7 @@ export class ConversionPlanner {
       const plans = plansByElementId.get(element.id);
       const context = contextsByElementId.get(element.id);
       if (!plans || !context) continue;
-      const closedPlans = semanticPlanner.closeDependencies(plans, context, plansByInputId);
+      const closedPlans = coordinator.closeDependencies(plans, context, plansByInputId);
       for (const planned of closedPlans) plansByInputId.set(planned.input.id, planned);
     }
 

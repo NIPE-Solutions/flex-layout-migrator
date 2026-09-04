@@ -56,21 +56,53 @@ export type SemanticActivation =
   | { readonly kind: 'media'; readonly definition: BreakpointDefinition };
 
 export interface VisibilitySemantics {
+  readonly kind: 'visibility';
+  readonly emit: boolean;
+  readonly states: readonly VisibilitySemanticState[];
+  readonly restorationDisplay?: string;
+}
+
+export interface VisibilitySemanticState {
   readonly intent: 'shown' | 'hidden';
+  readonly activation: SemanticActivation;
+}
+
+export interface ExtendedClassSemanticState {
+  readonly activations: readonly SemanticActivation[];
+  readonly tokens: readonly string[];
 }
 
 export interface ExtendedClassSemantics {
   readonly kind: 'extended-class';
-  readonly source: string;
+  readonly emit: boolean;
+  readonly states: readonly ExtendedClassSemanticState[];
+  readonly retainedTokens: readonly string[];
+}
+
+export interface ExtendedStyleDeclaration {
+  readonly property: string;
+  readonly value: string;
+}
+
+export interface ExtendedStyleSemanticState {
+  readonly activations: readonly SemanticActivation[];
+  readonly declarations: readonly ExtendedStyleDeclaration[];
 }
 
 export interface ExtendedStyleSemantics {
   readonly kind: 'extended-style';
-  readonly source: string;
+  readonly emit: boolean;
+  readonly states: readonly ExtendedStyleSemanticState[];
 }
 
 export interface EmptySemantics {
   readonly kind: 'empty';
+}
+
+export interface SuppressedSemanticEffect {
+  readonly activation: SemanticActivation;
+  readonly properties: readonly string[];
+  readonly important: boolean;
 }
 
 export type ResolvedSemanticValue =
@@ -95,6 +127,9 @@ export interface ResolvedSemanticPlan {
   readonly family: DirectiveFamily;
   readonly value: ResolvedSemanticValue;
   readonly activations: readonly SemanticActivation[];
+  readonly suppressedProperties?: readonly string[];
+  readonly suppressedEffects?: readonly SuppressedSemanticEffect[];
+  readonly emitGridDisplay?: boolean;
 }
 
 const familyByDirective = new Map<LocatedFlexLayoutInput['directive'], DirectiveFamily>([

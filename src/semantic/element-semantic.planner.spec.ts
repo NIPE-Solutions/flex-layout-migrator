@@ -172,6 +172,133 @@ const sharedFamilyCases: readonly SharedFamilyCase[] = [
 ];
 
 describe('ElementSemanticPlanner', () => {
+  test('resolves visibility and extended-family source into semantic states before renderer entry', () => {
+    const inputs = [
+      input({ id: 'fixture:hide', directive: 'fxHide', sourceName: 'fxHide', value: 'true' }),
+      input({
+        id: 'fixture:class',
+        directive: 'ngClass',
+        sourceName: 'ngClass.md',
+        value: 'block flex-row',
+        breakpoint: 'md',
+      }),
+      input({
+        id: 'fixture:style',
+        directive: 'ngStyle',
+        sourceName: 'ngStyle.lg',
+        value: 'display: grid; color: red',
+        breakpoint: 'lg',
+      }),
+    ];
+    const renderer = new RecordingRenderer();
+
+    const planner = new ElementSemanticPlanner();
+    for (const member of inputs) planner.plan([member], context([member]), renderer);
+
+    expect(renderer.renderedPlans.map(plan => plan.value)).toEqual([
+      {
+        kind: 'visibility',
+        emit: true,
+        states: [{ activation: { kind: 'base' }, intent: 'hidden' }],
+      },
+      {
+        kind: 'extended-class',
+        emit: true,
+        retainedTokens: [],
+        states: [
+          {
+            activations: [expect.objectContaining({ kind: 'media' })],
+            tokens: ['block', 'flex-row'],
+          },
+        ],
+      },
+      {
+        kind: 'extended-style',
+        emit: true,
+        states: [
+          {
+            activations: [expect.objectContaining({ kind: 'media' })],
+            declarations: [
+              { property: 'display', value: 'grid' },
+              { property: 'color', value: 'red' },
+            ],
+          },
+        ],
+      },
+    ]);
+    expect(renderer.renderedPlans.some(plan => 'source' in plan.value)).toBe(false);
+  });
+
+  test('resolves cross-family display ownership before either family enters the renderer', () => {
+    const inputs = [
+      input({ sourceName: 'fxLayout.sm', breakpoint: 'sm' }),
+      input({
+        id: 'fixture:class',
+        directive: 'ngClass',
+        sourceName: 'ngClass.sm',
+        value: 'hidden',
+        breakpoint: 'sm',
+      }),
+    ];
+    const renderer = new RecordingRenderer();
+
+    new ElementSemanticPlanner().plan(inputs, context(inputs), renderer);
+
+    expect(renderer.renderedPlans).toHaveLength(2);
+    expect(renderer.renderedPlans.find(plan => plan.family === 'extended-class')).toMatchObject({
+      suppressedEffects: [
+        {
+          activation: expect.objectContaining({ kind: 'media' }),
+          important: false,
+          properties: ['display'],
+        },
+      ],
+    });
+  });
+
+  test('selects configured print activation before renderer entry', () => {
+    const member = input({ breakpoint: 'md', sourceName: 'fxLayout.md', value: 'column' });
+    const renderer = new RecordingRenderer();
+
+    new ElementSemanticPlanner({ orientationBreakpoints: false, printWithBreakpoints: ['md'] }).plan(
+      [member],
+      context([member]),
+      renderer,
+    );
+
+    expect(renderer.renderedPlans[0]?.activations.map(item => (item.kind === 'media' ? item.definition.alias : 'base'))).toEqual([
+      'md',
+      'print',
+    ]);
+  });
+
+  test('Tailwind conflict resolution cannot reparse poisoned sibling source', () => {
+    const member = input({
+      id: 'fixture:class',
+      directive: 'ngClass',
+      sourceName: 'ngClass.md',
+      value: 'block flex-row',
+      breakpoint: 'md',
+    });
+    const renderer = new TailwindRenderer();
+    const planned = new ElementSemanticPlanner().plan([member], context([member]), renderer);
+    const poisoned = { ...member, value: 'application-plugin-class' };
+
+    const resolved = renderer.resolveConflicts(planned, context([poisoned]));
+
+    expect(planned).toEqual([
+      {
+        status: 'converted',
+        input: member,
+        classNames: [
+          '[@media_screen_and_(min-width:_960px)_and_(max-width:_1279.98px)]:block',
+          '[@media_screen_and_(min-width:_960px)_and_(max-width:_1279.98px)]:flex-row',
+        ],
+      },
+    ]);
+    expect(resolved).toEqual(planned);
+  });
+
   test('closes semantic dependencies before rendering target output', () => {
     const inputs = [
       input(),

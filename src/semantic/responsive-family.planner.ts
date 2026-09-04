@@ -6,7 +6,7 @@ import {
   type MediaRange,
 } from '../breakpoint/breakpoint-catalog';
 import type { SemanticConversionContext } from './conversion-context';
-import type { DirectiveFamily } from './semantic-plan';
+import { directiveFamily, type DirectiveFamily } from './semantic-plan';
 
 export type { DirectiveFamily } from './semantic-plan';
 
@@ -38,38 +38,6 @@ export interface SemanticTargetPolicy<TPlan extends ResponsiveOrchestrationPlan>
   decorate(plan: TPlan): TPlan;
   addPrintFallback(plan: TPlan): TPlan;
 }
-
-const familyByDirective = new Map<LocatedFlexLayoutInput['directive'], DirectiveFamily>([
-  ['fxLayout', 'layout'],
-  ['fxLayoutGap', 'layout-gap'],
-  ['fxLayoutAlign', 'layout-align'],
-  ['fxFlex', 'flex-item'],
-  ['fxGrow', 'flex-item'],
-  ['fxShrink', 'flex-item'],
-  ['fxFlexAlign', 'flex-align'],
-  ['fxFlexFill', 'flex-fill'],
-  ['fxFill', 'flex-fill'],
-  ['fxFlexOffset', 'flex-offset'],
-  ['fxFlexOrder', 'flex-order'],
-  ['fxShow', 'visibility'],
-  ['fxHide', 'visibility'],
-  ['class', 'extended-class'],
-  ['ngClass', 'extended-class'],
-  ['style', 'extended-style'],
-  ['ngStyle', 'extended-style'],
-  ['gdAlignColumns', 'grid-align-columns'],
-  ['gdAlignRows', 'grid-align-rows'],
-  ['gdArea', 'grid-area'],
-  ['gdAreas', 'grid-areas'],
-  ['gdAuto', 'grid-auto'],
-  ['gdColumn', 'grid-column'],
-  ['gdColumns', 'grid-columns'],
-  ['gdGap', 'grid-gap'],
-  ['gdGridAlign', 'grid-align'],
-  ['gdInline', 'grid-inline'],
-  ['gdRow', 'grid-row'],
-  ['gdRows', 'grid-rows'],
-]);
 
 const localLayoutDependents = new Set<DirectiveFamily>(['layout-gap', 'layout-align']);
 const parentLayoutDependents = new Set<DirectiveFamily>(['flex-item', 'flex-offset']);
@@ -179,7 +147,7 @@ export class ResponsiveFamilyPlanner<TPlan extends ResponsiveOrchestrationPlan> 
     const groups = new Map<DirectiveFamily, LocatedFlexLayoutInput[]>();
     const ungrouped: LocatedFlexLayoutInput[] = [];
     for (const input of inputs) {
-      const family = familyByDirective.get(input.directive);
+      const family = directiveFamily(input.directive);
       if (!family) {
         ungrouped.push(input);
         continue;

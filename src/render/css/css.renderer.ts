@@ -1,5 +1,6 @@
 import type { LocatedFlexLayoutInput } from '../../analyzer/flex-layout-attribute.analyzer';
-import { BreakpointCatalog } from '../../breakpoint/breakpoint-catalog';
+import { DEFAULT_BREAKPOINTS } from '../../analyzer/flex-layout.catalog';
+import type { BreakpointMigrationConfig } from '../../config/breakpoint-migration-config';
 import type { FlexAlignSemantics } from '../../flex/flex-align.semantic';
 import type { FlexFillSemantics } from '../../flex/flex-fill.semantic';
 import type { FlexItemSemantics } from '../../flex/flex-item.semantic';
@@ -35,6 +36,7 @@ const supportedFamilies = new Set<CssSemanticFamily>([
   'flex-offset',
   'flex-order',
 ]);
+const supportedBreakpoints = new Set<string>(DEFAULT_BREAKPOINTS);
 
 function targetUnsupported(input: LocatedFlexLayoutInput): PlannedConversion {
   return {
@@ -48,17 +50,20 @@ function targetUnsupported(input: LocatedFlexLayoutInput): PlannedConversion {
 
 export class CssRenderer implements ConversionRenderer {
   readonly target = 'css' as const;
-  private readonly breakpointCatalog = new BreakpointCatalog();
+  readonly breakpointConfig: BreakpointMigrationConfig;
   private readonly referencedClassNamesByInputId = new Map<string, readonly string[]>();
 
-  constructor(readonly registry: CssArtifactRegistry = new CssArtifactRegistry()) {}
+  constructor(
+    readonly registry: CssArtifactRegistry = new CssArtifactRegistry(),
+    config: BreakpointMigrationConfig = { orientationBreakpoints: false },
+  ) {
+    this.breakpointConfig = Object.freeze({ ...config });
+  }
 
   eligibility(input: LocatedFlexLayoutInput): PlannedConversion | undefined {
     const family = this.cssFamily(input);
     if (family === undefined) return targetUnsupported(input);
-    if (input.breakpoint !== undefined && this.breakpointCatalog.classify(input.breakpoint).kind !== 'verified') {
-      return targetUnsupported(input);
-    }
+    if (input.breakpoint !== undefined && !supportedBreakpoints.has(input.breakpoint)) return targetUnsupported(input);
     return undefined;
   }
 
