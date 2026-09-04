@@ -27,7 +27,7 @@ const validateRoot = join(pipelineRoot, 'validate');
 const semanticRoot = join(productionRoot, 'semantic');
 const semanticRenderCoordinatorPath = join(productionRoot, 'planner', 'semantic-render.coordinator.ts');
 const atomicWriterPath = join(productionRoot, 'lib', 'atomic-file.writer.ts');
-const migratorPath = join(productionRoot, 'migrator', 'migrator.ts');
+const migrationRunnerPath = join(pipelineRoot, 'migration-runner.ts');
 const conversionAdapterPath = join(productionRoot, 'adapter', 'conversion-adapter.ts');
 const destinationTemplateSourcePath = join(productionRoot, 'migrator', 'destination-template-source.ts');
 const stylesheetPlannerPath = join(productionRoot, 'migrator', 'stylesheet.planner.ts');
@@ -56,10 +56,9 @@ let cachedFilesystemNamespaceUnionAuthorities: ReturnType<typeof inspectSemantic
 let cachedFilesystemPluralProvenanceAuthorities: ReturnType<typeof inspectSemanticAuthorityCalls> | undefined;
 const productionGraphAuthorities = new Set([
   'AnalyzeProjectStage.run',
-  'CurrentMigrationPipeline.run',
   'DiscoverProjectStage.run',
+  'MigrationRunner.run',
   'MigrationTransaction.apply',
-  'Migrator.migrate',
   'RenderProjectStage.run',
   'ValidateProjectStage.run',
 ]);
@@ -127,13 +126,8 @@ const resourceAuthorityNames = new Set([
   'IgnoreLibrary.createMatcher',
 ]);
 const expectedProductionAuthorityGraph = [
-  { source: 'cli/run-cli.ts', authority: 'CurrentMigrationPipeline.run' },
+  { source: 'cli/run-cli.ts', authority: 'MigrationRunner.run' },
   { source: 'pipeline/apply/apply-project.stage.ts', authority: 'MigrationTransaction.apply' },
-  { source: 'pipeline/current-migration.pipeline.ts', authority: 'AnalyzeProjectStage.run' },
-  { source: 'pipeline/current-migration.pipeline.ts', authority: 'DiscoverProjectStage.run' },
-  { source: 'pipeline/current-migration.pipeline.ts', authority: 'Migrator.migrate' },
-  { source: 'pipeline/current-migration.pipeline.ts', authority: 'RenderProjectStage.run' },
-  { source: 'pipeline/current-migration.pipeline.ts', authority: 'ValidateProjectStage.run' },
   { source: 'pipeline/migration-pipeline.ts', authority: 'RenderProjectStage.run' },
   { source: 'pipeline/migration-pipeline.ts', authority: 'ValidateProjectStage.run' },
 ] as const;
@@ -157,12 +151,12 @@ const rogueProductionAuthorityCases = [
     `,
   },
   {
-    sourcePath: join(productionRoot, 'migrator', 'analyzed-file.migrator.ts'),
-    authority: 'Migrator.migrate',
+    sourcePath: join(productionRoot, 'cli', 'run-cli.ts'),
+    authority: 'RenderProjectStage.run',
     source: `
-      import type { Migrator } from './migrator.js';
-      declare const migrator: Migrator;
-      void migrator.migrate({ mode: 'plan' });
+      import type { RenderProjectStage } from '../pipeline/render/render-project.stage.js';
+      declare const render: RenderProjectStage;
+      void render.run(undefined as never);
     `,
   },
   {
@@ -230,9 +224,10 @@ const unrelatedBarrelPath = join(localBindingFixtureRoot, 'unrelated.barrel.ts')
 const typeOnlyBarrelPath = join(localBindingFixtureRoot, 'type-only.barrel.ts');
 const localBindingBarrelCases = [
   {
-    label: 'unused ESM filesystem alias acquired by Migrator from its named owner',
-    sourcePath: migratorPath,
-    source: "import { existingDestinationRead as unused } from './destination-template-source.js'; void unused;",
+    label: 'unused ESM filesystem alias acquired from its named owner',
+    sourcePath: join(localBindingFixtureRoot, 'local-fs-esm-consumer.ts'),
+    source:
+      "import { existingDestinationRead as unused } from '../migrator/destination-template-source.js'; void unused;",
     expected: 'FileSystem.acquire.readFile',
   },
   {
@@ -1430,21 +1425,21 @@ describe('enterprise pipeline dependency boundary', { timeout: wholeProjectInspe
     ]);
   });
 
-  test('rejects even one extra direct filesystem read and acquisition in Migrator', () => {
+  test('rejects even one direct filesystem read and acquisition in MigrationRunner', () => {
     const source = `
       import { readFile as forbiddenOriginalRead } from 'node:fs/promises';
-      ${readFileSync(migratorPath, 'utf8')}
+      ${readFileSync(migrationRunnerPath, 'utf8')}
       void forbiddenOriginalRead('input.html', 'utf8');
     `;
-    const calls = inspectSemanticAuthorityCalls(productionPaths, new Map([[migratorPath, source]])).filter(
+    const calls = inspectSemanticAuthorityCalls(productionPaths, new Map([[migrationRunnerPath, source]])).filter(
       call =>
-        call.sourcePath === migratorPath &&
+        call.sourcePath === migrationRunnerPath &&
         (call.name === 'FileSystem.readFile' || call.name === 'FileSystem.acquire.readFile'),
     );
 
     expect(calls).toEqual([
-      { sourcePath: migratorPath, name: 'FileSystem.acquire.readFile' },
-      { sourcePath: migratorPath, name: 'FileSystem.readFile' },
+      { sourcePath: migrationRunnerPath, name: 'FileSystem.acquire.readFile' },
+      { sourcePath: migrationRunnerPath, name: 'FileSystem.readFile' },
     ]);
   });
 
@@ -1669,10 +1664,10 @@ describe('enterprise pipeline dependency boundary', { timeout: wholeProjectInspe
     "import { AnalyzedFileMigrator } from '../../migrator/analyzed-file.migrator.js'; void AnalyzedFileMigrator;",
     "import { FileMigrator } from '../../migrator/file.migrator.js'; void FileMigrator;",
     "import { FolderMigrator } from '../../migrator/folder.migrator.js'; void FolderMigrator;",
-    "import { Migrator } from '../../migrator/migrator.js'; void Migrator;",
+    "import { MigrationRunner } from '../../pipeline/migration-runner.js'; void MigrationRunner;",
     "import { SourceEditor } from '../../edit/source-editor.js'; void SourceEditor;",
     "import { PictureRenderer } from '../../image/picture.renderer.js'; void PictureRenderer;",
-  ])('rejects an Analyze dependency on a concrete render/edit/migrator implementation: %s', source => {
+  ])('rejects an Analyze dependency on a concrete render/edit/orchestration implementation: %s', source => {
     expect(forbiddenAnalyzeDependency(source)).toBeDefined();
   });
 

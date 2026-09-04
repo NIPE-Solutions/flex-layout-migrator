@@ -3,10 +3,14 @@ import * as path from 'node:path';
 import packageJson from '../../package.json' with { type: 'json' };
 import { AdapterFactory } from '../adapter/adapter.factory';
 import { logger } from '../logger';
-import { CurrentMigrationPipeline, type MigrationRunner } from '../pipeline/current-migration.pipeline';
-import type { RenderStage } from '../pipeline/migration-pipeline';
+import { AnalyzeProjectStage } from '../pipeline/analyze/analyze-project.stage';
+import { ApplyProjectStage } from '../pipeline/apply/apply-project.stage';
+import { DiscoverProjectStage } from '../pipeline/discover/discover-project.stage';
+import { MigrationPipeline } from '../pipeline/migration-pipeline';
+import { MigrationRunner } from '../pipeline/migration-runner';
 import { migrationInvocation } from '../pipeline/project-manifest';
 import { RenderProjectStage } from '../pipeline/render/render-project.stage';
+import { ValidateProjectStage } from '../pipeline/validate/validate-project.stage';
 import { JsonReportWriter } from '../report/json-report.writer';
 import { TerminalPresenter, type TextOutput } from '../report/terminal.presenter';
 import { getErrorMessage } from '../util/error.util';
@@ -35,7 +39,7 @@ export interface CliOutput {
 }
 
 export interface RunCliDependencies {
-  readonly createMigrationRunner?: (render: RenderStage) => MigrationRunner;
+  readonly createMigrationRunner?: (pipeline: MigrationPipeline) => Pick<MigrationRunner, 'run'>;
 }
 
 const processOutput: CliOutput = {
@@ -122,10 +126,17 @@ export async function runCli(
         printWithBreakpoints,
       });
       const render = new RenderProjectStage(session);
+      const pipeline = new MigrationPipeline(
+        new DiscoverProjectStage(),
+        new AnalyzeProjectStage(),
+        render,
+        new ValidateProjectStage(),
+        new ApplyProjectStage(mode),
+      );
       const migrationRunner =
         dependencies.createMigrationRunner === undefined
-          ? new CurrentMigrationPipeline(render)
-          : dependencies.createMigrationRunner(render);
+          ? new MigrationRunner(pipeline)
+          : dependencies.createMigrationRunner(pipeline);
       const report = await migrationRunner.run(
         migrationInvocation({
           inputPath: input,

@@ -171,7 +171,7 @@ export type SemanticAuthorityName =
   | 'ChangedTemplateValidation.parse'
   | 'CssReferenceCollector.collect'
   | 'CssReferenceParser.parse'
-  | 'CurrentMigrationPipeline.run'
+  | 'MigrationRunner.run'
   | 'ConversionRenderer.eligibility'
   | 'ConversionRenderer.record'
   | 'ConversionRenderer.render'
@@ -1211,23 +1211,22 @@ function migratorClassSymbol(
   );
 }
 
-function currentMigrationPipelineRunDeclaration(declaration: ts.Declaration): boolean {
-  if (!normalizedDeclarationPath(declaration).endsWith('/pipeline/current-migration.pipeline.ts')) return false;
+function migrationRunnerRunDeclaration(declaration: ts.Declaration): boolean {
+  if (!normalizedDeclarationPath(declaration).endsWith('/pipeline/migration-runner.ts')) return false;
   for (let current: ts.Node | undefined = declaration; current !== undefined; current = current.parent) {
-    if (ts.isClassDeclaration(current)) return current.name?.text === 'CurrentMigrationPipeline';
-    if (ts.isInterfaceDeclaration(current)) return current.name.text === 'MigrationRunner';
+    if (ts.isClassDeclaration(current)) return current.name?.text === 'MigrationRunner';
   }
   return false;
 }
 
-function currentMigrationPipelineRunSymbol(symbol: ts.Symbol | undefined): boolean {
+function migrationRunnerRunSymbol(symbol: ts.Symbol | undefined): boolean {
   return (
     symbol?.getName() === 'run' &&
-    symbol.declarations?.some(declaration => currentMigrationPipelineRunDeclaration(declaration)) === true
+    symbol.declarations?.some(declaration => migrationRunnerRunDeclaration(declaration)) === true
   );
 }
 
-function currentMigrationPipelineClassSymbol(
+function migrationRunnerClassSymbol(
   symbol: ts.Symbol | undefined,
   checker: ts.TypeChecker,
   seenSymbols: ReadonlySet<ts.Symbol> = new Set(),
@@ -1236,14 +1235,14 @@ function currentMigrationPipelineClassSymbol(
   const nextSeen = new Set(seenSymbols).add(symbol);
   if ((symbol.flags & ts.SymbolFlags.Alias) !== 0) {
     const aliased = checker.getAliasedSymbol(symbol);
-    if (aliased !== symbol && currentMigrationPipelineClassSymbol(aliased, checker, nextSeen)) return true;
+    if (aliased !== symbol && migrationRunnerClassSymbol(aliased, checker, nextSeen)) return true;
   }
   return (
-    symbol.getName() === 'CurrentMigrationPipeline' &&
+    symbol.getName() === 'MigrationRunner' &&
     symbol.declarations?.some(
       declaration =>
         ts.isClassDeclaration(declaration) &&
-        normalizedDeclarationPath(declaration).endsWith('/pipeline/current-migration.pipeline.ts'),
+        normalizedDeclarationPath(declaration).endsWith('/pipeline/migration-runner.ts'),
     ) === true
   );
 }
@@ -1431,7 +1430,7 @@ function moduleExportsMigrator(
   return migratorClassSymbol(commonJsExportedSymbol(moduleReference, exportedName, checker, program), checker);
 }
 
-function moduleExportsCurrentMigrationPipeline(
+function moduleExportsMigrationRunner(
   moduleReference: CommonJsModuleReference,
   exportedName: string,
   checker: ts.TypeChecker,
@@ -1439,16 +1438,13 @@ function moduleExportsCurrentMigrationPipeline(
 ): boolean {
   const candidates = localModuleCandidates(moduleReference.reference, moduleReference.containingSourcePath);
   if (
-    exportedName === 'CurrentMigrationPipeline' &&
-    candidates.some(candidate => candidate.replaceAll('\\', '/').endsWith('/pipeline/current-migration.pipeline.ts'))
+    exportedName === 'MigrationRunner' &&
+    candidates.some(candidate => candidate.replaceAll('\\', '/').endsWith('/pipeline/migration-runner.ts'))
   ) {
     return true;
   }
 
-  return currentMigrationPipelineClassSymbol(
-    commonJsExportedSymbol(moduleReference, exportedName, checker, program),
-    checker,
-  );
+  return migrationRunnerClassSymbol(commonJsExportedSymbol(moduleReference, exportedName, checker, program), checker);
 }
 
 function reflectApplyDeclaration(declaration: ts.Declaration): boolean {
@@ -1766,7 +1762,7 @@ function migratorConstructorProvenance(
   });
 }
 
-function currentMigrationPipelineConstructorProvenance(
+function migrationRunnerConstructorProvenance(
   expression: ts.Expression,
   checker: ts.TypeChecker,
   program: ts.Program,
@@ -1774,7 +1770,7 @@ function currentMigrationPipelineConstructorProvenance(
 ): boolean {
   const unwrapped = unwrapExpression(expression);
   const directSymbol = checker.getSymbolAtLocation(unwrapped);
-  if (currentMigrationPipelineClassSymbol(directSymbol, checker)) return true;
+  if (migrationRunnerClassSymbol(directSymbol, checker)) return true;
 
   if (ts.isPropertyAccessExpression(unwrapped) || ts.isElementAccessExpression(unwrapped)) {
     const exportedName = ts.isPropertyAccessExpression(unwrapped)
@@ -1784,7 +1780,7 @@ function currentMigrationPipelineConstructorProvenance(
     if (
       exportedName !== undefined &&
       moduleReference !== undefined &&
-      moduleExportsCurrentMigrationPipeline(moduleReference, exportedName, checker, program)
+      moduleExportsMigrationRunner(moduleReference, exportedName, checker, program)
     ) {
       return true;
     }
@@ -1794,11 +1790,11 @@ function currentMigrationPipelineConstructorProvenance(
   const nextSeen = new Set(seenSymbols).add(directSymbol);
   if ((directSymbol.flags & ts.SymbolFlags.Alias) !== 0) {
     const aliased = checker.getAliasedSymbol(directSymbol);
-    if (currentMigrationPipelineClassSymbol(aliased, checker)) return true;
+    if (migrationRunnerClassSymbol(aliased, checker)) return true;
   }
   return (directSymbol.declarations ?? []).some(declaration => {
     if (ts.isVariableDeclaration(declaration) && declaration.initializer !== undefined) {
-      return currentMigrationPipelineConstructorProvenance(declaration.initializer, checker, program, nextSeen);
+      return migrationRunnerConstructorProvenance(declaration.initializer, checker, program, nextSeen);
     }
     if (ts.isBindingElement(declaration)) {
       const pattern = declaration.parent;
@@ -1812,7 +1808,7 @@ function currentMigrationPipelineConstructorProvenance(
       return (
         exportedName !== undefined &&
         moduleReference !== undefined &&
-        moduleExportsCurrentMigrationPipeline(moduleReference, exportedName, checker, program)
+        moduleExportsMigrationRunner(moduleReference, exportedName, checker, program)
       );
     }
     return false;
@@ -1867,7 +1863,7 @@ function migratorReceiverProvenance(
   );
 }
 
-function currentMigrationPipelineReceiverProvenance(
+function migrationRunnerReceiverProvenance(
   expression: ts.Expression,
   checker: ts.TypeChecker,
   program: ts.Program,
@@ -1875,14 +1871,14 @@ function currentMigrationPipelineReceiverProvenance(
 ): boolean {
   const unwrapped = unwrapExpression(expression);
   const runProperty = checker.getPropertyOfType(checker.getTypeAtLocation(unwrapped), 'run');
-  if (currentMigrationPipelineRunSymbol(runProperty)) return true;
+  if (migrationRunnerRunSymbol(runProperty)) return true;
   if (ts.isNewExpression(unwrapped)) {
-    return currentMigrationPipelineConstructorProvenance(unwrapped.expression, checker, program, seenSymbols);
+    return migrationRunnerConstructorProvenance(unwrapped.expression, checker, program, seenSymbols);
   }
   if (ts.isConditionalExpression(unwrapped)) {
     return (
-      currentMigrationPipelineReceiverProvenance(unwrapped.whenTrue, checker, program, seenSymbols) ||
-      currentMigrationPipelineReceiverProvenance(unwrapped.whenFalse, checker, program, seenSymbols)
+      migrationRunnerReceiverProvenance(unwrapped.whenTrue, checker, program, seenSymbols) ||
+      migrationRunnerReceiverProvenance(unwrapped.whenFalse, checker, program, seenSymbols)
     );
   }
 
@@ -1893,7 +1889,7 @@ function currentMigrationPipelineReceiverProvenance(
     declaration =>
       ts.isVariableDeclaration(declaration) &&
       declaration.initializer !== undefined &&
-      currentMigrationPipelineReceiverProvenance(declaration.initializer, checker, program, nextSeen),
+      migrationRunnerReceiverProvenance(declaration.initializer, checker, program, nextSeen),
   );
 }
 
@@ -2305,22 +2301,22 @@ function currentPipelineInvocationCanWrite(invocation: ts.Expression | undefined
   return migrationModeFromPipelineInvocation(unwrapped, checker) !== 'plan';
 }
 
-interface CurrentMigrationPipelineRunCallableProvenance {
+interface MigrationRunnerRunCallableProvenance {
   readonly boundArguments: readonly ts.Expression[];
 }
 
-function currentMigrationPipelineRunSymbolProvenance(
+function migrationRunnerRunSymbolProvenance(
   symbol: ts.Symbol | undefined,
   checker: ts.TypeChecker,
   program: ts.Program,
   seenSymbols: ReadonlySet<ts.Symbol>,
-): CurrentMigrationPipelineRunCallableProvenance | undefined {
+): MigrationRunnerRunCallableProvenance | undefined {
   if (symbol === undefined || seenSymbols.has(symbol)) return undefined;
   const nextSeen = new Set(seenSymbols).add(symbol);
-  if (currentMigrationPipelineRunSymbol(symbol)) return { boundArguments: [] };
+  if (migrationRunnerRunSymbol(symbol)) return { boundArguments: [] };
   if ((symbol.flags & ts.SymbolFlags.Alias) !== 0) {
     const aliased = checker.getAliasedSymbol(symbol);
-    const provenance = currentMigrationPipelineRunSymbolProvenance(aliased, checker, program, nextSeen);
+    const provenance = migrationRunnerRunSymbolProvenance(aliased, checker, program, nextSeen);
     if (provenance !== undefined) return provenance;
   }
   for (const declaration of symbol.declarations ?? []) {
@@ -2330,16 +2326,11 @@ function currentMigrationPipelineRunSymbolProvenance(
         ts.isPropertyDeclaration(declaration)) &&
       declaration.initializer !== undefined
     ) {
-      const provenance = currentMigrationPipelineRunCallableProvenance(
-        declaration.initializer,
-        checker,
-        program,
-        nextSeen,
-      );
+      const provenance = migrationRunnerRunCallableProvenance(declaration.initializer, checker, program, nextSeen);
       if (provenance !== undefined) return provenance;
     }
     if (ts.isShorthandPropertyAssignment(declaration)) {
-      const provenance = currentMigrationPipelineRunSymbolProvenance(
+      const provenance = migrationRunnerRunSymbolProvenance(
         checker.getShorthandAssignmentValueSymbol(declaration),
         checker,
         program,
@@ -2348,12 +2339,7 @@ function currentMigrationPipelineRunSymbolProvenance(
       if (provenance !== undefined) return provenance;
     }
     if (ts.isExportAssignment(declaration)) {
-      const provenance = currentMigrationPipelineRunCallableProvenance(
-        declaration.expression,
-        checker,
-        program,
-        nextSeen,
-      );
+      const provenance = migrationRunnerRunCallableProvenance(declaration.expression, checker, program, nextSeen);
       if (provenance !== undefined) return provenance;
     }
     if (ts.isBindingElement(declaration)) {
@@ -2366,11 +2352,11 @@ function currentMigrationPipelineRunSymbolProvenance(
       const propertyName = bindingElementPropertyName(declaration);
       if (propertyName === undefined) continue;
       const property = checker.getPropertyOfType(checker.getTypeAtLocation(variable.initializer), propertyName);
-      const provenance = currentMigrationPipelineRunSymbolProvenance(property, checker, program, nextSeen);
+      const provenance = migrationRunnerRunSymbolProvenance(property, checker, program, nextSeen);
       if (provenance !== undefined) return provenance;
       if (
         propertyName === 'run' &&
-        currentMigrationPipelineReceiverProvenance(variable.initializer, checker, program, nextSeen)
+        migrationRunnerReceiverProvenance(variable.initializer, checker, program, nextSeen)
       ) {
         return { boundArguments: [] };
       }
@@ -2379,12 +2365,12 @@ function currentMigrationPipelineRunSymbolProvenance(
   return undefined;
 }
 
-function currentMigrationPipelineRunCallableProvenance(
+function migrationRunnerRunCallableProvenance(
   expression: ts.Expression,
   checker: ts.TypeChecker,
   program: ts.Program,
   seenSymbols: ReadonlySet<ts.Symbol> = new Set(),
-): CurrentMigrationPipelineRunCallableProvenance | undefined {
+): MigrationRunnerRunCallableProvenance | undefined {
   const unwrapped = unwrapExpression(expression);
   if (ts.isCallExpression(unwrapped)) {
     const target = unwrapExpression(unwrapped.expression);
@@ -2392,12 +2378,7 @@ function currentMigrationPipelineRunCallableProvenance(
       (ts.isPropertyAccessExpression(target) || ts.isElementAccessExpression(target)) &&
       resolvedMemberName(target, checker) === 'bind'
     ) {
-      const provenance = currentMigrationPipelineRunCallableProvenance(
-        target.expression,
-        checker,
-        program,
-        seenSymbols,
-      );
+      const provenance = migrationRunnerRunCallableProvenance(target.expression, checker, program, seenSymbols);
       return provenance === undefined
         ? undefined
         : { boundArguments: [...provenance.boundArguments, ...unwrapped.arguments.slice(1)] };
@@ -2410,8 +2391,8 @@ function currentMigrationPipelineRunCallableProvenance(
     if (name === 'run') {
       const property = checker.getPropertyOfType(checker.getTypeAtLocation(unwrapped.expression), name);
       if (
-        currentMigrationPipelineRunSymbol(property) ||
-        currentMigrationPipelineReceiverProvenance(unwrapped.expression, checker, program)
+        migrationRunnerRunSymbol(property) ||
+        migrationRunnerReceiverProvenance(unwrapped.expression, checker, program)
       ) {
         return { boundArguments: [] };
       }
@@ -2419,13 +2400,13 @@ function currentMigrationPipelineRunCallableProvenance(
     if (
       name === undefined &&
       ts.isElementAccessExpression(unwrapped) &&
-      currentMigrationPipelineReceiverProvenance(unwrapped.expression, checker, program)
+      migrationRunnerReceiverProvenance(unwrapped.expression, checker, program)
     ) {
       return { boundArguments: [] };
     }
     const propertyNode = ts.isPropertyAccessExpression(unwrapped) ? unwrapped.name : unwrapped.argumentExpression;
     if (propertyNode !== undefined) {
-      const provenance = currentMigrationPipelineRunSymbolProvenance(
+      const provenance = migrationRunnerRunSymbolProvenance(
         checker.getSymbolAtLocation(propertyNode),
         checker,
         program,
@@ -2435,12 +2416,7 @@ function currentMigrationPipelineRunCallableProvenance(
     }
   }
 
-  return currentMigrationPipelineRunSymbolProvenance(
-    checker.getSymbolAtLocation(unwrapped),
-    checker,
-    program,
-    seenSymbols,
-  );
+  return migrationRunnerRunSymbolProvenance(checker.getSymbolAtLocation(unwrapped), checker, program, seenSymbols);
 }
 
 function currentPipelineWriteSymbolProvenance(
@@ -2497,7 +2473,7 @@ function currentPipelineWriteCallableProvenance(
 }
 
 function boundCurrentPipelineInvocationCanWrite(
-  provenance: CurrentMigrationPipelineRunCallableProvenance,
+  provenance: MigrationRunnerRunCallableProvenance,
   callArguments: readonly ts.Expression[],
   checker: ts.TypeChecker,
 ): boolean {
@@ -2513,7 +2489,7 @@ function currentPipelineWriteInvocation(
   const reflected = reflectedApplyInvocation(expression, checker, program, seenSymbols);
   if (reflected !== undefined) {
     const invocation = resolvedCallableApplication(reflected.target, reflected.arguments, checker, target =>
-      currentMigrationPipelineRunCallableProvenance(target, checker, program, seenSymbols),
+      migrationRunnerRunCallableProvenance(target, checker, program, seenSymbols),
     );
     if (invocation !== undefined) {
       return invocation.arguments === undefined
@@ -2523,7 +2499,7 @@ function currentPipelineWriteInvocation(
     return currentPipelineWriteCallableProvenance(reflected.target, checker, program, seenSymbols);
   }
   const invocation = resolvedCallableInvocation(expression, checker, target =>
-    currentMigrationPipelineRunCallableProvenance(target, checker, program, seenSymbols),
+    migrationRunnerRunCallableProvenance(target, checker, program, seenSymbols),
   );
   if (invocation !== undefined) {
     return invocation.arguments === undefined
@@ -2540,7 +2516,7 @@ function migrationWriteSymbolProvenance(
   seenSymbols: ReadonlySet<ts.Symbol>,
 ): boolean {
   if (symbol === undefined || seenSymbols.has(symbol)) return false;
-  if (currentMigrationPipelineRunSymbol(symbol)) return false;
+  if (migrationRunnerRunSymbol(symbol)) return false;
   const nextSeen = new Set(seenSymbols).add(symbol);
   if ((symbol.flags & ts.SymbolFlags.Alias) !== 0) {
     const aliased = checker.getAliasedSymbol(symbol);
@@ -2646,17 +2622,17 @@ const semanticAuthorityConfigs: readonly SemanticAuthorityConfig[] = [
     declarations: [{ sourcePathSuffix: '/render/conversion-renderer.ts', containers: ['ConversionRenderer'] }],
   })),
   {
-    name: 'CurrentMigrationPipeline.run',
+    name: 'MigrationRunner.run',
     methodName: 'run',
     declarations: [
       {
-        sourcePathSuffix: '/pipeline/current-migration.pipeline.ts',
-        containers: ['CurrentMigrationPipeline', 'MigrationRunner'],
+        sourcePathSuffix: '/pipeline/migration-runner.ts',
+        containers: ['MigrationRunner'],
       },
     ],
     concreteClass: {
-      exportedName: 'CurrentMigrationPipeline',
-      sourcePathSuffix: '/pipeline/current-migration.pipeline.ts',
+      exportedName: 'MigrationRunner',
+      sourcePathSuffix: '/pipeline/migration-runner.ts',
     },
   },
   {
@@ -2721,13 +2697,7 @@ const semanticAuthorityConfigs: readonly SemanticAuthorityConfig[] = [
   {
     name: 'Migrator.migrate',
     methodName: 'migrate',
-    declarations: [
-      { sourcePathSuffix: '/migrator/migrator.ts', containers: ['Migrator'] },
-      {
-        sourcePathSuffix: '/pipeline/current-migration.pipeline.ts',
-        containers: ['ValidatedMigrationContinuation'],
-      },
-    ],
+    declarations: [{ sourcePathSuffix: '/migrator/migrator.ts', containers: ['Migrator'] }],
     concreteClass: { exportedName: 'Migrator', sourcePathSuffix: '/migrator/migrator.ts' },
   },
   {

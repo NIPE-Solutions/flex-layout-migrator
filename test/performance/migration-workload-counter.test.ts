@@ -3,20 +3,25 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { AdapterFactory } from '../../src/adapter/adapter.factory';
 import { TemplateAnalyzer } from '../../src/analyzer/template.analyzer';
-import { ConversionPlanner } from '../../src/planner/conversion-planner';
-import { Migrator } from '../../src/migrator/migrator';
-import { ApplyProjectStage } from '../../src/pipeline/apply/apply-project.stage';
 import type { MigrationMode } from '../../src/migrator/migration-mode';
 import { StylesheetPlanner } from '../../src/migrator/stylesheet.planner';
 import { AnalyzeProjectStage } from '../../src/pipeline/analyze/analyze-project.stage';
+import { ApplyProjectStage } from '../../src/pipeline/apply/apply-project.stage';
 import { DiscoverProjectStage } from '../../src/pipeline/discover/discover-project.stage';
-import { CurrentMigrationPipeline, type MigratorFactory } from '../../src/pipeline/current-migration.pipeline';
-import type { AnalyzeStage, DiscoverStage, RenderStage, ValidateStage } from '../../src/pipeline/migration-pipeline';
+import {
+  MigrationPipeline,
+  type AnalyzeStage,
+  type DiscoverStage,
+  type RenderStage,
+  type ValidateStage,
+} from '../../src/pipeline/migration-pipeline';
+import { MigrationRunner } from '../../src/pipeline/migration-runner';
 import { migrationInvocation } from '../../src/pipeline/project-manifest';
 import { RenderProjectStage, type RenderTemplatePlanner } from '../../src/pipeline/render/render-project.stage';
 import { CssReferenceCollector } from '../../src/pipeline/validate/css-reference.collector';
 import { TemplateProposalValidator } from '../../src/pipeline/validate/template-proposal.validator';
 import { ValidateProjectStage } from '../../src/pipeline/validate/validate-project.stage';
+import { ConversionPlanner } from '../../src/planner/conversion-planner';
 import type { ConversionRenderer } from '../../src/render/conversion-renderer';
 import type { RenderSession } from '../../src/render/render-session';
 import { AngularTemplateParser } from '../../src/template/angular-template.parser';
@@ -269,15 +274,10 @@ async function executeMigration(
   const analyze = countingAnalyzeStage(counts);
   const render = countingRenderStage(session, counts);
   const validate = countingValidateStage(counts, stylesheetPlanner);
-  const createMigrator: MigratorFactory = applied => new Migrator(applied, () => 0);
-  await new CurrentMigrationPipeline(
-    render,
-    discover,
-    analyze,
-    createMigrator,
+  await new MigrationRunner(
+    new MigrationPipeline(discover, analyze, render, validate, new ApplyProjectStage(mode, transaction)),
+    undefined,
     () => 0,
-    validate,
-    requestedMode => new ApplyProjectStage(requestedMode, transaction),
   ).run(
     migrationInvocation({
       inputPath: input,

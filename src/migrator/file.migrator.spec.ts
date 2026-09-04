@@ -6,7 +6,8 @@ import { TemplateAnalyzer } from '../analyzer/template.analyzer';
 import { AnalyzeProjectStage } from '../pipeline/analyze/analyze-project.stage';
 import { ApplyProjectStage } from '../pipeline/apply/apply-project.stage';
 import { DiscoverProjectStage } from '../pipeline/discover/discover-project.stage';
-import { CurrentMigrationPipeline, type MigratorFactory } from '../pipeline/current-migration.pipeline';
+import { MigrationPipeline } from '../pipeline/migration-pipeline';
+import { MigrationRunner } from '../pipeline/migration-runner';
 import { migrationInvocation } from '../pipeline/project-manifest';
 import { RenderProjectStage, type RenderTemplatePlanner } from '../pipeline/render/render-project.stage';
 import { TemplateProposalValidator } from '../pipeline/validate/template-proposal.validator';
@@ -14,7 +15,6 @@ import { ValidateProjectStage } from '../pipeline/validate/validate-project.stag
 import { ConversionPlanner } from '../planner/conversion-planner';
 import { AngularTemplateParser } from '../template/angular-template.parser';
 import type { MigrationTransaction } from '../transaction/migration-transaction';
-import { Migrator } from './migrator';
 
 describe('production analyzed-file handoff', () => {
   let temporaryDirectory: string;
@@ -86,17 +86,18 @@ describe('production analyzed-file handoff', () => {
     const render = new RenderProjectStage(session, templatePlanner);
     const validate = new ValidateProjectStage(validator);
     const transaction = transactionDouble();
-    const createMigrator: MigratorFactory = applied => new Migrator(applied, () => 0);
     const invocation = migrationInvocation({ inputPath, outputPath, options: { mode: 'plan' } });
 
-    const report = await new CurrentMigrationPipeline(
-      render,
-      new DiscoverProjectStage(),
-      analyze,
-      createMigrator,
-      Date.now,
-      validate,
-      mode => new ApplyProjectStage(mode, transaction),
+    const report = await new MigrationRunner(
+      new MigrationPipeline(
+        new DiscoverProjectStage(),
+        analyze,
+        render,
+        validate,
+        new ApplyProjectStage('plan', transaction),
+      ),
+      undefined,
+      () => 0,
     ).run(invocation);
 
     expect(report).toMatchObject({

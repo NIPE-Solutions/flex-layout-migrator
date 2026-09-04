@@ -5,14 +5,15 @@ import { AdapterFactory } from '../adapter/adapter.factory';
 import { AnalyzeProjectStage } from '../pipeline/analyze/analyze-project.stage';
 import { ApplyProjectStage } from '../pipeline/apply/apply-project.stage';
 import { DiscoverProjectStage } from '../pipeline/discover/discover-project.stage';
+import { MigrationPipeline } from '../pipeline/migration-pipeline';
+import { MigrationRunner } from '../pipeline/migration-runner';
 import { migrationInvocation } from '../pipeline/project-manifest';
 import { RenderProjectStage, type RenderTemplatePlanner } from '../pipeline/render/render-project.stage';
 import { ValidateProjectStage } from '../pipeline/validate/validate-project.stage';
 import { ConversionPlanner } from '../planner/conversion-planner';
 import type { MigrationTransaction } from '../transaction/migration-transaction';
-import { Migrator } from './migrator';
 
-describe('folder analyzed-project continuation', () => {
+describe('folder migration pipeline', () => {
   let temporaryDirectory: string;
   let inputFolder: string;
   let outputFolder: string;
@@ -37,8 +38,8 @@ describe('folder analyzed-project continuation', () => {
       outputPath: outputFolder,
       options: { mode: 'plan' },
     });
-    const manifest = await new DiscoverProjectStage().run(invocation);
-    const analyzed = await new AnalyzeProjectStage().run(manifest);
+    let discoveredPaths: readonly string[] = [];
+    const discover = new DiscoverProjectStage();
     const renderedPaths: string[] = [];
     const planner = new ConversionPlanner();
     const templatePlanner: RenderTemplatePlanner = {
@@ -47,19 +48,26 @@ describe('folder analyzed-project continuation', () => {
         return planner.plan(template.source, template.parseResult.elements, template.inputs, renderer, options);
       },
     };
-    const rendered = await new RenderProjectStage(AdapterFactory.createSession('tailwind'), templatePlanner).run(
-      analyzed,
-    );
-    const validated = await new ValidateProjectStage().run(rendered);
+    const report = await new MigrationRunner(
+      new MigrationPipeline(
+        {
+          async run(received) {
+            const manifest = await discover.run(received);
+            discoveredPaths = manifest.templates.map(template => template.inputPath);
+            return manifest;
+          },
+        },
+        new AnalyzeProjectStage(),
+        new RenderProjectStage(AdapterFactory.createSession('tailwind'), templatePlanner),
+        new ValidateProjectStage(),
+        new ApplyProjectStage('plan', transactionDouble()),
+      ),
+      undefined,
+      () => 0,
+    ).run(invocation);
 
-    const applied = await new ApplyProjectStage('plan', transactionDouble()).run(validated);
-    const report = await new Migrator(applied, () => 0).migrate({ mode: 'plan' });
-
-    expect(manifest.templates.map(template => template.inputPath)).toEqual([
-      join(inputFolder, 'Z', 'nested.html'),
-      join(inputFolder, 'a.html'),
-    ]);
-    expect(renderedPaths).toEqual(manifest.templates.map(template => template.inputPath));
+    expect(discoveredPaths).toEqual([join(inputFolder, 'Z', 'nested.html'), join(inputFolder, 'a.html')]);
+    expect(renderedPaths).toEqual(discoveredPaths);
     expect(report.files.map(file => ({ path: file.path, changed: file.changed }))).toEqual([
       { path: 'Z/nested.html', changed: false },
       { path: 'a.html', changed: true },
@@ -75,16 +83,18 @@ describe('folder analyzed-project continuation', () => {
       outputPath: outputFolder,
       options: { mode: 'write' },
     });
-    const manifest = await new DiscoverProjectStage().run(invocation);
-    const analyzed = await new AnalyzeProjectStage().run(manifest);
     const transaction = transactionDouble();
-    const rendered = await new RenderProjectStage(AdapterFactory.createSession('tailwind')).run(analyzed);
-    const validated = await new ValidateProjectStage().run(rendered);
-
-    const applied = await new ApplyProjectStage('write', transaction).run(validated);
-    const report = await new Migrator(applied, () => 0).migrate({
-      mode: 'write',
-    });
+    const report = await new MigrationRunner(
+      new MigrationPipeline(
+        new DiscoverProjectStage(),
+        new AnalyzeProjectStage(),
+        new RenderProjectStage(AdapterFactory.createSession('tailwind')),
+        new ValidateProjectStage(),
+        new ApplyProjectStage('write', transaction),
+      ),
+      undefined,
+      () => 0,
+    ).run(invocation);
 
     expect(report).toMatchObject({
       application: { status: 'skipped', reason: 'parse-errors' },

@@ -4,12 +4,17 @@ import type { ConversionResult } from '../analyzer/conversion-result';
 import type { LocatedFlexLayoutInput } from '../analyzer/flex-layout-attribute.analyzer';
 import type { MigrationPlan } from '../migrator/migration-plan';
 import { MigrationApplicationError } from '../migrator/migration-application.error';
-import type { MigrationOptions } from '../migrator/migrator';
 import type { StylesheetMigrationResult } from '../report/migration-report.builder';
 import type { TemplateParseResult } from '../template/template.model';
 import type { AdapterSessionResult } from '../render/render-session';
 import { analyzedProject, type AnalyzedProject, type AnalyzedTemplate } from './analyzed-project';
-import { migrationInvocation, projectManifest, type ManifestTemplate, type ProjectManifest } from './project-manifest';
+import {
+  migrationInvocation,
+  projectManifest,
+  type ManifestTemplate,
+  type MigrationOptions,
+  type ProjectManifest,
+} from './project-manifest';
 import { renderedProject, type RenderedProject, type RenderedTemplateFile } from './rendered-project';
 import { validatedProjectPlan } from './validated-project-plan';
 

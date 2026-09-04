@@ -22,8 +22,8 @@ const productionRoot = join(process.cwd(), 'src');
 const pipelineRoot = join(productionRoot, 'pipeline');
 const wholeProjectInspectionTimeout = 60_000;
 const cliPath = join(productionRoot, 'cli', 'run-cli.ts');
-const currentPipelinePath = join(pipelineRoot, 'current-migration.pipeline.ts');
 const migrationPipelinePath = join(pipelineRoot, 'migration-pipeline.ts');
+const migrationRunnerPath = join(pipelineRoot, 'migration-runner.ts');
 const handoffImports = new Map<string, readonly string[]>([
   ['applied-project.ts', ['./validated-project-plan', '../report/migration-report']],
   [
@@ -36,7 +36,7 @@ const handoffImports = new Map<string, readonly string[]>([
       'node:path',
     ],
   ],
-  ['project-manifest.ts', ['../migrator/migrator', 'node:path']],
+  ['project-manifest.ts', ['../migrator/migration-mode', 'node:path']],
   [
     'rendered-project.ts',
     [
@@ -118,15 +118,16 @@ describe('enterprise pipeline shell dependency boundary', { timeout: wholeProjec
     expect(runtimeModuleReferences(source, stageErrorPath)).toEqual([]);
   });
 
-  test('keeps the current-pipeline facade as the sole concrete Migrator owner without an adapter session', () => {
+  test('removes compatibility orchestration owners from the production pipeline', () => {
     const pipelinePaths = productionTypeScriptFiles(pipelineRoot);
-    const concreteMigratorOwners = pipelinePaths.flatMap(path =>
-      sourceInspection(path).runtimeImports.flatMap(runtimeImport =>
-        runtimeImport.importedName === 'Migrator' &&
-        moduleReferenceContainsPath(runtimeImport.moduleReference, 'migrator/migrator')
-          ? [relative(productionRoot, path).replaceAll('\\', '/')]
-          : [],
-      ),
+    const compatibilityReferences = productionTypeScriptFiles(productionRoot).flatMap(path =>
+      sourceInspection(path).moduleReferences.some(
+        reference =>
+          moduleReferenceContainsPath(reference, 'migrator/migrator') ||
+          moduleReferenceContainsPath(reference, 'pipeline/current-migration.pipeline'),
+      )
+        ? [relative(productionRoot, path).replaceAll('\\', '/')]
+        : [],
     );
     const legacyAdapterSessionOwners = pipelinePaths.flatMap(path =>
       sourceInspection(path).identifiers.includes('ConversionAdapterSession')
@@ -134,73 +135,79 @@ describe('enterprise pipeline shell dependency boundary', { timeout: wholeProjec
         : [],
     );
 
-    expect(concreteMigratorOwners).toEqual(['pipeline/current-migration.pipeline.ts']);
+    expect(compatibilityReferences).toEqual([]);
     expect(legacyAdapterSessionOwners).toEqual([]);
   });
 
-  test('keeps the current-pipeline facade to one Render/Validate handoff and migrate call without policy ownership', () => {
-    const inspection = sourceInspection(currentPipelinePath);
-    const projectInspection = inspectTypeScriptProject([currentPipelinePath]);
+  test('keeps MigrationRunner to one pipeline execution and report construction without stage or policy ownership', () => {
+    const inspection = sourceInspection(migrationRunnerPath);
+    const projectInspection = inspectTypeScriptProject([migrationRunnerPath]);
     const forbiddenSymbols = [
       ...inspection.identifiers,
       ...inspection.callExpressionNames,
       ...inspection.constructedExpressionNames,
     ].filter(identifier =>
-      /(?:directive|breakpoint|renderer|reportbuilder|buildreport|filesystem|transaction|exitpolicy|resolveexitcode|presenter|writer)/iu.test(
+      /(?:directive|breakpoint|renderer|filesystem|transaction|exitpolicy|resolveexitcode|presenter|writer)/iu.test(
         identifier,
       ),
     );
 
     expect(sorted(inspection.moduleReferences)).toEqual(
       sorted([
-        './project-manifest',
-        './analyze/analyze-project.stage',
         './applied-project',
-        './apply/apply-project.stage',
-        './discover/discover-project.stage',
         './invocation-error-path.mapper',
         './migration-pipeline',
-        './validate/validate-project.stage',
-        '../migrator/migrator',
-        '../migrator/migrator',
+        './pipeline-stage.error',
+        './project-manifest',
         '../report/migration-report',
+        '../report/migration-report.builder',
       ]),
     );
-    expect(inspection.callExpressionNames.filter(name => name === 'migrate')).toEqual(['migrate']);
+    expect(inspection.callExpressionNames.filter(name => name === 'run')).toEqual(['run']);
+    expect(inspection.callExpressionNames.filter(name => name === 'build')).toEqual(['build']);
     expect(forbiddenSymbols).toEqual([]);
     expect(projectInspection.filesystemMutationCalls).toEqual([]);
     expect(projectInspection.transactionApplyCalls).toEqual([]);
-    expect(inspectSemanticAuthorityCalls([currentPipelinePath])).toEqual([
-      { sourcePath: currentPipelinePath, name: 'DiscoverProjectStage.run' },
-      { sourcePath: currentPipelinePath, name: 'AnalyzeProjectStage.run' },
-      { sourcePath: currentPipelinePath, name: 'RenderProjectStage.run' },
-      { sourcePath: currentPipelinePath, name: 'ValidateProjectStage.run' },
-      { sourcePath: currentPipelinePath, name: 'Migrator.migrate' },
-    ]);
+    expect(
+      inspectSemanticAuthorityCalls([migrationRunnerPath]).filter(call =>
+        [
+          'DiscoverProjectStage.run',
+          'AnalyzeProjectStage.run',
+          'RenderProjectStage.run',
+          'ValidateProjectStage.run',
+        ].includes(call.name),
+      ),
+    ).toEqual([]);
   });
 
-  test('routes the CLI through the runner port without a direct Migrator dependency', () => {
+  test('composes the concrete five-stage pipeline in the CLI and invokes only MigrationRunner', () => {
     const inspection = sourceInspection(cliPath);
 
-    expect(inspection.moduleReferences).toContain('../pipeline/current-migration.pipeline');
-    expect(inspection.identifiers).toContain('MigrationRunner');
-    expect(inspection.identifiers).toContain('CurrentMigrationPipeline');
-    expect(inspection.identifiers).not.toContain('Migrator');
-    expect(
-      inspection.moduleReferences.find(reference => moduleReferenceContainsPath(reference, 'migrator/migrator')),
-    ).toBeUndefined();
-  });
-
-  test('reserves CurrentMigrationPipeline imports for the CLI production entry point', () => {
-    const importers = productionTypeScriptFiles(productionRoot).flatMap(path =>
-      sourceInspection(path).moduleReferences.some(reference =>
-        moduleReferenceContainsPath(reference, 'pipeline/current-migration.pipeline'),
-      )
-        ? [relative(productionRoot, path).replaceAll('\\', '/')]
-        : [],
+    expect(inspection.moduleReferences).toEqual(
+      expect.arrayContaining([
+        '../pipeline/discover/discover-project.stage',
+        '../pipeline/analyze/analyze-project.stage',
+        '../pipeline/render/render-project.stage',
+        '../pipeline/validate/validate-project.stage',
+        '../pipeline/apply/apply-project.stage',
+        '../pipeline/migration-pipeline',
+        '../pipeline/migration-runner',
+      ]),
     );
-
-    expect(importers).toEqual(['cli/run-cli.ts']);
+    expect(inspection.identifiers).toEqual(expect.arrayContaining(['MigrationPipeline', 'MigrationRunner']));
+    expect(inspection.identifiers).not.toContain('CurrentMigrationPipeline');
+    expect(inspection.identifiers).not.toContain('Migrator');
+    expect(inspection.callExpressionNames.filter(name => name === 'run')).toEqual(['run']);
+    expect(
+      inspectSemanticAuthorityCalls([cliPath]).filter(call =>
+        [
+          'DiscoverProjectStage.run',
+          'AnalyzeProjectStage.run',
+          'RenderProjectStage.run',
+          'ValidateProjectStage.run',
+        ].includes(call.name),
+      ),
+    ).toEqual([]);
   });
 
   test('keeps handoff arrays and completed result objects frozen under mutation attempts', async () => {
@@ -319,12 +326,12 @@ describe('enterprise pipeline shell dependency boundary', { timeout: wholeProjec
       'applied-project.ts',
       'apply-project.stage.ts',
       'css-reference.collector.ts',
-      'current-migration.pipeline.ts',
       'discover-project.stage.ts',
       'discovery-file-system.port.ts',
       'ignore-matcher.port.ts',
       'invocation-error-path.mapper.ts',
       'migration-pipeline.ts',
+      'migration-runner.ts',
       'pipeline-stage.error.ts',
       'project-manifest.ts',
       'render-project.stage.ts',

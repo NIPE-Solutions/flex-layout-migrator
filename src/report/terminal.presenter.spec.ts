@@ -249,4 +249,19 @@ describe('TerminalPresenter', () => {
 
     expect(output.text).not.toContain('Stylesheet:');
   });
+
+  test('cannot change a completed application decision when presentation fails', () => {
+    const completed = report();
+    const application = completed.application;
+    const failure = new Error('presenter failed');
+    const output: TextOutput = {
+      write() {
+        throw failure;
+      },
+    };
+
+    expect(() => new TerminalPresenter().present(completed, output)).toThrow(failure);
+    expect(completed.application).toBe(application);
+    expect(completed.application).toEqual({ status: 'applied' });
+  });
 });
