@@ -22,7 +22,7 @@ export class AdapterFactory {
     target: string,
     config: BreakpointMigrationConfig = { orientationBreakpoints: false },
   ): RenderSession {
-    logger.info(`Creating render session [${target}]`);
+    logger.info(`Creating adapter session [${target}]`);
     if (target === 'tailwind') return new TailwindRenderSession(config);
     if (target === 'css') return new CssRenderSession(config);
     throw new Error(`Adapter [${target}] not found`);

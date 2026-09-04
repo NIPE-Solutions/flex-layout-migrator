@@ -109,6 +109,17 @@ describe('packaged CLI execution', () => {
     });
   });
 
+  test('preserves the adapter-session debug message through the real CLI route', async () => {
+    const input = join(temporaryDirectory, 'debug-input.html');
+    await writeFile(input, '<div fxLayout="row"></div>', 'utf8');
+
+    const result = await execute([input, '--debug']);
+
+    expect(result).toMatchObject({ status: 0, stderr: '' });
+    expect(result.stdout).toContain('Creating adapter session [tailwind]');
+    expect(result.stdout).not.toContain('Creating render session [tailwind]');
+  });
+
   test('executes the packaged CSS target with its companion stylesheet', async () => {
     const input = join(temporaryDirectory, 'input.html');
     const output = join(temporaryDirectory, 'output.html');
