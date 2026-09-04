@@ -13,14 +13,12 @@ This is the final production implementation commit. The evidence-only documentat
 - Node.js: `v24.20.0`
 - npm: `11.19.0`
 - Platform: `darwin-arm64`
-- Operating system: `macOS 14.6.1` (`23G93`)
-- Kernel: `Darwin 23.6.0`, `RELEASE_ARM64_T6031`
 
 Evidence was generated with:
 
 ```text
 npm run architecture:inventory -- --json /tmp/flex-layout-roadmap-final-inventory.json
-npm ls --omit=dev --all --json
+npm ls --omit=dev --all --json --long
 npm run package:check
 npx vitest run test/performance/migration-workload-counter.test.ts test/compatibility test/cli/cli.test.ts
 npm run build
@@ -28,6 +26,8 @@ npm run package:check
 npm run benchmark:architecture:prepare
 npm run benchmark:architecture -- --json /tmp/flex-layout-roadmap-final-benchmark.json
 ```
+
+The benchmark runner's JSON output is preserved byte-for-byte as the tracked artifact `docs/maintenance/evidence/2026-09-04-enterprise-architecture-final-benchmark.json`.
 
 ## Final route
 
@@ -120,6 +120,16 @@ The direct runtime set has five entries. `npm ls --omit=dev --all --json` resolv
 
 The Slice 1 runtime import set also contained five packages, but `ignore` was undeclared and supplied transitively. The final manifest declares it explicitly at the already resolved `5.2.4`; no runtime package was added to or removed from the production import set.
 
+## Runtime license inventory
+
+The runtime-install graph was generated with `npm ls --omit=dev --all --json --long`. Package identity and license are read from each resolved package's own `package.json`; duplicate occurrences of the same package/version are counted once. The graph resolved 36 unique runtime package/version instances, and the grouped counts below cover all 36.
+
+| License | Unique package/version instances | Packages                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| ------- | -------------------------------: | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0BSD    |                                1 | `tslib@2.8.1`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| ISC     |                                2 | `graceful-fs@4.2.11`; `inherits@2.0.4`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| MIT     |                               33 | `@angular/compiler@21.2.22`; `@colors/colors@1.6.0`; `@dabh/diagnostics@2.0.8`; `@so-ric/colorspace@1.1.6`; `@types/triple-beam@1.3.5`; `async@3.2.4`; `color-convert@3.1.3`; `color-name@2.1.1`; `color-string@2.1.4`; `color@5.0.3`; `commander@15.0.0`; `enabled@2.0.0`; `fecha@4.2.3`; `fn.name@1.1.0`; `fs-extra@11.4.0`; `ignore@5.2.4`; `is-stream@2.0.1`; `jsonfile@6.1.0`; `kuler@2.0.0`; `logform@2.7.0`; `ms@2.1.3`; `one-time@1.0.0`; `readable-stream@3.6.2`; `safe-buffer@5.2.1`; `safe-stable-stringify@2.5.0`; `stack-trace@0.0.10`; `string_decoder@1.3.0`; `text-hex@1.0.0`; `triple-beam@1.4.1`; `universalify@2.0.0`; `util-deprecate@1.0.2`; `winston-transport@4.9.0`; `winston@3.19.0` |
+
 ## Workload counters
 
 These assertions run the real Discover, Analyze, Render, Validate, and Apply stages. Original reads are Analyze reads; destination reads are successful Validate reads and exclude absent-path probes. Validation reparses occur once per changed proposal. Reference parses are the complete native-CSS project-state pass. Semantic-plan and target-render counts are observed at their real production ports.
@@ -152,7 +162,7 @@ Plan mode and unchanged writes stage nothing and perform no project write. A par
 
 ## Package evidence
 
-`npm pack --dry-run --json --ignore-scripts` reported exactly six files, a 255,903-byte tarball, a 1,262,350-byte unpacked size, and no bundled dependencies. `npm run package:check` installed the generated tarball in a clean temporary project and exercised help, version, Tailwind plan/write, native-CSS plan/write, report schema, exact generated bytes, and unchanged rerun behavior with Node.js `v24.20.0`. The manifest continues to require Node.js `>=24` and exposes `flex-layout-codemod` at `dist/cli.js`.
+`npm pack --dry-run --json --ignore-scripts` reported exactly 6 files, a 255,903-byte tarball, a 1,262,350-byte unpacked size, and no bundled dependencies. `npm run package:check` installed the generated tarball in a clean temporary project and exercised help, version, Tailwind plan/write, native-CSS plan/write, report schema, exact generated bytes, and unchanged rerun behavior with Node.js `v24.20.0`. The manifest continues to require Node.js `>=24` and exposes `flex-layout-codemod` at `dist/cli.js`.
 
 | Package file    |   Bytes |
 | --------------- | ------: |
@@ -169,7 +179,7 @@ The final public parity run passed 8 test files and 105 tests across `test/compa
 
 ## Benchmark method
 
-The runner and corpus are unchanged from Slice 1. `npm run benchmark:architecture:prepare` builds `dist/cli.js`. Each product invocation copies a checked-in fixture to a fresh temporary project, invokes the packaged CLI with the memory probe, requires a zero exit status, and removes the project afterward. Architecture-test timing starts a fresh Vitest process for `test/architecture/enterprise-pipeline-boundary.test.ts`.
+The product runner, memory probe, and fixture corpus are byte-identical to Slice 1. `npm run benchmark:architecture:prepare` builds `dist/cli.js`. Each product invocation copies a checked-in fixture to a fresh temporary project, invokes the packaged CLI with the memory probe, requires a zero exit status, and removes the project afterward. Architecture-test timing starts a fresh Vitest process for `test/architecture/enterprise-pipeline-boundary.test.ts`; that test changed after Slice 1 and its timing is therefore reported without a historical comparison.
 
 Warm-up runs per scenario: **1**
 
@@ -177,9 +187,20 @@ Recorded samples per scenario: **5**
 
 One warm-up was discarded for each of the four product scenarios and for the architecture-test scenario. The runner calculated median, minimum, maximum, and median absolute deviation from the five retained samples. Product rows also preserve peak RSS. CI has no wall-clock threshold.
 
+## Benchmark input digests
+
+Each digest is SHA-256 over every selected Git path in code-unit order, adding `path`, a NUL byte, blob bytes, and a final NUL byte for each file. Slice 1 uses commit `41c0714bca3ec09470e25efde0f30b6bc96cc0ac`; final uses the captured production commit. Equality is required before a timing comparison is published.
+
+| Input                      | Slice 1 SHA-256                                                    | Final SHA-256                                                      | Comparison status         |
+| -------------------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------ | ------------------------- |
+| Runner                     | `4ff7e237feb9052cc263c172d27bb910fd97f8a015a06835013666b8004d92bc` | `4ff7e237feb9052cc263c172d27bb910fd97f8a015a06835013666b8004d92bc` | identical                 |
+| Memory probe               | `6c9aafd10fc39401cf913f2ba13bac3725dda8d753b4eccc9592d30fbf25cd87` | `6c9aafd10fc39401cf913f2ba13bac3725dda8d753b4eccc9592d30fbf25cd87` | identical                 |
+| Product fixtures           | `d8282d7000602d5467144a8cc85c9a4d8af9346630664dcb6ceb5a21d671a842` | `d8282d7000602d5467144a8cc85c9a4d8af9346630664dcb6ceb5a21d671a842` | identical                 |
+| Architecture boundary test | `2ecfa2387c8c65e8110e5a8d06c58988cdcd7f71310406d40a07f237b3a380da` | `9039c9a8713ac82f482b516aae135b1a290cbb8a21e2a340fa78beee8739d8f2` | different; not comparable |
+
 ## Benchmark results
 
-Generated at `2026-09-04T16:10:49.783Z` from the captured commit and environment above.
+Generated at `2026-09-04T16:10:49.783Z` from the tracked benchmark artifact.
 
 | Scenario                | Recorded milliseconds                                                                              |             Median |            Minimum |            Maximum |                MAD | Recorded peak RSS bytes                               |
 | ----------------------- | -------------------------------------------------------------------------------------------------- | -----------------: | -----------------: | -----------------: | -----------------: | ----------------------------------------------------- |
@@ -196,23 +217,22 @@ Generated at `2026-09-04T16:10:49.783Z` from the captured commit and environment
 
 ## Slice 1 comparison
 
-The same machine and unchanged corpus produced these median comparisons. Positive deltas are slower observations.
+The same machine and byte-identical product inputs produced these median comparisons. Positive deltas are slower observations.
 
 | Scenario                |     Slice 1 median |       Final median | Final minus Slice 1 | Relative delta |
 | ----------------------- | -----------------: | -----------------: | ------------------: | -------------: |
 | `single-tailwind-plan`  |  98.99062500000002 | 104.18812500000001 |   5.197499999999991 |         +5.25% |
-| `multi-tailwind-plan`   | 115.16966699999989 | 122.49479099999996 |   7.325124000000074 |         +6.36% |
-| `multi-native-css-plan` | 106.70066699999984 | 107.11099999999988 |   0.410333000000042 |         +0.38% |
-| `unchanged-write`       |  92.08108399999992 |  97.37720800000034 |    5.29612400000042 |         +5.75% |
-| Architecture test       |        7885.041084 |  33191.96758299999 |  25306.926498999987 |       +320.95% |
+| `multi-tailwind-plan`   | 115.16966699999989 | 122.49479099999996 |  7.3251240000000735 |         +6.36% |
+| `multi-native-css-plan` | 106.70066699999984 | 107.11099999999988 |  0.4103330000000369 |         +0.38% |
+| `unchanged-write`       |  92.08108399999992 |  97.37720800000034 |   5.296124000000418 |         +5.75% |
 
-All four product medians and the architecture-test median are higher in this capture. No repeatable median improvement is claimed. These are observational results from one five-sample run; no causal attribution is made and they do not create a timing gate.
+All four product medians are higher in this capture. No repeatable median improvement is claimed. These are observational results from one five-sample run; no causal attribution is made and they do not create a timing gate. The architecture boundary test changed between Slice 1 and the final capture, so its timing is not comparable. Its final five-sample observation remains recorded above without a delta or percentage.
 
 The Slice 1 aggregate workload columns and the final aggregate work remain equivalent for the established scenarios. The final contracts separate original reads from destination reads, changed-template validation from native-CSS reference parsing, and transaction staging verification from Validate. That greater precision is evidence, not a throughput claim.
 
 ## Retained debt
 
-- **Performance evidence — performance owner:** all measured medians are neutral-to-negative versus Slice 1, and the architecture-test process is materially slower. A future performance task must profile current resolved-symbol inspection and product startup before proposing an optimization; this rewrite makes no improvement claim.
+- **Performance evidence — performance owner:** all four comparable product medians are higher than Slice 1. The current architecture-test observation cannot be compared because its test workload changed. A future performance task must profile product startup and current resolved-symbol inspection before proposing an optimization; this rewrite makes no improvement claim.
 - **Large semantic modules — semantic architecture owner:** `SemanticFamilyCompositionPlanner` and `ElementSemanticPlanner` are the two largest production modules. Their size is recorded for maintainability review, but no speculative split is included without a separate responsibility design.
 - **Stable-release compatibility — product owner:** conservative native-CSS limitations, opt-in responsive-image behavior, and other gaps already reserved for the stable-release audit remain unchanged. They are not architecture-rewrite regressions.
 

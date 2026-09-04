@@ -1,0 +1,58 @@
+{
+  "generatedAt": "2026-09-04T16:10:49.783Z",
+  "node": "v24.20.0",
+  "platform": "darwin-arm64",
+  "commit": "fafb4177d0482303730fe810adb1fdf180c387c5",
+  "warmups": 1,
+  "samples": 5,
+  "scenarios": [
+    {
+      "name": "single-tailwind-plan",
+      "milliseconds": [104.76083400000002, 102.220417, 104.18812500000001, 105.95458299999996, 104.10058400000003],
+      "medianMilliseconds": 104.18812500000001,
+      "minMilliseconds": 102.220417,
+      "maxMilliseconds": 105.95458299999996,
+      "medianAbsoluteDeviationMilliseconds": 0.5727090000000032,
+      "peakRssBytes": [97566720, 99155968, 99581952, 98893824, 100450304]
+    },
+    {
+      "name": "multi-tailwind-plan",
+      "milliseconds": [
+        125.77199999999993, 122.49479099999996, 119.94074999999998, 122.06116600000018, 129.64716599999997
+      ],
+      "medianMilliseconds": 122.49479099999996,
+      "minMilliseconds": 119.94074999999998,
+      "maxMilliseconds": 129.64716599999997,
+      "medianAbsoluteDeviationMilliseconds": 2.554040999999984,
+      "peakRssBytes": [102301696, 101285888, 102039552, 100220928, 100220928]
+    },
+    {
+      "name": "multi-native-css-plan",
+      "milliseconds": [
+        106.72029099999986, 108.87924999999996, 107.35983299999998, 106.12654099999986, 107.11099999999988
+      ],
+      "medianMilliseconds": 107.11099999999988,
+      "minMilliseconds": 106.12654099999986,
+      "maxMilliseconds": 108.87924999999996,
+      "medianAbsoluteDeviationMilliseconds": 0.3907090000000153,
+      "peakRssBytes": [96256000, 99270656, 98254848, 96862208, 96501760]
+    },
+    {
+      "name": "unchanged-write",
+      "milliseconds": [94.771792, 98.54375000000027, 96.9670000000001, 97.878334, 97.37720800000034],
+      "medianMilliseconds": 97.37720800000034,
+      "minMilliseconds": 94.771792,
+      "maxMilliseconds": 98.54375000000027,
+      "medianAbsoluteDeviationMilliseconds": 0.5011259999996582,
+      "peakRssBytes": [94978048, 96649216, 96763904, 95551488, 95977472]
+    }
+  ],
+  "architectureTest": {
+    "command": "node node_modules/vitest/vitest.mjs run test/architecture/enterprise-pipeline-boundary.test.ts",
+    "milliseconds": [31443.481208000005, 40661.387334, 33108.78545800001, 33191.96758299999, 33574.596415999986],
+    "medianMilliseconds": 33191.96758299999,
+    "minMilliseconds": 31443.481208000005,
+    "maxMilliseconds": 40661.387334,
+    "medianAbsoluteDeviationMilliseconds": 382.6288329999952
+  }
+}
