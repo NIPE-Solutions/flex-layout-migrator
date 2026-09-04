@@ -159,7 +159,7 @@ describe('release policy', () => {
     expect(changesetsScripts).toEqual({
       changeset: 'changeset add',
       'version-packages': 'changeset version',
-      'release:version': 'changeset version && npm install --package-lock-only --ignore-scripts',
+      'release:version': 'changeset version && npm install --package-lock-only --ignore-scripts --no-audit --no-fund',
     });
   });
 
@@ -226,5 +226,5 @@ describe('release policy', () => {
     } finally {
       await rm(temporaryDirectory, { recursive: true, force: true });
     }
-  });
+  }, 30_000);
 });

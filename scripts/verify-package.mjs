@@ -70,9 +70,13 @@ export async function smokePackageTarball({
 
   try {
     await writeFile(join(temporaryDirectory, 'package.json'), '{"private":true}', 'utf8');
-    await execFileImpl(npmExecutable(platform), ['install', '--ignore-scripts', tarballPath], {
-      cwd: temporaryDirectory,
-    });
+    await execFileImpl(
+      npmExecutable(platform),
+      ['install', '--ignore-scripts', '--no-audit', '--no-fund', tarballPath],
+      {
+        cwd: temporaryDirectory,
+      },
+    );
 
     const installedModuleExecutable = join(
       temporaryDirectory,
