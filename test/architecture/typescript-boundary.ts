@@ -228,8 +228,10 @@ export interface RuntimeSymbolProvenance {
   readonly declarationPath: string;
 }
 
-/** A runtime value exported by a module, resolved through aliases and barrels to its declaration. */
-export type RuntimeExportSymbolProvenance = RuntimeSymbolProvenance;
+/** A runtime value exported by a module, retaining its public name while resolving its declaration. */
+export interface RuntimeExportSymbolProvenance extends RuntimeSymbolProvenance {
+  readonly exportedName: string;
+}
 
 type FilesystemProvenance = '*' | string;
 const inspectionRootPaths = new WeakMap<ts.Program, ReadonlySet<string>>();
@@ -4445,10 +4447,11 @@ function runtimeExportSymbolProvenanceFromProject({
       if (declaration === undefined) continue;
       const finding = {
         sourcePath,
+        exportedName: exported.getName(),
         symbolName: resolved.getName(),
         declarationPath: resolve(declaration.getSourceFile().fileName),
       };
-      const key = `${finding.sourcePath}\0${finding.symbolName}\0${finding.declarationPath}`;
+      const key = `${finding.sourcePath}\0${finding.exportedName}\0${finding.symbolName}\0${finding.declarationPath}`;
       if (seenFindings.has(key)) continue;
       seenFindings.add(key);
       findings.push(finding);

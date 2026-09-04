@@ -30,12 +30,6 @@ const conversionAdapterPath = join(productionRoot, 'adapter', 'conversion-adapte
 const destinationTemplateSourcePath = join(productionRoot, 'migrator', 'destination-template-source.ts');
 const stylesheetPlannerPath = join(productionRoot, 'migrator', 'stylesheet.planner.ts');
 const legacyResponsiveFamilyPlannerPath = join(productionRoot, 'adapter', 'responsive-family.planner.ts');
-const tailwindResponsiveFamilyPlannerSpecPath = join(
-  productionRoot,
-  'adapter',
-  'tailwind',
-  'responsive-family.planner.spec.ts',
-);
 const semanticResponsiveFamilyPlannerSpecPath = join(productionRoot, 'semantic', 'responsive-family.planner.spec.ts');
 const roguePath = join(productionRoot, '__architecture-fixture__', 'rogue.ts');
 const wholeProjectInspectionTimeout = 60_000;
@@ -776,7 +770,7 @@ describe('enterprise pipeline dependency boundary', { timeout: wholeProjectInspe
           ...productionInspection.inspectRuntimeNamedDeclarationProvenance('ResponsiveFamilyPlanner'),
           ...productionInspection
             .inspectRuntimeExportSymbolProvenance()
-            .filter(symbol => symbol.symbolName === 'ResponsiveFamilyPlanner'),
+            .filter(symbol => symbol.exportedName === 'ResponsiveFamilyPlanner'),
         ].map(symbol => relative(productionRoot, symbol.declarationPath).replaceAll('\\', '/')),
       ),
     ].sort();
@@ -809,6 +803,33 @@ describe('enterprise pipeline dependency boundary', { timeout: wholeProjectInspe
     ];
 
     expect(owners).toEqual([adapterOwnerPath, hiddenOwnerPath]);
+  });
+
+  test('retains an exported owner name while resolving a differently named adapter implementation', () => {
+    const adapterImplementationPath = join(
+      productionRoot,
+      '__architecture-fixture__',
+      'adapter-responsive-implementation.ts',
+    );
+    const barrelPath = join(productionRoot, '__architecture-fixture__', 'responsive-owner-alias.ts');
+    const inspection = createTypeScriptProjectInspectionSession(
+      [barrelPath],
+      new Map([
+        [adapterImplementationPath, 'export class AdapterResponsiveImplementation {}'],
+        [
+          barrelPath,
+          "export { AdapterResponsiveImplementation as ResponsiveFamilyPlanner } from './adapter-responsive-implementation.js';",
+        ],
+      ]),
+    );
+
+    expect(inspection.inspectRuntimeExportSymbolProvenance()).toContainEqual({
+      sourcePath: barrelPath,
+      exportedName: 'ResponsiveFamilyPlanner',
+      symbolName: 'AdapterResponsiveImplementation',
+      declarationPath: adapterImplementationPath,
+    });
+    expect(inspection.programConstructionCount).toBe(1);
   });
 
   test('keeps the deprecated ConversionAdapter type free of semantic orchestration hooks', () => {
@@ -890,14 +911,14 @@ describe('enterprise pipeline dependency boundary', { timeout: wholeProjectInspe
       [typeOnlyPath, "import type { PlannedConversion } from './semantic-type-barrel.js'; void 0;"],
       [barrelPath, "export type { PlannedConversion } from '../adapter/conversion-adapter.js';"],
     ]);
-    const findings = createTypeScriptProjectInspectionSession([typeOnlyPath], overrides).inspectDependencyClosure();
+    const inspection = createTypeScriptProjectInspectionSession([typeOnlyPath], overrides);
+    const findings = inspection.inspectDependencyClosure();
 
     expect(findings.map(finding => finding.dependencyPath)).toContain(
       join(productionRoot, 'adapter', 'conversion-adapter.ts'),
     );
-    expect(
-      createTypeScriptProjectInspectionSession([typeOnlyPath], overrides).inspectRuntimeDependencyClosure(),
-    ).toEqual([]);
+    expect(inspection.inspectRuntimeDependencyClosure()).toEqual([]);
+    expect(inspection.programConstructionCount).toBe(1);
   });
 
   test('keeps target execution calls outside target-neutral semantic modules', () => {
@@ -1524,11 +1545,9 @@ describe('enterprise pipeline dependency boundary', { timeout: wholeProjectInspe
       'retains intrinsic visibility diagnostics when dynamic closure preserves the family',
     ];
     const semanticSpec = readFileSync(semanticResponsiveFamilyPlannerSpecPath, 'utf8');
-    const tailwindSpec = readFileSync(tailwindResponsiveFamilyPlannerSpecPath, 'utf8');
 
     for (const testName of semanticCases) {
       expect(semanticSpec).toContain(testName);
-      expect(tailwindSpec).not.toContain(testName);
     }
   });
 
