@@ -41,6 +41,7 @@
     "version-packages": "changeset version",
     "release:prepare": "node scripts/release-artifact.mjs",
     "release:verify": "node scripts/release-artifact.mjs --verify-retained",
+    "verify:website-assets": "node scripts/verify-website-assets.mjs",
     "release:version": "changeset version && npm install --package-lock-only --ignore-scripts --no-audit --no-fund",
     "prepare": "husky"
   },
