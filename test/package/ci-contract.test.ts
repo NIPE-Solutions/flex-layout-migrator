@@ -71,6 +71,9 @@ describe('continuous integration', () => {
             with: { 'fetch-depth': 0 },
           },
           {
+            run: 'git fetch --no-tags origin 41c0714bca3ec09470e25efde0f30b6bc96cc0ac 92f720211a04563bd4216b90e52b9a7a230c048b',
+          },
+          {
             uses: 'actions/setup-node@820762786026740c76f36085b0efc47a31fe5020',
             with: {
               'node-version': 24,
