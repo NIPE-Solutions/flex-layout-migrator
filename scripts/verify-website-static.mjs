@@ -91,12 +91,17 @@ async function assertCompilerIsLazy({ dist, entrySource, manifest }) {
   }
 
   const eagerGraph = collectManifestGraph(manifest, ['index.html'], ['imports']);
-  const entryLazyGraph = collectManifestGraph(manifest, entry.dynamicImports ?? [], ['imports', 'dynamicImports']);
+  const entryLazyGraph = collectManifestGraph(
+    manifest,
+    entry.dynamicImports ?? [],
+    ['imports', 'dynamicImports'],
+    eagerGraph,
+  );
   if (!entryLazyGraph.has(playgroundKey)) {
     throw new Error('playground must be reachable only through a dynamic entry from the website entry');
   }
 
-  const playgroundGraph = collectManifestGraph(manifest, [playgroundKey], ['imports', 'dynamicImports']);
+  const playgroundGraph = collectManifestGraph(manifest, [playgroundKey], ['imports', 'dynamicImports'], eagerGraph);
   if (eagerGraph.has(playgroundKey)) {
     throw new Error('playground dynamic entry is also reachable from the eager graph');
   }
@@ -128,7 +133,7 @@ async function assertCompilerIsLazy({ dist, entrySource, manifest }) {
   }
 }
 
-function collectManifestGraph(manifest, rootKeys, edgeNames) {
+function collectManifestGraph(manifest, rootKeys, edgeNames, stopExpansionAt = new Set()) {
   const visited = new Set();
   const pending = [...rootKeys];
   while (pending.length > 0) {
@@ -137,6 +142,7 @@ function collectManifestGraph(manifest, rootKeys, edgeNames) {
     const entry = manifest[key];
     if (entry === undefined) throw new Error(`Vite manifest references missing entry ${key}`);
     visited.add(key);
+    if (stopExpansionAt.has(key)) continue;
     for (const edgeName of edgeNames) pending.push(...(entry[edgeName] ?? []));
   }
   return visited;

@@ -106,6 +106,17 @@ describe('website static output verification', () => {
     );
   });
 
+  it('rejects Angular compiler sentinels in a recursively nested eager import', async () => {
+    const root = await createFixture({ nestedEagerCompiler: true });
+
+    const verification = runVerifier(root);
+
+    expect(verification.status).toBe(1);
+    expect(verification.stderr).toContain(
+      'Angular compiler sentinel found in eager JavaScript graph: assets/nested-eager-Qq55Rr66.js',
+    );
+  });
+
   it('rejects compiler sentinels split among sub-threshold eager imports', async () => {
     const root = await createFixture({ splitEagerCompiler: true });
 
@@ -122,6 +133,17 @@ describe('website static output verification', () => {
 
     expect(verification.status).toBe(0);
     expect(verification.stderr).toBe('');
+  });
+
+  it('does not accept compiler evidence from an unrelated dynamic sibling reached through the eager entry', async () => {
+    const root = await createFixture({ siblingDynamicCompiler: true });
+
+    const verification = runVerifier(root);
+
+    expect(verification.status).toBe(1);
+    expect(verification.stderr).toContain(
+      'playground lazy-only graph is missing Angular compiler sentinel: Parser Error',
+    );
   });
 
   it('rejects compiler-bearing lazy graph overlap that is also eagerly reachable', async () => {
@@ -173,8 +195,10 @@ async function createFixture(
     readonly robotsDisallow?: boolean;
     readonly aggregateEagerImports?: boolean;
     readonly eagerImportedCompiler?: boolean;
+    readonly nestedEagerCompiler?: boolean;
     readonly splitEagerCompiler?: boolean;
     readonly splitLazyCompiler?: boolean;
+    readonly siblingDynamicCompiler?: boolean;
     readonly overlappingCompilerChunk?: boolean;
   } = {},
 ): Promise<string> {
@@ -192,9 +216,12 @@ async function createFixture(
   await writeFile(path.join(assets, 'index-Ef56Gh78.css'), ':root{color:#111b24}');
   await writeFile(
     path.join(assets, 'playground-Ij90Kl12.js'),
-    options.eagerCompiler || options.splitLazyCompiler ? 'export{}' : compilerSentinel,
+    options.eagerCompiler || options.splitLazyCompiler || options.siblingDynamicCompiler
+      ? 'export{}'
+      : compilerSentinel,
   );
   const manifestImports: string[] = [];
+  const manifestDynamicImports = ['src/components/playground.tsx'];
   const playgroundImports: string[] = [];
   const playgroundDynamicImports: string[] = [];
   const manifestEntries: Record<string, object> = {};
@@ -206,6 +233,13 @@ async function createFixture(
   if (options.eagerImportedCompiler) {
     await addManifestAsset('src/eager-compiler.ts', 'assets/eager-Compiler1.js', compilerSentinel);
     manifestImports.push('src/eager-compiler.ts');
+  }
+  if (options.nestedEagerCompiler) {
+    await addManifestAsset('src/eager-parent.ts', 'assets/eager-parent-Oo11Pp22.js', 'export{}', {
+      imports: ['src/nested-eager.ts'],
+    });
+    await addManifestAsset('src/nested-eager.ts', 'assets/nested-eager-Qq55Rr66.js', compilerSentinel);
+    manifestImports.push('src/eager-parent.ts');
   }
   if (options.splitEagerCompiler) {
     for (const [index, sentinel] of ['Parser Error', 'Unexpected closing tag', 'Incomplete block'].entries()) {
@@ -223,6 +257,11 @@ async function createFixture(
     });
     await addManifestAsset('src/lazy-block.ts', 'assets/lazy-block-Kk11Ll22.js', 'Incomplete block');
     playgroundImports.push('src/lazy-parser.ts');
+  }
+  if (options.siblingDynamicCompiler) {
+    await addManifestAsset('src/unrelated-lazy.ts', 'assets/unrelated-lazy-Ss77Tt88.js', compilerSentinel);
+    manifestDynamicImports.push('src/unrelated-lazy.ts');
+    playgroundImports.push('index.html');
   }
   if (options.overlappingCompilerChunk) {
     await addManifestAsset('src/shared-compiler.ts', 'assets/shared-compiler-Mm33Nn44.js', compilerSentinel);
@@ -278,7 +317,7 @@ async function createFixture(
         file: 'assets/index-Ab12Cd34.js',
         isEntry: true,
         imports: manifestImports,
-        dynamicImports: ['src/components/playground.tsx'],
+        dynamicImports: manifestDynamicImports,
       },
       'src/components/playground.tsx': {
         file: 'assets/playground-Ij90Kl12.js',
