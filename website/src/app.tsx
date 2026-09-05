@@ -13,11 +13,13 @@ import {
   type LegalPath,
   useSitePath,
 } from './router';
+import { siteContent } from './site-content';
 
 export function App() {
   const path = useSitePath();
 
   useEffect(() => installClientNavigation(), []);
+  useEffect(() => updateRouteMetadata(path), [path]);
 
   return (
     <>
@@ -31,4 +33,12 @@ export function App() {
       <SiteFooter />
     </>
   );
+}
+
+function updateRouteMetadata(path: string): void {
+  const routeUrl = new URL(path, `${siteContent.productionUrl}/`).href;
+  const canonical = document.querySelector<HTMLLinkElement>('link[rel="canonical"]');
+  const openGraphUrl = document.querySelector<HTMLMetaElement>('meta[property="og:url"]');
+  canonical?.setAttribute('href', routeUrl);
+  openGraphUrl?.setAttribute('content', routeUrl);
 }

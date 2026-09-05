@@ -12,7 +12,7 @@ export default defineConfig({
     command:
       'npm run build:website && npm exec vite -- preview --config vite.website.config.ts --host 127.0.0.1 --port 4173',
     url: websiteUrl,
-    reuseExistingServer: !process.env.CI,
+    reuseExistingServer: false,
     timeout: 120_000,
   },
   use: {

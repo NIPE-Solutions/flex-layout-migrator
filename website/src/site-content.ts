@@ -1,4 +1,5 @@
 export const siteContent = {
+  productionUrl: 'https://angular-flex-layout-codemod.nipesolutions.com',
   identity: {
     productName: 'Flex Layout Codemod',
     familyName: 'NIPE Open Source',

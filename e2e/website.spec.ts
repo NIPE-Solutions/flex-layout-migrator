@@ -7,6 +7,10 @@ test('renders responsive navigation and follows a direct documentation link', as
   await page.goto('/docs/tailwind');
 
   await expect(page.getByRole('heading', { level: 1, name: 'Tailwind CSS output' })).toBeVisible();
+  await expect(page.locator('link[rel="canonical"]')).toHaveAttribute(
+    'href',
+    'https://angular-flex-layout-codemod.nipesolutions.com/docs/tailwind',
+  );
   await expect(page.getByRole('navigation', { name: 'Primary navigation' })).toBeVisible();
   await expect(page.getByRole('link', { name: 'NIPE Open Source' }).first()).toHaveAttribute(
     'href',
@@ -38,6 +42,7 @@ test('exposes canonical metadata, keyboard focus order, and no critical accessib
   await expect(page.getByRole('link', { name: 'Skip to content' })).toBeFocused();
   await page.keyboard.press('Tab');
   await expect(page.getByRole('link', { name: 'Flex Layout Codemod home' })).toBeFocused();
+  await expect(page.getByRole('textbox', { name: 'Angular template' })).toBeVisible();
 
   const results = await new AxeBuilder({ page }).analyze();
   expect(results.violations.filter(violation => violation.impact === 'critical')).toEqual([]);
@@ -45,13 +50,18 @@ test('exposes canonical metadata, keyboard focus order, and no critical accessib
 
 test('converts both targets, operates output tabs with arrows, and transmits no editor source', async ({ page }) => {
   const sourceBearingRequests: string[] = [];
+  const requestsAfterEditing: string[] = [];
+  let editingStarted = false;
   page.on('request', request => {
     const requestEvidence = [request.url(), request.postData() ?? '', JSON.stringify(request.headers())].join('\n');
     if (requestEvidence.includes(sourceMarker)) sourceBearingRequests.push(request.url());
+    if (editingStarted) requestsAfterEditing.push(request.url());
   });
 
   await page.goto('/');
   const source = page.getByRole('textbox', { name: 'Angular template' });
+  await expect(source).toBeVisible();
+  editingStarted = true;
   await source.fill(`<section id="${sourceMarker}" fxLayout="column"></section>`);
   await page.getByRole('button', { name: 'Migrate template' }).click();
   await expect(page.getByRole('tabpanel', { name: 'HTML' })).toContainText('flex flex-col box-border');
@@ -67,6 +77,7 @@ test('converts both targets, operates output tabs with arrows, and transmits no 
   await expect(page.getByRole('tabpanel', { name: 'CSS' })).toContainText('flex-layout-codemod:start');
 
   expect(sourceBearingRequests).toEqual([]);
+  expect(requestsAfterEditing).toEqual([]);
 });
 
 test('disables smooth scrolling and transition motion when reduced motion is requested', async ({ page }) => {

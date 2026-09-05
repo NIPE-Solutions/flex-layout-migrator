@@ -9,6 +9,7 @@ import { App } from './app';
 afterEach(() => {
   cleanup();
   window.history.replaceState(null, '', '/');
+  document.head.querySelectorAll('[data-route-metadata-test]').forEach(element => element.remove());
   Reflect.deleteProperty(Element.prototype, 'scrollIntoView');
 });
 
@@ -119,6 +120,33 @@ describe('documentation website shell', () => {
     expect(within(screen.getByRole('banner')).getByRole('link', { name: 'NIPE Open Source' })).toHaveAttribute(
       'href',
       'https://opensource.nipesolutions.com',
+    );
+  });
+
+  it('publishes route-aware canonical and Open Graph URLs after a direct deep link', async () => {
+    const canonical = document.createElement('link');
+    canonical.rel = 'canonical';
+    canonical.href = 'https://angular-flex-layout-codemod.nipesolutions.com/';
+    canonical.dataset.routeMetadataTest = '';
+    document.head.append(canonical);
+    const openGraphUrl = document.createElement('meta');
+    openGraphUrl.setAttribute('property', 'og:url');
+    openGraphUrl.content = 'https://angular-flex-layout-codemod.nipesolutions.com/';
+    openGraphUrl.dataset.routeMetadataTest = '';
+    document.head.append(openGraphUrl);
+    window.history.replaceState(null, '', '/docs/native-css');
+
+    render(<App />);
+
+    await waitFor(() =>
+      expect(canonical).toHaveAttribute(
+        'href',
+        'https://angular-flex-layout-codemod.nipesolutions.com/docs/native-css',
+      ),
+    );
+    expect(openGraphUrl).toHaveAttribute(
+      'content',
+      'https://angular-flex-layout-codemod.nipesolutions.com/docs/native-css',
     );
   });
 });

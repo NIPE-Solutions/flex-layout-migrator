@@ -14,6 +14,7 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     emptyOutDir: true,
+    manifest: true,
   },
   test: {
     environment: 'jsdom',

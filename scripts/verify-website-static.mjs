@@ -12,7 +12,9 @@ const requiredRoutes = [
   '/docs/safety',
   '/docs/troubleshooting',
 ];
+const siteRoutes = ['/', ...requiredRoutes, '/privacy', '/imprint'];
 const maximumEntryBytes = 500 * 1024;
+const compilerSentinels = ['Parser Error', 'Unexpected closing tag', 'Incomplete block'];
 
 const root = resolveRoot(process.argv.slice(2));
 
@@ -31,14 +33,19 @@ try {
 async function verifyStaticOutput(projectRoot) {
   const dist = path.join(projectRoot, 'website', 'dist');
   const indexPath = path.join(dist, 'index.html');
-  const [html, vercelSource] = await Promise.all([
+  const [html, vercelSource, manifestSource, sitemap, robots] = await Promise.all([
     readFile(indexPath, 'utf8'),
     readFile(path.join(projectRoot, 'vercel.json'), 'utf8'),
+    readFile(path.join(dist, '.vite', 'manifest.json'), 'utf8'),
+    readFile(path.join(dist, 'sitemap.xml'), 'utf8').catch(() => ''),
+    readFile(path.join(dist, 'robots.txt'), 'utf8').catch(() => ''),
   ]);
   const vercel = JSON.parse(vercelSource);
+  const manifest = JSON.parse(manifestSource);
 
   assertCanonicalMetadata(html);
   assertVercelContract(vercel);
+  assertCrawlerFiles(sitemap, robots);
 
   const assetReferences = [...html.matchAll(/(?:href|src)="(\/assets\/[^"?#]+)"/gu)].map(match => match[1]);
   if (assetReferences.length === 0) throw new Error('index.html does not reference built assets');
@@ -59,6 +66,7 @@ async function verifyStaticOutput(projectRoot) {
   }
 
   const entryPath = path.join(dist, entrySource.replace(/^\//u, ''));
+  const entryJavaScript = await readFile(entryPath, 'utf8');
   const entryStats = await stat(entryPath);
   if (entryStats.size > maximumEntryBytes) {
     throw new Error(`entry JavaScript exceeds the 500 KiB eager-load budget (${entryStats.size} bytes)`);
@@ -70,10 +78,49 @@ async function verifyStaticOutput(projectRoot) {
     )
   ).join('\n');
   for (const route of requiredRoutes) {
-    if (!javascript.includes(route)) throw new Error(`built JavaScript is missing route ${route}`);
+    if (!javascript.includes(JSON.stringify(route))) throw new Error(`built JavaScript is missing route ${route}`);
   }
+  await assertCompilerIsLazy({ dist, entrySource, entryJavaScript, manifest });
 
   return { hashedAssets: assetFiles.length };
+}
+
+async function assertCompilerIsLazy({ dist, entrySource, entryJavaScript, manifest }) {
+  if (compilerSentinels.some(sentinel => entryJavaScript.includes(sentinel))) {
+    throw new Error('Angular compiler sentinel found in eager entry JavaScript');
+  }
+
+  const entry = manifest['index.html'];
+  const playgroundKey = Object.keys(manifest).find(key => manifest[key]?.src === 'src/components/playground.tsx');
+  if (entry?.file !== entrySource.replace(/^\//u, '') || entry?.isEntry !== true) {
+    throw new Error('Vite manifest does not identify the emitted website entry');
+  }
+  if (
+    playgroundKey === undefined ||
+    manifest[playgroundKey]?.isDynamicEntry !== true ||
+    !entry.dynamicImports?.includes(playgroundKey)
+  ) {
+    throw new Error('playground must be a dynamic entry from the website entry');
+  }
+
+  const playgroundJavaScript = await readFile(path.join(dist, manifest[playgroundKey].file), 'utf8');
+  for (const sentinel of compilerSentinels) {
+    if (!playgroundJavaScript.includes(sentinel)) {
+      throw new Error(`playground dynamic entry is missing Angular compiler sentinel: ${sentinel}`);
+    }
+  }
+}
+
+function assertCrawlerFiles(sitemap, robots) {
+  for (const route of siteRoutes) {
+    const routeUrl = `${productionOrigin}${route}`;
+    if (!sitemap.includes(`<loc>${routeUrl}</loc>`)) {
+      throw new Error(`sitemap.xml is missing required URL ${routeUrl}`);
+    }
+  }
+  if (!robots.includes('User-agent: *') || !robots.includes(`Sitemap: ${productionOrigin}/sitemap.xml`)) {
+    throw new Error('robots.txt must allow crawling and identify the production sitemap');
+  }
 }
 
 function assertCanonicalMetadata(html) {

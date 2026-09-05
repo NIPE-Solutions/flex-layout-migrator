@@ -28,7 +28,7 @@ describe('website static output verification', () => {
 
     expect(verification.stderr).toBe('');
     expect(verification.status).toBe(0);
-    expect(verification.stdout).toContain('Website static output verified: 6 routes, 2 hashed assets.');
+    expect(verification.stdout).toContain('Website static output verified: 6 routes, 3 hashed assets.');
   });
 
   it('rejects a source-bearing HTML entry instead of a production bundle', async () => {
@@ -49,6 +49,15 @@ describe('website static output verification', () => {
     expect(verification.stderr).toContain('built JavaScript is missing route /docs/troubleshooting');
   });
 
+  it('matches route tokens exactly instead of accepting a child route for /docs', async () => {
+    const root = await createFixture({ routes: requiredRoutes.slice(1) });
+
+    const verification = runVerifier(root);
+
+    expect(verification.status).toBe(1);
+    expect(verification.stderr).toContain('built JavaScript is missing route /docs');
+  });
+
   it('rejects an oversized entry bundle that would eagerly load the compiler on documentation routes', async () => {
     const root = await createFixture({ entryBytes: 500 * 1024 + 1 });
 
@@ -66,6 +75,24 @@ describe('website static output verification', () => {
     expect(verification.status).toBe(1);
     expect(verification.stderr).toContain('asset is not content-hashed: /assets/playground.js');
   });
+
+  it('rejects compiler code that is eager instead of reachable through the playground dynamic entry', async () => {
+    const root = await createFixture({ eagerCompiler: true });
+
+    const verification = runVerifier(root);
+
+    expect(verification.status).toBe(1);
+    expect(verification.stderr).toContain('Angular compiler sentinel found in eager entry JavaScript');
+  });
+
+  it('rejects output without the sitemap and robots policy', async () => {
+    const root = await createFixture({ crawlerFiles: false });
+
+    const verification = runVerifier(root);
+
+    expect(verification.status).toBe(1);
+    expect(verification.stderr).toContain('sitemap.xml is missing required URL');
+  });
 });
 
 async function createFixture(
@@ -74,6 +101,8 @@ async function createFixture(
     readonly routes?: readonly string[];
     readonly entryBytes?: number;
     readonly unhashedAsset?: boolean;
+    readonly eagerCompiler?: boolean;
+    readonly crawlerFiles?: boolean;
   } = {},
 ): Promise<string> {
   const root = await mkdtemp(path.join(tmpdir(), 'website-static-'));
@@ -84,9 +113,11 @@ async function createFixture(
 
   const routes = options.routes ?? requiredRoutes;
   const routeSource = routes.map(route => JSON.stringify(route)).join(';');
-  const entrySource = `${routeSource};${'x'.repeat(Math.max(0, (options.entryBytes ?? 0) - routeSource.length - 1))}`;
+  const compilerSentinel = 'Parser Error: Unexpected closing tag; Incomplete block';
+  const entrySource = `${routeSource};${options.eagerCompiler ? compilerSentinel : ''}${'x'.repeat(Math.max(0, (options.entryBytes ?? 0) - routeSource.length - 1))}`;
   await writeFile(path.join(assets, 'index-Ab12Cd34.js'), entrySource);
   await writeFile(path.join(assets, 'index-Ef56Gh78.css'), ':root{color:#111b24}');
+  await writeFile(path.join(assets, 'playground-Ij90Kl12.js'), options.eagerCompiler ? 'export{}' : compilerSentinel);
   if (options.unhashedAsset) await writeFile(path.join(assets, 'playground.js'), 'export{}');
   await writeFile(
     path.join(dist, 'index.html'),
@@ -116,6 +147,34 @@ async function createFixture(
       rewrites: [{ source: '/(.*)', destination: '/index.html' }],
     }),
   );
+  await mkdir(path.join(dist, '.vite'), { recursive: true });
+  await writeFile(
+    path.join(dist, '.vite', 'manifest.json'),
+    JSON.stringify({
+      'index.html': {
+        file: 'assets/index-Ab12Cd34.js',
+        isEntry: true,
+        dynamicImports: ['src/components/playground.tsx'],
+      },
+      'src/components/playground.tsx': {
+        file: 'assets/playground-Ij90Kl12.js',
+        src: 'src/components/playground.tsx',
+        isDynamicEntry: true,
+      },
+    }),
+  );
+  if (options.crawlerFiles !== false) {
+    await writeFile(
+      path.join(dist, 'sitemap.xml'),
+      `<?xml version="1.0" encoding="UTF-8"?><urlset>${['/', ...requiredRoutes, '/privacy', '/imprint']
+        .map(route => `<url><loc>https://angular-flex-layout-codemod.nipesolutions.com${route}</loc></url>`)
+        .join('')}</urlset>`,
+    );
+    await writeFile(
+      path.join(dist, 'robots.txt'),
+      'User-agent: *\nAllow: /\nSitemap: https://angular-flex-layout-codemod.nipesolutions.com/sitemap.xml\n',
+    );
+  }
   return root;
 }
 
