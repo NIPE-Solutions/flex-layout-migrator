@@ -1,6 +1,6 @@
 import { execFile, execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdtemp, readFile, rm, symlink } from 'node:fs/promises';
+import { lstat, mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -78,10 +78,12 @@ interface PackageManifest {
 }
 
 interface CapturedRepositoryEvidence {
+  readonly dependencyRootIsSymbolicLink: boolean;
   readonly inventory: ArchitectureInventory;
   readonly descriptor: PackageDescriptor;
   readonly licenses: ReadonlyMap<string, string>;
   readonly manifest: PackageManifest;
+  readonly packageManager: string;
 }
 
 interface NpmDependencyNode {
@@ -342,24 +344,32 @@ async function generateRepositoryEvidenceAtCommit(commit: string): Promise<Captu
   try {
     await execFileAsync('git', ['worktree', 'add', '--detach', checkout, commit], { cwd: repository });
     worktreeRegistered = true;
-    await symlink(
-      join(repository, 'node_modules'),
-      join(checkout, 'node_modules'),
-      process.platform === 'win32' ? 'junction' : 'dir',
-    );
-    const executable = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-    await execFileAsync(executable, ['run', 'build'], { cwd: checkout });
-    const [inventory, descriptor, licenses, packageText] = await Promise.all([
+    const executable = process.platform === 'win32' ? 'corepack.cmd' : 'corepack';
+    const packageText = await readFile(join(checkout, 'package.json'), 'utf8');
+    const manifest = JSON.parse(packageText) as PackageManifest;
+    const expectedNpmVersion = manifest.packageManager.replace(/^npm@/u, '');
+    const installedNpmVersion = (
+      await execFileAsync(executable, ['npm', '--version'], { cwd: checkout })
+    ).stdout.trim();
+    if (installedNpmVersion !== expectedNpmVersion) {
+      throw new Error(`Captured evidence requires npm ${expectedNpmVersion}, received ${installedNpmVersion}.`);
+    }
+    await execFileAsync(executable, ['npm', 'ci', '--ignore-scripts', '--no-audit', '--no-fund', '--prefer-offline'], {
+      cwd: checkout,
+    });
+    await execFileAsync(executable, ['npm', 'run', 'build'], { cwd: checkout });
+    const [inventory, descriptor, licenses] = await Promise.all([
       generateRepositoryInventory(checkout),
       generatePackageDescriptor(checkout),
       generateRuntimeLicenses(checkout),
-      readFile(join(checkout, 'package.json'), 'utf8'),
     ]);
     return {
+      dependencyRootIsSymbolicLink: (await lstat(join(checkout, 'node_modules'))).isSymbolicLink(),
       inventory,
       descriptor,
       licenses,
-      manifest: JSON.parse(packageText) as PackageManifest,
+      manifest,
+      packageManager: `npm@${installedNpmVersion}`,
     };
   } finally {
     if (worktreeRegistered) {
@@ -638,6 +648,9 @@ describe('enterprise architecture baseline documentation contract', () => {
     ]);
     const benchmark = JSON.parse(benchmarkText) as BenchmarkReport;
     const { descriptor, inventory, licenses, manifest } = captured;
+
+    expect(captured.dependencyRootIsSymbolicLink).toBe(false);
+    expect(captured.packageManager).toBe(manifest.packageManager);
 
     expect(() => gitText(['ls-files', '--error-unmatch', finalBenchmarkPath])).not.toThrow();
     expect(capturedCommit(markdown)).toBe(benchmark.commit);

@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { dirname, extname, join, relative, resolve } from 'node:path';
+import { dirname, extname, isAbsolute, join, relative, resolve, sep, win32 } from 'node:path';
 
 import { runtimeModuleReferences } from './typescript-boundary';
 
@@ -22,6 +22,14 @@ describe('browser preview architecture boundary', () => {
     },
   );
 
+  test('recognizes forbidden source descendants with Windows path separators', () => {
+    const root = String.raw`C:\workspace\src\cli`;
+
+    expect(isForbiddenSourcePath(String.raw`C:\workspace\src\cli\run-cli.ts`, [root], win32)).toBe(true);
+    expect(isForbiddenSourcePath(String.raw`C:\workspace\src\cli-tools\run.ts`, [root], win32)).toBe(false);
+    expect(isForbiddenSourcePath(String.raw`D:\workspace\src\cli\run-cli.ts`, [root], win32)).toBe(false);
+  });
+
   test('keeps the complete static import graph free of Node and application-side authorities', () => {
     expect(existsSync(entryPath), relative(process.cwd(), entryPath)).toBe(true);
 
@@ -41,7 +49,7 @@ describe('browser preview architecture boundary', () => {
 
         const dependencyPath = resolveLocalTypeScript(reference, sourcePath);
         if (dependencyPath === undefined) continue;
-        if (forbiddenSourceRoots.some(root => dependencyPath === root || dependencyPath.startsWith(`${root}/`))) {
+        if (isForbiddenSourcePath(dependencyPath, forbiddenSourceRoots)) {
           findings.push(`${relative(process.cwd(), sourcePath)} -> ${relative(process.cwd(), dependencyPath)}`);
           continue;
         }
@@ -60,6 +68,26 @@ function isForbiddenPackage(reference: string): boolean {
     reference === 'fs-extra' ||
     reference.startsWith('fs-extra/')
   );
+}
+
+interface PathContainment {
+  readonly isAbsolute: (path: string) => boolean;
+  readonly relative: (from: string, to: string) => string;
+  readonly sep: string;
+}
+
+function isForbiddenSourcePath(
+  dependencyPath: string,
+  roots: readonly string[],
+  paths: PathContainment = { isAbsolute, relative, sep },
+): boolean {
+  return roots.some(root => {
+    const descendant = paths.relative(root, dependencyPath);
+    return (
+      descendant === '' ||
+      (descendant !== '..' && !descendant.startsWith(`..${paths.sep}`) && !paths.isAbsolute(descendant))
+    );
+  });
 }
 
 function resolveLocalTypeScript(reference: string, sourcePath: string): string | undefined {
