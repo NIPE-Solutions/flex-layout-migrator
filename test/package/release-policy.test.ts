@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { cp, mkdtemp, readFile, rm } from 'node:fs/promises';
+import { cp, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { delimiter, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
@@ -213,6 +213,10 @@ describe('release policy', () => {
         ['package.json', 'package-lock.json', 'CHANGELOG.md', '.changeset'].map(path =>
           cp(join(repository, path), join(temporaryDirectory, path), { recursive: true }),
         ),
+      );
+      await writeFile(
+        join(temporaryDirectory, '.changeset', 'release-policy-fixture.md'),
+        "---\n'@nipe-solutions/flex-layout-codemod': patch\n---\n\nExercise prerelease versioning.\n",
       );
 
       await execFileAsync('npm', ['run', 'release:version'], {
