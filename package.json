@@ -23,6 +23,7 @@
     "clean": "rimraf dist coverage",
     "build": "tsup",
     "build:website": "vite build --config vite.website.config.ts",
+    "generate:website-assets": "node scripts/generate-website-assets.mjs",
     "dev:website": "vite --config vite.website.config.ts",
     "typecheck": "tsc --noEmit",
     "typecheck:website": "tsc --noEmit --project website/tsconfig.json",

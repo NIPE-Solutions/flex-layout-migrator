@@ -1,21 +1,22 @@
-import { Buffer } from 'node:buffer';
 import console from 'node:console';
 import { access, readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
-import { inflateSync } from 'node:zlib';
 
-const PNG_SIGNATURE = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+import { decodeRgbaPng, expectedWebsiteAssets, PALETTE } from './generate-website-assets.mjs';
+
 const THEME_COLOR = '#111b24';
-
 const pngAssets = Object.freeze([
-  { path: 'website/public/favicon-16x16.png', width: 16, height: 16 },
-  { path: 'website/public/favicon-32x32.png', width: 32, height: 32 },
-  { path: 'website/public/apple-touch-icon.png', width: 180, height: 180 },
-  { path: 'website/public/icon-192.png', width: 192, height: 192 },
-  { path: 'website/public/icon-512.png', width: 512, height: 512 },
-  { path: 'website/public/og-image.png', width: 1200, height: 630 },
+  { path: 'website/public/icon-source.png', width: 1024, height: 1024, kind: 'master' },
+  { path: 'website/public/favicon-16x16.png', width: 16, height: 16, kind: 'favicon' },
+  { path: 'website/public/favicon-32x32.png', width: 32, height: 32, kind: 'favicon' },
+  { path: 'website/public/apple-touch-icon.png', width: 180, height: 180, kind: 'derivative' },
+  { path: 'website/public/icon-192.png', width: 192, height: 192, kind: 'derivative' },
+  { path: 'website/public/icon-512.png', width: 512, height: 512, kind: 'derivative' },
+  { path: 'website/public/maskable-192.png', width: 192, height: 192, kind: 'maskable' },
+  { path: 'website/public/maskable-512.png', width: 512, height: 512, kind: 'maskable' },
+  { path: 'website/public/og-image.png', width: 1200, height: 630, kind: 'social' },
 ]);
 
 async function exists(path) {
@@ -28,108 +29,133 @@ async function exists(path) {
   }
 }
 
-function inspectPng(buffer, expected, issues) {
-  if (buffer.length < 33 || !buffer.subarray(0, 8).equals(PNG_SIGNATURE)) {
-    issues.push(`${expected.path}: not a valid PNG`);
-    return;
-  }
-
-  const width = buffer.readUInt32BE(16);
-  const height = buffer.readUInt32BE(20);
-  const colorType = buffer[25];
-  if (width !== expected.width || height !== expected.height) {
-    issues.push(`${expected.path}: expected ${expected.width}x${expected.height}, received ${width}x${height}`);
-  }
-  if (colorType !== 4 && colorType !== 6) {
-    issues.push(`${expected.path}: PNG must retain an alpha channel`);
-  }
-  if (buffer.length <= 100) issues.push(`${expected.path}: PNG is empty or implausibly small`);
+function hex(red, green, blue) {
+  return `#${red.toString(16).padStart(2, '0')}${green.toString(16).padStart(2, '0')}${blue.toString(16).padStart(2, '0')}`;
 }
 
-function paethPredictor(left, above, upperLeft) {
-  const prediction = left + above - upperLeft;
-  const leftDistance = Math.abs(prediction - left);
-  const aboveDistance = Math.abs(prediction - above);
-  const upperLeftDistance = Math.abs(prediction - upperLeft);
-  if (leftDistance <= aboveDistance && leftDistance <= upperLeftDistance) return left;
-  return aboveDistance <= upperLeftDistance ? above : upperLeft;
-}
-
-function decodeRgbaPixels(buffer) {
-  const width = buffer.readUInt32BE(16);
-  const height = buffer.readUInt32BE(20);
-  if (buffer[24] !== 8 || buffer[25] !== 6 || buffer[28] !== 0) {
-    throw new Error('master must be an 8-bit, non-interlaced RGBA PNG');
-  }
-
-  const imageDataChunks = [];
-  for (let offset = 8; offset + 12 <= buffer.length;) {
-    const length = buffer.readUInt32BE(offset);
-    const type = buffer.toString('ascii', offset + 4, offset + 8);
-    if (type === 'IDAT') imageDataChunks.push(buffer.subarray(offset + 8, offset + 8 + length));
-    offset += 12 + length;
-  }
-
-  const inflated = inflateSync(Buffer.concat(imageDataChunks));
-  const stride = width * 4;
-  const pixels = Buffer.alloc(stride * height);
-  for (let row = 0; row < height; row += 1) {
-    const inputOffset = row * (stride + 1);
-    const outputOffset = row * stride;
-    const filter = inflated[inputOffset];
-    for (let column = 0; column < stride; column += 1) {
-      const value = inflated[inputOffset + column + 1];
-      const left = column >= 4 ? pixels[outputOffset + column - 4] : 0;
-      const above = row > 0 ? pixels[outputOffset - stride + column] : 0;
-      const upperLeft = row > 0 && column >= 4 ? pixels[outputOffset - stride + column - 4] : 0;
-      const reconstructed =
-        filter === 0
-          ? value
-          : filter === 1
-            ? value + left
-            : filter === 2
-              ? value + above
-              : filter === 3
-                ? value + Math.floor((left + above) / 2)
-                : filter === 4
-                  ? value + paethPredictor(left, above, upperLeft)
-                  : Number.NaN;
-      if (Number.isNaN(reconstructed)) throw new Error(`unsupported PNG filter ${filter}`);
-      pixels[outputOffset + column] = reconstructed & 0xff;
-    }
-  }
-  return pixels;
-}
-
-function inspectMasterPixels(buffer, issues) {
-  try {
-    const pixels = decodeRgbaPixels(buffer);
-    const colors = new Set();
-    let transparentPixels = 0;
-    for (let offset = 0; offset < pixels.length; offset += 4) {
-      const alpha = pixels[offset + 3];
-      if (alpha === 0) transparentPixels += 1;
-      if (alpha >= 250) {
-        colors.add(
-          `#${pixels[offset].toString(16).padStart(2, '0')}${pixels[offset + 1]
-            .toString(16)
-            .padStart(2, '0')}${pixels[offset + 2].toString(16).padStart(2, '0')}`,
-        );
+function pixelsOfColor(image, color) {
+  const coordinates = [];
+  for (let y = 0; y < image.height; y += 1) {
+    for (let x = 0; x < image.width; x += 1) {
+      const offset = (y * image.width + x) * 4;
+      if (
+        image.pixels[offset] === color[0] &&
+        image.pixels[offset + 1] === color[1] &&
+        image.pixels[offset + 2] === color[2] &&
+        image.pixels[offset + 3] >= 128
+      ) {
+        coordinates.push([x, y]);
       }
     }
-    if (transparentPixels === 0) issues.push('website/public/icon-source.png: master background is not transparent');
-    for (const color of ['#111b24', '#c9153d', '#00afa1', '#f6f1e7']) {
-      if (!colors.has(color)) issues.push(`website/public/icon-source.png: missing approved palette color ${color}`);
+  }
+  return coordinates;
+}
+
+function componentCount(coordinates) {
+  const remaining = new Set(coordinates.map(([x, y]) => `${x},${y}`));
+  let count = 0;
+  while (remaining.size > 0) {
+    count += 1;
+    const first = remaining.values().next().value;
+    remaining.delete(first);
+    const queue = [first];
+    while (queue.length > 0) {
+      const [x, y] = queue.pop().split(',').map(Number);
+      for (const adjacent of [`${x - 1},${y}`, `${x + 1},${y}`, `${x},${y - 1}`, `${x},${y + 1}`]) {
+        if (remaining.delete(adjacent)) queue.push(adjacent);
+      }
     }
-  } catch (error) {
-    issues.push(
-      `website/public/icon-source.png: cannot inspect pixels (${error instanceof Error ? error.message : String(error)})`,
-    );
+  }
+  return count;
+}
+
+function inspectFavicon(image, path, issues) {
+  const visible = [];
+  const colors = new Set();
+  for (let y = 0; y < image.height; y += 1) {
+    for (let x = 0; x < image.width; x += 1) {
+      const offset = (y * image.width + x) * 4;
+      if (image.pixels[offset + 3] >= 128) {
+        visible.push([x, y]);
+        colors.add(hex(image.pixels[offset], image.pixels[offset + 1], image.pixels[offset + 2]));
+      }
+    }
+  }
+
+  const occupancy = visible.length / (image.width * image.height);
+  if (occupancy < 0.22 || occupancy > 0.65) {
+    issues.push(`${path}: favicon occupancy must stay between 22% and 65% (received ${(occupancy * 100).toFixed(1)}%)`);
+  }
+  for (const color of ['#111b24', '#c9153d', '#00afa1', '#f6f1e7']) {
+    if (!colors.has(color)) issues.push(`${path}: missing favicon palette color ${color}`);
+  }
+  if (visible.length > 0) {
+    const xs = visible.map(([x]) => x);
+    const ys = visible.map(([, y]) => y);
+    const width = Math.max(...xs) - Math.min(...xs) + 1;
+    const height = Math.max(...ys) - Math.min(...ys) + 1;
+    if (width / image.width < 0.75 || height / image.height < 0.55) {
+      issues.push(`${path}: favicon silhouette does not use enough of the native pixel grid`);
+    }
+  }
+  if (componentCount(pixelsOfColor(image, PALETTE.red)) < 3) {
+    issues.push(`${path}: favicon must preserve three distinguishable red input rails`);
+  }
+  if (componentCount(pixelsOfColor(image, PALETTE.teal)) < 6) {
+    issues.push(`${path}: favicon must preserve six distinguishable teal output cells`);
   }
 }
 
-function hasTag(html, expression) {
-  return expression.test(html);
+function inspectTransparency(image, path, issues) {
+  let transparent = false;
+  let visible = false;
+  for (let offset = 3; offset < image.pixels.length; offset += 4) {
+    transparent ||= image.pixels[offset] === 0;
+    visible ||= image.pixels[offset] >= 128;
+  }
+  if (!transparent) issues.push(`${path}: transparent icon must include zero-alpha background pixels`);
+  if (!visible) issues.push(`${path}: icon has no visible pixels`);
+}
+
+function inspectMaster(image, path, issues) {
+  inspectTransparency(image, path, issues);
+  const colors = new Set();
+  for (let offset = 0; offset < image.pixels.length; offset += 4) {
+    if (image.pixels[offset + 3] >= 250) {
+      colors.add(hex(image.pixels[offset], image.pixels[offset + 1], image.pixels[offset + 2]));
+    }
+  }
+  for (const color of ['#111b24', '#c9153d', '#00afa1', '#f6f1e7']) {
+    if (!colors.has(color)) issues.push(`${path}: missing approved palette color ${color}`);
+  }
+}
+
+function inspectMaskable(image, path, issues) {
+  let opaque = true;
+  let outsideSafeCircle = false;
+  const centerX = (image.width - 1) / 2;
+  const centerY = (image.height - 1) / 2;
+  const safeRadius = image.width * 0.4;
+  for (let y = 0; y < image.height; y += 1) {
+    for (let x = 0; x < image.width; x += 1) {
+      const offset = (y * image.width + x) * 4;
+      opaque &&= image.pixels[offset + 3] === 255;
+      const isBackground =
+        image.pixels[offset] === PALETTE.paper[0] &&
+        image.pixels[offset + 1] === PALETTE.paper[1] &&
+        image.pixels[offset + 2] === PALETTE.paper[2];
+      if (!isBackground && Math.hypot(x - centerX, y - centerY) > safeRadius) outsideSafeCircle = true;
+    }
+  }
+  if (!opaque) issues.push(`${path}: maskable icon must be fully opaque`);
+  if (outsideSafeCircle) issues.push(`${path}: artwork exceeds the maskable safe circle`);
+}
+
+function derivationIssue(kind, path) {
+  if (kind === 'favicon') return `${path}: favicon does not match the separately pixel-curated treatment`;
+  if (kind === 'social') return `${path}: derivative does not match deterministic social composition`;
+  if (kind === 'maskable') return `${path}: derivative does not match deterministic maskable composition`;
+  return `${path}: derivative does not match deterministic master rendering`;
 }
 
 function inspectHtml(html, issues) {
@@ -183,72 +209,132 @@ function inspectHtml(html, issues) {
       /<meta\s+name=["']twitter:card["']\s+content=["']summary_large_image["']\s*\/?>/iu,
     ],
   ];
-
-  for (const [message, expression] of checks) if (!hasTag(html, expression)) issues.push(message);
+  for (const [message, expression] of checks) if (!expression.test(html)) issues.push(message);
 }
 
 function inspectManifest(manifest, issues) {
-  if (manifest.theme_color !== THEME_COLOR) {
+  if (manifest.theme_color !== THEME_COLOR)
     issues.push(`website/public/site.webmanifest: theme_color must be ${THEME_COLOR}`);
-  }
-  if (manifest.background_color !== THEME_COLOR) {
+  if (manifest.background_color !== THEME_COLOR)
     issues.push(`website/public/site.webmanifest: background_color must be ${THEME_COLOR}`);
-  }
   if (manifest.start_url !== '/') issues.push('website/public/site.webmanifest: start_url must be /');
   if (manifest.display !== 'standalone') issues.push('website/public/site.webmanifest: display must be standalone');
-
   const icons = Array.isArray(manifest.icons) ? manifest.icons : [];
-  for (const [src, sizes] of [
-    ['/icon-192.png', '192x192'],
-    ['/icon-512.png', '512x512'],
-  ]) {
-    const matches = icons.filter(icon => icon?.src === src && icon?.sizes === sizes && icon?.type === 'image/png');
-    if (!matches.some(icon => icon.purpose === 'any')) {
-      issues.push(`website/public/site.webmanifest: ${src} must declare purpose any`);
+  const expected = [
+    ['/icon-192.png', '192x192', 'any'],
+    ['/icon-512.png', '512x512', 'any'],
+    ['/maskable-192.png', '192x192', 'maskable'],
+    ['/maskable-512.png', '512x512', 'maskable'],
+  ];
+  for (const [src, sizes, purpose] of expected) {
+    if (
+      !icons.some(
+        icon => icon?.src === src && icon?.sizes === sizes && icon?.type === 'image/png' && icon?.purpose === purpose,
+      )
+    ) {
+      issues.push(`website/public/site.webmanifest: missing ${purpose} icon ${src} at ${sizes}`);
     }
-    if (!matches.some(icon => icon.purpose === 'maskable')) {
-      issues.push(`website/public/site.webmanifest: ${src} must declare purpose maskable`);
-    }
+  }
+  if (icons.some(icon => icon?.purpose === 'maskable' && !String(icon?.src).startsWith('/maskable-'))) {
+    issues.push(
+      'website/public/site.webmanifest: maskable icons must use dedicated /maskable-192.png and /maskable-512.png assets',
+    );
   }
 }
 
-function inspectIco(buffer, issues) {
+function inspectIco(buffer, faviconBuffers, issues) {
   if (buffer.length < 6 || buffer.readUInt16LE(0) !== 0 || buffer.readUInt16LE(2) !== 1) {
     issues.push('website/public/favicon.ico: not a valid ICO file');
     return;
   }
   const count = buffer.readUInt16LE(4);
-  if (count < 2) issues.push('website/public/favicon.ico: must contain 16x16 and 32x32 entries');
-  const dimensions = new Set();
+  const payloads = new Map();
   for (let index = 0; index < count && 6 + index * 16 + 16 <= buffer.length; index += 1) {
     const offset = 6 + index * 16;
     const width = buffer[offset] === 0 ? 256 : buffer[offset];
     const height = buffer[offset + 1] === 0 ? 256 : buffer[offset + 1];
-    dimensions.add(`${width}x${height}`);
+    const length = buffer.readUInt32LE(offset + 8);
+    const dataOffset = buffer.readUInt32LE(offset + 12);
+    payloads.set(`${width}x${height}`, buffer.subarray(dataOffset, dataOffset + length));
   }
-  for (const dimension of ['16x16', '32x32']) {
-    if (!dimensions.has(dimension)) issues.push(`website/public/favicon.ico: missing ${dimension} entry`);
+  for (const [dimension, png] of faviconBuffers) {
+    if (!payloads.has(dimension)) issues.push(`website/public/favicon.ico: missing ${dimension} entry`);
+    else if (!payloads.get(dimension).equals(png)) {
+      issues.push('website/public/favicon.ico: embedded entries do not match the curated favicon PNGs');
+      break;
+    }
   }
 }
 
 export async function inspectWebsiteAssets(repository = resolve(import.meta.dirname, '..')) {
   const issues = [];
-
-  const source = { path: 'website/public/icon-source.png', width: 1024, height: 1024 };
-  for (const asset of [source, ...pngAssets]) {
-    const path = resolve(repository, asset.path);
-    if (!(await exists(path))) {
+  const buffers = new Map();
+  const images = new Map();
+  for (const asset of pngAssets) {
+    const fullPath = resolve(repository, asset.path);
+    if (!(await exists(fullPath))) {
       issues.push(`${asset.path}: missing asset`);
       continue;
     }
-    const buffer = await readFile(path);
-    inspectPng(buffer, asset, issues);
-    if (asset === source) inspectMasterPixels(buffer, issues);
+    const buffer = await readFile(fullPath);
+    buffers.set(asset.path, buffer);
+    try {
+      const image = decodeRgbaPng(buffer);
+      images.set(asset.path, image);
+      if (image.width !== asset.width || image.height !== asset.height) {
+        issues.push(`${asset.path}: expected ${asset.width}x${asset.height}, received ${image.width}x${image.height}`);
+      }
+      if (asset.kind === 'master') inspectMaster(image, asset.path, issues);
+      if (asset.kind === 'favicon') inspectFavicon(image, asset.path, issues);
+      if (asset.kind === 'derivative') inspectTransparency(image, asset.path, issues);
+      if (asset.kind === 'maskable') inspectMaskable(image, asset.path, issues);
+    } catch (error) {
+      issues.push(`${asset.path}: invalid PNG (${error instanceof Error ? error.message : String(error)})`);
+    }
+  }
+
+  const masterBuffer = buffers.get('website/public/icon-source.png');
+  if (masterBuffer !== undefined) {
+    try {
+      const expected = expectedWebsiteAssets(masterBuffer);
+      for (const asset of pngAssets) {
+        if (asset.kind === 'master') continue;
+        const actual = images.get(asset.path);
+        const expectedBuffer = expected.get(asset.path.replace('website/public/', ''));
+        if (actual !== undefined && expectedBuffer !== undefined) {
+          const expectedImage = decodeRgbaPng(expectedBuffer);
+          if (
+            actual.width !== expectedImage.width ||
+            actual.height !== expectedImage.height ||
+            !actual.pixels.equals(expectedImage.pixels)
+          ) {
+            issues.push(derivationIssue(asset.kind, asset.path));
+          }
+        }
+      }
+    } catch (error) {
+      issues.push(
+        `website/public/icon-source.png: cannot derive assets (${error instanceof Error ? error.message : String(error)})`,
+      );
+    }
   }
 
   const faviconPath = resolve(repository, 'website/public/favicon.ico');
   if (!(await exists(faviconPath))) issues.push('website/public/favicon.ico: missing asset');
-  else inspectIco(await readFile(faviconPath), issues);
+  else {
+    const favicon16 = buffers.get('website/public/favicon-16x16.png');
+    const favicon32 = buffers.get('website/public/favicon-32x32.png');
+    if (favicon16 !== undefined && favicon32 !== undefined) {
+      inspectIco(
+        await readFile(faviconPath),
+        new Map([
+          ['16x16', favicon16],
+          ['32x32', favicon32],
+        ]),
+        issues,
+      );
+    }
+  }
 
   const manifestPath = resolve(repository, 'website/public/site.webmanifest');
   if (!(await exists(manifestPath))) issues.push('website/public/site.webmanifest: missing asset');
@@ -265,7 +351,6 @@ export async function inspectWebsiteAssets(repository = resolve(import.meta.dirn
   const htmlPath = resolve(repository, 'website/index.html');
   if (!(await exists(htmlPath))) issues.push('website/index.html: missing file');
   else inspectHtml(await readFile(htmlPath, 'utf8'), issues);
-
   return issues;
 }
 

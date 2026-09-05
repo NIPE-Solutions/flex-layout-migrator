@@ -11,6 +11,10 @@ type IconFrameProps = IconProps & {
 };
 
 function IconFrame({ children, decorative, label, viewBox = '0 0 24 24', ...props }: IconFrameProps) {
+  if (!decorative && (typeof label !== 'string' || label.trim().length === 0)) {
+    throw new Error('Semantic icons require a non-empty label.');
+  }
+
   return (
     <svg
       {...props}
