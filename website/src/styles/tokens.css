@@ -19,7 +19,7 @@
   --border-quiet: #b9b4aa;
   --source-signal: var(--color-angular);
   --output-signal: #006f68;
-  --focus-ring: var(--color-teal);
+  --focus-ring: #008b82;
   --selection-background: #8ae2da;
 
   --font-display: 'Arial Narrow', 'Roboto Condensed', 'Aptos Narrow', sans-serif;
