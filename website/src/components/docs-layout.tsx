@@ -1,4 +1,4 @@
-import { Fragment, type ReactNode } from 'react';
+import { Fragment, type ReactNode, useEffect, useState } from 'react';
 
 import { documentationGroups, getDocumentationNeighbors, type DocumentationRoute } from '../content/docs-navigation';
 import type { DocumentationBlock, DocumentationPage } from '../content/docs-loader';
@@ -56,15 +56,39 @@ function DocumentationNavigation({ activePath }: { readonly activePath: string }
       <nav className="docs-navigation docs-navigation--desktop" aria-label="Documentation">
         {groups}
       </nav>
-      <nav className="docs-navigation docs-navigation--mobile" aria-label="Mobile documentation">
-        {documentationGroups.map(group => (
-          <details key={group.id} open={group.routes.some(route => route.path === activePath)}>
-            <summary>{group.label}</summary>
-            <RouteList routes={group.routes} activePath={activePath} />
-          </details>
-        ))}
-      </nav>
+      <MobileDocumentationNavigation activePath={activePath} />
     </>
+  );
+}
+
+function MobileDocumentationNavigation({ activePath }: { readonly activePath: string }) {
+  const activeGroup = documentationGroups.find(group => group.routes.some(route => route.path === activePath));
+  if (activeGroup === undefined) throw new Error(`active documentation route ${activePath} has no mobile group`);
+  const [openGroups, setOpenGroups] = useState<ReadonlySet<string>>(() => new Set([activeGroup.id]));
+
+  useEffect(() => setOpenGroups(new Set([activeGroup.id])), [activeGroup.id, activePath]);
+
+  return (
+    <nav className="docs-navigation docs-navigation--mobile" aria-label="Mobile documentation">
+      {documentationGroups.map(group => (
+        <details
+          key={group.id}
+          open={openGroups.has(group.id)}
+          onToggle={event => {
+            const isOpen = event.currentTarget.open;
+            setOpenGroups(current => {
+              const next = new Set(current);
+              if (isOpen) next.add(group.id);
+              else next.delete(group.id);
+              return next;
+            });
+          }}
+        >
+          <summary>{group.label}</summary>
+          <RouteList routes={group.routes} activePath={activePath} />
+        </details>
+      ))}
+    </nav>
   );
 }
 

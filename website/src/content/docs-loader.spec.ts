@@ -24,6 +24,30 @@ This page has substantive content for the documentation loader.
 The first section has an independently addressable anchor.
 `;
 
+function documentationSource({
+  path,
+  title,
+  order,
+  body,
+}: {
+  readonly path: string;
+  readonly title: string;
+  readonly order: number;
+  readonly body: string;
+}): string {
+  return `---
+path: ${path}
+title: ${title}
+description: A complete page used to exercise relative documentation links.
+group: compatibility
+order: ${order}
+---
+# ${title}
+
+${body}
+`;
+}
+
 describe('documentation content loader', () => {
   it('loads the complete grouped information architecture from repository Markdown', () => {
     expect(documentationGroups.map(group => group.label)).toEqual([
@@ -96,6 +120,83 @@ describe('documentation content loader', () => {
       'example.md': `${frontMatter()}\n[Missing anchor](#not-here)\n`,
     });
     expect(() => validateDocumentationLinks(anchorOnly)).toThrow(/missing heading #not-here/u);
+  });
+
+  it('canonicalizes and validates relative route and fragment links from the source page path', () => {
+    const pages = parseDocumentationSources({
+      'directives.md': documentationSource({
+        path: '/docs/compatibility/directives',
+        title: 'Directive behavior',
+        order: 1,
+        body: `## Families
+
+[Sibling](./dynamic-bindings#runtime-values) and [parent](../tailwind#utility-output).`,
+      }),
+      'dynamic-bindings.md': documentationSource({
+        path: '/docs/compatibility/dynamic-bindings',
+        title: 'Dynamic bindings',
+        order: 2,
+        body: `## Runtime values
+
+Runtime values remain visible.`,
+      }),
+      'tailwind.md': documentationSource({
+        path: '/docs/tailwind',
+        title: 'Tailwind CSS',
+        order: 3,
+        body: `## Utility output
+
+Utilities are explicit.`,
+      }),
+    });
+
+    expect(() => validateDocumentationLinks(pages)).not.toThrow();
+    expect(pages.find(page => page.path === '/docs/compatibility/directives')?.blocks).toContainEqual({
+      kind: 'paragraph',
+      text: '[Sibling](/docs/compatibility/dynamic-bindings#runtime-values) and [parent](/docs/tailwind#utility-output).',
+    });
+  });
+
+  it('rejects a missing route reached through a relative link', () => {
+    const pages = parseDocumentationSources({
+      'directives.md': documentationSource({
+        path: '/docs/compatibility/directives',
+        title: 'Directive behavior',
+        order: 1,
+        body: `## Families
+
+[Missing route](./missing).`,
+      }),
+    });
+
+    expect(() => validateDocumentationLinks(pages)).toThrow(
+      /broken documentation link \/docs\/compatibility\/missing/u,
+    );
+  });
+
+  it('rejects a missing fragment reached through a relative link', () => {
+    const pages = parseDocumentationSources({
+      'directives.md': documentationSource({
+        path: '/docs/compatibility/directives',
+        title: 'Directive behavior',
+        order: 1,
+        body: `## Families
+
+[Missing fragment](./dynamic-bindings#not-here).`,
+      }),
+      'dynamic-bindings.md': documentationSource({
+        path: '/docs/compatibility/dynamic-bindings',
+        title: 'Dynamic bindings',
+        order: 2,
+        body: `## Runtime values
+
+Runtime values remain visible.`,
+      }),
+    });
+
+    expect(() => validateDocumentationLinks(pages)).toThrow(
+      /missing heading #not-here on \/docs\/compatibility\/dynamic-bindings/u,
+    );
   });
 
   it('returns exact previous and next routes and fails for an unregistered active route', () => {

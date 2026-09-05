@@ -1,13 +1,17 @@
 // @vitest-environment jsdom
 
 import '@testing-library/jest-dom/vitest';
-import { cleanup, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { loadDocumentationPage } from '../content/docs-loader';
+import { App } from '../app';
 import { DocsLayout } from './docs-layout';
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  window.history.replaceState(null, '', '/');
+});
 
 describe('DocsLayout', () => {
   it('marks the active page in grouped desktop and mobile navigation', () => {
@@ -33,5 +37,32 @@ describe('DocsLayout', () => {
     expect(screen.getByRole('link', { name: 'Edit this page on GitHub' })).toHaveAttribute('href', page.editUrl);
     expect(screen.getByRole('link', { name: /previous:/iu })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /next:/iu })).toBeInTheDocument();
+  });
+
+  it('reopens the active mobile group after next-page navigation within that group', async () => {
+    window.history.replaceState(null, '', '/docs/tailwind');
+    render(<App />);
+
+    const mobile = screen.getByRole('navigation', { name: 'Mobile documentation' });
+    const activeSummary = within(mobile).getByText('Migration Targets');
+    const activeDetails = activeSummary.closest('details');
+    expect(activeDetails).toHaveAttribute('open');
+
+    activeDetails!.open = false;
+    fireEvent(activeDetails!, new Event('toggle'));
+    expect(activeDetails).not.toHaveAttribute('open');
+    fireEvent.click(screen.getByRole('link', { name: 'Next: Native CSS' }));
+
+    await waitFor(() => expect(window.location.pathname).toBe('/docs/native-css'));
+    await waitFor(() =>
+      expect(
+        within(screen.getByRole('navigation', { name: 'Mobile documentation' }))
+          .getByText('Migration Targets')
+          .closest('details'),
+      ).toHaveAttribute('open'),
+    );
+    const currentMobile = screen.getByRole('navigation', { name: 'Mobile documentation' });
+    expect(within(currentMobile).getByRole('link', { name: 'Native CSS' })).toBeVisible();
+    expect(within(currentMobile).getByRole('link', { name: 'Native CSS' })).toHaveAttribute('aria-current', 'page');
   });
 });

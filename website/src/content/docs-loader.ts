@@ -59,14 +59,15 @@ export function parseDocumentationSources(sources: Readonly<Record<string, strin
 export function validateDocumentationLinks(pages: readonly DocumentationPage[]): void {
   const pagesByPath = new Map<string, DocumentationPage>(pages.map(page => [page.path, page]));
   for (const page of pages) {
-    for (const match of page.body.matchAll(/\[[^\]]+\]\(([^)]+)\)/gu)) {
+    for (const match of renderedMarkdown(page.blocks).matchAll(/\[[^\]]+\]\(([^)]+)\)/gu)) {
       const href = match[1];
       if (href === undefined || (!href.startsWith('/docs') && !href.startsWith('#'))) continue;
-      const [pathPart = '', fragment] = href.split('#', 2);
-      const targetPath = pathPart === '' ? page.path : pathPart;
+      const url = new URL(href, `https://documentation.invalid${page.path}`);
+      const targetPath = href.startsWith('#') ? page.path : url.pathname;
+      const fragment = decodeFragment(url.hash);
       const target = pagesByPath.get(targetPath);
       if (target === undefined) throw new Error(`${page.sourcePath}: broken documentation link ${targetPath}`);
-      if (fragment !== undefined && fragment !== '' && !target.headings.some(heading => heading.id === fragment)) {
+      if (fragment !== '' && !target.headings.some(heading => heading.id === fragment)) {
         throw new Error(`${page.sourcePath}: missing heading #${fragment} on ${targetPath}`);
       }
     }
@@ -94,7 +95,7 @@ function parseDocumentationPage(sourceName: string, source: string): Documentati
   if (titleHeading !== metadata.title) {
     throw new Error(`${sourceName}: level-one heading must exactly match title "${metadata.title}"`);
   }
-  const { blocks, headings } = parseBlocks(sourceName, body);
+  const { blocks, headings } = parseBlocks(sourceName, body, metadata.path);
   const sourcePath = normalizeSourcePath(sourceName);
   return deepFreeze({
     ...metadata,
@@ -145,6 +146,7 @@ function parseFrontMatter(sourceName: string, source: string) {
 function parseBlocks(
   sourceName: string,
   body: string,
+  pagePath: DocumentationPath,
 ): {
   readonly blocks: readonly DocumentationBlock[];
   readonly headings: readonly DocumentationHeading[];
@@ -191,7 +193,7 @@ function parseBlocks(
         items.push((lines[index] ?? '').replace(/^-\s+/u, '').trim());
         index += 1;
       }
-      blocks.push({ kind: 'list', items });
+      blocks.push({ kind: 'list', items: items.map(item => canonicalizeMarkdownLinks(item, pagePath, sourceName)) });
       continue;
     }
     const paragraph: string[] = [];
@@ -205,11 +207,45 @@ function parseBlocks(
       paragraph.push((lines[index] ?? '').trim());
       index += 1;
     }
-    if (paragraph.length > 0) blocks.push({ kind: 'paragraph', text: paragraph.join(' ') });
+    if (paragraph.length > 0) {
+      blocks.push({ kind: 'paragraph', text: canonicalizeMarkdownLinks(paragraph.join(' '), pagePath, sourceName) });
+    }
   }
   if (headings.length === 0)
     throw new Error(`${sourceName}: at least one level-two or level-three heading is required`);
   return { blocks, headings };
+}
+
+function canonicalizeMarkdownLinks(source: string, pagePath: DocumentationPath, sourceName: string): string {
+  return source.replace(/\[([^\]]+)\]\(([^)]+)\)/gu, (match, label: string, href: string) => {
+    if (href.startsWith('#') || href.startsWith('/') || /^[a-z][a-z0-9+.-]*:/iu.test(href)) {
+      return match;
+    }
+    const resolved = new URL(href, `https://documentation.invalid${pagePath}`);
+    if (!/^\/docs(?:\/|$)/u.test(resolved.pathname)) {
+      throw new Error(`${sourceName}: relative documentation link ${href} resolves outside /docs`);
+    }
+    return `[${label}](${resolved.pathname}${resolved.search}${resolved.hash})`;
+  });
+}
+
+function renderedMarkdown(blocks: readonly DocumentationBlock[]): string {
+  return blocks
+    .flatMap(block => {
+      if (block.kind === 'paragraph') return [block.text];
+      if (block.kind === 'list') return block.items;
+      return [];
+    })
+    .join('\n');
+}
+
+function decodeFragment(hash: string): string {
+  if (hash === '') return '';
+  try {
+    return decodeURIComponent(hash.slice(1));
+  } catch {
+    return hash.slice(1);
+  }
 }
 
 function slugifyHeading(value: string): string {
