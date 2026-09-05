@@ -69,7 +69,7 @@ function readDeclarations(css: string, selector: string): ReadonlyMap<string, st
   if (rule === undefined || rule.type !== 'rule') throw new Error(`Missing rule for ${selector}.`);
 
   const declarations = new Map<string, string>();
-  rule.walkDecls(declaration => declarations.set(declaration.prop, declaration.value));
+  rule.walkDecls(declaration => void declarations.set(declaration.prop, declaration.value));
   return declarations;
 }
 
