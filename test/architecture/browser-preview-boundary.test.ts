@@ -15,6 +15,13 @@ const forbiddenSourceRoots = [
 ];
 
 describe('browser preview architecture boundary', () => {
+  test.each(['node:crypto', 'fs', 'fs/promises', 'fs-extra', 'fs-extra/esm', 'path', 'process'])(
+    'recognizes forbidden runtime package %s',
+    reference => {
+      expect(isForbiddenPackage(reference)).toBe(true);
+    },
+  );
+
   test('keeps the complete static import graph free of Node and application-side authorities', () => {
     expect(existsSync(entryPath), relative(process.cwd(), entryPath)).toBe(true);
 
@@ -27,7 +34,7 @@ describe('browser preview architecture boundary', () => {
       visited.add(sourcePath);
 
       for (const reference of runtimeModuleReferences(readFileSync(sourcePath, 'utf8'), sourcePath)) {
-        if (reference.startsWith('node:') || forbiddenPackages.has(reference)) {
+        if (isForbiddenPackage(reference)) {
           findings.push(`${relative(process.cwd(), sourcePath)} -> ${reference}`);
           continue;
         }
@@ -45,6 +52,15 @@ describe('browser preview architecture boundary', () => {
     expect(findings).toEqual([]);
   });
 });
+
+function isForbiddenPackage(reference: string): boolean {
+  return (
+    reference.startsWith('node:') ||
+    forbiddenPackages.has(reference) ||
+    reference === 'fs-extra' ||
+    reference.startsWith('fs-extra/')
+  );
+}
 
 function resolveLocalTypeScript(reference: string, sourcePath: string): string | undefined {
   if (!reference.startsWith('.')) return undefined;

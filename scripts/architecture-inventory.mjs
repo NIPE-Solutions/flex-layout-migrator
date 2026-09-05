@@ -15,6 +15,7 @@ const policySymbols = Object.freeze([
   ['semantic planning', 'ElementSemanticPlanner'],
   ['transaction recovery', 'MigrationTransaction'],
 ]);
+const productionEntrypointCandidates = Object.freeze(['src/main.ts', 'src/browser/template-preview.ts']);
 
 function compareCodeUnits(left, right) {
   return left < right ? -1 : left > right ? 1 : 0;
@@ -181,7 +182,7 @@ export function inventoryProject(input) {
   const policyOwners = policySymbols.flatMap(([policy, symbol]) =>
     inspections.filter(file => file.symbols.has(symbol)).map(file => ({ policy, module: file.path, symbol })),
   );
-  const productionEntrypoint = 'src/main.ts';
+  const productionEntrypoints = productionEntrypointCandidates.filter(path => knownPaths.has(path));
   const relativeTargets = new Map();
   for (const edge of moduleEdges) {
     if (edge.kind !== 'relative' || !knownPaths.has(edge.to)) continue;
@@ -190,7 +191,7 @@ export function inventoryProject(input) {
     relativeTargets.set(edge.from, targets);
   }
   const reachable = new Set();
-  const pending = knownPaths.has(productionEntrypoint) ? [productionEntrypoint] : [];
+  const pending = [...productionEntrypoints];
   while (pending.length > 0) {
     const current = pending.pop();
     if (current === undefined || reachable.has(current)) continue;
@@ -203,7 +204,7 @@ export function inventoryProject(input) {
   const unreachableProductionModules = [...knownPaths].filter(path => !reachable.has(path)).sort(compareCodeUnits);
 
   return {
-    productionEntrypoint,
+    productionEntrypoints,
     reachableProductionModules,
     unreachableProductionModules,
     productionFiles,
@@ -215,11 +216,19 @@ export function inventoryProject(input) {
   };
 }
 
-function parseOutputPath(argv) {
-  if (argv.length !== 2 || argv[0] !== '--json' || !argv[1]) {
-    throw new Error('Usage: npm run architecture:inventory -- --json <path>');
+function parseOptions(argv) {
+  if (
+    (argv.length !== 2 && argv.length !== 4) ||
+    argv[0] !== '--json' ||
+    !argv[1] ||
+    (argv.length === 4 && (argv[2] !== '--repository' || !argv[3]))
+  ) {
+    throw new Error('Usage: npm run architecture:inventory -- --json <path> [--repository <path>]');
   }
-  return resolve(argv[1]);
+  return {
+    outputPath: resolve(argv[1]),
+    repository: argv[3] === undefined ? resolve(import.meta.dirname, '..') : resolve(argv[3]),
+  };
 }
 
 function trackedProductionPaths(repository) {
@@ -230,8 +239,7 @@ function trackedProductionPaths(repository) {
 }
 
 export async function main(argv = process.argv.slice(2)) {
-  const repository = resolve(import.meta.dirname, '..');
-  const outputPath = parseOutputPath(argv);
+  const { outputPath, repository } = parseOptions(argv);
   const productionFiles = await Promise.all(
     trackedProductionPaths(repository).map(async path => ({
       path,

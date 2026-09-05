@@ -73,7 +73,7 @@ describe('architecture inventory', () => {
           readonly symbol: string;
         }[];
         readonly runtimeDependencyViolations?: readonly unknown[];
-        readonly productionEntrypoint?: string;
+        readonly productionEntrypoints?: readonly string[];
         readonly unreachableProductionModules?: readonly string[];
       };
       const paths = inventory.productionFiles.map(file => file.path);
@@ -84,7 +84,7 @@ describe('architecture inventory', () => {
       expect(paths).not.toContain('src/logger.spec.ts');
       expect(paths.some(path => path.endsWith('.spec.ts'))).toBe(false);
       expect(inventory.runtimeDependencyViolations).toEqual([]);
-      expect(inventory.productionEntrypoint).toBe('src/main.ts');
+      expect(inventory.productionEntrypoints).toEqual(['src/main.ts', 'src/browser/template-preview.ts']);
       expect(inventory.unreachableProductionModules).toEqual([]);
       expect(inventory.policyOwners).toEqual([
         {
@@ -213,7 +213,7 @@ describe('architecture inventory', () => {
     );
   });
 
-  it('derives reachability from src/main.ts without letting a dead type-only chain appear reachable', () => {
+  it('derives reachability from every production entrypoint without letting a dead type-only chain appear reachable', () => {
     const inventory = inventoryProject({
       productionFiles: [
         { path: 'src/main.ts', source: "import './live.js';" },
@@ -222,6 +222,11 @@ describe('architecture inventory', () => {
           source: "import type { LiveContract } from './live-contract.js'; export const live = 1;",
         },
         { path: 'src/live-contract.ts', source: 'export interface LiveContract { readonly value: string }' },
+        { path: 'src/browser/template-preview.ts', source: "import './preview-contract.js';" },
+        {
+          path: 'src/browser/preview-contract.ts',
+          source: 'export interface PreviewContract { readonly source: string }',
+        },
         {
           path: 'src/dead.ts',
           source: "import type { DeadContract } from './dead-contract.js'; export const dead = 1;",
@@ -232,8 +237,14 @@ describe('architecture inventory', () => {
       packageLock: { packages: {} },
     });
 
-    expect(inventory.productionEntrypoint).toBe('src/main.ts');
-    expect(inventory.reachableProductionModules).toEqual(['src/live-contract.ts', 'src/live.ts', 'src/main.ts']);
+    expect(inventory.productionEntrypoints).toEqual(['src/main.ts', 'src/browser/template-preview.ts']);
+    expect(inventory.reachableProductionModules).toEqual([
+      'src/browser/preview-contract.ts',
+      'src/browser/template-preview.ts',
+      'src/live-contract.ts',
+      'src/live.ts',
+      'src/main.ts',
+    ]);
     expect(inventory.unreachableProductionModules).toEqual(['src/dead-contract.ts', 'src/dead.ts']);
   });
 });

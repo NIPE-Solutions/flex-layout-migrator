@@ -20,7 +20,7 @@ const finalBenchmarkPath = 'docs/maintenance/evidence/2026-09-04-enterprise-arch
 const finalBenchmarkUrl = new URL(`../../${finalBenchmarkPath}`, import.meta.url);
 
 interface ArchitectureInventory {
-  readonly productionEntrypoint: string;
+  readonly productionEntrypoints: readonly string[];
   readonly reachableProductionModules: readonly string[];
   readonly unreachableProductionModules: readonly string[];
   readonly productionFiles: readonly { readonly path: string; readonly lines: number }[];
@@ -322,9 +322,11 @@ async function generateRepositoryInventory(repositoryRoot: string = repository):
   const directory = await mkdtemp(join(tmpdir(), 'final-architecture-inventory-'));
   const output = join(directory, 'inventory.json');
   try {
-    await execFileAsync(process.execPath, ['scripts/architecture-inventory.mjs', '--json', output], {
-      cwd: repositoryRoot,
-    });
+    await execFileAsync(
+      process.execPath,
+      [join(repository, 'scripts', 'architecture-inventory.mjs'), '--json', output, '--repository', repositoryRoot],
+      { cwd: repositoryRoot },
+    );
     return JSON.parse(await readFile(output, 'utf8')) as ArchitectureInventory;
   } finally {
     await rm(directory, { recursive: true, force: true });
@@ -654,7 +656,7 @@ describe('enterprise architecture baseline documentation contract', () => {
       ['Known policy owners', String(inventory.policyOwners.length)],
     ]);
     expect(markdown).toContain(`There are ${inventory.moduleEdges.length} total recorded module edges.`);
-    expect(inventory.productionEntrypoint).toBe('src/main.ts');
+    expect(inventory.productionEntrypoints).toEqual(['src/main.ts']);
     expect(inventory.reachableProductionModules).toHaveLength(inventory.productionFiles.length);
     expect(inventory.unreachableProductionModules).toEqual([]);
     expect(markdown).toContain(`all ${inventory.productionFiles.length} production modules are reachable`);
