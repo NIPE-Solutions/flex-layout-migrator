@@ -156,7 +156,7 @@ describe('continuous integration', () => {
 
     expect(testJob.steps).toContainEqual({ run: 'npm run test:coverage' });
     expect(testJob.steps).toContainEqual({
-      run: 'git fetch --no-tags origin 41c0714bca3ec09470e25efde0f30b6bc96cc0ac',
+      run: 'git fetch --no-tags origin 41c0714bca3ec09470e25efde0f30b6bc96cc0ac 92f720211a04563bd4216b90e52b9a7a230c048b',
     });
     expect(
       testJob.steps.filter(
