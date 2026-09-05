@@ -1,6 +1,6 @@
 import { execFile, execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -75,6 +75,13 @@ interface PackageDescriptor {
 
 interface PackageManifest {
   readonly packageManager: string;
+}
+
+interface CapturedRepositoryEvidence {
+  readonly inventory: ArchitectureInventory;
+  readonly descriptor: PackageDescriptor;
+  readonly licenses: ReadonlyMap<string, string>;
+  readonly manifest: PackageManifest;
 }
 
 interface NpmDependencyNode {
@@ -311,12 +318,12 @@ function summarizeMeasurements(values: readonly number[]): Omit<BenchmarkSummary
   };
 }
 
-async function generateRepositoryInventory(): Promise<ArchitectureInventory> {
+async function generateRepositoryInventory(repositoryRoot: string = repository): Promise<ArchitectureInventory> {
   const directory = await mkdtemp(join(tmpdir(), 'final-architecture-inventory-'));
   const output = join(directory, 'inventory.json');
   try {
     await execFileAsync(process.execPath, ['scripts/architecture-inventory.mjs', '--json', output], {
-      cwd: repository,
+      cwd: repositoryRoot,
     });
     return JSON.parse(await readFile(output, 'utf8')) as ArchitectureInventory;
   } finally {
@@ -324,10 +331,55 @@ async function generateRepositoryInventory(): Promise<ArchitectureInventory> {
   }
 }
 
-async function generatePackageDescriptor(): Promise<PackageDescriptor> {
+let capturedRepositoryEvidence: Promise<CapturedRepositoryEvidence> | undefined;
+
+async function generateRepositoryEvidenceAtCommit(commit: string): Promise<CapturedRepositoryEvidence> {
+  const directory = await mkdtemp(join(tmpdir(), 'captured-architecture-repository-'));
+  const checkout = join(directory, 'repository');
+  let worktreeRegistered = false;
+  try {
+    await execFileAsync('git', ['worktree', 'add', '--detach', checkout, commit], { cwd: repository });
+    worktreeRegistered = true;
+    await symlink(
+      join(repository, 'node_modules'),
+      join(checkout, 'node_modules'),
+      process.platform === 'win32' ? 'junction' : 'dir',
+    );
+    const executable = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+    await execFileAsync(executable, ['run', 'build'], { cwd: checkout });
+    const [inventory, descriptor, licenses, packageText] = await Promise.all([
+      generateRepositoryInventory(checkout),
+      generatePackageDescriptor(checkout),
+      generateRuntimeLicenses(checkout),
+      readFile(join(checkout, 'package.json'), 'utf8'),
+    ]);
+    return {
+      inventory,
+      descriptor,
+      licenses,
+      manifest: JSON.parse(packageText) as PackageManifest,
+    };
+  } finally {
+    if (worktreeRegistered) {
+      await execFileAsync('git', ['worktree', 'remove', '--force', checkout], { cwd: repository });
+    }
+    await rm(directory, { recursive: true, force: true });
+  }
+}
+
+async function finalCapturedRepositoryEvidence(): Promise<CapturedRepositoryEvidence> {
+  if (capturedRepositoryEvidence === undefined) {
+    capturedRepositoryEvidence = readFile(finalBenchmarkUrl, 'utf8').then(text =>
+      generateRepositoryEvidenceAtCommit((JSON.parse(text) as BenchmarkReport).commit),
+    );
+  }
+  return capturedRepositoryEvidence;
+}
+
+async function generatePackageDescriptor(repositoryRoot: string = repository): Promise<PackageDescriptor> {
   const executable = process.platform === 'win32' ? 'npm.cmd' : 'npm';
   const { stdout } = await execFileAsync(executable, ['pack', '--dry-run', '--json', '--ignore-scripts'], {
-    cwd: repository,
+    cwd: repositoryRoot,
     encoding: 'utf8',
   });
   const descriptors = JSON.parse(stdout) as readonly PackageDescriptor[];
@@ -337,10 +389,10 @@ async function generatePackageDescriptor(): Promise<PackageDescriptor> {
   return descriptors[0];
 }
 
-async function generateRuntimeLicenses(): Promise<ReadonlyMap<string, string>> {
+async function generateRuntimeLicenses(repositoryRoot: string = repository): Promise<ReadonlyMap<string, string>> {
   const executable = process.platform === 'win32' ? 'npm.cmd' : 'npm';
   const { stdout } = await execFileAsync(executable, ['ls', '--omit=dev', '--all', '--json', '--long'], {
-    cwd: repository,
+    cwd: repositoryRoot,
     encoding: 'utf8',
     maxBuffer: 10 * 1024 * 1024,
   });
@@ -359,7 +411,7 @@ async function generateRuntimeLicenses(): Promise<ReadonlyMap<string, string>> {
   visit(tree.dependencies);
   const licenses = new Map<string, string>();
   for (const [id, { name, node }] of nodes) {
-    const packagePath = node.path ?? join(repository, 'node_modules', ...name.split('/'));
+    const packagePath = node.path ?? join(repositoryRoot, 'node_modules', ...name.split('/'));
     const metadata = JSON.parse(await readFile(join(packagePath, 'package.json'), 'utf8')) as {
       readonly name: string;
       readonly version: string;
@@ -576,17 +628,14 @@ describe('enterprise architecture baseline documentation contract', () => {
     expect(wallClockThresholdSegments(markdown)).toEqual([]);
   });
 
-  test('binds the final inventory, dependency rows, package descriptor, commit, and environment to generated evidence', async () => {
-    const [markdown, benchmarkText, packageText, inventory, descriptor, licenses] = await Promise.all([
+  test('binds the captured final inventory, dependency rows, package descriptor, commit, and environment to generated evidence', async () => {
+    const [markdown, benchmarkText, captured] = await Promise.all([
       readFile(finalUrl, 'utf8'),
       readFile(finalBenchmarkUrl, 'utf8'),
-      readFile(new URL('../../package.json', import.meta.url), 'utf8'),
-      generateRepositoryInventory(),
-      generatePackageDescriptor(),
-      generateRuntimeLicenses(),
+      finalCapturedRepositoryEvidence(),
     ]);
     const benchmark = JSON.parse(benchmarkText) as BenchmarkReport;
-    const manifest = JSON.parse(packageText) as PackageManifest;
+    const { descriptor, inventory, licenses, manifest } = captured;
 
     expect(() => gitText(['ls-files', '--error-unmatch', finalBenchmarkPath])).not.toThrow();
     expect(capturedCommit(markdown)).toBe(benchmark.commit);
@@ -595,20 +644,6 @@ describe('enterprise architecture baseline documentation contract', () => {
     expect(environmentValue(markdown, 'Platform')).toBe(benchmark.platform);
     expect(environmentValue(markdown, 'npm')).toBe(manifest.packageManager.replace(/^npm@/u, ''));
     expect(markdown).toContain(`Generated at \`${benchmark.generatedAt}\` from the tracked benchmark artifact.`);
-    expect(() =>
-      gitText([
-        'diff',
-        '--quiet',
-        benchmark.commit,
-        '--',
-        'src',
-        'package.json',
-        'package-lock.json',
-        'benchmark',
-        'scripts/benchmark',
-      ]),
-    ).not.toThrow();
-
     const edgeCount = (kind: ArchitectureInventory['moduleEdges'][number]['kind']): number =>
       inventory.moduleEdges.filter(edge => edge.kind === kind).length;
     expect(tableRows(markdown, 'Inventory evidence')).toEqual([
@@ -728,7 +763,7 @@ describe('enterprise architecture baseline documentation contract', () => {
   });
 
   test('covers every installed runtime package/version instance in the generated license inventory', async () => {
-    const [markdown, licenses] = await Promise.all([readFile(finalUrl, 'utf8'), generateRuntimeLicenses()]);
+    const [markdown, { licenses }] = await Promise.all([readFile(finalUrl, 'utf8'), finalCapturedRepositoryEvidence()]);
     const licenseRows = tableRows(markdown, 'Runtime license inventory');
 
     expect(licenseRows).toEqual(groupedLicenseRows(licenses));

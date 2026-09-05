@@ -23,6 +23,7 @@ const pipelineRoot = join(productionRoot, 'pipeline');
 const discoverStagePath = join(pipelineRoot, 'discover', 'discover-project.stage.ts');
 const analyzeStagePath = join(pipelineRoot, 'analyze', 'analyze-project.stage.ts');
 const renderStagePath = join(pipelineRoot, 'render', 'render-project.stage.ts');
+const browserPreviewPath = join(productionRoot, 'browser', 'template-preview.ts');
 const validateRoot = join(pipelineRoot, 'validate');
 const semanticRoot = join(productionRoot, 'semantic');
 const semanticRenderCoordinatorPath = join(productionRoot, 'planner', 'semantic-render.coordinator.ts');
@@ -1037,8 +1038,9 @@ describe('enterprise pipeline dependency boundary', { timeout: wholeProjectInspe
     expect(snapshotted.programConstructionCount).toBe(1);
   });
 
-  test('makes RenderProjectStage the sole caller of RenderSession finalization', () => {
+  test('limits RenderSession finalization to project Render and the read-only browser preview', () => {
     expect(normalizedAuthoritySources(productionSemanticAuthorities(), new Set(['RenderSession.finalize']))).toEqual([
+      { source: 'browser/template-preview.ts', authority: 'RenderSession.finalize' },
       { source: 'pipeline/render/render-project.stage.ts', authority: 'RenderSession.finalize' },
     ]);
   });
@@ -1064,7 +1066,10 @@ describe('enterprise pipeline dependency boundary', { timeout: wholeProjectInspe
         calls.filter(call => !call.sourcePath.startsWith(`${validateRoot}/`)),
         validationAuthorities,
       ),
-    ).toEqual([{ source: 'image/picture.renderer.ts', authority: 'SourceEditor.apply' }]);
+    ).toEqual([
+      { source: 'browser/template-preview.ts', authority: 'SourceEditor.apply' },
+      { source: 'image/picture.renderer.ts', authority: 'SourceEditor.apply' },
+    ]);
     expect(normalizedAuthoritySources(validateCalls, validationAuthorities)).toEqual([
       { source: 'pipeline/validate/css-reference.collector.ts', authority: 'CssReferenceParser.parse' },
       { source: 'pipeline/validate/css-reference.collector.ts', authority: 'DestinationTemplateSource.read' },
@@ -1670,7 +1675,7 @@ describe('enterprise pipeline dependency boundary', { timeout: wholeProjectInspe
     expect(matcherImporters).toEqual([discoverStagePath]);
   });
 
-  test('makes Analyze the sole original-read, initial-parse, and input-analysis owner', () => {
+  test('limits original reads to Analyze while admitting in-memory browser parsing and analysis', () => {
     const semanticAuthorityCalls = productionSemanticAuthorities();
     const analyzeAuthorities = new Set(['TemplateSourceReader.read', 'TemplateInputAnalyzer.analyze']);
     const parseCalls = normalizedAuthoritySources(
@@ -1685,15 +1690,22 @@ describe('enterprise pipeline dependency boundary', { timeout: wholeProjectInspe
     );
 
     expect(normalizedAuthoritySources(semanticAuthorityCalls, analyzeAuthorities)).toEqual([
+      { source: 'browser/template-preview.ts', authority: 'TemplateInputAnalyzer.analyze' },
       { source: 'pipeline/analyze/analyze-project.stage.ts', authority: 'TemplateInputAnalyzer.analyze' },
       { source: 'pipeline/analyze/analyze-project.stage.ts', authority: 'TemplateSourceReader.read' },
     ]);
     expect(parseCalls).toEqual([
+      { source: 'browser/template-preview.ts', authority: 'AngularTemplateParser.parse' },
       { source: 'pipeline/analyze/analyze-project.stage.ts', authority: 'OriginalTemplateParser.parse' },
       { source: 'pipeline/validate/css-reference.collector.ts', authority: 'CssReferenceParser.parse' },
       { source: 'pipeline/validate/template-proposal.validator.ts', authority: 'ChangedTemplateValidation.parse' },
       { source: 'transaction/transaction-unit.session.ts', authority: 'StagedTemplateValidation.parse' },
     ]);
+    expect(
+      semanticAuthorityCalls.filter(
+        call => call.sourcePath === browserPreviewPath && call.name === 'TemplateSourceReader.read',
+      ),
+    ).toEqual([]);
   });
 
   test('keeps Analyze target-neutral and free of filesystem mutation authority', () => {

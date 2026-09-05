@@ -1,15 +1,10 @@
-import { createHash } from 'node:crypto';
-
 import type { MediaDefinition } from '../../breakpoint/breakpoint-catalog';
+import { sha256 } from '../../util/sha-256';
 import { CssInvariantError } from './css-invariant.error';
 import type { CssDeclaration, CssDigest, CssRuleContext, CssSemanticFamily, OwnedCssRule } from './css-artifact.model';
 import { compareOwnedCssRules } from './css-rule-order';
 
 const SHA_256_DIGEST = /^[a-f0-9]{64}$/;
-
-function sha256(canonicalIdentity: string): string {
-  return createHash('sha256').update(canonicalIdentity, 'utf8').digest('hex');
-}
 
 function freezeDeclarations(declarations: readonly CssDeclaration[]): readonly CssDeclaration[] {
   const properties = new Set<string>();
