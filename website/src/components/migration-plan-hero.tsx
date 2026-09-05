@@ -105,12 +105,18 @@ export function MigrationPlanHero() {
           <ol>
             {planItems.map((item, index) => (
               <li key={`${item.source}:${index}`}>
-                <StatusLabel status={item.result.status === 'converted' ? 'converted' : 'preserved'} />
+                <StatusLabel status={item.result.status} />
                 <code>
                   {item.source
                     .match(/\[?(?:(?:fx|gd)[A-Z]\w*|ng(?:Class|Style))\]?(?:\.[\w-]+)?=/u)?.[0]
                     ?.slice(0, -1) ?? 'source'}
                 </code>
+                {item.result.status === 'converted' ? null : (
+                  <span className="migration-plan-hero__preservation">
+                    <span aria-hidden="true">=</span>
+                    <span>Preserved in source</span>
+                  </span>
+                )}
                 {item.result.status === 'converted' || item.result.status === 'parse-error' ? null : (
                   <a href={`/docs/diagnostics#${item.result.code}`}>{item.result.code}</a>
                 )}
@@ -121,12 +127,22 @@ export function MigrationPlanHero() {
         <SourceDiff label="Source change summary" lines={diffLines} />
       </div>
 
-      <figure className="migration-plan-hero__output">
-        <figcaption>Migration output</figcaption>
-        <pre aria-label="Migration output" aria-live="polite" tabIndex={0}>
-          <code>{result.html}</code>
-        </pre>
-      </figure>
+      <section className="migration-plan-hero__output" aria-label="Migration output" aria-live="polite">
+        <figure>
+          <figcaption>HTML output</figcaption>
+          <pre aria-label="Migration HTML output" tabIndex={0}>
+            <code>{result.html}</code>
+          </pre>
+        </figure>
+        {result.css === undefined ? null : (
+          <figure>
+            <figcaption>CSS output</figcaption>
+            <pre aria-label="Migration CSS output" tabIndex={0}>
+              <code>{result.css}</code>
+            </pre>
+          </figure>
+        )}
+      </section>
     </section>
   );
 }

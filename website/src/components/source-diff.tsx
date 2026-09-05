@@ -13,7 +13,7 @@ export function SourceDiff({ label, lines }: { readonly label: string; readonly 
   return (
     <figure className="source-diff" aria-label={label}>
       <figcaption>{label}</figcaption>
-      <ol>
+      <ol aria-label={`${label} lines`} tabIndex={0}>
         {lines.map((line, index) => {
           const presentation = linePresentation[line.kind];
           return (

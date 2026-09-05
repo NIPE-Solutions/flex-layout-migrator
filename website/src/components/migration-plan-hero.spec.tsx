@@ -20,20 +20,38 @@ describe('migration plan hero', () => {
     expect(screen.getByRole('list', { name: 'Migration workflow' })).toHaveTextContent(
       'SourceAnalyzePlanReviewWriteVerify',
     );
+    expect(screen.getAllByLabelText('Status: Review')).toHaveLength(2);
+    expect(screen.getAllByText('Preserved in source')).toHaveLength(2);
+    expect(screen.queryByLabelText('Migration CSS output')).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('radio', { name: 'Native CSS' }));
 
-    const expectedCssFixture = `<div fxLayout.handset="row"></div>
+    const expectedHtmlFixture = `<div fxLayout.handset="row"></div>
 <div fxLayout.cinema="column"></div>
 <div class="flex flm-5db098b5a4e638fdd1aff69e13d53ea10eb01e6c58577e5ecdf136b90eaee103"></div>
 `;
-    expect(screen.getByLabelText('Migration output')).toHaveTextContent(expectedCssFixture, {
+    const expectedCssFixture = `/* flex-layout-codemod:start schema=1 */
+/* flex-layout-codemod:rule id=5db098b5a4e638fdd1aff69e13d53ea10eb01e6c58577e5ecdf136b90eaee103 */
+.flm-5db098b5a4e638fdd1aff69e13d53ea10eb01e6c58577e5ecdf136b90eaee103 {
+  display: flex;
+  box-sizing: border-box;
+  flex-direction: row;
+}
+/* flex-layout-codemod:end */`;
+    const output = screen.getByRole('region', { name: 'Migration output' });
+    expect(within(output).getByText('HTML output')).toBeVisible();
+    expect(within(output).getByText('CSS output')).toBeVisible();
+    expect(screen.getByLabelText('Migration HTML output')).toHaveTextContent(expectedHtmlFixture, {
+      normalizeWhitespace: false,
+    });
+    expect(screen.getByLabelText('Migration CSS output')).toHaveTextContent(expectedCssFixture, {
       normalizeWhitespace: false,
     });
     expect(screen.getAllByText('Native CSS')).toHaveLength(2);
     expect(screen.getByText('3 directives analyzed')).toBeVisible();
     expect(screen.getByText('No project files written')).toBeVisible();
-    expect(screen.getAllByText('Preserved')).toHaveLength(2);
+    expect(screen.getAllByLabelText('Status: Unsupported')).toHaveLength(2);
+    expect(screen.getAllByText('Preserved in source')).toHaveLength(2);
     expect(screen.getByText('Converted')).toBeVisible();
     expect(screen.getByText('fxLayout')).toBeVisible();
     expect(screen.getAllByRole('link', { name: 'target-unsupported' })).toHaveLength(2);
@@ -77,6 +95,10 @@ describe('migration plan hero', () => {
     );
 
     const diff = screen.getByRole('figure', { name: 'Fixture changes' });
+    const scroller = within(diff).getByRole('list', { name: 'Fixture changes lines' });
+    expect(scroller).toHaveAttribute('tabindex', '0');
+    scroller.focus();
+    expect(scroller).toHaveFocus();
     expect(within(diff).getByLabelText('Removed line: <div fxLayout="row">')).toHaveTextContent(
       '-<div fxLayout="row">',
     );

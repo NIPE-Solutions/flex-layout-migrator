@@ -489,6 +489,15 @@ p {
   overflow-wrap: anywhere;
 }
 
+.migration-plan-hero__preservation {
+  display: flex;
+  grid-column: 2;
+  gap: var(--space-1);
+  color: var(--status-preserved);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
 .status-label {
   display: inline-flex;
   align-items: center;
@@ -527,6 +536,10 @@ p {
 }
 
 .status-label--invalid {
+  color: var(--status-invalid);
+}
+
+.status-label--parse-error {
   color: var(--status-invalid);
 }
 
@@ -582,16 +595,25 @@ p {
 
 .migration-plan-hero__output {
   min-width: 0;
-  margin: 0;
   border-top: var(--rule-width) solid var(--border-strong);
   background: var(--surface-code);
   color: var(--text-on-dark);
 }
 
+.migration-plan-hero__output figure {
+  min-width: 0;
+  margin: 0;
+}
+
+.migration-plan-hero__output figure + figure {
+  border-top: var(--rule-width) solid #465964;
+}
+
 .migration-plan-hero__output pre {
+  max-height: 13rem;
   max-width: 100%;
   margin: 0;
-  overflow-x: auto;
+  overflow: auto;
   padding: var(--space-3);
   border-left: 0.25rem solid var(--output-signal);
   font-family: var(--font-code);
@@ -1490,6 +1512,10 @@ p {
   .migration-plan-hero__plan {
     border-right: 0;
     border-bottom: var(--rule-width) solid var(--border-strong);
+  }
+
+  .migration-plan-hero code {
+    font-size: 0.875rem;
   }
 
   .support-section__grid,

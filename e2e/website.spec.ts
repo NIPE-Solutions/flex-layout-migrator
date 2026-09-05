@@ -128,12 +128,28 @@ test('stacks the real migration plan without page overflow at 375px', async ({ p
       name: 'Plan first. Review unresolved cases. Write only when you are ready.',
     }),
   ).toBeVisible();
+  const hero = page.locator('.migration-plan-hero');
   await page.getByRole('radio', { name: 'Native CSS' }).first().check();
-  await expect(page.locator('.migration-plan-hero').getByLabel('Migration output')).toContainText(
-    'flm-5db098b5a4e638f',
-  );
+  await expect(hero.getByLabel('Migration HTML output')).toContainText('flm-5db098b5a4e638f');
+  await expect(hero.getByLabel('Migration CSS output')).toContainText('flex-layout-codemod:start');
 
-  const planColumns = await page.locator('.migration-plan-hero__body').evaluate(element => {
+  const diffScroller = hero.getByRole('list', { name: 'Source change summary lines' });
+  await diffScroller.focus();
+  await expect(diffScroller).toBeFocused();
+  expect(
+    await diffScroller.evaluate(element => ({
+      overflowX: getComputedStyle(element).overflowX,
+      overflows: element.scrollWidth > element.clientWidth,
+    })),
+  ).toEqual({ overflowX: 'auto', overflows: true });
+
+  const heroCodeSizes = await hero
+    .locator('code')
+    .evaluateAll(elements => elements.map(element => Number.parseFloat(getComputedStyle(element).fontSize)));
+  expect(heroCodeSizes.length).toBeGreaterThan(0);
+  expect(Math.min(...heroCodeSizes)).toBeGreaterThanOrEqual(14);
+
+  const planColumns = await hero.locator('.migration-plan-hero__body').evaluate(element => {
     const style = getComputedStyle(element);
     return style.gridTemplateColumns.split(' ').length;
   });

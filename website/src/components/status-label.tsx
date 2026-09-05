@@ -1,4 +1,5 @@
-export type MigrationStatus = 'converted' | 'review' | 'preserved' | 'unsupported' | 'invalid' | 'informational';
+export type MigrationStatus =
+  'converted' | 'review' | 'preserved' | 'unsupported' | 'invalid' | 'parse-error' | 'informational';
 
 const statusPresentation: Readonly<Record<MigrationStatus, { readonly icon: string; readonly label: string }>> = {
   converted: { icon: '✓', label: 'Converted' },
@@ -6,6 +7,7 @@ const statusPresentation: Readonly<Record<MigrationStatus, { readonly icon: stri
   preserved: { icon: '=', label: 'Preserved' },
   unsupported: { icon: '×', label: 'Unsupported' },
   invalid: { icon: '!', label: 'Invalid' },
+  'parse-error': { icon: '!', label: 'Parse error' },
   informational: { icon: 'i', label: 'Informational' },
 };
 
