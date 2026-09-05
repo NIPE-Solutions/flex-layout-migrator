@@ -83,6 +83,33 @@ describe('migration playground', () => {
     ).toBeInTheDocument();
   });
 
+  it('uses roving focus and conventional arrow, Home, and End keys for output tabs', () => {
+    render(<Playground />);
+    fireEvent.click(screen.getByRole('radio', { name: 'Native CSS' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Migrate template' }));
+
+    const htmlTab = screen.getByRole('tab', { name: 'HTML' });
+    const cssTab = screen.getByRole('tab', { name: 'CSS' });
+    expect(htmlTab).toHaveAttribute('tabindex', '0');
+    expect(cssTab).toHaveAttribute('tabindex', '-1');
+
+    htmlTab.focus();
+    fireEvent.keyDown(htmlTab, { key: 'ArrowRight' });
+    expect(cssTab).toHaveFocus();
+    expect(cssTab).toHaveAttribute('aria-selected', 'true');
+    expect(cssTab).toHaveAttribute('tabindex', '0');
+    expect(htmlTab).toHaveAttribute('tabindex', '-1');
+
+    fireEvent.keyDown(cssTab, { key: 'Home' });
+    expect(htmlTab).toHaveFocus();
+    expect(htmlTab).toHaveAttribute('aria-selected', 'true');
+
+    fireEvent.keyDown(htmlTab, { key: 'End' });
+    expect(cssTab).toHaveFocus();
+    fireEvent.keyDown(cssTab, { key: 'ArrowLeft' });
+    expect(htmlTab).toHaveFocus();
+  });
+
   it('shows structured diagnostics while preserving dynamic and invalid source', () => {
     render(<Playground />);
     const dynamicSource = '<div [fxFlex]="basis"></div>';

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState, type KeyboardEvent } from 'react';
 
 import { previewTemplate, type TemplatePreviewResult } from '@core/browser/template-preview';
 
@@ -17,6 +17,8 @@ export function Playground() {
   const [result, setResult] = useState<TemplatePreviewResult>();
   const [activeTab, setActiveTab] = useState<OutputTab>('html');
   const [status, setStatus] = useState('Ready to preview one template.');
+  const htmlTab = useRef<HTMLButtonElement>(null);
+  const cssTab = useRef<HTMLButtonElement>(null);
 
   function invalidatePreview(message: string): void {
     setResult(undefined);
@@ -60,6 +62,34 @@ export function Playground() {
     setResult(undefined);
     setActiveTab('html');
     setStatus('Playground reset. Ready to preview one template.');
+  }
+
+  function handleOutputTabKey(event: KeyboardEvent<HTMLButtonElement>, currentTab: OutputTab): void {
+    const tabs: readonly OutputTab[] = result?.css === undefined ? ['html'] : ['html', 'css'];
+    const currentIndex = tabs.indexOf(currentTab);
+    let nextTab: OutputTab | undefined;
+
+    switch (event.key) {
+      case 'ArrowLeft':
+        nextTab = tabs[(currentIndex - 1 + tabs.length) % tabs.length];
+        break;
+      case 'ArrowRight':
+        nextTab = tabs[(currentIndex + 1) % tabs.length];
+        break;
+      case 'Home':
+        nextTab = tabs[0];
+        break;
+      case 'End':
+        nextTab = tabs[tabs.length - 1];
+        break;
+      default:
+        return;
+    }
+
+    event.preventDefault();
+    if (nextTab === undefined) return;
+    setActiveTab(nextTab);
+    (nextTab === 'html' ? htmlTab : cssTab).current?.focus();
   }
 
   return (
@@ -158,23 +188,29 @@ export function Playground() {
           <>
             <div className="output-tabs" role="tablist" aria-label="Migration output format">
               <button
+                ref={htmlTab}
                 id="output-tab-html"
                 type="button"
                 role="tab"
                 aria-selected={activeTab === 'html'}
                 aria-controls="output-panel-html"
+                tabIndex={activeTab === 'html' ? 0 : -1}
                 onClick={() => setActiveTab('html')}
+                onKeyDown={event => handleOutputTabKey(event, 'html')}
               >
                 HTML
               </button>
               {result.css === undefined ? null : (
                 <button
+                  ref={cssTab}
                   id="output-tab-css"
                   type="button"
                   role="tab"
                   aria-selected={activeTab === 'css'}
                   aria-controls="output-panel-css"
+                  tabIndex={activeTab === 'css' ? 0 : -1}
                   onClick={() => setActiveTab('css')}
+                  onKeyDown={event => handleOutputTabKey(event, 'css')}
                 >
                   CSS
                 </button>

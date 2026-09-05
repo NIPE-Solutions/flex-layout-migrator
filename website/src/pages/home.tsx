@@ -1,6 +1,12 @@
+import { lazy, Suspense } from 'react';
+
 import { CodeBlock } from '../components/code-block';
-import { Playground } from '../components/playground';
 import { siteContent } from '../site-content';
+
+const Playground = lazy(async () => {
+  const module = await import('../components/playground');
+  return { default: module.Playground };
+});
 
 export function HomePage() {
   return (
@@ -60,7 +66,9 @@ export function HomePage() {
             <h2 id="playground-heading">{siteContent.playground.heading}</h2>
             <p>{siteContent.playground.description}</p>
           </div>
-          <Playground />
+          <Suspense fallback={<p role="status">Loading the browser-only playground…</p>}>
+            <Playground />
+          </Suspense>
           <ul className="limitations-list" aria-label="Playground limitations">
             {siteContent.limitations.map(limitation => (
               <li key={limitation}>{limitation}</li>

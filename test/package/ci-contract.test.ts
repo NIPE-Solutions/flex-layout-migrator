@@ -119,13 +119,34 @@ describe('continuous integration', () => {
     const source = await readFile(new URL('../../.github/workflows/ci.yml', import.meta.url), 'utf8');
     const workflow = parse(source);
 
-    for (const jobName of ['quality', 'test', 'package', 'benchmark']) {
+    for (const jobName of ['quality', 'test', 'package', 'benchmark', 'website']) {
       const steps = workflow.jobs[jobName].steps as readonly { readonly run?: string }[];
       const installIndex = steps.findIndex(step => step.run === 'npm install --global npm@11.19.0');
       const ciIndex = steps.findIndex(step => step.run === 'npm ci');
       expect(installIndex, jobName).toBeGreaterThanOrEqual(0);
       expect(installIndex, jobName).toBeLessThan(ciIndex);
     }
+  });
+
+  it('runs the complete website gate with pinned actions and the exact Node/npm toolchain', async () => {
+    const source = await readFile(new URL('../../.github/workflows/ci.yml', import.meta.url), 'utf8');
+    const workflow = parse(source);
+
+    expect(workflow.jobs.website).toEqual({
+      name: 'website',
+      'runs-on': 'ubuntu-latest',
+      steps: [
+        { uses: 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1' },
+        {
+          uses: 'actions/setup-node@820762786026740c76f36085b0efc47a31fe5020',
+          with: { 'node-version': 24, cache: 'npm' },
+        },
+        { run: 'npm install --global npm@11.19.0' },
+        { run: 'npm ci' },
+        { run: 'npx playwright install --with-deps chromium' },
+        { run: 'npm run verify:website' },
+      ],
+    });
   });
 
   it('checks out complete Git history in the job that runs historical evidence contracts', async () => {
