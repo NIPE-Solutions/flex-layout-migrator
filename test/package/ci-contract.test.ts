@@ -25,6 +25,7 @@ describe('continuous integration', () => {
           },
           { run: 'npm install --global npm@11.19.0' },
           { run: 'npm ci' },
+          { run: 'node scripts/prepare-changesets-action.mjs' },
           {
             uses: 'changesets/action@a45c4d594aa4e2c509dc14a9f2b3b67ba3780d0d',
             with: {
