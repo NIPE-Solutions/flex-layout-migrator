@@ -10,12 +10,18 @@ order: 5
 
 ## Coordinated writes
 
-Write mode stages and applies the eligible project changes through the production transaction boundary. For native CSS work, templates and the owned stylesheet belong to the same reviewed operation rather than independent best-effort saves.
+After successful parsing, both modes preflight the complete immutable artifact plan. Preflight verifies destination state and topology before project mutation. Write mode then stages and commits eligible project changes through the production transaction boundary. For native CSS work, templates and the owned stylesheet belong to the same operation rather than independent best-effort saves.
 
-Handled failures can trigger rollback of paths changed by that operation. The report's application state is the place to inspect whether changes were applied, skipped, rolled back, or require recovery attention.
+Handled staging failures clean invocation-owned temporary artifacts. Handled commit failures attempt rollback in reverse commit order and then clean staged artifacts. Signal handling is active while the transaction owns recovery material, and transaction errors identify paths whose recovery or cleanup could not be confirmed.
+
+No successful report object is written by the CLI when project application throws. JSON report writing is a later, separate atomic-file operation; therefore a report failure can leave an already successful project application in place.
 
 ## Durable limits
 
-No user-space filesystem transaction can promise recovery after every power loss, forced termination, storage failure, external concurrent edit, or damaged backup. A clean version-control checkpoint remains the durable recovery mechanism.
+Rollback is best-effort recovery for handled failures, not a durability guarantee. No user-space filesystem transaction can promise recovery after every power loss, forced termination that bypasses signal handlers, storage failure, external concurrent edit, filesystem or device boundary, or damaged backup. A clean version-control checkpoint remains the durable recovery mechanism.
 
-If recovery is not confirmed, stop rerunning commands. Reconcile each listed path with Git or a verified backup, restore one coherent state, and only then create a new plan.
+## Recovery procedure
+
+If an error lists recovery paths or failures, stop rerunning the command. Preserve the terminal output, inspect each named destination and transaction artifact, and compare it with Git or a verified backup. Restore templates and the companion stylesheet to one coherent state before deleting residue or creating a new plan.
+
+After recovery, run a plan without the write option and review the complete result. Do not assume that an exit code, missing report, or partially changed working tree proves whether application committed.

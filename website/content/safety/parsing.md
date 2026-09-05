@@ -10,12 +10,16 @@ order: 4
 
 ## Parsing establishes edit boundaries
 
-The codemod uses Angular template parsing to identify attributes and source ranges. If the input cannot be parsed reliably, any edit coordinates or structural assumptions derived from it would be unsafe.
+The codemod uses the Angular compiler to identify elements, attributes, bindings, and source ranges. If the source cannot be parsed reliably, edit coordinates and structural assumptions are unsafe. The engine does not fall back to regular expressions or apply the valid prefix of a malformed file.
 
-A parse failure therefore stops application for the affected work instead of falling back to regular expressions or partial source rewriting.
+A source failure is reported as `template-parse-error`. After rendering, every changed template is parsed again; a failed generated proposal is reported as `generated-template-parse-error` and is not an applicative artifact.
+
+Any parse error skips application for the complete write invocation. In plan mode, `application` remains skipped for `plan-only`; in write mode, it is skipped for `parse-errors`. Parse errors return exit code 1 even when unresolved work is otherwise allowed.
 
 ## Repair, verify, and rerun
 
-Open the reported template location and reproduce the error with the application's normal compiler or template checks. Repair malformed tags, incomplete control flow, invalid bindings, or generated output before retrying the migration.
+Open the reported template location and reproduce a source error with the application's normal compiler or template checks. Repair malformed tags, incomplete control flow, invalid bindings, or other source syntax before retrying.
 
-Keep parse-error reports with the review record. They distinguish invalid input from a valid directive that was merely outside the chosen target's compatibility boundary.
+For a generated-template error, keep the original source, reduce a non-sensitive reproduction, and report it to the project. Do not hand-apply a proposal that the validation stage rejected.
+
+Keep parse-error reports with the review record. They distinguish invalid template syntax from an `invalid` directive value and from a valid directive that was outside the selected target's compatibility boundary.
