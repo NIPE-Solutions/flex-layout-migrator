@@ -64,7 +64,17 @@ describe('website static output verification', () => {
     const verification = runVerifier(root);
 
     expect(verification.status).toBe(1);
-    expect(verification.stderr).toContain('entry JavaScript exceeds the 500 KiB eager-load budget');
+    expect(verification.stderr).toContain('eager JavaScript graph exceeds the 500 KiB aggregate budget');
+  });
+
+  it('rejects an aggregate eager graph above budget when every imported chunk is individually below it', async () => {
+    const root = await createFixture({ aggregateEagerImports: true });
+
+    const verification = runVerifier(root);
+
+    expect(verification.status).toBe(1);
+    expect(verification.stderr).toContain('eager JavaScript graph exceeds the 500 KiB aggregate budget');
+    expect(verification.stderr).toContain('532575 bytes');
   });
 
   it('rejects an unhashed lazy asset that cannot be cached immutably', async () => {
@@ -83,6 +93,44 @@ describe('website static output verification', () => {
 
     expect(verification.status).toBe(1);
     expect(verification.stderr).toContain('Angular compiler sentinel found in eager entry JavaScript');
+  });
+
+  it('rejects an eager imported chunk containing all Angular compiler sentinels', async () => {
+    const root = await createFixture({ eagerImportedCompiler: true });
+
+    const verification = runVerifier(root);
+
+    expect(verification.status).toBe(1);
+    expect(verification.stderr).toContain(
+      'Angular compiler sentinel found in eager JavaScript graph: assets/eager-Compiler1.js',
+    );
+  });
+
+  it('rejects compiler sentinels split among sub-threshold eager imports', async () => {
+    const root = await createFixture({ splitEagerCompiler: true });
+
+    const verification = runVerifier(root);
+
+    expect(verification.status).toBe(1);
+    expect(verification.stderr).toContain('Angular compiler sentinel found in eager JavaScript graph');
+  });
+
+  it('accepts compiler evidence split across recursively reachable lazy-only chunks', async () => {
+    const root = await createFixture({ splitLazyCompiler: true });
+
+    const verification = runVerifier(root);
+
+    expect(verification.status).toBe(0);
+    expect(verification.stderr).toBe('');
+  });
+
+  it('rejects compiler-bearing lazy graph overlap that is also eagerly reachable', async () => {
+    const root = await createFixture({ overlappingCompilerChunk: true });
+
+    const verification = runVerifier(root);
+
+    expect(verification.status).toBe(1);
+    expect(verification.stderr).toContain('compiler-bearing lazy chunk is also reachable from eager graph');
   });
 
   it('rejects output without the sitemap and robots policy', async () => {
@@ -123,6 +171,11 @@ async function createFixture(
     readonly crawlerFiles?: boolean;
     readonly routeMetadata?: boolean;
     readonly robotsDisallow?: boolean;
+    readonly aggregateEagerImports?: boolean;
+    readonly eagerImportedCompiler?: boolean;
+    readonly splitEagerCompiler?: boolean;
+    readonly splitLazyCompiler?: boolean;
+    readonly overlappingCompilerChunk?: boolean;
   } = {},
 ): Promise<string> {
   const root = await mkdtemp(path.join(tmpdir(), 'website-static-'));
@@ -137,7 +190,45 @@ async function createFixture(
   const entrySource = `${routeSource};${options.eagerCompiler ? compilerSentinel : ''}${'x'.repeat(Math.max(0, (options.entryBytes ?? 0) - routeSource.length - 1))}`;
   await writeFile(path.join(assets, 'index-Ab12Cd34.js'), entrySource);
   await writeFile(path.join(assets, 'index-Ef56Gh78.css'), ':root{color:#111b24}');
-  await writeFile(path.join(assets, 'playground-Ij90Kl12.js'), options.eagerCompiler ? 'export{}' : compilerSentinel);
+  await writeFile(
+    path.join(assets, 'playground-Ij90Kl12.js'),
+    options.eagerCompiler || options.splitLazyCompiler ? 'export{}' : compilerSentinel,
+  );
+  const manifestImports: string[] = [];
+  const playgroundImports: string[] = [];
+  const playgroundDynamicImports: string[] = [];
+  const manifestEntries: Record<string, object> = {};
+  if (options.aggregateEagerImports) {
+    await addManifestAsset('src/eager-one.ts', 'assets/eager-one-Aa11Bb22.js', 'x'.repeat(260 * 1024));
+    await addManifestAsset('src/eager-two.ts', 'assets/eager-two-Cc33Dd44.js', 'x'.repeat(260 * 1024));
+    manifestImports.push('src/eager-one.ts', 'src/eager-two.ts');
+  }
+  if (options.eagerImportedCompiler) {
+    await addManifestAsset('src/eager-compiler.ts', 'assets/eager-Compiler1.js', compilerSentinel);
+    manifestImports.push('src/eager-compiler.ts');
+  }
+  if (options.splitEagerCompiler) {
+    for (const [index, sentinel] of ['Parser Error', 'Unexpected closing tag', 'Incomplete block'].entries()) {
+      const key = `src/eager-sentinel-${index}.ts`;
+      await addManifestAsset(key, `assets/eager-sentinel-${index}-Ee55Ff6${index}.js`, sentinel);
+      manifestImports.push(key);
+    }
+  }
+  if (options.splitLazyCompiler) {
+    await addManifestAsset('src/lazy-parser.ts', 'assets/lazy-parser-Gg77Hh88.js', 'Parser Error', {
+      imports: ['src/lazy-closing.ts'],
+    });
+    await addManifestAsset('src/lazy-closing.ts', 'assets/lazy-closing-Ii99Jj00.js', 'Unexpected closing tag', {
+      dynamicImports: ['src/lazy-block.ts'],
+    });
+    await addManifestAsset('src/lazy-block.ts', 'assets/lazy-block-Kk11Ll22.js', 'Incomplete block');
+    playgroundImports.push('src/lazy-parser.ts');
+  }
+  if (options.overlappingCompilerChunk) {
+    await addManifestAsset('src/shared-compiler.ts', 'assets/shared-compiler-Mm33Nn44.js', compilerSentinel);
+    manifestImports.push('src/shared-compiler.ts');
+    playgroundImports.push('src/shared-compiler.ts');
+  }
   if (options.unhashedAsset) await writeFile(path.join(assets, 'playground.js'), 'export{}');
   await writeFile(
     path.join(dist, 'index.html'),
@@ -186,13 +277,17 @@ async function createFixture(
       'index.html': {
         file: 'assets/index-Ab12Cd34.js',
         isEntry: true,
+        imports: manifestImports,
         dynamicImports: ['src/components/playground.tsx'],
       },
       'src/components/playground.tsx': {
         file: 'assets/playground-Ij90Kl12.js',
         src: 'src/components/playground.tsx',
         isDynamicEntry: true,
+        imports: playgroundImports,
+        dynamicImports: playgroundDynamicImports,
       },
+      ...manifestEntries,
     }),
   );
   if (options.crawlerFiles !== false) {
@@ -219,6 +314,16 @@ async function createFixture(
     );
   }
   return root;
+
+  async function addManifestAsset(
+    key: string,
+    file: string,
+    source: string,
+    graph: { readonly imports?: readonly string[]; readonly dynamicImports?: readonly string[] } = {},
+  ): Promise<void> {
+    await writeFile(path.join(dist, file), source);
+    manifestEntries[key] = { file, src: key, ...graph };
+  }
 }
 
 function runVerifier(root: string) {

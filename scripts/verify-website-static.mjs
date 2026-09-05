@@ -67,13 +67,6 @@ async function verifyStaticOutput(projectRoot) {
     throw new Error('index.html references source code instead of built assets');
   }
 
-  const entryPath = path.join(dist, entrySource.replace(/^\//u, ''));
-  const entryJavaScript = await readFile(entryPath, 'utf8');
-  const entryStats = await stat(entryPath);
-  if (entryStats.size > maximumEntryBytes) {
-    throw new Error(`entry JavaScript exceeds the 500 KiB eager-load budget (${entryStats.size} bytes)`);
-  }
-
   const javascript = (
     await Promise.all(
       assetFiles.filter(asset => asset.endsWith('.js')).map(asset => readFile(path.join(dist, asset.slice(1)), 'utf8')),
@@ -82,35 +75,84 @@ async function verifyStaticOutput(projectRoot) {
   for (const route of requiredRoutes) {
     if (!javascript.includes(JSON.stringify(route))) throw new Error(`built JavaScript is missing route ${route}`);
   }
-  await assertCompilerIsLazy({ dist, entrySource, entryJavaScript, manifest });
+  await assertCompilerIsLazy({ dist, entrySource, manifest });
 
   return { hashedAssets: assetFiles.length };
 }
 
-async function assertCompilerIsLazy({ dist, entrySource, entryJavaScript, manifest }) {
-  if (compilerSentinels.some(sentinel => entryJavaScript.includes(sentinel))) {
-    throw new Error('Angular compiler sentinel found in eager entry JavaScript');
-  }
-
+async function assertCompilerIsLazy({ dist, entrySource, manifest }) {
   const entry = manifest['index.html'];
   const playgroundKey = Object.keys(manifest).find(key => manifest[key]?.src === 'src/components/playground.tsx');
   if (entry?.file !== entrySource.replace(/^\//u, '') || entry?.isEntry !== true) {
     throw new Error('Vite manifest does not identify the emitted website entry');
   }
-  if (
-    playgroundKey === undefined ||
-    manifest[playgroundKey]?.isDynamicEntry !== true ||
-    !entry.dynamicImports?.includes(playgroundKey)
-  ) {
+  if (playgroundKey === undefined || manifest[playgroundKey]?.isDynamicEntry !== true) {
     throw new Error('playground must be a dynamic entry from the website entry');
   }
 
-  const playgroundJavaScript = await readFile(path.join(dist, manifest[playgroundKey].file), 'utf8');
+  const eagerGraph = collectManifestGraph(manifest, ['index.html'], ['imports']);
+  const entryLazyGraph = collectManifestGraph(manifest, entry.dynamicImports ?? [], ['imports', 'dynamicImports']);
+  if (!entryLazyGraph.has(playgroundKey)) {
+    throw new Error('playground must be reachable only through a dynamic entry from the website entry');
+  }
+
+  const playgroundGraph = collectManifestGraph(manifest, [playgroundKey], ['imports', 'dynamicImports']);
+  if (eagerGraph.has(playgroundKey)) {
+    throw new Error('playground dynamic entry is also reachable from the eager graph');
+  }
+
+  const eagerAssets = await readManifestAssets(dist, manifest, eagerGraph);
+  const eagerBytes = eagerAssets.reduce((total, asset) => total + asset.bytes, 0);
+  if (eagerBytes > maximumEntryBytes) {
+    throw new Error(`eager JavaScript graph exceeds the 500 KiB aggregate budget (${eagerBytes} bytes)`);
+  }
+
+  for (const asset of eagerAssets) {
+    if (!compilerSentinels.some(sentinel => asset.source.includes(sentinel))) continue;
+    if (playgroundGraph.has(asset.key)) {
+      throw new Error(`compiler-bearing lazy chunk is also reachable from eager graph: ${asset.file}`);
+    }
+    if (asset.key === 'index.html') {
+      throw new Error('Angular compiler sentinel found in eager entry JavaScript');
+    }
+    throw new Error(`Angular compiler sentinel found in eager JavaScript graph: ${asset.file}`);
+  }
+
+  const lazyOnlyGraph = new Set([...playgroundGraph].filter(key => !eagerGraph.has(key)));
+  const lazyAssets = await readManifestAssets(dist, manifest, lazyOnlyGraph);
+  const lazyJavaScript = lazyAssets.map(asset => asset.source).join('\n');
   for (const sentinel of compilerSentinels) {
-    if (!playgroundJavaScript.includes(sentinel)) {
-      throw new Error(`playground dynamic entry is missing Angular compiler sentinel: ${sentinel}`);
+    if (!lazyJavaScript.includes(sentinel)) {
+      throw new Error(`playground lazy-only graph is missing Angular compiler sentinel: ${sentinel}`);
     }
   }
+}
+
+function collectManifestGraph(manifest, rootKeys, edgeNames) {
+  const visited = new Set();
+  const pending = [...rootKeys];
+  while (pending.length > 0) {
+    const key = pending.pop();
+    if (key === undefined || visited.has(key)) continue;
+    const entry = manifest[key];
+    if (entry === undefined) throw new Error(`Vite manifest references missing entry ${key}`);
+    visited.add(key);
+    for (const edgeName of edgeNames) pending.push(...(entry[edgeName] ?? []));
+  }
+  return visited;
+}
+
+async function readManifestAssets(dist, manifest, graph) {
+  const assetsByFile = new Map();
+  for (const key of graph) {
+    const file = manifest[key]?.file;
+    if (typeof file !== 'string' || !file.endsWith('.js')) continue;
+    if (assetsByFile.has(file)) continue;
+    const filePath = path.join(dist, file);
+    const [source, fileStats] = await Promise.all([readFile(filePath, 'utf8'), stat(filePath)]);
+    assetsByFile.set(file, { key, file, source, bytes: fileStats.size });
+  }
+  return [...assetsByFile.values()];
 }
 
 function assertCrawlerFiles(sitemap, robots) {
