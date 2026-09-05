@@ -190,6 +190,15 @@ describe('website static output verification', () => {
     expect(verification.status).toBe(1);
     expect(verification.stderr).toContain('.vercel/project.json must be ignored by Git');
   });
+
+  it('rejects a deployment configuration that leaves the local Vercel environment trackable', async () => {
+    const root = await createFixture({ vercelEnvironmentIgnored: false });
+
+    const verification = runVerifier(root);
+
+    expect(verification.status).toBe(1);
+    expect(verification.stderr).toContain('.env.local must be ignored by Git');
+  });
 });
 
 async function createFixture(
@@ -210,6 +219,7 @@ async function createFixture(
     readonly siblingDynamicCompiler?: boolean;
     readonly overlappingCompilerChunk?: boolean;
     readonly vercelIgnored?: boolean;
+    readonly vercelEnvironmentIgnored?: boolean;
   } = {},
 ): Promise<string> {
   const root = await mkdtemp(path.join(tmpdir(), 'website-static-'));
@@ -217,7 +227,12 @@ async function createFixture(
   const dist = path.join(root, 'website', 'dist');
   const assets = path.join(dist, 'assets');
   await mkdir(assets, { recursive: true });
-  await writeFile(path.join(root, '.gitignore'), options.vercelIgnored === false ? '' : '.vercel/\n');
+  await writeFile(
+    path.join(root, '.gitignore'),
+    [options.vercelIgnored === false ? '' : '.vercel/', options.vercelEnvironmentIgnored === false ? '' : '.env.local']
+      .filter(Boolean)
+      .join('\n'),
+  );
 
   const routes = options.routes ?? requiredRoutes;
   const routeSource = routes.map(route => JSON.stringify(route)).join(';');

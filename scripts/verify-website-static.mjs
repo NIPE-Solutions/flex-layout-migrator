@@ -85,9 +85,11 @@ async function verifyStaticOutput(projectRoot) {
 }
 
 function assertVercelMetadataIgnored(gitignore) {
-  if (!ignore().add(gitignore).ignores('.vercel/project.json')) {
+  const matcher = ignore().add(gitignore);
+  if (!matcher.ignores('.vercel/project.json')) {
     throw new Error('.vercel/project.json must be ignored by Git');
   }
+  if (!matcher.ignores('.env.local')) throw new Error('.env.local must be ignored by Git');
 }
 
 async function assertCompilerIsLazy({ dist, entrySource, manifest }) {
