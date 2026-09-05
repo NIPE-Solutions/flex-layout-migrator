@@ -63,6 +63,21 @@ function contrastRatio(first: string, second: string): number {
   return (lighter + 0.05) / (darker + 0.05);
 }
 
+function readDeclarations(css: string, selector: string): ReadonlyMap<string, string> {
+  const stylesheet = parse(css);
+  const rule = stylesheet.nodes.find(node => node.type === 'rule' && node.selector?.split(',').includes(selector));
+  if (rule === undefined || rule.type !== 'rule') throw new Error(`Missing rule for ${selector}.`);
+
+  const declarations = new Map<string, string>();
+  rule.walkDecls(declaration => declarations.set(declaration.prop, declaration.value));
+  return declarations;
+}
+
+function resolveCssValue(tokens: ReadonlyMap<string, string>, value: string): string {
+  const reference = /^var\((--[\w-]+)\)$/u.exec(value);
+  return reference === null ? value : resolveToken(tokens, reference[1] as string);
+}
+
 describe('light theme focus tokens', () => {
   it('keeps the global focus indicator at 3:1 against every adjacent light surface', async () => {
     const tokensCss = await readFile(new URL('./tokens.css', import.meta.url), 'utf8');
@@ -76,5 +91,18 @@ describe('light theme focus tokens', () => {
         `${focusRing} against ${surfaceName} (${surface})`,
       ).toBeGreaterThanOrEqual(3);
     }
+  });
+
+  it('keeps primary action hover text readable against its output signal', async () => {
+    const [tokensCss, globalCss] = await Promise.all([
+      readFile(new URL('./tokens.css', import.meta.url), 'utf8'),
+      readFile(new URL('./global.css', import.meta.url), 'utf8'),
+    ]);
+    const tokens = readLightTokens(tokensCss);
+    const declarations = readDeclarations(globalCss, '.action-button--primary:hover');
+    const foreground = resolveCssValue(tokens, declarations.get('color') ?? '');
+    const background = resolveCssValue(tokens, declarations.get('background') ?? '');
+
+    expect(contrastRatio(foreground, background)).toBeGreaterThanOrEqual(4.5);
   });
 });

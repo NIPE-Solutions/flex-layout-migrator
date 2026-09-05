@@ -3,6 +3,7 @@
   "compilerOptions": {
     "lib": ["ES2023", "DOM", "DOM.Iterable"],
     "types": ["node", "vite/client", "vitest/globals"],
+    "paths": { "@core/*": ["../src/*"] },
     "jsx": "react-jsx",
     "noEmit": true
   },

@@ -1,12 +1,15 @@
 // @vitest-environment jsdom
 
 import '@testing-library/jest-dom/vitest';
-import { cleanup, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { App } from './app';
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  window.history.replaceState(null, '', '/');
+});
 
 describe('documentation website shell', () => {
   it('connects the product introduction to its install and project destinations', () => {
@@ -45,5 +48,36 @@ describe('documentation website shell', () => {
         name: 'NIPE Open Source',
       }),
     ).toHaveAttribute('href', familyUrl);
+  });
+
+  it('navigates from the home page to documentation without a page load', () => {
+    render(<App />);
+
+    fireEvent.click(screen.getByRole('link', { name: 'Read the documentation' }));
+
+    expect(window.location.pathname).toBe('/docs');
+    expect(screen.getByRole('heading', { level: 1, name: 'Migration guide' })).toBeInTheDocument();
+    expect(screen.getByRole('navigation', { name: 'Documentation' })).toBeInTheDocument();
+  });
+
+  it.each([
+    ['/docs', 'Migration guide'],
+    ['/docs/cli', 'CLI workflow'],
+    ['/docs/tailwind', 'Tailwind CSS output'],
+    ['/docs/native-css', 'Native CSS output'],
+    ['/docs/safety', 'Safety and reporting'],
+    ['/docs/troubleshooting', 'Troubleshooting'],
+    ['/privacy', 'Privacy'],
+    ['/imprint', 'Imprint'],
+  ])('renders the client-side route %s', (path, heading) => {
+    window.history.replaceState(null, '', path);
+
+    render(<App />);
+
+    expect(screen.getByRole('heading', { level: 1, name: heading })).toBeInTheDocument();
+    expect(within(screen.getByRole('banner')).getByRole('link', { name: 'NIPE Open Source' })).toHaveAttribute(
+      'href',
+      'https://opensource.nipesolutions.com',
+    );
   });
 });

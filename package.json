@@ -50,6 +50,8 @@
   },
   "keywords": [
     "angular",
+    "codemod",
+    "documentation",
     "flex-layout",
     "migration",
     "tailwindcss"
@@ -59,7 +61,7 @@
   "bugs": {
     "url": "https://github.com/NIPE-Solutions/flex-layout-migrator/issues"
   },
-  "homepage": "https://github.com/NIPE-Solutions/flex-layout-migrator#readme",
+  "homepage": "https://angular-flex-layout-codemod.nipesolutions.com",
   "dependencies": {
     "@angular/compiler": "21.2.22",
     "commander": "^15.0.0",
