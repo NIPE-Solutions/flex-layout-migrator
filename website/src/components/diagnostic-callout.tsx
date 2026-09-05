@@ -1,5 +1,3 @@
-import { useId } from 'react';
-
 import { diagnosticReference } from '../content/diagnostic-reference';
 
 type DiagnosticReferenceCode = (typeof diagnosticReference)[number]['code'];
@@ -9,14 +7,13 @@ interface DiagnosticCalloutProps {
 }
 
 export function DiagnosticCallout({ code }: DiagnosticCalloutProps) {
-  const headingId = useId();
   const diagnostic = diagnosticReference.find(entry => entry.code === code);
   if (diagnostic === undefined) throw new Error(`Unknown diagnostic code: ${code}`);
 
   return (
-    <aside className="diagnostic-callout" role="note" aria-labelledby={headingId}>
+    <aside className="diagnostic-callout" role="note" aria-labelledby={code}>
       <p>Migration diagnostic</p>
-      <h3 id={headingId}>
+      <h3 id={code}>
         <a href={`/docs/diagnostics#${code}`}>{code}</a>
       </h3>
       <p>{diagnostic.meaning}</p>

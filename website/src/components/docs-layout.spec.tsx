@@ -91,14 +91,27 @@ describe('DocsLayout', () => {
     );
   });
 
-  it('renders registry-backed review and unsupported diagnostics from Markdown directives', () => {
+  it('gives every published diagnostic link one stable heading target', () => {
     render(<DocsLayout page={loadDocumentationPage('/docs/diagnostics')} />);
 
-    for (const code of ['dynamic-binding', 'target-unsupported'] as const) {
+    const publishedCodes = ['dynamic-binding', 'target-unsupported'] as const;
+    const targetIds = new Set<string>();
+    for (const code of publishedCodes) {
       const reference = diagnosticReference.find(entry => entry.code === code)!;
       const callout = screen.getByRole('note', { name: code });
+      const heading = within(callout).getByRole('heading', { name: code });
+      const href = within(callout).getByRole('link', { name: code }).getAttribute('href');
+
+      expect(href).toBe(`/docs/diagnostics#${code}`);
+      const targetId = href!.slice(href!.indexOf('#') + 1);
+      const targets = document.querySelectorAll(`[id="${targetId}"]`);
+      expect(targets).toHaveLength(1);
+      expect(targets[0]).toBe(heading);
+      expect(callout).toHaveAttribute('aria-labelledby', targetId);
+      targetIds.add(targetId);
       expect(within(callout).getByText(reference.meaning)).toBeVisible();
       for (const resolution of reference.resolution) expect(within(callout).getByText(resolution)).toBeVisible();
     }
+    expect(targetIds.size).toBe(publishedCodes.length);
   });
 });
