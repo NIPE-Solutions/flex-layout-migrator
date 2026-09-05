@@ -37,6 +37,14 @@ describe('release policy', () => {
       },
       env: { GITHUB_TOKEN: '${{ secrets.GITHUB_TOKEN }}' },
     });
+    const prepareInputIndex = workflow.jobs.version.steps.findIndex(
+      (step: { run?: string }) => step.run === 'node scripts/prepare-changesets-action.mjs',
+    );
+    const changesetsActionIndex = workflow.jobs.version.steps.findIndex(
+      (step: { uses?: string }) => step.uses === 'changesets/action@a45c4d594aa4e2c509dc14a9f2b3b67ba3780d0d',
+    );
+    expect(prepareInputIndex).toBeGreaterThanOrEqual(0);
+    expect(changesetsActionIndex).toBeGreaterThan(prepareInputIndex);
 
     expect(source).not.toMatch(/\b(?:npm publish|npm stage|git tag|gh release)\b/u);
     expect(source).not.toMatch(/\bNODE_AUTH_TOKEN\b|secrets\.NPM/u);
