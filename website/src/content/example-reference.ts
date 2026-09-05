@@ -1,11 +1,15 @@
-import type { TemplatePreviewInput } from '@core/browser/template-preview';
+import type { DiagnosticCode } from '../../../src/analyzer/conversion-result';
+import type { TemplatePreviewInput } from '../../../src/browser/template-preview';
 
 import { deepFreeze, type DocumentationEvidencePath } from './public-contract';
 
-export interface VerifiedExampleResult {
-  readonly status: 'converted' | 'review' | 'unsupported' | 'invalid' | 'parse-error';
-  readonly code?: string;
-}
+export type VerifiedExampleResult =
+  | { readonly status: 'converted' }
+  | { readonly status: 'review' | 'unsupported' | 'invalid'; readonly code: DiagnosticCode }
+  | {
+      readonly status: 'parse-error';
+      readonly code: 'template-parse-error' | 'generated-template-parse-error';
+    };
 
 export interface VerifiedExample {
   readonly id: string;

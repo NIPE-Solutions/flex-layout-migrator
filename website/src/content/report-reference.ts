@@ -1,4 +1,4 @@
-import type { MigrationReport } from '@core/report/migration-report';
+import type { MigrationReport } from '../../../src/report/migration-report';
 
 import { deepFreeze } from './public-contract';
 
@@ -135,8 +135,8 @@ export const reportReference = deepFreeze({
         mode: 'plan',
         target: 'tailwind',
         application: { status: 'skipped', reason: 'plan-only' },
-        input: 'templates',
-        output: 'templates',
+        input: 'card.component.html',
+        output: 'card.component.html',
         durationMs: 12,
         summary: {
           filesScanned: 1,

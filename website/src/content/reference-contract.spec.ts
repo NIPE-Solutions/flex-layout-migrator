@@ -135,7 +135,14 @@ describe('public documentation registries', () => {
 
       expect(result.html, example.id).toBe(example.expectedOutput);
       expect(result.css, example.id).toBe(example.expectedCss);
-      expect(publicResults, example.id).toMatchObject(example.expectedResults);
+      expect(publicResults, example.id).toEqual(example.expectedResults);
+      for (const expected of example.expectedResults) {
+        if (expected.status === 'converted') {
+          expect(expected).not.toHaveProperty('code');
+        } else {
+          expect(new Set(diagnosticReference.map(item => item.code))).toContain(expected.code);
+        }
+      }
       expect(example.evidence.length).toBeGreaterThanOrEqual(3);
     }
   });

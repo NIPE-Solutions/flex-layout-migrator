@@ -1,4 +1,4 @@
-import type { DiagnosticCode } from '@core/analyzer/conversion-result';
+import type { DiagnosticCode } from '../../../src/analyzer/conversion-result';
 
 import { deepFreeze } from './public-contract';
 

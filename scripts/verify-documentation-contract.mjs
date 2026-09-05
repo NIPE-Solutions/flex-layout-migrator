@@ -4,6 +4,7 @@ import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 
 import ts from 'typescript';
+import { createServer } from 'vite';
 
 const registryPaths = {
   cli: 'website/src/content/cli-reference.ts',
@@ -16,10 +17,15 @@ const registryPaths = {
 export async function verifyDocumentationContract(root) {
   const projectRoot = path.resolve(root);
   await verifyCliOptions(projectRoot);
-  await verifyDiagnostics(projectRoot);
+  const diagnosticCodes = await verifyDiagnostics(projectRoot);
   await verifyCompatibilityEvidence(projectRoot);
-  await verifyReportExamples(projectRoot);
-  await verifyTransformationExamples(projectRoot);
+  const production = await loadProductionOracle(projectRoot);
+  try {
+    await verifyReportExamples(projectRoot, production.MigrationReportBuilder);
+    await verifyTransformationExamples(projectRoot, production.previewTemplate, diagnosticCodes);
+  } finally {
+    await production.close();
+  }
 }
 
 async function verifyCliOptions(root) {
@@ -47,6 +53,7 @@ async function verifyCliOptions(root) {
       );
     }
   }
+  await verifyCliEvidencePaths(root, registry);
 }
 
 async function verifyDiagnostics(root) {
@@ -80,6 +87,11 @@ async function verifyDiagnostics(root) {
       throw new Error(`diagnostic registry entry ${String(item.code)} is incomplete`);
     }
   }
+  return {
+    all: new Set(registry.map(item => item.code)),
+    conversion: new Set(conversionCodes),
+    parse: new Set(parseCodes),
+  };
 }
 
 async function verifyCompatibilityEvidence(root) {
@@ -97,6 +109,8 @@ async function verifyCompatibilityEvidence(root) {
   const inventoryFile = parseTypeScript('test/compatibility/compatibility-inventory.ts', inventorySource);
   const inventory = evaluateExport(inventoryFile, 'COMPATIBILITY_INVENTORY');
   const contract = parseCompatibilityTable(compatibilitySource);
+  assertUnique(contract, item => item.id, 'compatibility contract entry');
+  assertUnique(inventory, item => item.directive, 'structured compatibility inventory entry');
   assertExactSet(
     'compatibility registry',
     registry.map(item => item.id),
@@ -152,7 +166,7 @@ function compatibilityInventoryCategory(family) {
   return compatibilityCategory(compatibilityFamily(family));
 }
 
-async function verifyReportExamples(root) {
+async function verifyReportExamples(root, MigrationReportBuilder) {
   const [registry, source, migrationModeSource] = await Promise.all([
     readRegistry(root, registryPaths.report, 'reportReference'),
     readFile(path.join(root, 'src/report/migration-report.ts'), 'utf8'),
@@ -193,10 +207,18 @@ async function verifyReportExamples(root) {
     }
   }
 
-  for (const example of registry.examples) validateReportExample(example);
+  for (const example of registry.examples) {
+    validateReportExample(example);
+    const productionReport = rebuildReportExample(MigrationReportBuilder, example.value);
+    if (JSON.stringify(productionReport) !== JSON.stringify(example.value)) {
+      throw new Error(
+        `report example ${String(example.id)} differs from production builder: expected ${JSON.stringify(example.value)}, received ${JSON.stringify(productionReport)}`,
+      );
+    }
+  }
 }
 
-async function verifyTransformationExamples(root) {
+async function verifyTransformationExamples(root, previewTemplate, diagnosticCodes) {
   const registry = await readRegistry(root, registryPaths.examples, 'verifiedExamples');
   assertArray(registry, 'transformation example registry');
   assertUnique(registry, item => item.id, 'transformation example');
@@ -222,6 +244,74 @@ async function verifyTransformationExamples(root) {
     }
     if (!Array.isArray(example.expectedResults) || example.expectedResults.length === 0) {
       throw new Error(`transformation example ${String(example.id)} has no expected results`);
+    }
+    validateExpectedResults(example, diagnosticCodes);
+    const result = previewTemplate(example.input);
+    const productionResults = result.results.map(item =>
+      item.status === 'converted' ? { status: item.status } : { status: item.status, code: item.code },
+    );
+    if (result.html !== example.expectedOutput || result.css !== example.expectedCss) {
+      throw new Error(`transformation example ${String(example.id)} output differs from production preview`);
+    }
+    if (JSON.stringify(productionResults) !== JSON.stringify(example.expectedResults)) {
+      throw new Error(`transformation example ${String(example.id)} results differ from production preview`);
+    }
+  }
+}
+
+async function loadProductionOracle(root) {
+  const server = await createServer({
+    root,
+    configFile: false,
+    appType: 'custom',
+    logLevel: 'silent',
+    server: { middlewareMode: true },
+    optimizeDeps: { noDiscovery: true },
+  });
+  try {
+    const [previewModule, reportModule] = await Promise.all([
+      server.ssrLoadModule('/src/browser/template-preview.ts'),
+      server.ssrLoadModule('/src/report/migration-report.builder.ts'),
+    ]);
+    if (
+      typeof previewModule.previewTemplate !== 'function' ||
+      typeof reportModule.MigrationReportBuilder !== 'function'
+    ) {
+      throw new Error('production documentation oracle does not expose the required interfaces');
+    }
+    return {
+      previewTemplate: previewModule.previewTemplate,
+      MigrationReportBuilder: reportModule.MigrationReportBuilder,
+      close: () => server.close(),
+    };
+  } catch (error) {
+    await server.close();
+    throw error;
+  }
+}
+
+function validateExpectedResults(example, diagnosticCodes) {
+  const statuses = new Set(['converted', 'review', 'unsupported', 'invalid', 'parse-error']);
+  for (const result of example.expectedResults) {
+    if (!statuses.has(result.status)) {
+      throw new Error(`transformation example ${String(example.id)} uses unknown status ${String(result.status)}`);
+    }
+    if (result.status === 'converted') {
+      if (result.code !== undefined) {
+        throw new Error(`transformation example ${String(example.id)} gives a converted result a diagnostic code`);
+      }
+    } else if (!diagnosticCodes.all.has(result.code)) {
+      throw new Error(
+        `transformation example ${String(example.id)} uses unknown diagnostic code ${String(result.code)}`,
+      );
+    } else if (result.status === 'parse-error' && !diagnosticCodes.parse.has(result.code)) {
+      throw new Error(
+        `transformation example ${String(example.id)} uses diagnostic code ${String(result.code)} with parse-error status`,
+      );
+    } else if (result.status !== 'parse-error' && !diagnosticCodes.conversion.has(result.code)) {
+      throw new Error(
+        `transformation example ${String(example.id)} uses parse diagnostic code ${String(result.code)} with ${String(result.status)} status`,
+      );
     }
   }
 }
@@ -253,10 +343,14 @@ function parseCliDefinitions(source) {
           options.push(option);
         }
       } else if (method === 'version') {
+        const flags = literalValue(node.arguments[1]) ?? '-V, --version';
+        const description = literalValue(node.arguments[2]) ?? 'output the version number';
+        if (typeof flags !== 'string' || typeof description !== 'string') {
+          throw new Error('Commander version metadata must use literal flags and description');
+        }
         options.push({
-          longFlag: '--version',
-          shortFlag: '-V',
-          description: 'output the version number',
+          ...parseFlags(flags),
+          description,
         });
       }
     } else if (ts.isNewExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === 'Option') {
@@ -279,6 +373,29 @@ function parseCliDefinitions(source) {
 
   visit(sourceFile);
   return options;
+}
+
+async function verifyCliEvidencePaths(root, registry) {
+  for (const option of registry) {
+    if (!Array.isArray(option.evidence) || !option.evidence.includes('src/cli/run-cli.ts')) {
+      throw new Error(`CLI option ${String(option.longFlag)} evidence must include src/cli/run-cli.ts`);
+    }
+    for (const evidence of option.evidence) {
+      let source;
+      try {
+        source = await readEvidenceFile(root, evidence);
+      } catch {
+        throw new Error(`CLI option ${String(option.longFlag)} evidence does not exist: ${String(evidence)}`);
+      }
+      const relevant =
+        source.includes(option.longFlag) ||
+        (option.longFlag === '--version' && evidence === 'src/cli/run-cli.ts' && source.includes('.version(')) ||
+        (option.longFlag === '--version' && evidence === 'package.json' && source.includes('"version"'));
+      if (!relevant) {
+        throw new Error(`CLI option ${String(option.longFlag)} evidence is not relevant: ${String(evidence)}`);
+      }
+    }
+  }
 }
 
 function enclosingCall(node, method) {
@@ -488,6 +605,9 @@ function validateReportExample(example) {
   if (!isNonEmptyString(report.input) || !isNonEmptyString(report.output)) {
     throw new Error(`report example ${example.id} has invalid input or output paths`);
   }
+  if ((report.target === 'css') !== (report.stylesheet !== undefined)) {
+    throw new Error(`report example ${example.id} must include stylesheet exactly for the css target`);
+  }
   validateApplication(report.application, example.id);
   assertArray(report.files, `report example ${example.id} files`);
 
@@ -534,6 +654,57 @@ function validateReportExample(example) {
       `report example ${example.id} stylesheet change`,
     );
   }
+}
+
+function rebuildReportExample(MigrationReportBuilder, report) {
+  const files = report.files.map(file => ({
+    inputPath: file.path === report.input ? report.input : path.posix.join(report.input, file.path),
+    outputPath: file.path === report.output ? report.output : path.posix.join(report.output, file.path),
+    changed: file.changed,
+    results: file.results.map(result => reportConversionResult(report.input, result)),
+  }));
+  return new MigrationReportBuilder().build(
+    report.input,
+    report.output,
+    report.target,
+    report.mode,
+    report.application,
+    report.durationMs,
+    files,
+    report.stylesheet,
+  );
+}
+
+function reportConversionResult(fileName, result) {
+  if (result.status === 'parse-error') {
+    return {
+      status: result.status,
+      fileName,
+      code: result.code,
+      reason: result.reason,
+      source: { start: result.offset, end: result.offset + 1 },
+    };
+  }
+  const input = {
+    id: `${fileName}:${result.offset}`,
+    fileName,
+    elementId: String(result.offset),
+    sourceName: result.sourceName,
+    directive: result.directive,
+    value: '',
+    binding: 'literal',
+    breakpoint: undefined,
+    source: { start: result.offset, end: result.offset + 1 },
+    nameSource: { start: result.offset, end: result.offset + 1 },
+  };
+  if (result.status === 'converted') return { status: result.status, input };
+  return {
+    status: result.status,
+    input,
+    code: result.code,
+    reason: result.reason,
+    suggestion: result.suggestion,
+  };
 }
 
 function validateApplication(application, id) {
