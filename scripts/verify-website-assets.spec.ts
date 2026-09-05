@@ -6,6 +6,7 @@ import { deflateSync } from 'node:zlib';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
+import { createSocialImage, decodeRgbaPng, encodeRgbaPng } from './generate-website-assets.mjs';
 import { inspectWebsiteAssets } from './verify-website-assets.mjs';
 
 const repository = resolve(import.meta.dirname, '..');
@@ -124,6 +125,19 @@ describe('website asset contract', () => {
     expect(await inspectWebsiteAssets(fixture)).toContain(
       'website/public/og-image.png: derivative does not match deterministic social composition',
     );
+    expect(await inspectWebsiteAssets(fixture)).toContain(
+      'website/public/og-image.png: missing source-plan-output composition',
+    );
+  });
+
+  it('builds the social image from a deterministic source-plan-output composition, not the master mark', async () => {
+    const master = decodeRgbaPng(await readFile(join(repository, 'website/public/icon-source.png')));
+    const changedMaster = {
+      ...master,
+      pixels: Buffer.alloc(master.width * master.height * 4, 255),
+    };
+
+    expect(encodeRgbaPng(createSocialImage(master))).toEqual(encodeRgbaPng(createSocialImage(changedMaster)));
   });
 
   it('requires opaque maskable assets and keeps their artwork inside the safe circle', async () => {

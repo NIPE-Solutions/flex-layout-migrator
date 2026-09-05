@@ -80,22 +80,23 @@ test('converts both targets, operates output tabs with arrows, and transmits no 
   });
 
   await page.goto('/');
-  const source = page.getByRole('textbox', { name: 'Angular template' });
+  const playground = page.getByRole('region', { name: 'Migration playground preview' });
+  const source = playground.getByRole('textbox', { name: 'Angular template' });
   await expect(source).toBeVisible();
   editingStarted = true;
   await source.fill(`<section id="${sourceMarker}" fxLayout="column"></section>`);
-  await page.getByRole('button', { name: 'Migrate template' }).click();
-  await expect(page.getByRole('tabpanel', { name: 'HTML' })).toContainText('flex flex-col box-border');
+  await playground.getByRole('button', { name: 'Migrate template' }).click();
+  await expect(playground.getByRole('tabpanel', { name: 'HTML' })).toContainText('flex flex-col box-border');
 
-  await page.getByRole('radio', { name: 'Native CSS' }).check();
-  await page.getByRole('button', { name: 'Migrate template' }).click();
-  const htmlTab = page.getByRole('tab', { name: 'HTML' });
-  const cssTab = page.getByRole('tab', { name: 'CSS' });
+  await playground.getByRole('radio', { name: 'Native CSS' }).check();
+  await playground.getByRole('button', { name: 'Migrate template' }).click();
+  const htmlTab = playground.getByRole('tab', { name: 'HTML' });
+  const cssTab = playground.getByRole('tab', { name: 'CSS' });
   await htmlTab.focus();
   await page.keyboard.press('ArrowRight');
   await expect(cssTab).toBeFocused();
   await expect(cssTab).toHaveAttribute('aria-selected', 'true');
-  await expect(page.getByRole('tabpanel', { name: 'CSS' })).toContainText('flex-layout-codemod:start');
+  await expect(playground.getByRole('tabpanel', { name: 'CSS' })).toContainText('flex-layout-codemod:start');
 
   expect(sourceBearingRequests).toEqual([]);
   expect(requestsAfterEditing).toEqual([]);
@@ -116,4 +117,58 @@ test('disables smooth scrolling and transition motion when reduced motion is req
 
   expect(motion.scrollBehavior).toBe('auto');
   expect(['0.01ms', '1e-05s']).toContain(motion.transitionDuration);
+});
+
+test('stacks the real migration plan without page overflow at 375px', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.goto('/');
+
+  await expect(
+    page.getByRole('heading', {
+      name: 'Plan first. Review unresolved cases. Write only when you are ready.',
+    }),
+  ).toBeVisible();
+  await page.getByRole('radio', { name: 'Native CSS' }).first().check();
+  await expect(page.locator('.migration-plan-hero').getByLabel('Migration output')).toContainText(
+    'flm-5db098b5a4e638f',
+  );
+
+  const planColumns = await page.locator('.migration-plan-hero__body').evaluate(element => {
+    const style = getComputedStyle(element);
+    return style.gridTemplateColumns.split(' ').length;
+  });
+  expect(planColumns).toBe(1);
+  expect(await page.locator('body').evaluate(element => element.scrollWidth)).toBeLessThanOrEqual(375);
+});
+
+test('keeps mobile documentation context visible and wide content locally scrollable', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.goto('/docs/compatibility');
+
+  const mobileNavigation = page.getByRole('navigation', { name: 'Mobile documentation' });
+  await expect(mobileNavigation).toBeVisible();
+  await expect(mobileNavigation.getByRole('link', { name: 'Compatibility overview' })).toHaveAttribute(
+    'aria-current',
+    'page',
+  );
+  await expect(mobileNavigation.getByText('Compatibility', { exact: true })).toBeVisible();
+
+  const tableScroller = page.locator('.reference-table-scroll');
+  await expect(tableScroller).toBeVisible();
+  expect(
+    await tableScroller.evaluate(element => ({ client: element.clientWidth, scroll: element.scrollWidth })),
+  ).toMatchObject({ client: expect.any(Number), scroll: expect.any(Number) });
+  expect(await tableScroller.evaluate(element => element.scrollWidth > element.clientWidth)).toBe(true);
+  expect(await page.locator('body').evaluate(element => element.scrollWidth)).toBeLessThanOrEqual(375);
+
+  await page.goto('/docs/examples');
+  const exampleCode = page.locator('.verified-example .code-block').first();
+  await expect(exampleCode).toBeVisible();
+  const codeMetrics = await exampleCode.locator('pre').evaluate(element => ({
+    fontSize: Number.parseFloat(getComputedStyle(element).fontSize),
+    overflowX: getComputedStyle(element).overflowX,
+  }));
+  expect(codeMetrics.fontSize).toBeGreaterThanOrEqual(14);
+  expect(codeMetrics.overflowX).toBe('auto');
+  expect(await page.locator('body').evaluate(element => element.scrollWidth)).toBeLessThanOrEqual(375);
 });

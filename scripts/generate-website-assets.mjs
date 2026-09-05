@@ -9,6 +9,7 @@ export const PALETTE = Object.freeze({
   ink: [17, 27, 36, 255],
   red: [201, 21, 61, 255],
   teal: [0, 175, 161, 255],
+  review: [117, 75, 0, 255],
   paper: [246, 241, 231, 255],
   transparent: [0, 0, 0, 0],
 });
@@ -257,14 +258,114 @@ export function createMaskableIcon(master, size) {
   return canvas;
 }
 
+const PIXEL_FONT = Object.freeze({
+  A: ['01110', '10001', '10001', '11111', '10001', '10001', '10001'],
+  C: ['01111', '10000', '10000', '10000', '10000', '10000', '01111'],
+  D: ['11110', '10001', '10001', '10001', '10001', '10001', '11110'],
+  E: ['11111', '10000', '10000', '11110', '10000', '10000', '11111'],
+  F: ['11111', '10000', '10000', '11110', '10000', '10000', '10000'],
+  L: ['10000', '10000', '10000', '10000', '10000', '10000', '11111'],
+  M: ['10001', '11011', '10101', '10101', '10001', '10001', '10001'],
+  N: ['10001', '11001', '10101', '10011', '10001', '10001', '10001'],
+  O: ['01110', '10001', '10001', '10001', '10001', '10001', '01110'],
+  P: ['11110', '10001', '10001', '11110', '10000', '10000', '10000'],
+  R: ['11110', '10001', '10001', '11110', '10100', '10010', '10001'],
+  S: ['01111', '10000', '10000', '01110', '00001', '00001', '11110'],
+  T: ['11111', '00100', '00100', '00100', '00100', '00100', '00100'],
+  U: ['10001', '10001', '10001', '10001', '10001', '10001', '01110'],
+  V: ['10001', '10001', '10001', '10001', '10001', '01010', '00100'],
+  X: ['10001', '10001', '01010', '00100', '01010', '10001', '10001'],
+  Y: ['10001', '10001', '01010', '00100', '00100', '00100', '00100'],
+});
+
+function drawText(image, text, left, top, scale, color) {
+  let cursor = left;
+  for (const character of text) {
+    if (character === ' ') {
+      cursor += scale * 4;
+      continue;
+    }
+    const glyph = PIXEL_FONT[character];
+    if (glyph === undefined) throw new Error(`Unsupported social-image glyph ${character}`);
+    for (const [rowIndex, row] of glyph.entries()) {
+      for (const [columnIndex, pixel] of [...row].entries()) {
+        if (pixel === '1') {
+          fillRect(
+            image,
+            cursor + columnIndex * scale,
+            top + rowIndex * scale,
+            cursor + (columnIndex + 1) * scale - 1,
+            top + (rowIndex + 1) * scale - 1,
+            color,
+          );
+        }
+      }
+    }
+    cursor += scale * 6;
+  }
+}
+
+function strokeRect(image, left, top, right, bottom, width, color) {
+  fillRect(image, left, top, right, top + width - 1, color);
+  fillRect(image, left, bottom - width + 1, right, bottom, color);
+  fillRect(image, left, top, left + width - 1, bottom, color);
+  fillRect(image, right - width + 1, top, right, bottom, color);
+}
+
+function drawArrow(image, left, centerY, right, color) {
+  fillRect(image, left, centerY - 2, right - 10, centerY + 2, color);
+  fillRect(image, right - 18, centerY - 10, right - 10, centerY - 6, color);
+  fillRect(image, right - 18, centerY + 6, right - 10, centerY + 10, color);
+  fillRect(image, right - 10, centerY - 6, right - 6, centerY + 6, color);
+}
+
 export function createSocialImage(master) {
+  void master;
   const width = 1200;
   const height = 630;
   const pixels = Buffer.alloc(width * height * 4);
   for (let offset = 0; offset < pixels.length; offset += 4) pixels.set(PALETTE.paper, offset);
   const canvas = { width, height, pixels };
-  const artwork = resizeRgba(master, 540);
-  composite(canvas, artwork, Math.floor((width - 540) / 2), Math.floor((height - 540) / 2));
+
+  fillRect(canvas, 64, 54, 1135, 61, PALETTE.ink);
+  drawText(canvas, 'FLEX LAYOUT CODEMOD', 64, 86, 7, PALETTE.ink);
+
+  const panels = [
+    { left: 64, right: 350 },
+    { left: 456, right: 744 },
+    { left: 850, right: 1135 },
+  ];
+  for (const panel of panels) strokeRect(canvas, panel.left, 220, panel.right, 552, 4, PALETTE.ink);
+  drawArrow(canvas, 372, 386, 434, PALETTE.ink);
+  drawArrow(canvas, 766, 386, 828, PALETTE.ink);
+
+  drawText(canvas, 'SOURCE', 92, 252, 5, PALETTE.red);
+  for (const [index, barWidth] of [190, 224, 156].entries()) {
+    const top = 342 + index * 62;
+    fillRect(canvas, 94, top, 108, top + 8, PALETTE.red);
+    fillRect(canvas, 126, top, 126 + barWidth, top + 8, PALETTE.ink);
+  }
+
+  drawText(canvas, 'PLAN', 486, 252, 5, PALETTE.ink);
+  fillRect(canvas, 488, 342, 508, 362, PALETTE.teal);
+  fillRect(canvas, 493, 351, 498, 356, PALETTE.paper);
+  fillRect(canvas, 498, 356, 503, 361, PALETTE.paper);
+  drawText(canvas, 'CONVERTED', 528, 340, 3, PALETTE.teal);
+  fillRect(canvas, 488, 414, 508, 434, PALETTE.review);
+  fillRect(canvas, 496, 418, 500, 427, PALETTE.paper);
+  fillRect(canvas, 496, 430, 500, 431, PALETTE.paper);
+  drawText(canvas, 'PRESERVED', 528, 412, 3, PALETTE.review);
+  fillRect(canvas, 488, 486, 508, 506, PALETTE.review);
+  fillRect(canvas, 496, 490, 500, 499, PALETTE.paper);
+  fillRect(canvas, 496, 502, 500, 503, PALETTE.paper);
+  drawText(canvas, 'PRESERVED', 528, 484, 3, PALETTE.review);
+
+  drawText(canvas, 'OUTPUT', 878, 252, 5, PALETTE.teal);
+  for (const [index, barWidth] of [216, 164, 226].entries()) {
+    const top = 342 + index * 62;
+    fillRect(canvas, 880, top, 894, top + 8, PALETTE.teal);
+    fillRect(canvas, 912, top, 912 + barWidth, top + 8, PALETTE.ink);
+  }
   return canvas;
 }
 

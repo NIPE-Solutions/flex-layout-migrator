@@ -30,13 +30,6 @@ export const siteContent = {
       href: 'https://www.npmjs.com/package/@nipe-solutions/flex-layout-codemod',
     },
   },
-  transformation: {
-    heading: 'Fragmented directives become explicit layout.',
-    sourceLabel: 'Angular template input',
-    source: '<div fxLayout="row" fxLayoutGap="16px" fxLayoutAlign="start center">',
-    outputLabel: 'Tailwind template output',
-    output: '<div class="flex flex-row box-border gap-[16px] justify-start items-center">',
-  },
   supportHeading: 'A migration boundary you can inspect.',
   supportStatements: [
     {

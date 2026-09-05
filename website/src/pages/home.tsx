@@ -8,6 +8,11 @@ const Playground = lazy(async () => {
   return { default: module.Playground };
 });
 
+const MigrationPlanHero = lazy(async () => {
+  const module = await import('../components/migration-plan-hero');
+  return { default: module.MigrationPlanHero };
+});
+
 export function HomePage() {
   return (
     <main id="main-content">
@@ -27,20 +32,15 @@ export function HomePage() {
             </nav>
           </div>
 
-          <section className="transformation" aria-labelledby="transformation-heading">
-            <h2 id="transformation-heading">{siteContent.transformation.heading}</h2>
-            <div className="transformation__flow">
-              <CodeBlock label={siteContent.transformation.sourceLabel} tone="source">
-                {siteContent.transformation.source}
-              </CodeBlock>
-              <div className="conversion-node" aria-hidden="true">
-                <span />
-              </div>
-              <CodeBlock label={siteContent.transformation.outputLabel} tone="output">
-                {siteContent.transformation.output}
-              </CodeBlock>
-            </div>
-          </section>
+          <Suspense
+            fallback={
+              <p className="migration-plan-hero__loading" role="status">
+                Loading the example migration plan…
+              </p>
+            }
+          >
+            <MigrationPlanHero />
+          </Suspense>
         </div>
       </section>
 
