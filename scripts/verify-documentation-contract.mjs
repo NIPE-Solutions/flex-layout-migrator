@@ -18,9 +18,9 @@ export async function verifyDocumentationContract(root) {
   const projectRoot = path.resolve(root);
   await verifyCliOptions(projectRoot);
   const diagnosticCodes = await verifyDiagnostics(projectRoot);
-  await verifyCompatibilityEvidence(projectRoot, diagnosticCodes);
   const production = await loadProductionOracle(projectRoot);
   try {
+    await verifyCompatibilityEvidence(projectRoot, diagnosticCodes, production.previewTemplate);
     await verifyReportExamples(projectRoot, production.MigrationReportBuilder, diagnosticCodes.conversion);
     await verifyTransformationExamples(projectRoot, production.previewTemplate, diagnosticCodes);
   } finally {
@@ -94,7 +94,7 @@ async function verifyDiagnostics(root) {
   };
 }
 
-async function verifyCompatibilityEvidence(root, diagnosticCodes) {
+async function verifyCompatibilityEvidence(root, diagnosticCodes, previewTemplate) {
   const [registry, examples, catalogSource, inventorySource, compatibilitySource] = await Promise.all([
     readRegistry(root, registryPaths.compatibility, 'compatibilityReference'),
     readRegistry(root, registryPaths.examples, 'verifiedExamples'),
@@ -201,6 +201,42 @@ async function verifyCompatibilityEvidence(root, diagnosticCodes) {
         if (!diagnosticCodes.all.has(code)) {
           throw new Error(`compatibility ${entry.id} ${target} uses unknown diagnostic ${String(code)}`);
         }
+      }
+      if (entry.category === 'flex' && target === 'css') {
+        assertArray(detail.diagnosticEvidence, `compatibility ${entry.id} ${target} diagnostic evidence`);
+        if (detail.diagnosticEvidence.length === 0) {
+          throw new Error(`compatibility ${entry.id} ${target} has no production diagnostic evidence`);
+        }
+        assertUnique(
+          detail.diagnosticEvidence,
+          item => item.code,
+          `compatibility ${entry.id} ${target} diagnostic evidence`,
+        );
+        for (const item of detail.diagnosticEvidence) {
+          if (item.input?.target !== target) {
+            throw new Error(
+              `compatibility ${entry.id} ${target} diagnostic ${String(item.code)} uses target ${String(item.input?.target)}`,
+            );
+          }
+          const result = previewTemplate(item.input).results.filter(
+            candidate => candidate.input?.directive === entry.id && candidate.input.sourceName === item.sourceName,
+          );
+          if (
+            result.length !== 1 ||
+            result[0]?.status !== item.status ||
+            !('code' in result[0]) ||
+            result[0].code !== item.code
+          ) {
+            throw new Error(
+              `compatibility ${entry.id} ${target} diagnostic ${String(item.code)} differs from production preview`,
+            );
+          }
+        }
+        assertExactSet(
+          `compatibility ${entry.id} ${target} diagnostics`,
+          detail.diagnosticCodes,
+          detail.diagnosticEvidence.map(item => item.code),
+        );
       }
     }
   }

@@ -15,6 +15,8 @@ test/fixtures/compatibility/extended-responsive.expected.html
 test/fixtures/compatibility/responsive-image.input.html
 test/fixtures/compatibility/responsive-image.expected.html
 test/fixtures/compatibility/native-css-flex.expected.html
+test/fixtures/compatibility/native-css-flex-target-boundary.input.html
+test/fixtures/compatibility/native-css-flex-target-boundary.expected.html
 test/fixtures/compatibility/native-css-boundaries.input.html
 test/fixtures/compatibility/native-css-boundaries.expected.html
 test/fixtures/compatibility/responsive-class-style.input.html

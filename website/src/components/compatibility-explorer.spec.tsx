@@ -189,6 +189,106 @@ describe('CompatibilityExplorer', () => {
     }
   });
 
+  it('publishes only production-relevant diagnostics for each Native CSS Flex directive', () => {
+    const expectedDiagnostics = {
+      fxLayout: [
+        'bound-class',
+        'dynamic-binding',
+        'invalid-value',
+        'context-unverified',
+        'responsive-precedence-unverified',
+        'target-unsupported',
+      ],
+      fxLayoutAlign: [
+        'bound-class',
+        'dynamic-binding',
+        'invalid-value',
+        'context-unverified',
+        'responsive-precedence-unverified',
+        'target-unsupported',
+      ],
+      fxLayoutGap: [
+        'bound-class',
+        'dynamic-binding',
+        'invalid-value',
+        'context-unverified',
+        'responsive-precedence-unverified',
+        'semantic-unsupported',
+        'target-unsupported',
+      ],
+      fxFlex: [
+        'bound-class',
+        'dynamic-binding',
+        'invalid-value',
+        'context-unverified',
+        'responsive-precedence-unverified',
+        'target-unsupported',
+      ],
+      fxGrow: [
+        'bound-class',
+        'dynamic-binding',
+        'invalid-value',
+        'context-unverified',
+        'responsive-precedence-unverified',
+        'target-unsupported',
+      ],
+      fxShrink: [
+        'bound-class',
+        'dynamic-binding',
+        'invalid-value',
+        'context-unverified',
+        'responsive-precedence-unverified',
+        'target-unsupported',
+      ],
+      fxFlexAlign: [
+        'bound-class',
+        'dynamic-binding',
+        'invalid-value',
+        'context-unverified',
+        'responsive-precedence-unverified',
+        'target-unsupported',
+      ],
+      fxFlexFill: ['bound-class', 'dynamic-binding', 'context-unverified', 'target-unsupported'],
+      fxFill: ['bound-class', 'dynamic-binding', 'context-unverified', 'target-unsupported'],
+      fxFlexOffset: [
+        'bound-class',
+        'dynamic-binding',
+        'invalid-value',
+        'context-unverified',
+        'responsive-precedence-unverified',
+        'target-unsupported',
+      ],
+      fxFlexOrder: [
+        'bound-class',
+        'dynamic-binding',
+        'context-unverified',
+        'responsive-precedence-unverified',
+        'target-unsupported',
+      ],
+    } as const;
+    render(<CompatibilityExplorer />);
+    fireEvent.change(screen.getByLabelText('Target'), { target: { value: 'css' } });
+    fireEvent.change(screen.getByLabelText('Family'), { target: { value: 'flex' } });
+
+    for (const [directive, codes] of Object.entries(expectedDiagnostics)) {
+      const row = compatibilityRow(directive);
+      fireEvent.click(within(row).getByText(`Details for ${directive}`));
+      expect(diagnosticLinkNames(row), directive).toEqual(codes);
+    }
+  });
+
+  it('links fxLayout to the exact Native CSS breakpoint and literal-class regression', () => {
+    render(<CompatibilityExplorer />);
+    fireEvent.change(screen.getByLabelText('Target'), { target: { value: 'css' } });
+
+    const row = compatibilityRow('fxLayout');
+    fireEvent.click(within(row).getByText('Details for fxLayout'));
+    expect(within(row).getByRole('link', { name: 'Native CSS Flex target boundary' })).toHaveAttribute(
+      'href',
+      '/docs/examples#native-css-flex-target-boundary',
+    );
+  });
+
   it('renders every exact verified example from the shared registry', () => {
     render(<VerifiedExamples />);
 

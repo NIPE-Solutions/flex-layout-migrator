@@ -22,6 +22,8 @@ const fixtureFiles = [
   'test/fixtures/compatibility/unresolved.input.html',
   'test/fixtures/compatibility/unresolved.expected.html',
   'test/fixtures/compatibility/native-css-flex.expected.html',
+  'test/fixtures/compatibility/native-css-flex-target-boundary.input.html',
+  'test/fixtures/compatibility/native-css-flex-target-boundary.expected.html',
   'test/fixtures/compatibility/native-css-boundaries.input.html',
   'test/fixtures/compatibility/native-css-boundaries.expected.html',
   'test/fixtures/compatibility/responsive-class-style.input.html',
@@ -264,6 +266,39 @@ describe('documentation contract verification', () => {
     );
   });
 
+  test('rejects a known but irrelevant diagnostic reused by a Native CSS Flex detail', async () => {
+    const root = await createFixture();
+    await mutate(root, 'website/src/content/compatibility-reference.ts', source =>
+      replaceOccurrenceInRecord(
+        source,
+        "id: 'fxShrink'",
+        "'context-unverified',",
+        "'context-unverified', 'class-conflict',",
+        2,
+      ),
+    );
+
+    await expect(verifyDocumentationContract(root)).rejects.toThrow(
+      'compatibility fxShrink css diagnostics differs: missing [], stale [class-conflict]',
+    );
+  });
+
+  test('rejects Native CSS diagnostic evidence reused from another directive detail', async () => {
+    const root = await createFixture();
+    await mutate(root, 'website/src/content/compatibility-reference.ts', source =>
+      replaceInRecord(
+        source,
+        "id: 'fxShrink'",
+        'diagnosticEvidence: cssShrinkDiagnosticEvidence',
+        'diagnosticEvidence: cssGrowDiagnosticEvidence',
+      ),
+    );
+
+    await expect(verifyDocumentationContract(root)).rejects.toThrow(
+      'compatibility fxShrink css diagnostic bound-class differs from production preview',
+    );
+  });
+
   test('rejects an expected transformation that differs from its canonical fixture', async () => {
     const root = await createFixture();
     await mutate(root, 'test/fixtures/compatibility/static.expected.html', source =>
@@ -370,4 +405,28 @@ function replaceInRecord(source: string, marker: string, from: string, to: strin
   const end = source.indexOf(`\n${' '.repeat(Math.max(0, indentation - 2))}},`, start);
   if (start < 0 || end < 0) return source;
   return `${source.slice(0, start)}${source.slice(start, end).replace(from, to)}${source.slice(end)}`;
+}
+
+function replaceOccurrenceInRecord(
+  source: string,
+  marker: string,
+  from: string,
+  to: string,
+  occurrence: number,
+): string {
+  const start = source.indexOf(marker);
+  const lineStart = source.lastIndexOf('\n', start) + 1;
+  const indentation = source.slice(lineStart, start).length;
+  const end = source.indexOf(`\n${' '.repeat(Math.max(0, indentation - 2))}},`, start);
+  if (start < 0 || end < 0) return source;
+  const record = source.slice(start, end);
+  let match = -1;
+  let offset = 0;
+  for (let index = 0; index < occurrence; index += 1) {
+    match = record.indexOf(from, offset);
+    if (match < 0) return source;
+    offset = match + from.length;
+  }
+  const changed = `${record.slice(0, match)}${to}${record.slice(match + from.length)}`;
+  return `${source.slice(0, start)}${changed}${source.slice(end)}`;
 }

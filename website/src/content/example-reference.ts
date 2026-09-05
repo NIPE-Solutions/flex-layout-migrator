@@ -328,6 +328,44 @@ export const verifiedExamples = deepFreeze([
     ],
   },
   {
+    id: 'native-css-flex-target-boundary',
+    title: 'Native CSS Flex target boundary',
+    category: 'boundary',
+    directiveIds: ['fxLayout'],
+    input: {
+      target: 'css',
+      fileName: 'native-css-flex-target-boundary.html',
+      source: `<div fxLayout.handset="row"></div>
+<div fxLayout.cinema="column"></div>
+<div class="flex" fxLayout="row"></div>
+`,
+    },
+    expectedOutput: `<div fxLayout.handset="row"></div>
+<div fxLayout.cinema="column"></div>
+<div class="flex flm-5db098b5a4e638fdd1aff69e13d53ea10eb01e6c58577e5ecdf136b90eaee103"></div>
+`,
+    expectedCss: `/* flex-layout-codemod:start schema=1 */
+/* flex-layout-codemod:rule id=5db098b5a4e638fdd1aff69e13d53ea10eb01e6c58577e5ecdf136b90eaee103 */
+.flm-5db098b5a4e638fdd1aff69e13d53ea10eb01e6c58577e5ecdf136b90eaee103 {
+  display: flex;
+  box-sizing: border-box;
+  flex-direction: row;
+}
+/* flex-layout-codemod:end */`,
+    expectedResults: [
+      { status: 'unsupported', code: 'target-unsupported' },
+      { status: 'unsupported', code: 'target-unsupported' },
+      { status: 'converted' },
+    ],
+    inputFixture: 'test/fixtures/compatibility/native-css-flex-target-boundary.input.html',
+    expectedOutputFixture: 'test/fixtures/compatibility/native-css-flex-target-boundary.expected.html',
+    evidence: [
+      'test/fixtures/compatibility/native-css-flex-target-boundary.input.html',
+      'test/fixtures/compatibility/native-css-flex-target-boundary.expected.html',
+      compatibilityTest,
+    ],
+  },
+  {
     id: 'native-css-boundaries',
     title: 'Native CSS target boundaries',
     category: 'boundary',
