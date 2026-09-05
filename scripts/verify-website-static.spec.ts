@@ -40,22 +40,22 @@ describe('website static output verification', () => {
     expect(verification.stderr).toContain('index.html references source code instead of built assets');
   });
 
-  it('rejects an output that omits a required documentation route', async () => {
+  it('rejects an output that omits a content-backed documentation document', async () => {
     const root = await createFixture({ routes: requiredRoutes.slice(0, -1) });
 
     const verification = runVerifier(root);
 
     expect(verification.status).toBe(1);
-    expect(verification.stderr).toContain('built JavaScript is missing route /docs/troubleshooting');
+    expect(verification.stderr).toContain('raw route metadata is incorrect for /docs/troubleshooting');
   });
 
-  it('matches route tokens exactly instead of accepting a child route for /docs', async () => {
+  it('requires the exact root documentation document instead of accepting only child routes', async () => {
     const root = await createFixture({ routes: requiredRoutes.slice(1) });
 
     const verification = runVerifier(root);
 
     expect(verification.status).toBe(1);
-    expect(verification.stderr).toContain('built JavaScript is missing route /docs');
+    expect(verification.stderr).toContain('raw route metadata is incorrect for /docs');
   });
 
   it('rejects an oversized entry bundle that would eagerly load the compiler on documentation routes', async () => {
@@ -74,7 +74,7 @@ describe('website static output verification', () => {
 
     expect(verification.status).toBe(1);
     expect(verification.stderr).toContain('eager JavaScript graph exceeds the 500 KiB aggregate budget');
-    expect(verification.stderr).toContain('532575 bytes');
+    expect(verification.stderr).toContain('532481 bytes');
   });
 
   it('rejects an unhashed lazy asset that cannot be cached immutably', async () => {
@@ -227,6 +227,8 @@ async function createFixture(
   const dist = path.join(root, 'website', 'dist');
   const assets = path.join(dist, 'assets');
   await mkdir(assets, { recursive: true });
+  const content = path.join(root, 'website', 'content', 'start');
+  await mkdir(content, { recursive: true });
   await writeFile(
     path.join(root, '.gitignore'),
     [options.vercelIgnored === false ? '' : '.vercel/', options.vercelEnvironmentIgnored === false ? '' : '.env.local']
@@ -235,7 +237,14 @@ async function createFixture(
   );
 
   const routes = options.routes ?? requiredRoutes;
-  const routeSource = routes.map(route => JSON.stringify(route)).join(';');
+  const routeSource = '';
+  for (const [index, route] of requiredRoutes.entries()) {
+    const metadata = metadataForRoute(route);
+    await writeFile(
+      path.join(content, `${index}.md`),
+      `---\npath: ${route}\ntitle: ${metadata.title}\ndescription: ${metadata.description}\ngroup: start\norder: ${index + 1}\n---\n# ${metadata.title}\n\n## Fixture section\n\nSubstantive fixture content.\n`,
+    );
+  }
   const compilerSentinel = 'Parser Error: Unexpected closing tag; Incomplete block';
   const entrySource = `${routeSource};${options.eagerCompiler ? compilerSentinel : ''}${'x'.repeat(Math.max(0, (options.entryBytes ?? 0) - routeSource.length - 1))}`;
   await writeFile(path.join(assets, 'index-Ab12Cd34.js'), entrySource);
@@ -367,15 +376,17 @@ async function createFixture(
       `User-agent: *\n${options.robotsDisallow ? 'Disallow' : 'Allow'}: /\nSitemap: https://angular-flex-layout-codemod.nipesolutions.com/sitemap.xml\n`,
     );
   }
-  for (const route of [...requiredRoutes, '/privacy', '/imprint']) {
+  for (const route of [...routes, '/privacy', '/imprint']) {
     const routeUrl = `https://angular-flex-layout-codemod.nipesolutions.com${route}`;
     const metadataUrl =
       options.routeMetadata === false ? 'https://angular-flex-layout-codemod.nipesolutions.com/' : routeUrl;
+    const metadata = metadataForRoute(route);
+    const title = route.startsWith('/docs') ? `${metadata.title} — Flex Layout Codemod` : metadata.title;
     const outputPath = path.join(dist, `${route.slice(1)}.html`);
     await mkdir(path.dirname(outputPath), { recursive: true });
     await writeFile(
       outputPath,
-      `<link rel="canonical" href="${metadataUrl}" /><meta property="og:url" content="${metadataUrl}" />`,
+      `<link rel="canonical" href="${metadataUrl}" /><title>${title}</title><meta name="description" content="${metadata.description}" /><meta property="og:url" content="${metadataUrl}" /><meta property="og:title" content="${title}" /><meta property="og:description" content="${metadata.description}" />`,
     );
   }
   return root;
@@ -389,6 +400,33 @@ async function createFixture(
     await writeFile(path.join(dist, file), source);
     manifestEntries[key] = { file, src: key, ...graph };
   }
+}
+
+function metadataForRoute(route: string): { readonly title: string; readonly description: string } {
+  const documentation = new Map([
+    ['/docs', 'Migration guide'],
+    ['/docs/cli', 'CLI reference'],
+    ['/docs/tailwind', 'Tailwind CSS'],
+    ['/docs/native-css', 'Native CSS'],
+    ['/docs/safety', 'Safety model'],
+    ['/docs/troubleshooting', 'Troubleshooting'],
+  ]);
+  if (route === '/privacy') {
+    return {
+      title: 'Privacy — Flex Layout Codemod',
+      description: 'The template playground is designed as a local, in-browser preview.',
+    };
+  }
+  if (route === '/imprint') {
+    return {
+      title: 'Imprint — Flex Layout Codemod',
+      description: 'Project and publisher information for Flex Layout Codemod.',
+    };
+  }
+  return {
+    title: documentation.get(route) ?? 'Documentation',
+    description: `Documentation fixture for ${route}.`,
+  };
 }
 
 function runVerifier(root: string) {

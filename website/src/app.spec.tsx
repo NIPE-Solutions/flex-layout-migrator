@@ -94,7 +94,9 @@ describe('documentation website shell', () => {
     Object.defineProperty(Element.prototype, 'scrollIntoView', { configurable: true, value: scrollIntoView });
     render(<App />);
     fireEvent.click(screen.getByRole('link', { name: 'Read the documentation' }));
-    fireEvent.click(screen.getByRole('link', { name: 'CLI workflow' }));
+    fireEvent.click(
+      within(screen.getByRole('navigation', { name: 'Documentation' })).getByRole('link', { name: 'CLI reference' }),
+    );
 
     window.history.back();
 
@@ -104,10 +106,10 @@ describe('documentation website shell', () => {
 
   it.each([
     ['/docs', 'Migration guide'],
-    ['/docs/cli', 'CLI workflow'],
-    ['/docs/tailwind', 'Tailwind CSS output'],
-    ['/docs/native-css', 'Native CSS output'],
-    ['/docs/safety', 'Safety and reporting'],
+    ['/docs/cli', 'CLI reference'],
+    ['/docs/tailwind', 'Tailwind CSS'],
+    ['/docs/native-css', 'Native CSS'],
+    ['/docs/safety', 'Safety model'],
     ['/docs/troubleshooting', 'Troubleshooting'],
     ['/privacy', 'Privacy'],
     ['/imprint', 'Imprint'],
@@ -134,6 +136,18 @@ describe('documentation website shell', () => {
     openGraphUrl.content = 'https://angular-flex-layout-codemod.nipesolutions.com/';
     openGraphUrl.dataset.routeMetadataTest = '';
     document.head.append(openGraphUrl);
+    const description = document.createElement('meta');
+    description.name = 'description';
+    description.dataset.routeMetadataTest = '';
+    document.head.append(description);
+    const openGraphTitle = document.createElement('meta');
+    openGraphTitle.setAttribute('property', 'og:title');
+    openGraphTitle.dataset.routeMetadataTest = '';
+    document.head.append(openGraphTitle);
+    const openGraphDescription = document.createElement('meta');
+    openGraphDescription.setAttribute('property', 'og:description');
+    openGraphDescription.dataset.routeMetadataTest = '';
+    document.head.append(openGraphDescription);
     window.history.replaceState(null, '', '/docs/native-css');
 
     render(<App />);
@@ -148,5 +162,11 @@ describe('documentation website shell', () => {
       'content',
       'https://angular-flex-layout-codemod.nipesolutions.com/docs/native-css',
     );
+    expect(document.title).toBe('Native CSS — Flex Layout Codemod');
+    expect(description.content).toBe(
+      'Generate deterministic template classes and a bounded, tool-owned stylesheet for supported Flex semantics.',
+    );
+    expect(openGraphTitle.content).toBe('Native CSS — Flex Layout Codemod');
+    expect(openGraphDescription.content).toBe(description.content);
   });
 });

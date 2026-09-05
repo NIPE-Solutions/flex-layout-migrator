@@ -5,35 +5,13 @@ import { fileURLToPath } from 'node:url';
 
 import ignore from 'ignore';
 
+import { readSiteRouteManifest } from './documentation-route-manifest.mjs';
+
 const productionOrigin = 'https://angular-flex-layout-codemod.nipesolutions.com';
-const requiredRoutes = [
-  '/docs',
-  '/docs/cli',
-  '/docs/tailwind',
-  '/docs/native-css',
-  '/docs/safety',
-  '/docs/troubleshooting',
-];
-const siteRoutes = ['/', ...requiredRoutes, '/privacy', '/imprint'];
-const deepLinkRoutes = siteRoutes.filter(route => route !== '/');
 const maximumEntryBytes = 500 * 1024;
 const compilerSentinels = ['Parser Error', 'Unexpected closing tag', 'Incomplete block'];
 
-const root = resolveRoot(process.argv.slice(2));
-
-try {
-  const result = await verifyStaticOutput(root);
-  process.stdout.write(
-    `Website static output verified: ${requiredRoutes.length} routes, ${result.hashedAssets} hashed assets.\n`,
-  );
-} catch (error) {
-  process.stderr.write(
-    `Website static verification failed: ${error instanceof Error ? error.message : String(error)}\n`,
-  );
-  process.exitCode = 1;
-}
-
-async function verifyStaticOutput(projectRoot) {
+export async function verifyStaticOutput(projectRoot) {
   const dist = path.join(projectRoot, 'website', 'dist');
   const indexPath = path.join(dist, 'index.html');
   const [html, vercelSource, manifestSource, sitemap, robots, gitignore] = await Promise.all([
@@ -46,12 +24,19 @@ async function verifyStaticOutput(projectRoot) {
   ]);
   const vercel = JSON.parse(vercelSource);
   const manifest = JSON.parse(manifestSource);
+  const routeManifest = await readSiteRouteManifest(projectRoot);
+  const siteRoutes = routeManifest.map(route => route.path);
+  const requiredRoutes = siteRoutes.filter(route => route.startsWith('/docs'));
+  const deepLinkRoutes = siteRoutes.filter(route => route !== '/');
 
   assertCanonicalMetadata(html);
-  assertVercelContract(vercel);
+  assertVercelContract(vercel, deepLinkRoutes);
   assertVercelMetadataIgnored(gitignore);
-  assertCrawlerFiles(sitemap, robots);
-  await assertRouteDocuments(dist);
+  assertCrawlerFiles(sitemap, robots, siteRoutes);
+  await assertRouteDocuments(
+    dist,
+    routeManifest.filter(route => route.path !== '/'),
+  );
 
   const assetReferences = [...html.matchAll(/(?:href|src)="(\/assets\/[^"?#]+)"/gu)].map(match => match[1]);
   if (assetReferences.length === 0) throw new Error('index.html does not reference built assets');
@@ -71,17 +56,9 @@ async function verifyStaticOutput(projectRoot) {
     throw new Error('index.html references source code instead of built assets');
   }
 
-  const javascript = (
-    await Promise.all(
-      assetFiles.filter(asset => asset.endsWith('.js')).map(asset => readFile(path.join(dist, asset.slice(1)), 'utf8')),
-    )
-  ).join('\n');
-  for (const route of requiredRoutes) {
-    if (!javascript.includes(JSON.stringify(route))) throw new Error(`built JavaScript is missing route ${route}`);
-  }
   await assertCompilerIsLazy({ dist, entrySource, manifest });
 
-  return { hashedAssets: assetFiles.length };
+  return { hashedAssets: assetFiles.length, documentationRoutes: requiredRoutes.length };
 }
 
 function assertVercelMetadataIgnored(gitignore) {
@@ -173,7 +150,7 @@ async function readManifestAssets(dist, manifest, graph) {
   return [...assetsByFile.values()];
 }
 
-function assertCrawlerFiles(sitemap, robots) {
+export function assertCrawlerFiles(sitemap, robots, siteRoutes) {
   for (const route of siteRoutes) {
     const routeUrl = `${productionOrigin}${route}`;
     if (!sitemap.includes(`<loc>${routeUrl}</loc>`)) {
@@ -188,15 +165,19 @@ function assertCrawlerFiles(sitemap, robots) {
   }
 }
 
-async function assertRouteDocuments(dist) {
-  for (const route of deepLinkRoutes) {
-    const routeUrl = `${productionOrigin}${route}`;
-    const routeHtml = await readFile(path.join(dist, `${route.slice(1)}.html`), 'utf8').catch(() => '');
+async function assertRouteDocuments(dist, routes) {
+  for (const route of routes) {
+    const routeUrl = `${productionOrigin}${route.path}`;
+    const routeHtml = await readFile(path.join(dist, `${route.path.slice(1)}.html`), 'utf8').catch(() => '');
     if (
       !routeHtml.includes(`<link rel="canonical" href="${routeUrl}"`) ||
-      !routeHtml.includes(`<meta property="og:url" content="${routeUrl}"`)
+      !routeHtml.includes(`<meta property="og:url" content="${routeUrl}"`) ||
+      !routeHtml.includes(`<title>${escapeHtml(route.title)}</title>`) ||
+      !routeHtml.includes(`<meta name="description" content="${escapeHtml(route.description)}"`) ||
+      !routeHtml.includes(`<meta property="og:title" content="${escapeHtml(route.title)}"`) ||
+      !routeHtml.includes(`<meta property="og:description" content="${escapeHtml(route.description)}"`)
     ) {
-      throw new Error(`raw route metadata is incorrect for ${route}`);
+      throw new Error(`raw route metadata is incorrect for ${route.path}`);
     }
   }
 }
@@ -209,7 +190,7 @@ function assertCanonicalMetadata(html) {
   }
 }
 
-function assertVercelContract(vercel) {
+function assertVercelContract(vercel, deepLinkRoutes) {
   const exactSettings = {
     framework: 'vite',
     installCommand: 'npm ci',
@@ -239,13 +220,21 @@ function assertVercelContract(vercel) {
     }
   }
 
+  assertRouteDeliveryContract(vercel, deepLinkRoutes);
+}
+
+export function assertRouteDeliveryContract(vercel, deepLinkRoutes) {
   const expectedRewrites = [
     ...deepLinkRoutes.map(route => ({ source: route, destination: `${route}.html` })),
     { source: '/(.*)', destination: '/index.html' },
   ];
   if (JSON.stringify(vercel.rewrites) !== JSON.stringify(expectedRewrites)) {
-    throw new Error('vercel.json must provide the SPA deep-link fallback');
+    throw new Error('vercel.json must deliver exact route documents before the SPA fallback');
   }
+}
+
+function escapeHtml(value) {
+  return value.replaceAll('&', '&amp;').replaceAll('"', '&quot;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
 }
 
 function resolveRoot(arguments_) {
@@ -256,4 +245,19 @@ function resolveRoot(arguments_) {
   const rootValue = arguments_[rootIndex + 1];
   if (rootValue === undefined) throw new Error('--root requires a directory');
   return path.resolve(rootValue);
+}
+
+if (process.argv[1] !== undefined && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  const root = resolveRoot(process.argv.slice(2));
+  try {
+    const result = await verifyStaticOutput(root);
+    process.stdout.write(
+      `Website static output verified: ${result.documentationRoutes} routes, ${result.hashedAssets} hashed assets.\n`,
+    );
+  } catch (error) {
+    process.stderr.write(
+      `Website static verification failed: ${error instanceof Error ? error.message : String(error)}\n`,
+    );
+    process.exitCode = 1;
+  }
 }

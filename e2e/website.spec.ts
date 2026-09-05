@@ -10,7 +10,7 @@ test('renders responsive navigation and follows a direct documentation link', as
   );
   await page.goto('/docs/tailwind');
 
-  await expect(page.getByRole('heading', { level: 1, name: 'Tailwind CSS output' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: 'Tailwind CSS' })).toBeVisible();
   await expect(page.locator('link[rel="canonical"]')).toHaveAttribute(
     'href',
     'https://angular-flex-layout-codemod.nipesolutions.com/docs/tailwind',

@@ -1,17 +1,14 @@
 import { useSyncExternalStore } from 'react';
 
-export const documentationPaths = [
-  '/docs',
-  '/docs/cli',
-  '/docs/tailwind',
-  '/docs/native-css',
-  '/docs/safety',
-  '/docs/troubleshooting',
-] as const;
+import { documentationRoutes } from './content/docs-navigation';
+import type { DocumentationPath } from './content/docs-loader';
+
+export type { DocumentationPath } from './content/docs-loader';
+
+export const documentationPaths = Object.freeze(documentationRoutes.map(route => route.path));
 
 export const legalPaths = ['/privacy', '/imprint'] as const;
 
-export type DocumentationPath = (typeof documentationPaths)[number];
 export type LegalPath = (typeof legalPaths)[number];
 export type SitePath = '/' | DocumentationPath | LegalPath;
 

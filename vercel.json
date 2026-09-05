@@ -42,8 +42,20 @@
       "destination": "/docs.html"
     },
     {
-      "source": "/docs/cli",
-      "destination": "/docs/cli.html"
+      "source": "/docs/installation",
+      "destination": "/docs/installation.html"
+    },
+    {
+      "source": "/docs/quick-start",
+      "destination": "/docs/quick-start.html"
+    },
+    {
+      "source": "/docs/workflow",
+      "destination": "/docs/workflow.html"
+    },
+    {
+      "source": "/docs/large-codebase",
+      "destination": "/docs/large-codebase.html"
     },
     {
       "source": "/docs/tailwind",
@@ -54,12 +66,76 @@
       "destination": "/docs/native-css.html"
     },
     {
+      "source": "/docs/responsive-images",
+      "destination": "/docs/responsive-images.html"
+    },
+    {
+      "source": "/docs/compatibility",
+      "destination": "/docs/compatibility.html"
+    },
+    {
+      "source": "/docs/compatibility/directives",
+      "destination": "/docs/compatibility/directives.html"
+    },
+    {
+      "source": "/docs/compatibility/dynamic-bindings",
+      "destination": "/docs/compatibility/dynamic-bindings.html"
+    },
+    {
       "source": "/docs/safety",
       "destination": "/docs/safety.html"
     },
     {
+      "source": "/docs/atomic-migrations",
+      "destination": "/docs/atomic-migrations.html"
+    },
+    {
+      "source": "/docs/class-style-conflicts",
+      "destination": "/docs/class-style-conflicts.html"
+    },
+    {
+      "source": "/docs/parsing",
+      "destination": "/docs/parsing.html"
+    },
+    {
+      "source": "/docs/transactions",
+      "destination": "/docs/transactions.html"
+    },
+    {
+      "source": "/docs/reruns",
+      "destination": "/docs/reruns.html"
+    },
+    {
+      "source": "/docs/diagnostics",
+      "destination": "/docs/diagnostics.html"
+    },
+    {
+      "source": "/docs/reports",
+      "destination": "/docs/reports.html"
+    },
+    {
+      "source": "/docs/ci",
+      "destination": "/docs/ci.html"
+    },
+    {
+      "source": "/docs/unresolved",
+      "destination": "/docs/unresolved.html"
+    },
+    {
+      "source": "/docs/cli",
+      "destination": "/docs/cli.html"
+    },
+    {
+      "source": "/docs/examples",
+      "destination": "/docs/examples.html"
+    },
+    {
       "source": "/docs/troubleshooting",
       "destination": "/docs/troubleshooting.html"
+    },
+    {
+      "source": "/docs/project",
+      "destination": "/docs/project.html"
     },
     {
       "source": "/privacy",
