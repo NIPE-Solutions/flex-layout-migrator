@@ -224,9 +224,9 @@ export const reportReference = deepFreeze({
             results: [
               {
                 status: 'parse-error',
-                offset: 11,
+                offset: 0,
                 code: 'template-parse-error',
-                reason: 'Unexpected closing tag.',
+                reason: 'Only void, custom and foreign elements can be self closed "span"',
               },
             ],
           },

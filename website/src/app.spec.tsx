@@ -11,6 +11,7 @@ afterEach(() => {
   window.history.replaceState(null, '', '/');
   document.head.querySelectorAll('[data-route-metadata-test]').forEach(element => element.remove());
   Reflect.deleteProperty(Element.prototype, 'scrollIntoView');
+  Reflect.deleteProperty(navigator, 'clipboard');
 });
 
 describe('documentation website shell', () => {
@@ -168,5 +169,26 @@ describe('documentation website shell', () => {
     );
     expect(openGraphTitle.content).toBe('Native CSS — Flex Layout Codemod');
     expect(openGraphDescription.content).toBe(description.content);
+  });
+
+  it('renders and copies the published large-codebase checklist from its Markdown route', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
+    window.history.replaceState(null, '', '/docs/large-codebase');
+
+    render(<App />);
+
+    const checklist = screen.getByRole('region', { name: 'Migration checklist' });
+    expect(within(checklist).getByText('Tool behavior')).toBeVisible();
+    expect(within(checklist).getByText('Recommended practice')).toBeVisible();
+    fireEvent.click(within(checklist).getByRole('button', { name: /copy migration checklist/iu }));
+
+    expect(writeText).toHaveBeenCalledOnce();
+    expect(writeText.mock.calls[0]?.[0]).toContain('Tool behavior');
+    expect(writeText.mock.calls[0]?.[0]).toContain('Recommended practice');
+    expect(await within(checklist).findByText('Migration checklist copied to clipboard.')).toHaveAttribute(
+      'aria-live',
+      'polite',
+    );
   });
 });

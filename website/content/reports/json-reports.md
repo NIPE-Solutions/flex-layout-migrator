@@ -22,6 +22,12 @@ Use `summary` for aggregate policy and `files[].results` for review. Non-parse u
 
 The optional `stylesheet` object exists for the native CSS target and records its portable path plus proposed `created`, `updated`, `removed`, or `unchanged` action. The typed report registry is authoritative for every current field, type, requirement, and example; do not reconstruct the contract from terminal prose.
 
+## Validated plan report
+
+The example below is loaded directly from the registry that the documentation verifier checks against the production report builder.
+
+:::report-example plan
+
 ## Application and failure boundaries
 
 Plan mode reports `application.status` as skipped for `plan-only`, including plans containing parse errors. Write mode with any parse error reports skipped for `parse-errors`. A successful valid write reports applied, including an unchanged plan with no bytes to commit.

@@ -36,21 +36,23 @@ describe('documentation content components', () => {
     expect(within(checklist).getByText('Begin from a clean worktree.')).toBeVisible();
   });
 
-  it('renders a registry-backed diagnostic with its preservation rationale and resolution', () => {
-    const reference = diagnosticReference.find(entry => entry.code === 'dynamic-binding');
-    expect(reference).toBeDefined();
+  it.each(['dynamic-binding', 'target-unsupported', 'semantic-unsupported'] as const)(
+    'renders registry-backed diagnostic %s without a generic status or resolution',
+    code => {
+      const reference = diagnosticReference.find(entry => entry.code === code);
+      expect(reference).toBeDefined();
 
-    render(<DiagnosticCallout code="dynamic-binding" />);
+      render(<DiagnosticCallout code={code} />);
 
-    const callout = screen.getByRole('note', { name: 'dynamic-binding' });
-    expect(within(callout).getByRole('link', { name: 'dynamic-binding' })).toHaveAttribute(
-      'href',
-      '/docs/diagnostics#dynamic-binding',
-    );
-    expect(within(callout).getByText(reference!.meaning)).toBeVisible();
-    expect(within(callout).getByText(reference!.unsafeToGuess)).toBeVisible();
-    expect(within(callout).getByText(reference!.resolution[0]!)).toBeVisible();
-  });
+      const callout = screen.getByRole('note', { name: code });
+      expect(within(callout).getByRole('link', { name: code })).toHaveAttribute('href', `/docs/diagnostics#${code}`);
+      expect(within(callout).getByText(reference!.meaning)).toBeVisible();
+      expect(within(callout).getByText(reference!.unsafeToGuess)).toBeVisible();
+      for (const resolution of reference!.resolution) expect(within(callout).getByText(resolution)).toBeVisible();
+      expect(within(callout).queryByText('Preserved for review')).not.toBeInTheDocument();
+      expect(within(callout).queryByText('Complete this case manually.')).not.toBeInTheDocument();
+    },
+  );
 
   it('renders and copies the schema-2 report example with polite feedback', async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
@@ -92,6 +94,22 @@ describe('workflow and safety claims', () => {
 
     expect(screen.getByText(/storage failure/iu)).toBeVisible();
     expect(screen.getByText(/forced termination/iu)).toBeVisible();
+    expect(screen.getByText(/CLI boundary, normal mode prints one concise error message/iu)).toBeVisible();
+    expect(screen.getByText(/debug mode can additionally print the error stack/iu)).toBeVisible();
+    expect(screen.queryByText(/transaction errors identify paths whose recovery/iu)).not.toBeInTheDocument();
+  });
+
+  it('documents the exact selected-root gitignore boundary', () => {
+    render(<DocsLayout page={loadDocumentationPage('/docs/installation')} />);
+
+    const boundary = screen.getByText((_, element) =>
+      Boolean(
+        element?.tagName === 'P' &&
+        /loads only the \.gitignore directly inside the selected input root/iu.test(element.textContent ?? ''),
+      ),
+    );
+    expect(boundary).toBeVisible();
+    expect(boundary).toHaveTextContent(/does not load parent or nested \.gitignore files/iu);
   });
 
   it('documents strict exit code 2 with the same unresolved categories as resolveExitCode', () => {

@@ -2,15 +2,19 @@
 
 import '@testing-library/jest-dom/vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { loadDocumentationPage } from '../content/docs-loader';
+import { diagnosticReference } from '../content/diagnostic-reference';
+import { reportReference } from '../content/report-reference';
 import { App } from '../app';
 import { DocsLayout } from './docs-layout';
 
 afterEach(() => {
   cleanup();
   window.history.replaceState(null, '', '/');
+  vi.restoreAllMocks();
+  Reflect.deleteProperty(navigator, 'clipboard');
 });
 
 describe('DocsLayout', () => {
@@ -64,5 +68,37 @@ describe('DocsLayout', () => {
     const currentMobile = screen.getByRole('navigation', { name: 'Mobile documentation' });
     expect(within(currentMobile).getByRole('link', { name: 'Native CSS' })).toBeVisible();
     expect(within(currentMobile).getByRole('link', { name: 'Native CSS' })).toHaveAttribute('aria-current', 'page');
+  });
+
+  it('renders and copies the registry report example from the Markdown content directive', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
+    render(<DocsLayout page={loadDocumentationPage('/docs/reports')} />);
+
+    const reference = reportReference.examples.find(entry => entry.id === 'plan')!;
+    const serialized = `${JSON.stringify(reference.value, null, 2)}\n`;
+    const example = screen.getByRole('region', { name: 'Plan report example' });
+    expect(within(example).getByText('Schema version')).toBeVisible();
+    expect(within(example).getByText(String(reference.value.schemaVersion))).toBeVisible();
+    expect(example.querySelector('pre code')?.textContent).toBe(serialized);
+
+    fireEvent.click(within(example).getByRole('button', { name: 'Copy Plan report example' }));
+
+    expect(writeText).toHaveBeenCalledWith(serialized);
+    expect(await within(example).findByText('Plan report example copied to clipboard.')).toHaveAttribute(
+      'aria-live',
+      'polite',
+    );
+  });
+
+  it('renders registry-backed review and unsupported diagnostics from Markdown directives', () => {
+    render(<DocsLayout page={loadDocumentationPage('/docs/diagnostics')} />);
+
+    for (const code of ['dynamic-binding', 'target-unsupported'] as const) {
+      const reference = diagnosticReference.find(entry => entry.code === code)!;
+      const callout = screen.getByRole('note', { name: code });
+      expect(within(callout).getByText(reference.meaning)).toBeVisible();
+      for (const resolution of reference.resolution) expect(within(callout).getByText(resolution)).toBeVisible();
+    }
   });
 });

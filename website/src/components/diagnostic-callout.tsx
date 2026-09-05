@@ -15,7 +15,7 @@ export function DiagnosticCallout({ code }: DiagnosticCalloutProps) {
 
   return (
     <aside className="diagnostic-callout" role="note" aria-labelledby={headingId}>
-      <p>Preserved for review</p>
+      <p>Migration diagnostic</p>
       <h3 id={headingId}>
         <a href={`/docs/diagnostics#${code}`}>{code}</a>
       </h3>
@@ -28,9 +28,7 @@ export function DiagnosticCallout({ code }: DiagnosticCalloutProps) {
           <li key={step}>{step}</li>
         ))}
       </ul>
-      <p>
-        {diagnostic.rerunEligible ? 'Rerun the same scope after resolving the cause.' : 'Complete this case manually.'}
-      </p>
+      {diagnostic.rerunEligible ? <p>Rerun the same scope after resolving the cause.</p> : null}
     </aside>
   );
 }

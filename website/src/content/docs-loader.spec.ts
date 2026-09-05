@@ -109,6 +109,33 @@ describe('documentation content loader', () => {
     ).toThrow(/duplicate heading id "first-heading"/u);
   });
 
+  it('parses only allowlisted registry-backed content directives', () => {
+    const [page] = parseDocumentationSources({
+      'example.md': `${frontMatter()}
+:::migration-checklist
+:::report-example plan
+:::diagnostic-callout dynamic-binding
+`,
+    });
+
+    expect(page?.blocks).toEqual(
+      expect.arrayContaining([
+        { kind: 'content', name: 'migration-checklist' },
+        { kind: 'content', name: 'report-example', exampleId: 'plan' },
+        { kind: 'content', name: 'diagnostic-callout', code: 'dynamic-binding' },
+      ]),
+    );
+    expect(() => parseDocumentationSources({ 'example.md': `${frontMatter()}\n:::arbitrary-component\n` })).toThrow(
+      /unknown documentation content directive "arbitrary-component"/u,
+    );
+    expect(() => parseDocumentationSources({ 'example.md': `${frontMatter()}\n:::report-example invented\n` })).toThrow(
+      /unknown report example "invented"/u,
+    );
+    expect(() =>
+      parseDocumentationSources({ 'example.md': `${frontMatter()}\n:::diagnostic-callout invented\n` }),
+    ).toThrow(/unknown diagnostic code "invented"/u);
+  });
+
   it('rejects broken local route and heading links', () => {
     const pages = parseDocumentationSources({
       'example.md': `${frontMatter()}\n[Missing route](/docs/missing)\n[Missing anchor](#not-here)\n`,

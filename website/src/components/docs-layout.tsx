@@ -2,7 +2,11 @@ import { Fragment, type ReactNode, useEffect, useState } from 'react';
 
 import { documentationGroups, getDocumentationNeighbors, type DocumentationRoute } from '../content/docs-navigation';
 import type { DocumentationBlock, DocumentationPage } from '../content/docs-loader';
+import { reportReference } from '../content/report-reference';
 import { CodeBlock } from './code-block';
+import { DiagnosticCallout } from './diagnostic-callout';
+import { largeCodebaseChecklist, MigrationChecklist } from './migration-checklist';
+import { ReportExample } from './report-example';
 
 interface DocsLayoutProps {
   readonly page: DocumentationPage;
@@ -129,6 +133,7 @@ function OnThisPage({ page }: { readonly page: DocumentationPage }) {
 
 function MarkdownBlocks({ blocks }: { readonly blocks: readonly DocumentationBlock[] }) {
   return blocks.map((block, index) => {
+    if (block.kind === 'content') return <DocumentationContent block={block} key={index} />;
     if (block.kind === 'heading') {
       return block.depth === 2 ? (
         <h2 id={block.id} key={block.id}>
@@ -156,6 +161,14 @@ function MarkdownBlocks({ blocks }: { readonly blocks: readonly DocumentationBlo
       </CodeBlock>
     );
   });
+}
+
+function DocumentationContent({ block }: { readonly block: Extract<DocumentationBlock, { kind: 'content' }> }) {
+  if (block.name === 'migration-checklist') return <MigrationChecklist {...largeCodebaseChecklist} />;
+  if (block.name === 'diagnostic-callout') return <DiagnosticCallout code={block.code} />;
+  const example = reportReference.examples.find(candidate => candidate.id === block.exampleId);
+  if (example === undefined) throw new Error(`Unknown report example: ${block.exampleId}`);
+  return <ReportExample report={example.value} label="Plan report example" />;
 }
 
 function renderInline(source: string): ReactNode {

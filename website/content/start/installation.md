@@ -28,7 +28,7 @@ npx flex-layout-codemod --version
 
 Recommended practice is to begin from a clean, version-controlled worktree with the application's normal install, build, test, and visual-review commands available. Record pre-existing failures before migration so they are not attributed to generated changes.
 
-Tool behavior has narrower prerequisites: the input is one HTML file or a directory scanned recursively for HTML files; a single-file output must end in `.html`; and ignored paths follow the input tree's Git ignore rules. A selected report, a separate output tree, and a selected stylesheet are excluded from folder discovery so invocation-owned artifacts are not treated as templates.
+Tool behavior has narrower prerequisites: the input is one HTML file or a directory scanned recursively for HTML files, and a single-file output must end in `.html`. For a directory input, discovery loads only the `.gitignore` directly inside the selected input root and applies those rules to descendants; it does not load parent or nested `.gitignore` files. A selected report, a separate output tree, and a selected stylesheet are excluded from folder discovery so invocation-owned artifacts are not treated as templates.
 
 Tailwind CSS is the default target. Native CSS requires exactly one explicit companion stylesheet path. Optional orientation, print, and responsive-image behavior must be acknowledged through documented command options because the CLI does not discover those project decisions automatically.
 

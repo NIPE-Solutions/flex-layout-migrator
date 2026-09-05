@@ -22,6 +22,13 @@ Resolve the complete affected semantic family, not only the reported attribute. 
 
 Rerun the same scope after the change. The public diagnostic registry supplies the exact current code set, preservation rationale, resolution steps, and rerun eligibility. Unknown codes or statuses are a contract compatibility event for automation, not text to discard.
 
+## Example diagnostic boundaries
+
+These callouts are rendered from the diagnostic registry. One requires project evidence before a rerun; the other marks a selected-target boundary whose registry resolution may include choosing a different target.
+
+:::diagnostic-callout dynamic-binding
+:::diagnostic-callout target-unsupported
+
 ## Escalate a minimal reproduction
 
 If a generated-template parse error or unexpected preservation remains after checking the registry, reduce the case while retaining the relevant directive combination, responsive aliases, and existing class or style ownership. Report the installed version, target, exact command, minimal non-sensitive template, actual and expected output, and diagnostic. Never publish proprietary templates or credentials.

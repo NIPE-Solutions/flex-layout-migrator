@@ -1,4 +1,5 @@
 import { deepFreeze } from './public-contract';
+import { diagnosticReference } from './diagnostic-reference';
 
 export type DocumentationGroupId =
   'start' | 'targets' | 'compatibility' | 'safety' | 'reports' | 'reference' | 'project';
@@ -11,11 +12,16 @@ export interface DocumentationHeading {
   readonly text: string;
 }
 
+type DocumentationDiagnosticCode = (typeof diagnosticReference)[number]['code'];
+
 export type DocumentationBlock =
   | { readonly kind: 'heading'; readonly depth: 2 | 3; readonly id: string; readonly text: string }
   | { readonly kind: 'paragraph'; readonly text: string }
   | { readonly kind: 'list'; readonly items: readonly string[] }
-  | { readonly kind: 'code'; readonly language?: string; readonly value: string };
+  | { readonly kind: 'code'; readonly language?: string; readonly value: string }
+  | { readonly kind: 'content'; readonly name: 'migration-checklist' }
+  | { readonly kind: 'content'; readonly name: 'report-example'; readonly exampleId: 'plan' }
+  | { readonly kind: 'content'; readonly name: 'diagnostic-callout'; readonly code: DocumentationDiagnosticCode };
 
 export interface DocumentationPage {
   readonly path: DocumentationPath;
@@ -174,6 +180,11 @@ function parseBlocks(
       index += 1;
       continue;
     }
+    if (line.startsWith(':::')) {
+      blocks.push(parseContentDirective(sourceName, line));
+      index += 1;
+      continue;
+    }
     const fenceMatch = line.match(/^```([^\s`]*)\s*$/u);
     if (fenceMatch !== null) {
       const code: string[] = [];
@@ -202,6 +213,7 @@ function parseBlocks(
       (lines[index] ?? '').trim() !== '' &&
       !/^#{1,3}\s/u.test(lines[index] ?? '') &&
       !/^```/u.test(lines[index] ?? '') &&
+      !/^:::/u.test(lines[index] ?? '') &&
       !/^-\s+/u.test(lines[index] ?? '')
     ) {
       paragraph.push((lines[index] ?? '').trim());
@@ -214,6 +226,29 @@ function parseBlocks(
   if (headings.length === 0)
     throw new Error(`${sourceName}: at least one level-two or level-three heading is required`);
   return { blocks, headings };
+}
+
+function parseContentDirective(sourceName: string, source: string): Extract<DocumentationBlock, { kind: 'content' }> {
+  const match = source.match(/^:::([a-z][a-z-]*)(?:\s+([a-z0-9-]+))?\s*$/u);
+  if (match === null) throw new Error(`${sourceName}: invalid documentation content directive "${source}"`);
+  const [, name, argument] = match;
+  if (name === 'migration-checklist') {
+    if (argument !== undefined) throw new Error(`${sourceName}: migration-checklist does not accept an argument`);
+    return { kind: 'content', name };
+  }
+  if (name === 'report-example') {
+    if (argument !== 'plan') {
+      throw new Error(`${sourceName}: unknown report example "${argument ?? ''}"`);
+    }
+    return { kind: 'content', name, exampleId: argument };
+  }
+  if (name === 'diagnostic-callout') {
+    if (argument === undefined || !diagnosticReference.some(diagnostic => diagnostic.code === argument)) {
+      throw new Error(`${sourceName}: unknown diagnostic code "${argument ?? ''}"`);
+    }
+    return { kind: 'content', name, code: argument as DocumentationDiagnosticCode };
+  }
+  throw new Error(`${sourceName}: unknown documentation content directive "${name}"`);
 }
 
 function canonicalizeMarkdownLinks(source: string, pagePath: DocumentationPath, sourceName: string): string {

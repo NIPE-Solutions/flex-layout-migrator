@@ -28,17 +28,4 @@ Remove the legacy dependency or provider configuration only after the remaining-
 
 ## Copyable checklist
 
-Tool behavior:
-
-- Plan and write use the same discovery, analysis, render, validation, and preflight path when source parsing succeeds.
-- Folder discovery is deterministic, recursive, HTML-only, Git-ignore-aware, and excludes invocation-owned output, report, and stylesheet paths.
-- A source parse error skips the complete write invocation rather than applying an earlier file.
-- Reports remain schema-versioned and preserve per-file results after a completed plan or application.
-
-Recommended practice:
-
-- Pilot a representative owned slice and compare targets.
-- Start each batch from a clean Git checkpoint and record the exact installed version.
-- Review diagnostics and responsive families before writing.
-- Verify diffs, builds, tests, responsive states, and remaining directives after writing.
-- Assign owners and rationale to intentionally preserved work before dependency removal.
+:::migration-checklist
