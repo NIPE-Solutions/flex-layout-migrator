@@ -22,6 +22,15 @@ export function useSitePath(): SitePath {
 }
 
 export function installClientNavigation(): () => void {
+  let previousPath = normalizePath(window.location.pathname);
+
+  function restoreRouteContext(): void {
+    const nextPath = normalizePath(window.location.pathname);
+    if (nextPath === previousPath) return;
+    previousPath = nextPath;
+    queueMicrotask(() => scrollToRouteTarget());
+  }
+
   function followLink(event: MouseEvent): void {
     if (
       event.defaultPrevented ||
@@ -39,6 +48,13 @@ export function installClientNavigation(): () => void {
 
     const url = new URL(link.href, window.location.href);
     if (url.origin !== window.location.origin || !sitePaths.has(normalizePath(url.pathname))) return;
+    if (
+      url.hash !== '' &&
+      normalizePath(url.pathname) === normalizePath(window.location.pathname) &&
+      url.search === window.location.search
+    ) {
+      return;
+    }
 
     event.preventDefault();
     const destination = `${normalizePath(url.pathname)}${url.search}${url.hash}`;
@@ -49,7 +65,11 @@ export function installClientNavigation(): () => void {
   }
 
   document.addEventListener('click', followLink);
-  return () => document.removeEventListener('click', followLink);
+  window.addEventListener('popstate', restoreRouteContext);
+  return () => {
+    document.removeEventListener('click', followLink);
+    window.removeEventListener('popstate', restoreRouteContext);
+  };
 }
 
 function subscribe(notify: () => void): () => void {
@@ -64,4 +84,27 @@ function currentPath(): SitePath {
 
 function normalizePath(path: string): string {
   return path.length > 1 ? path.replace(/\/+$/u, '') : path;
+}
+
+function scrollToRouteTarget(): void {
+  const fragment = decodeFragment(window.location.hash);
+  const fragmentTarget = fragment === '' ? null : document.getElementById(fragment);
+  const scrollTarget = fragmentTarget ?? document.querySelector('#main-content h1');
+  if (scrollTarget === null) return;
+
+  scrollTarget.scrollIntoView?.({ behavior: 'auto', block: 'start' });
+  const focusTarget = scrollTarget.matches('h1, h2, h3, h4, h5, h6')
+    ? scrollTarget
+    : scrollTarget.querySelector('h1, h2, h3, h4, h5, h6');
+  if (!(focusTarget instanceof HTMLElement)) return;
+  if (!focusTarget.hasAttribute('tabindex')) focusTarget.tabIndex = -1;
+  focusTarget.focus({ preventScroll: true });
+}
+
+function decodeFragment(hash: string): string {
+  try {
+    return decodeURIComponent(hash.slice(1));
+  } catch {
+    return hash.slice(1);
+  }
 }
