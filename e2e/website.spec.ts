@@ -4,6 +4,10 @@ import { expect, test } from '@playwright/test';
 const sourceMarker = 'private-source-marker-4917';
 
 test('renders responsive navigation and follows a direct documentation link', async ({ page }, testInfo) => {
+  const rawDeepLink = await page.request.get('/docs/tailwind');
+  expect(await rawDeepLink.text()).toContain(
+    '<link rel="canonical" href="https://angular-flex-layout-codemod.nipesolutions.com/docs/tailwind"',
+  );
   await page.goto('/docs/tailwind');
 
   await expect(page.getByRole('heading', { level: 1, name: 'Tailwind CSS output' })).toBeVisible();

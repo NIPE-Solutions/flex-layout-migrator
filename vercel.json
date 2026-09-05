@@ -38,6 +38,38 @@
   ],
   "rewrites": [
     {
+      "source": "/docs",
+      "destination": "/docs.html"
+    },
+    {
+      "source": "/docs/cli",
+      "destination": "/docs/cli.html"
+    },
+    {
+      "source": "/docs/tailwind",
+      "destination": "/docs/tailwind.html"
+    },
+    {
+      "source": "/docs/native-css",
+      "destination": "/docs/native-css.html"
+    },
+    {
+      "source": "/docs/safety",
+      "destination": "/docs/safety.html"
+    },
+    {
+      "source": "/docs/troubleshooting",
+      "destination": "/docs/troubleshooting.html"
+    },
+    {
+      "source": "/privacy",
+      "destination": "/privacy.html"
+    },
+    {
+      "source": "/imprint",
+      "destination": "/imprint.html"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
     }

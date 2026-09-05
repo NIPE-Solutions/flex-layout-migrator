@@ -13,6 +13,7 @@ const requiredRoutes = [
   '/docs/troubleshooting',
 ];
 const siteRoutes = ['/', ...requiredRoutes, '/privacy', '/imprint'];
+const deepLinkRoutes = siteRoutes.filter(route => route !== '/');
 const maximumEntryBytes = 500 * 1024;
 const compilerSentinels = ['Parser Error', 'Unexpected closing tag', 'Incomplete block'];
 
@@ -46,6 +47,7 @@ async function verifyStaticOutput(projectRoot) {
   assertCanonicalMetadata(html);
   assertVercelContract(vercel);
   assertCrawlerFiles(sitemap, robots);
+  await assertRouteDocuments(dist);
 
   const assetReferences = [...html.matchAll(/(?:href|src)="(\/assets\/[^"?#]+)"/gu)].map(match => match[1]);
   if (assetReferences.length === 0) throw new Error('index.html does not reference built assets');
@@ -118,8 +120,24 @@ function assertCrawlerFiles(sitemap, robots) {
       throw new Error(`sitemap.xml is missing required URL ${routeUrl}`);
     }
   }
+  if (!/^Allow:\s*\/\s*$/mu.test(robots) || /^Disallow:\s*\/\s*$/mu.test(robots)) {
+    throw new Error('robots.txt must explicitly allow crawling');
+  }
   if (!robots.includes('User-agent: *') || !robots.includes(`Sitemap: ${productionOrigin}/sitemap.xml`)) {
-    throw new Error('robots.txt must allow crawling and identify the production sitemap');
+    throw new Error('robots.txt must identify the production sitemap');
+  }
+}
+
+async function assertRouteDocuments(dist) {
+  for (const route of deepLinkRoutes) {
+    const routeUrl = `${productionOrigin}${route}`;
+    const routeHtml = await readFile(path.join(dist, `${route.slice(1)}.html`), 'utf8').catch(() => '');
+    if (
+      !routeHtml.includes(`<link rel="canonical" href="${routeUrl}"`) ||
+      !routeHtml.includes(`<meta property="og:url" content="${routeUrl}"`)
+    ) {
+      throw new Error(`raw route metadata is incorrect for ${route}`);
+    }
   }
 }
 
@@ -161,11 +179,11 @@ function assertVercelContract(vercel) {
     }
   }
 
-  if (
-    vercel.rewrites?.length !== 1 ||
-    vercel.rewrites[0]?.source !== '/(.*)' ||
-    vercel.rewrites[0]?.destination !== '/index.html'
-  ) {
+  const expectedRewrites = [
+    ...deepLinkRoutes.map(route => ({ source: route, destination: `${route}.html` })),
+    { source: '/(.*)', destination: '/index.html' },
+  ];
+  if (JSON.stringify(vercel.rewrites) !== JSON.stringify(expectedRewrites)) {
     throw new Error('vercel.json must provide the SPA deep-link fallback');
   }
 }

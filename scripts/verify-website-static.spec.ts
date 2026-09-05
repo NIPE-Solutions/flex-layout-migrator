@@ -93,6 +93,24 @@ describe('website static output verification', () => {
     expect(verification.status).toBe(1);
     expect(verification.stderr).toContain('sitemap.xml is missing required URL');
   });
+
+  it('rejects raw deep-link documents that reuse the root canonical metadata', async () => {
+    const root = await createFixture({ routeMetadata: false });
+
+    const verification = runVerifier(root);
+
+    expect(verification.status).toBe(1);
+    expect(verification.stderr).toContain('raw route metadata is incorrect for /docs');
+  });
+
+  it('rejects a robots policy that blocks the website', async () => {
+    const root = await createFixture({ robotsDisallow: true });
+
+    const verification = runVerifier(root);
+
+    expect(verification.status).toBe(1);
+    expect(verification.stderr).toContain('robots.txt must explicitly allow crawling');
+  });
 });
 
 async function createFixture(
@@ -103,6 +121,8 @@ async function createFixture(
     readonly unhashedAsset?: boolean;
     readonly eagerCompiler?: boolean;
     readonly crawlerFiles?: boolean;
+    readonly routeMetadata?: boolean;
+    readonly robotsDisallow?: boolean;
   } = {},
 ): Promise<string> {
   const root = await mkdtemp(path.join(tmpdir(), 'website-static-'));
@@ -144,7 +164,19 @@ async function createFixture(
           ],
         },
       ],
-      rewrites: [{ source: '/(.*)', destination: '/index.html' }],
+      rewrites: [
+        ...[
+          '/docs',
+          '/docs/cli',
+          '/docs/tailwind',
+          '/docs/native-css',
+          '/docs/safety',
+          '/docs/troubleshooting',
+          '/privacy',
+          '/imprint',
+        ].map(route => ({ source: route, destination: `${route}.html` })),
+        { source: '/(.*)', destination: '/index.html' },
+      ],
     }),
   );
   await mkdir(path.join(dist, '.vite'), { recursive: true });
@@ -172,7 +204,18 @@ async function createFixture(
     );
     await writeFile(
       path.join(dist, 'robots.txt'),
-      'User-agent: *\nAllow: /\nSitemap: https://angular-flex-layout-codemod.nipesolutions.com/sitemap.xml\n',
+      `User-agent: *\n${options.robotsDisallow ? 'Disallow' : 'Allow'}: /\nSitemap: https://angular-flex-layout-codemod.nipesolutions.com/sitemap.xml\n`,
+    );
+  }
+  for (const route of [...requiredRoutes, '/privacy', '/imprint']) {
+    const routeUrl = `https://angular-flex-layout-codemod.nipesolutions.com${route}`;
+    const metadataUrl =
+      options.routeMetadata === false ? 'https://angular-flex-layout-codemod.nipesolutions.com/' : routeUrl;
+    const outputPath = path.join(dist, `${route.slice(1)}.html`);
+    await mkdir(path.dirname(outputPath), { recursive: true });
+    await writeFile(
+      outputPath,
+      `<link rel="canonical" href="${metadataUrl}" /><meta property="og:url" content="${metadataUrl}" />`,
     );
   }
   return root;
