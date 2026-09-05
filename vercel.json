@@ -1,0 +1,77 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "vite",
+  "installCommand": "npm ci",
+  "buildCommand": "npm run build:website",
+  "outputDirectory": "website/dist",
+  "headers": [
+    {
+      "source": "/assets/(.*)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=31536000, immutable"
+        }
+      ]
+    },
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "strict-origin-when-cross-origin"
+        },
+        {
+          "key": "X-Frame-Options",
+          "value": "DENY"
+        },
+        {
+          "key": "Permissions-Policy",
+          "value": "camera=(), microphone=(), geolocation=()"
+        }
+      ]
+    }
+  ],
+  "rewrites": [
+    {
+      "source": "/docs",
+      "destination": "/docs.html"
+    },
+    {
+      "source": "/docs/cli",
+      "destination": "/docs/cli.html"
+    },
+    {
+      "source": "/docs/tailwind",
+      "destination": "/docs/tailwind.html"
+    },
+    {
+      "source": "/docs/native-css",
+      "destination": "/docs/native-css.html"
+    },
+    {
+      "source": "/docs/safety",
+      "destination": "/docs/safety.html"
+    },
+    {
+      "source": "/docs/troubleshooting",
+      "destination": "/docs/troubleshooting.html"
+    },
+    {
+      "source": "/privacy",
+      "destination": "/privacy.html"
+    },
+    {
+      "source": "/imprint",
+      "destination": "/imprint.html"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ]
+}

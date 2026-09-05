@@ -2,6 +2,8 @@
 
 Version 2 remains a prerelease. This beta migrates supported Angular Flex-Layout template attributes to Tailwind CSS v4 utilities. It uses the Angular compiler and source-range edits, preserving unrelated template text, comments, interpolation, control flow, and line endings.
 
+Documentation and the single-template playground are available at [angular-flex-layout-codemod.nipesolutions.com](https://angular-flex-layout-codemod.nipesolutions.com). The playground previews Tailwind or native CSS output entirely in browser memory; your template is not sent to a server or persisted. Only the installed CLI performs project discovery, project validation, reporting, transactional writes, rollback, and multi-file work.
+
 ## Why this exists
 
 Angular Flex-Layout is archived. Replacing it safely requires more than substituting class names: responsive aliases, display restoration, existing classes, inline styles, and runtime bindings can change the result. This codemod converts only cases it can represent exactly and leaves the rest in place with diagnostics for review.

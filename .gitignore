@@ -1,6 +1,10 @@
 dist/
 coverage/
 node_modules/
+playwright-report/
+test-results/
+.vercel/
+.env.local
 **/DS_Store
 
 .idea/

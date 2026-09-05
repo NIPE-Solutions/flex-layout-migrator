@@ -12,6 +12,13 @@ export interface RenderSession {
   finalize(): AdapterSessionResult;
 }
 
+export function createRenderSession(
+  target: AdapterSessionResult['target'],
+  config: BreakpointMigrationConfig = { orientationBreakpoints: false },
+): RenderSession {
+  return target === 'tailwind' ? new TailwindRenderSession(config) : new CssRenderSession(config);
+}
+
 export function sessionBoundRenderer(renderer: ConversionRenderer, assertActive: () => void): ConversionRenderer {
   return Object.freeze({
     target: renderer.target,
