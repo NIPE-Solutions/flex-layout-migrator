@@ -3,11 +3,14 @@ import prettier from 'eslint-config-prettier';
 import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
-  { ignores: ['coverage/**', 'dist/**', 'node_modules/**'] },
+  { ignores: ['coverage/**', 'dist/**', 'node_modules/**', 'website/dist/**'] },
   eslint.configs.recommended,
-  ...tseslint.configs.recommended.map(config => ({ ...config, files: ['**/*.ts'] })),
+  ...tseslint.configs.recommended.map(config => ({
+    ...config,
+    files: ['**/*.{ts,tsx}'],
+  })),
   {
-    files: ['**/*.ts'],
+    files: ['**/*.{ts,tsx}'],
     languageOptions: {
       parserOptions: { ecmaVersion: 'latest', sourceType: 'module' },
     },
