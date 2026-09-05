@@ -108,17 +108,18 @@ function CompatibilityRow({
   readonly entry: CompatibilityEntry;
   readonly target: CompatibilityTarget;
 }) {
-  const examples = verifiedExamples.filter(example =>
-    example.category === 'preservation'
-      ? true
-      : (entry.category === 'flex' || entry.category === 'grid') && example.category === entry.category,
-  );
+  const detail = entry.targetDetails[target];
+  const examples = detail.exampleIds.map(exampleId => {
+    const example = verifiedExamples.find(candidate => candidate.id === exampleId);
+    if (example === undefined) throw new Error(`Unknown compatibility example: ${exampleId}`);
+    return example;
+  });
+  const diagnostics = detail.diagnosticCodes.map(code => {
+    const diagnostic = diagnosticReference.find(candidate => candidate.code === code);
+    if (diagnostic === undefined) throw new Error(`Unknown compatibility diagnostic: ${code}`);
+    return diagnostic;
+  });
   const selectedStatus = entry[target];
-  const dynamicBinding = diagnosticReference.find(diagnostic => diagnostic.code === 'dynamic-binding');
-  const targetUnsupported = diagnosticReference.find(diagnostic => diagnostic.code === 'target-unsupported');
-  if (dynamicBinding === undefined || targetUnsupported === undefined) {
-    throw new Error('Compatibility explorer requires the public dynamic and target diagnostics.');
-  }
 
   return (
     <tr id={entry.id}>
@@ -135,24 +136,43 @@ function CompatibilityRow({
       <td>
         <details>
           <summary>Details for {entry.id}</summary>
-          <p>{formsDescription(selectedStatus, entry.id, targetLabels[target])}</p>
+          <h4>Supported forms</h4>
+          <ul>
+            {detail.supportedForms.map(form => (
+              <li key={form}>{form}</li>
+            ))}
+          </ul>
+          <h4>Limits and preserved forms</h4>
+          <ul>
+            {detail.limitedForms.map(form => (
+              <li key={form}>{form}</li>
+            ))}
+          </ul>
+          <h4>Target difference</h4>
+          <p>{detail.targetDifference}</p>
           <p>
             Target differences: Tailwind CSS: {statusLabel(entry.tailwind)}. Native CSS: {statusLabel(entry.css)}.
           </p>
           <p>Exact verified examples:</p>
+          {examples.length === 0 ? (
+            <p>No verified preview example is linked for this target and directive.</p>
+          ) : (
+            <ul>
+              {examples.map(example => (
+                <li key={example.id}>
+                  <a href={`/docs/examples#${example.id}`}>{example.title}</a>
+                </li>
+              ))}
+            </ul>
+          )}
+          <h4>Relevant diagnostics</h4>
           <ul>
-            {examples.map(example => (
-              <li key={example.id}>
-                <a href={`/docs/examples#${example.id}`}>{example.title}</a>
+            {diagnostics.map(diagnostic => (
+              <li key={diagnostic.code}>
+                <a href={`/docs/diagnostics#${diagnostic.code}`}>{diagnostic.code}</a>: {diagnostic.meaning}
               </li>
             ))}
           </ul>
-          <p>
-            Runtime expressions follow <a href={`/docs/diagnostics#${dynamicBinding.code}`}>{dynamicBinding.code}</a>; a
-            missing target implementation follows{' '}
-            <a href={`/docs/diagnostics#${targetUnsupported.code}`}>{targetUnsupported.code}</a>. In both cases, use the
-            linked registry guidance before changing the preserved source.
-          </p>
         </details>
       </td>
     </tr>
@@ -229,17 +249,4 @@ function StatusText({ status }: { readonly status: string }) {
       <strong>{label}</strong>
     </span>
   );
-}
-
-function formsDescription(status: CompatibilityStatus, id: string, target: string): string {
-  if (status === 'limited') {
-    return `Supported forms: ${id} has verified conversions inside the bounded literal or static contract for ${target}. Preserved forms: dynamic, conflicting, invalid, or context-dependent inputs remain unchanged with a diagnostic.`;
-  }
-  if (status === 'preserved') {
-    return `Supported forms: the registry lists no automatic ${id} conversion for ${target}. Preserved forms: recognized inputs remain unchanged for review or manual migration.`;
-  }
-  if (status === 'planned') {
-    return `Supported forms: the registry lists no current ${id} conversion for ${target}. Preserved forms: recognized inputs remain unchanged while this status is planned.`;
-  }
-  return `Supported forms: ${id} is not part of the ${target} migration path. Preserved forms: select the applicable path or leave this source unchanged.`;
 }

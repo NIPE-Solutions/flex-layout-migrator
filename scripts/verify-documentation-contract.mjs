@@ -18,7 +18,7 @@ export async function verifyDocumentationContract(root) {
   const projectRoot = path.resolve(root);
   await verifyCliOptions(projectRoot);
   const diagnosticCodes = await verifyDiagnostics(projectRoot);
-  await verifyCompatibilityEvidence(projectRoot);
+  await verifyCompatibilityEvidence(projectRoot, diagnosticCodes);
   const production = await loadProductionOracle(projectRoot);
   try {
     await verifyReportExamples(projectRoot, production.MigrationReportBuilder, diagnosticCodes.conversion);
@@ -94,15 +94,18 @@ async function verifyDiagnostics(root) {
   };
 }
 
-async function verifyCompatibilityEvidence(root) {
-  const [registry, catalogSource, inventorySource, compatibilitySource] = await Promise.all([
+async function verifyCompatibilityEvidence(root, diagnosticCodes) {
+  const [registry, examples, catalogSource, inventorySource, compatibilitySource] = await Promise.all([
     readRegistry(root, registryPaths.compatibility, 'compatibilityReference'),
+    readRegistry(root, registryPaths.examples, 'verifiedExamples'),
     readFile(path.join(root, 'src/analyzer/flex-layout.catalog.ts'), 'utf8'),
     readFile(path.join(root, 'test/compatibility/compatibility-inventory.ts'), 'utf8'),
     readFile(path.join(root, 'docs/compatibility.md'), 'utf8'),
   ]);
   assertArray(registry, 'compatibility registry');
+  assertArray(examples, 'transformation example registry');
   assertUnique(registry, item => item.id, 'compatibility entry');
+  assertUnique(examples, item => item.id, 'transformation example');
 
   const catalogFile = parseTypeScript('src/analyzer/flex-layout.catalog.ts', catalogSource);
   const catalog = evaluateExport(catalogFile, 'FLEX_LAYOUT_DIRECTIVES');
@@ -144,6 +147,61 @@ async function verifyCompatibilityEvidence(root) {
       throw new Error(
         `compatibility registry differs for ${entry.id}: documented ${JSON.stringify(actual)}, contract ${JSON.stringify(compatibilityContract(entry))}`,
       );
+    }
+  }
+  const examplesById = new Map(examples.map(example => [example.id, example]));
+  for (const example of examples) {
+    if (!Array.isArray(example.directiveIds) || example.directiveIds.length === 0) {
+      throw new Error(`transformation example ${String(example.id)} has no directive IDs`);
+    }
+    assertUnique(example.directiveIds, value => value, `transformation example ${String(example.id)} directive`);
+    for (const directiveId of example.directiveIds) {
+      if (!catalog.includes(directiveId)) {
+        throw new Error(`transformation example ${String(example.id)} uses unknown directive ${String(directiveId)}`);
+      }
+    }
+  }
+  for (const entry of registry) {
+    for (const target of ['tailwind', 'css']) {
+      const detail = entry.targetDetails?.[target];
+      if (detail?.status !== entry[target]) {
+        throw new Error(`compatibility ${entry.id} ${target} detail status differs from registry status`);
+      }
+      for (const field of ['supportedForms', 'limitedForms']) {
+        if (!Array.isArray(detail[field]) || detail[field].length === 0 || !detail[field].every(isNonEmptyString)) {
+          throw new Error(`compatibility ${entry.id} ${target} ${field} must contain actionable text`);
+        }
+      }
+      if (!isNonEmptyString(detail.targetDifference)) {
+        throw new Error(`compatibility ${entry.id} ${target} targetDifference must contain actionable text`);
+      }
+      assertArray(detail.exampleIds, `compatibility ${entry.id} ${target} exampleIds`);
+      assertUnique(detail.exampleIds, value => value, `compatibility ${entry.id} ${target} example`);
+      for (const exampleId of detail.exampleIds) {
+        const example = examplesById.get(exampleId);
+        if (example === undefined) {
+          throw new Error(`compatibility ${entry.id} ${target} references unknown example ${exampleId}`);
+        }
+        if (example.input?.target !== target) {
+          throw new Error(
+            `compatibility ${entry.id} ${target} example ${exampleId} uses target ${String(example.input?.target)}`,
+          );
+        }
+        if (!Array.isArray(example.directiveIds) || !example.directiveIds.includes(entry.id)) {
+          throw new Error(
+            `compatibility ${entry.id} ${target} example ${exampleId} is not evidence for that directive`,
+          );
+        }
+      }
+      if (!Array.isArray(detail.diagnosticCodes) || detail.diagnosticCodes.length === 0) {
+        throw new Error(`compatibility ${entry.id} ${target} must link relevant diagnostics`);
+      }
+      assertUnique(detail.diagnosticCodes, value => value, `compatibility ${entry.id} ${target} diagnostic`);
+      for (const code of detail.diagnosticCodes) {
+        if (!diagnosticCodes.all.has(code)) {
+          throw new Error(`compatibility ${entry.id} ${target} uses unknown diagnostic ${String(code)}`);
+        }
+      }
     }
   }
   await verifyEvidencePaths(root, registry, 'compatibility');
@@ -225,6 +283,10 @@ async function verifyTransformationExamples(root, previewTemplate, diagnosticCod
   await verifyEvidencePaths(root, registry, 'transformation example');
 
   for (const example of registry) {
+    if (!Array.isArray(example.directiveIds) || example.directiveIds.length === 0) {
+      throw new Error(`transformation example ${String(example.id)} has no directive IDs`);
+    }
+    assertUnique(example.directiveIds, value => value, `transformation example ${String(example.id)} directive`);
     const [input, output] = await Promise.all([
       readEvidenceFile(root, example.inputFixture),
       readEvidenceFile(root, example.expectedOutputFixture),

@@ -21,6 +21,15 @@ const fixtureFiles = [
   'test/fixtures/compatibility/grid.expected.html',
   'test/fixtures/compatibility/unresolved.input.html',
   'test/fixtures/compatibility/unresolved.expected.html',
+  'test/fixtures/compatibility/native-css-flex.expected.html',
+  'test/fixtures/compatibility/native-css-boundaries.input.html',
+  'test/fixtures/compatibility/native-css-boundaries.expected.html',
+  'test/fixtures/compatibility/responsive-class-style.input.html',
+  'test/fixtures/compatibility/responsive-class-style.expected.html',
+  'test/fixtures/compatibility/flex-item-atomicity.input.html',
+  'test/fixtures/compatibility/flex-item-atomicity.expected.html',
+  'test/fixtures/compatibility/visibility-reference.input.html',
+  'test/fixtures/compatibility/visibility-reference.expected.html',
   'website/src/content/public-contract.ts',
   'website/src/content/cli-reference.ts',
   'website/src/content/diagnostic-reference.ts',
@@ -214,6 +223,44 @@ describe('documentation contract verification', () => {
 
     await expect(verifyDocumentationContract(root)).rejects.toThrow(
       'duplicate structured compatibility inventory entry: gdColumns',
+    );
+  });
+
+  test('rejects compatibility details that link a Tailwind example from the Native CSS target', async () => {
+    const root = await createFixture();
+    await mutate(root, 'website/src/content/compatibility-reference.ts', source =>
+      replaceInRecord(source, "id: 'gdColumns'", "exampleIds: ['native-css-boundaries']", "exampleIds: ['grid']"),
+    );
+
+    await expect(verifyDocumentationContract(root)).rejects.toThrow(
+      'compatibility gdColumns css example grid uses target tailwind',
+    );
+  });
+
+  test('rejects incomplete structured compatibility target details', async () => {
+    const root = await createFixture();
+    await mutate(root, 'website/src/content/compatibility-reference.ts', source =>
+      replaceInRecord(
+        source,
+        "id: 'fxGrow'",
+        "supportedForms: ['fxGrow converts only with fxFlex in the same base or responsive flex-item group.']",
+        'supportedForms: []',
+      ),
+    );
+
+    await expect(verifyDocumentationContract(root)).rejects.toThrow(
+      'compatibility fxGrow tailwind supportedForms must contain actionable text',
+    );
+  });
+
+  test('rejects unknown diagnostics in compatibility target details', async () => {
+    const root = await createFixture();
+    await mutate(root, 'website/src/content/compatibility-reference.ts', source =>
+      replaceInRecord(source, "id: 'imgSrc'", "'target-unsupported'", "'invented-code'"),
+    );
+
+    await expect(verifyDocumentationContract(root)).rejects.toThrow(
+      'compatibility imgSrc tailwind uses unknown diagnostic invented-code',
     );
   });
 

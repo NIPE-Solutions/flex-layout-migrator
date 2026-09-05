@@ -14,6 +14,15 @@ test/fixtures/compatibility/extended-responsive.input.html
 test/fixtures/compatibility/extended-responsive.expected.html
 test/fixtures/compatibility/responsive-image.input.html
 test/fixtures/compatibility/responsive-image.expected.html
+test/fixtures/compatibility/native-css-flex.expected.html
+test/fixtures/compatibility/native-css-boundaries.input.html
+test/fixtures/compatibility/native-css-boundaries.expected.html
+test/fixtures/compatibility/responsive-class-style.input.html
+test/fixtures/compatibility/responsive-class-style.expected.html
+test/fixtures/compatibility/flex-item-atomicity.input.html
+test/fixtures/compatibility/flex-item-atomicity.expected.html
+test/fixtures/compatibility/visibility-reference.input.html
+test/fixtures/compatibility/visibility-reference.expected.html
 # Byte-exact enterprise parity fixtures; formatting would change the asserted bytes.
 test/fixtures/enterprise-architecture/
 # Byte-exact generated-output goldens; formatting would change the asserted bytes.

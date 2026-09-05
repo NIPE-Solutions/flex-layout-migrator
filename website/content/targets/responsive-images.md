@@ -22,7 +22,7 @@ The codemod does not inspect CSS, Sass, Less, application JavaScript, or test se
 
 An eligible family belongs to an HTML `<img>`, uses literal values from the 13 standard viewport aliases, and provides one safe descriptor-free URL per responsive source. The fallback may be a literal `src`, a bound `[src]`, or absent. The image must not already be inside `<picture>`, carry an Angular structural-directive attribute, or have ambiguous replacement ranges.
 
-Every nonresponsive attribute stays on the fallback `<img>`, including source fallback, accessibility metadata, dimensions, loading and decoding controls, events, references, classes, styles, and unrelated bindings. Generated `<source>` elements use exact media conditions and descending archived breakpoint priority so the first matching native source reproduces the proven selection order.
+Every unrelated, non-participating attribute stays on the fallback `<img>`, including source fallback, accessibility metadata, dimensions, loading and decoding controls, events, references, classes, styles, and unrelated bindings. Eligible conversions on that same element are composed before the responsive-image replacement, so they may remove their own source directives or add their own generated classes. For example, the verified responsive-image fixture converts `fxHide` on the retained `<img>` into `hidden` while preserving its unrelated `hero` class. Generated `<source>` elements use exact media conditions and descending archived breakpoint priority so the first matching native source reproduces the proven selection order.
 
 ## Preserved image families
 

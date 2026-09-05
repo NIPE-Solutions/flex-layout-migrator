@@ -28,9 +28,11 @@ Generated CSS lives inside one exact schema-1 ownership region:
 
 ```css
 /* flex-layout-codemod:start schema=1 */
-/* flex-layout-codemod:rule id=<64 lowercase hex characters> */
-.flm-<same identifier > {
+/* flex-layout-codemod:rule id=a828e172b0300a6c401ffd2aae7fcdbf20b044dfb8b2711c323a8ce8a4ec9b11 */
+.flm-a828e172b0300a6c401ffd2aae7fcdbf20b044dfb8b2711c323a8ce8a4ec9b11 {
   display: flex;
+  box-sizing: border-box;
+  flex-direction: column;
 }
 /* flex-layout-codemod:end */
 ```

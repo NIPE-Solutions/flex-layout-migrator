@@ -19,12 +19,15 @@ export function useSitePath(): SitePath {
 }
 
 export function installClientNavigation(): () => void {
-  let previousPath = normalizePath(window.location.pathname);
+  let previousLocation = currentLocation();
+  let initialFragmentTimer: ReturnType<typeof setTimeout> | undefined;
+
+  if (window.location.hash !== '') initialFragmentTimer = setTimeout(() => scrollToRouteTarget(), 0);
 
   function restoreRouteContext(): void {
-    const nextPath = normalizePath(window.location.pathname);
-    if (nextPath === previousPath) return;
-    previousPath = nextPath;
+    const nextLocation = currentLocation();
+    if (nextLocation === previousLocation) return;
+    previousLocation = nextLocation;
     queueMicrotask(() => scrollToRouteTarget());
   }
 
@@ -45,25 +48,20 @@ export function installClientNavigation(): () => void {
 
     const url = new URL(link.href, window.location.href);
     if (url.origin !== window.location.origin || !sitePaths.has(normalizePath(url.pathname))) return;
-    if (
-      url.hash !== '' &&
-      normalizePath(url.pathname) === normalizePath(window.location.pathname) &&
-      url.search === window.location.search
-    ) {
-      return;
-    }
-
     event.preventDefault();
     const destination = `${normalizePath(url.pathname)}${url.search}${url.hash}`;
-    if (`${window.location.pathname}${window.location.search}${window.location.hash}` !== destination) {
+    if (currentLocation() !== destination) {
       window.history.pushState(null, '', destination);
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    } else {
+      queueMicrotask(() => scrollToRouteTarget());
     }
-    window.dispatchEvent(new PopStateEvent('popstate'));
   }
 
   document.addEventListener('click', followLink);
   window.addEventListener('popstate', restoreRouteContext);
   return () => {
+    if (initialFragmentTimer !== undefined) clearTimeout(initialFragmentTimer);
     document.removeEventListener('click', followLink);
     window.removeEventListener('popstate', restoreRouteContext);
   };
@@ -83,6 +81,10 @@ function normalizePath(path: string): string {
   return path.length > 1 ? path.replace(/\/+$/u, '') : path;
 }
 
+function currentLocation(): string {
+  return `${normalizePath(window.location.pathname)}${window.location.search}${window.location.hash}`;
+}
+
 function scrollToRouteTarget(): void {
   const fragment = decodeFragment(window.location.hash);
   const fragmentTarget = fragment === '' ? null : document.getElementById(fragment);
@@ -90,9 +92,11 @@ function scrollToRouteTarget(): void {
   if (scrollTarget === null) return;
 
   scrollTarget.scrollIntoView?.({ behavior: 'auto', block: 'start' });
-  const focusTarget = scrollTarget.matches('h1, h2, h3, h4, h5, h6')
+  const focusTarget = scrollTarget.matches('tr')
     ? scrollTarget
-    : scrollTarget.querySelector('h1, h2, h3, h4, h5, h6');
+    : scrollTarget.matches('h1, h2, h3, h4, h5, h6')
+      ? scrollTarget
+      : (scrollTarget.querySelector('h1, h2, h3, h4, h5, h6') ?? scrollTarget);
   if (!(focusTarget instanceof HTMLElement)) return;
   if (!focusTarget.hasAttribute('tabindex')) focusTarget.tabIndex = -1;
   focusTarget.focus({ preventScroll: true });

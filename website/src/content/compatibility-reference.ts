@@ -1,11 +1,24 @@
+import type { DiagnosticCode } from '../../../src/analyzer/conversion-result';
+import type { FlexLayoutDirective } from '../../../src/analyzer/flex-layout.catalog';
+
 import { deepFreeze, type CompatibilityStatus, type DocumentationEvidencePath } from './public-contract';
 
+export interface CompatibilityTargetDetail {
+  readonly status: CompatibilityStatus;
+  readonly supportedForms: readonly string[];
+  readonly limitedForms: readonly string[];
+  readonly exampleIds: readonly string[];
+  readonly diagnosticCodes: readonly DiagnosticCode[];
+  readonly targetDifference: string;
+}
+
 export interface CompatibilityEntry {
-  readonly id: string;
+  readonly id: FlexLayoutDirective;
   readonly directiveFamily: string;
   readonly category: 'flex' | 'visibility' | 'grid' | 'responsive-class-style' | 'images';
   readonly tailwind: CompatibilityStatus;
   readonly css: CompatibilityStatus;
+  readonly targetDetails: Readonly<Record<'tailwind' | 'css', CompatibilityTargetDetail>>;
   readonly evidence: readonly DocumentationEvidencePath[];
 }
 
@@ -15,6 +28,52 @@ const evidence = [
   'test/compatibility/compatibility-inventory.test.ts',
 ] as const;
 
+const flexDiagnostics = [
+  'bound-class',
+  'class-conflict',
+  'breakpoint-unverified',
+  'custom-breakpoint',
+  'dynamic-binding',
+  'invalid-value',
+  'context-unverified',
+  'responsive-precedence-unverified',
+  'semantic-unsupported',
+] as const;
+const gridDiagnostics = [
+  'bound-class',
+  'class-conflict',
+  'breakpoint-unverified',
+  'custom-breakpoint',
+  'dynamic-binding',
+  'invalid-value',
+  'context-unverified',
+  'responsive-precedence-unverified',
+  'semantic-unsupported',
+  'tailwind-candidate-unverified',
+] as const;
+const classDiagnostics = [
+  'bound-class',
+  'class-conflict',
+  'breakpoint-unverified',
+  'custom-breakpoint',
+  'dynamic-binding',
+  'context-unverified',
+  'responsive-precedence-unverified',
+  'semantic-unsupported',
+  'tailwind-candidate-unverified',
+] as const;
+const styleDiagnostics = [
+  'bound-class',
+  'class-conflict',
+  'breakpoint-unverified',
+  'custom-breakpoint',
+  'dynamic-binding',
+  'context-unverified',
+  'responsive-precedence-unverified',
+  'semantic-unsupported',
+  'style-value-unverified',
+] as const;
+
 export const compatibilityReference = deepFreeze([
   {
     id: 'fxLayout',
@@ -22,6 +81,32 @@ export const compatibilityReference = deepFreeze([
     category: 'flex',
     tailwind: 'limited',
     css: 'limited',
+    targetDetails: {
+      tailwind: {
+        status: 'limited',
+        supportedForms: [
+          'Static direction values, including supported responsive suffixes, convert as one layout family.',
+        ],
+        limitedForms: [
+          'Runtime values, custom or disabled breakpoints, conflicts, and unresolved family context stay unchanged.',
+        ],
+        exampleIds: ['static-flex', 'preserved-unresolved'],
+        diagnosticCodes: flexDiagnostics,
+        targetDifference: 'Tailwind CSS emits verified utility or arbitrary-value classes.',
+      },
+      css: {
+        status: 'limited',
+        supportedForms: [
+          'Static direction values, including supported responsive suffixes, convert into generated rules.',
+        ],
+        limitedForms: [
+          'Runtime values, custom or disabled breakpoints, conflicts, and unresolved family context stay unchanged.',
+        ],
+        exampleIds: ['native-css-flex'],
+        diagnosticCodes: flexDiagnostics,
+        targetDifference: 'Native CSS emits deterministic flm-* classes and tool-owned rules.',
+      },
+    },
     evidence,
   },
   {
@@ -30,6 +115,24 @@ export const compatibilityReference = deepFreeze([
     category: 'flex',
     tailwind: 'limited',
     css: 'limited',
+    targetDetails: {
+      tailwind: {
+        status: 'limited',
+        supportedForms: ['Static main-axis and cross-axis alignment values convert when layout context is proven.'],
+        limitedForms: ['Dynamic values and alignment whose layout context is unresolved stay unchanged.'],
+        exampleIds: ['static-flex', 'preserved-unresolved'],
+        diagnosticCodes: flexDiagnostics,
+        targetDifference: 'Tailwind CSS emits alignment utilities.',
+      },
+      css: {
+        status: 'limited',
+        supportedForms: ['Static main-axis and cross-axis alignment values convert when layout context is proven.'],
+        limitedForms: ['Dynamic values and alignment whose layout context is unresolved stay unchanged.'],
+        exampleIds: ['native-css-flex'],
+        diagnosticCodes: flexDiagnostics,
+        targetDifference: 'Native CSS emits alignment declarations in deterministic rules.',
+      },
+    },
     evidence,
   },
   {
@@ -38,6 +141,24 @@ export const compatibilityReference = deepFreeze([
     category: 'flex',
     tailwind: 'limited',
     css: 'limited',
+    targetDetails: {
+      tailwind: {
+        status: 'limited',
+        supportedForms: ['Static supported gap lengths convert when the complete layout family is safe.'],
+        limitedForms: ['Grid-mode gaps, dynamic values, and unresolved family context stay unchanged.'],
+        exampleIds: ['static-flex', 'preserved-unresolved'],
+        diagnosticCodes: flexDiagnostics,
+        targetDifference: 'Tailwind CSS emits gap utilities or verified arbitrary values.',
+      },
+      css: {
+        status: 'limited',
+        supportedForms: ['Static supported gap lengths convert when the complete layout family is safe.'],
+        limitedForms: ['Grid-mode gaps, dynamic values, and unresolved family context stay unchanged.'],
+        exampleIds: ['native-css-flex'],
+        diagnosticCodes: flexDiagnostics,
+        targetDifference: 'Native CSS emits gap declarations in deterministic rules.',
+      },
+    },
     evidence,
   },
   {
@@ -46,6 +167,28 @@ export const compatibilityReference = deepFreeze([
     category: 'flex',
     tailwind: 'limited',
     css: 'limited',
+    targetDetails: {
+      tailwind: {
+        status: 'limited',
+        supportedForms: [
+          'Static supported flex shorthand values convert atomically with same-breakpoint fxGrow and fxShrink modifiers.',
+        ],
+        limitedForms: ['Dynamic values, invalid shorthand, or incomplete dependent context stay unchanged.'],
+        exampleIds: ['static-flex', 'preserved-unresolved'],
+        diagnosticCodes: flexDiagnostics,
+        targetDifference: 'Tailwind CSS emits a verified flex utility or arbitrary flex value.',
+      },
+      css: {
+        status: 'limited',
+        supportedForms: [
+          'Static supported flex shorthand values convert atomically with same-breakpoint fxGrow and fxShrink modifiers.',
+        ],
+        limitedForms: ['Dynamic values, invalid shorthand, or incomplete dependent context stay unchanged.'],
+        exampleIds: ['native-css-flex'],
+        diagnosticCodes: flexDiagnostics,
+        targetDifference: 'Native CSS emits a flex declaration in a deterministic rule.',
+      },
+    },
     evidence,
   },
   {
@@ -54,6 +197,28 @@ export const compatibilityReference = deepFreeze([
     category: 'flex',
     tailwind: 'limited',
     css: 'limited',
+    targetDetails: {
+      tailwind: {
+        status: 'limited',
+        supportedForms: ['fxGrow converts only with fxFlex in the same base or responsive flex-item group.'],
+        limitedForms: [
+          'A standalone fxGrow is preserved with invalid-value; the flex-item family converts atomically or not at all.',
+        ],
+        exampleIds: ['static-flex', 'flex-item-atomicity'],
+        diagnosticCodes: ['invalid-value', 'dynamic-binding', 'context-unverified', 'responsive-precedence-unverified'],
+        targetDifference: 'Tailwind CSS folds the proven modifier into one flex class.',
+      },
+      css: {
+        status: 'limited',
+        supportedForms: ['fxGrow converts only with fxFlex in the same base or responsive flex-item group.'],
+        limitedForms: [
+          'A standalone fxGrow is preserved with invalid-value; the flex-item family converts atomically or not at all.',
+        ],
+        exampleIds: ['native-css-flex'],
+        diagnosticCodes: ['invalid-value', 'dynamic-binding', 'context-unverified', 'responsive-precedence-unverified'],
+        targetDifference: 'Native CSS folds the proven modifier into one generated flex declaration.',
+      },
+    },
     evidence,
   },
   {
@@ -62,6 +227,28 @@ export const compatibilityReference = deepFreeze([
     category: 'flex',
     tailwind: 'limited',
     css: 'limited',
+    targetDetails: {
+      tailwind: {
+        status: 'limited',
+        supportedForms: ['fxShrink converts only with fxFlex in the same base or responsive flex-item group.'],
+        limitedForms: [
+          'A standalone fxShrink is preserved with invalid-value; the flex-item family converts atomically or not at all.',
+        ],
+        exampleIds: ['static-flex', 'flex-item-atomicity'],
+        diagnosticCodes: ['invalid-value', 'dynamic-binding', 'context-unverified', 'responsive-precedence-unverified'],
+        targetDifference: 'Tailwind CSS folds the proven modifier into one flex class.',
+      },
+      css: {
+        status: 'limited',
+        supportedForms: ['fxShrink converts only with fxFlex in the same base or responsive flex-item group.'],
+        limitedForms: [
+          'A standalone fxShrink is preserved with invalid-value; the flex-item family converts atomically or not at all.',
+        ],
+        exampleIds: ['native-css-flex'],
+        diagnosticCodes: ['invalid-value', 'dynamic-binding', 'context-unverified', 'responsive-precedence-unverified'],
+        targetDifference: 'Native CSS folds the proven modifier into one generated flex declaration.',
+      },
+    },
     evidence,
   },
   {
@@ -70,6 +257,24 @@ export const compatibilityReference = deepFreeze([
     category: 'flex',
     tailwind: 'limited',
     css: 'limited',
+    targetDetails: {
+      tailwind: {
+        status: 'limited',
+        supportedForms: ['Static supported self-alignment values convert.'],
+        limitedForms: ['Dynamic, invalid, conflicting, or unverified responsive forms stay unchanged.'],
+        exampleIds: ['static-flex'],
+        diagnosticCodes: flexDiagnostics,
+        targetDifference: 'Tailwind CSS emits a self-alignment utility.',
+      },
+      css: {
+        status: 'limited',
+        supportedForms: ['Static supported self-alignment values convert.'],
+        limitedForms: ['Dynamic, invalid, conflicting, or unverified responsive forms stay unchanged.'],
+        exampleIds: ['native-css-flex'],
+        diagnosticCodes: flexDiagnostics,
+        targetDifference: 'Native CSS emits align-self in a deterministic rule.',
+      },
+    },
     evidence,
   },
   {
@@ -78,6 +283,24 @@ export const compatibilityReference = deepFreeze([
     category: 'flex',
     tailwind: 'limited',
     css: 'limited',
+    targetDetails: {
+      tailwind: {
+        status: 'limited',
+        supportedForms: ['Unsuffixed fxFlexFill converts to the bounded fill declaration set.'],
+        limitedForms: ['Conflicting class ownership and unsupported responsive semantics stay unchanged.'],
+        exampleIds: ['static-flex'],
+        diagnosticCodes: flexDiagnostics,
+        targetDifference: 'Tailwind CSS emits the fill utility set.',
+      },
+      css: {
+        status: 'limited',
+        supportedForms: ['Unsuffixed fxFlexFill converts to the bounded fill declaration set.'],
+        limitedForms: ['Conflicting class ownership and unsupported responsive semantics stay unchanged.'],
+        exampleIds: ['native-css-flex'],
+        diagnosticCodes: flexDiagnostics,
+        targetDifference: 'Native CSS emits the fill declaration set in a deterministic rule.',
+      },
+    },
     evidence,
   },
   {
@@ -86,6 +309,24 @@ export const compatibilityReference = deepFreeze([
     category: 'flex',
     tailwind: 'limited',
     css: 'limited',
+    targetDetails: {
+      tailwind: {
+        status: 'limited',
+        supportedForms: ['Unsuffixed fxFill is the non-responsive alias of fxFlexFill.'],
+        limitedForms: ['This reference does not claim responsive fxFill suffixes as supported.'],
+        exampleIds: ['static-flex'],
+        diagnosticCodes: ['bound-class', 'class-conflict', 'semantic-unsupported'],
+        targetDifference: 'Tailwind CSS emits the fill utility set for the unsuffixed alias.',
+      },
+      css: {
+        status: 'limited',
+        supportedForms: ['Unsuffixed fxFill is the non-responsive alias of fxFlexFill.'],
+        limitedForms: ['This reference does not claim responsive fxFill suffixes as supported.'],
+        exampleIds: ['native-css-flex'],
+        diagnosticCodes: ['bound-class', 'class-conflict', 'semantic-unsupported'],
+        targetDifference: 'Native CSS emits the fill declaration set for the unsuffixed alias.',
+      },
+    },
     evidence,
   },
   {
@@ -94,6 +335,24 @@ export const compatibilityReference = deepFreeze([
     category: 'flex',
     tailwind: 'limited',
     css: 'limited',
+    targetDetails: {
+      tailwind: {
+        status: 'limited',
+        supportedForms: ['Static supported percentage and length offsets convert when direction context is proven.'],
+        limitedForms: ['Dynamic values and offsets without proven direction context stay unchanged.'],
+        exampleIds: ['static-flex'],
+        diagnosticCodes: flexDiagnostics,
+        targetDifference: 'Tailwind CSS emits the direction-appropriate margin utility.',
+      },
+      css: {
+        status: 'limited',
+        supportedForms: ['Static supported percentage and length offsets convert when direction context is proven.'],
+        limitedForms: ['Dynamic values and offsets without proven direction context stay unchanged.'],
+        exampleIds: ['native-css-flex'],
+        diagnosticCodes: flexDiagnostics,
+        targetDifference: 'Native CSS emits the direction-appropriate logical margin declaration.',
+      },
+    },
     evidence,
   },
   {
@@ -102,6 +361,24 @@ export const compatibilityReference = deepFreeze([
     category: 'flex',
     tailwind: 'limited',
     css: 'limited',
+    targetDetails: {
+      tailwind: {
+        status: 'limited',
+        supportedForms: ['Static supported integer order values convert.'],
+        limitedForms: ['Dynamic, invalid, conflicting, or unverified responsive forms stay unchanged.'],
+        exampleIds: ['static-flex'],
+        diagnosticCodes: flexDiagnostics,
+        targetDifference: 'Tailwind CSS emits an order utility or verified arbitrary order value.',
+      },
+      css: {
+        status: 'limited',
+        supportedForms: ['Static supported integer order values convert.'],
+        limitedForms: ['Dynamic, invalid, conflicting, or unverified responsive forms stay unchanged.'],
+        exampleIds: ['native-css-flex'],
+        diagnosticCodes: flexDiagnostics,
+        targetDifference: 'Native CSS emits order in a deterministic rule.',
+      },
+    },
     evidence,
   },
   {
@@ -110,6 +387,32 @@ export const compatibilityReference = deepFreeze([
     category: 'visibility',
     tailwind: 'limited',
     css: 'preserved',
+    targetDetails: {
+      tailwind: {
+        status: 'limited',
+        supportedForms: ['Static visibility families convert only when the visible display value is proven.'],
+        limitedForms: ['Dynamic, conflicting, or ambiguous display restoration stays unchanged.'],
+        exampleIds: [],
+        diagnosticCodes: [
+          'bound-class',
+          'class-conflict',
+          'breakpoint-unverified',
+          'custom-breakpoint',
+          'dynamic-binding',
+          'display-restoration-unverified',
+          'responsive-precedence-unverified',
+        ],
+        targetDifference: 'Tailwind CSS can express proven hide and display-restoration classes.',
+      },
+      css: {
+        status: 'preserved',
+        supportedForms: ['Native CSS does not automatically convert visibility directives.'],
+        limitedForms: ['Recognized fxShow inputs stay unchanged for manual migration.'],
+        exampleIds: [],
+        diagnosticCodes: ['target-unsupported'],
+        targetDifference: 'Native CSS reports target-unsupported and emits no stylesheet rule for this family.',
+      },
+    },
     evidence,
   },
   {
@@ -118,6 +421,32 @@ export const compatibilityReference = deepFreeze([
     category: 'visibility',
     tailwind: 'limited',
     css: 'preserved',
+    targetDetails: {
+      tailwind: {
+        status: 'limited',
+        supportedForms: ['Static hide families convert when breakpoint precedence and display restoration are proven.'],
+        limitedForms: ['Dynamic, conflicting, or ambiguous display restoration stays unchanged.'],
+        exampleIds: ['visibility'],
+        diagnosticCodes: [
+          'bound-class',
+          'class-conflict',
+          'breakpoint-unverified',
+          'custom-breakpoint',
+          'dynamic-binding',
+          'display-restoration-unverified',
+          'responsive-precedence-unverified',
+        ],
+        targetDifference: 'Tailwind CSS emits proven visibility classes.',
+      },
+      css: {
+        status: 'preserved',
+        supportedForms: ['Native CSS does not automatically convert visibility directives.'],
+        limitedForms: ['Recognized fxHide inputs stay unchanged for manual migration.'],
+        exampleIds: ['native-css-boundaries'],
+        diagnosticCodes: ['target-unsupported'],
+        targetDifference: 'Native CSS reports target-unsupported and emits no stylesheet rule for this family.',
+      },
+    },
     evidence,
   },
   {
@@ -126,6 +455,24 @@ export const compatibilityReference = deepFreeze([
     category: 'grid',
     tailwind: 'limited',
     css: 'preserved',
+    targetDetails: {
+      tailwind: {
+        status: 'limited',
+        supportedForms: ['Static supported column alignment values convert.'],
+        limitedForms: ['Dynamic, invalid, conflicting, or unverified responsive forms stay unchanged.'],
+        exampleIds: ['grid'],
+        diagnosticCodes: gridDiagnostics,
+        targetDifference: 'Tailwind CSS emits Grid alignment classes.',
+      },
+      css: {
+        status: 'preserved',
+        supportedForms: ['Native CSS does not automatically convert Grid directives.'],
+        limitedForms: ['Recognized gdAlignColumns inputs stay unchanged.'],
+        exampleIds: [],
+        diagnosticCodes: ['target-unsupported'],
+        targetDifference: 'Native CSS reports target-unsupported for Grid.',
+      },
+    },
     evidence,
   },
   {
@@ -134,6 +481,24 @@ export const compatibilityReference = deepFreeze([
     category: 'grid',
     tailwind: 'limited',
     css: 'preserved',
+    targetDetails: {
+      tailwind: {
+        status: 'limited',
+        supportedForms: ['Static supported row alignment values convert.'],
+        limitedForms: ['Dynamic, invalid, conflicting, or unverified responsive forms stay unchanged.'],
+        exampleIds: ['grid'],
+        diagnosticCodes: gridDiagnostics,
+        targetDifference: 'Tailwind CSS emits Grid alignment classes.',
+      },
+      css: {
+        status: 'preserved',
+        supportedForms: ['Native CSS does not automatically convert Grid directives.'],
+        limitedForms: ['Recognized gdAlignRows inputs stay unchanged.'],
+        exampleIds: [],
+        diagnosticCodes: ['target-unsupported'],
+        targetDifference: 'Native CSS reports target-unsupported for Grid.',
+      },
+    },
     evidence,
   },
   {
@@ -142,6 +507,24 @@ export const compatibilityReference = deepFreeze([
     category: 'grid',
     tailwind: 'limited',
     css: 'preserved',
+    targetDetails: {
+      tailwind: {
+        status: 'limited',
+        supportedForms: ['Static supported grid-area values convert.'],
+        limitedForms: ['Dynamic, invalid, conflicting, or unverified responsive forms stay unchanged.'],
+        exampleIds: ['grid'],
+        diagnosticCodes: gridDiagnostics,
+        targetDifference: 'Tailwind CSS emits a verified arbitrary grid-area class.',
+      },
+      css: {
+        status: 'preserved',
+        supportedForms: ['Native CSS does not automatically convert Grid directives.'],
+        limitedForms: ['Recognized gdArea inputs stay unchanged.'],
+        exampleIds: [],
+        diagnosticCodes: ['target-unsupported'],
+        targetDifference: 'Native CSS reports target-unsupported for Grid.',
+      },
+    },
     evidence,
   },
   {
@@ -150,6 +533,24 @@ export const compatibilityReference = deepFreeze([
     category: 'grid',
     tailwind: 'limited',
     css: 'preserved',
+    targetDetails: {
+      tailwind: {
+        status: 'limited',
+        supportedForms: ['Static supported grid-template-area rows convert.'],
+        limitedForms: ['Dynamic, malformed, conflicting, or unverified responsive forms stay unchanged.'],
+        exampleIds: ['grid'],
+        diagnosticCodes: gridDiagnostics,
+        targetDifference: 'Tailwind CSS emits a verified arbitrary grid-template-areas class.',
+      },
+      css: {
+        status: 'preserved',
+        supportedForms: ['Native CSS does not automatically convert Grid directives.'],
+        limitedForms: ['Recognized gdAreas inputs stay unchanged.'],
+        exampleIds: [],
+        diagnosticCodes: ['target-unsupported'],
+        targetDifference: 'Native CSS reports target-unsupported for Grid.',
+      },
+    },
     evidence,
   },
   {
@@ -158,6 +559,24 @@ export const compatibilityReference = deepFreeze([
     category: 'grid',
     tailwind: 'limited',
     css: 'preserved',
+    targetDetails: {
+      tailwind: {
+        status: 'limited',
+        supportedForms: ['Static supported grid-auto-flow values convert.'],
+        limitedForms: ['Dynamic, invalid, conflicting, or unverified responsive forms stay unchanged.'],
+        exampleIds: ['grid'],
+        diagnosticCodes: gridDiagnostics,
+        targetDifference: 'Tailwind CSS emits a verified arbitrary grid-auto-flow class.',
+      },
+      css: {
+        status: 'preserved',
+        supportedForms: ['Native CSS does not automatically convert Grid directives.'],
+        limitedForms: ['Recognized gdAuto inputs stay unchanged.'],
+        exampleIds: [],
+        diagnosticCodes: ['target-unsupported'],
+        targetDifference: 'Native CSS reports target-unsupported for Grid.',
+      },
+    },
     evidence,
   },
   {
@@ -166,6 +585,24 @@ export const compatibilityReference = deepFreeze([
     category: 'grid',
     tailwind: 'limited',
     css: 'preserved',
+    targetDetails: {
+      tailwind: {
+        status: 'limited',
+        supportedForms: ['Static supported grid-column values convert.'],
+        limitedForms: ['Dynamic, invalid, conflicting, or unverified responsive forms stay unchanged.'],
+        exampleIds: ['grid'],
+        diagnosticCodes: gridDiagnostics,
+        targetDifference: 'Tailwind CSS emits a verified arbitrary grid-column class.',
+      },
+      css: {
+        status: 'preserved',
+        supportedForms: ['Native CSS does not automatically convert Grid directives.'],
+        limitedForms: ['Recognized gdColumn inputs stay unchanged.'],
+        exampleIds: [],
+        diagnosticCodes: ['target-unsupported'],
+        targetDifference: 'Native CSS reports target-unsupported for Grid.',
+      },
+    },
     evidence,
   },
   {
@@ -174,6 +611,26 @@ export const compatibilityReference = deepFreeze([
     category: 'grid',
     tailwind: 'limited',
     css: 'preserved',
+    targetDetails: {
+      tailwind: {
+        status: 'limited',
+        supportedForms: [
+          'Static supported grid-template-columns values convert, including configured standard responsive suffixes.',
+        ],
+        limitedForms: ['Dynamic, invalid, conflicting, custom, or disabled breakpoint forms stay unchanged.'],
+        exampleIds: ['grid'],
+        diagnosticCodes: gridDiagnostics,
+        targetDifference: 'Tailwind CSS emits Grid display and a verified template-columns class.',
+      },
+      css: {
+        status: 'preserved',
+        supportedForms: ['Native CSS does not automatically convert Grid directives.'],
+        limitedForms: ['Recognized gdColumns inputs stay unchanged and produce no CSS rule.'],
+        exampleIds: ['native-css-boundaries'],
+        diagnosticCodes: ['target-unsupported'],
+        targetDifference: 'Native CSS reports target-unsupported for Grid.',
+      },
+    },
     evidence,
   },
   {
@@ -182,6 +639,24 @@ export const compatibilityReference = deepFreeze([
     category: 'grid',
     tailwind: 'limited',
     css: 'preserved',
+    targetDetails: {
+      tailwind: {
+        status: 'limited',
+        supportedForms: ['Static supported grid-gap values convert.'],
+        limitedForms: ['Dynamic, invalid, conflicting, or unverified responsive forms stay unchanged.'],
+        exampleIds: ['grid'],
+        diagnosticCodes: gridDiagnostics,
+        targetDifference: 'Tailwind CSS emits a verified grid-gap class.',
+      },
+      css: {
+        status: 'preserved',
+        supportedForms: ['Native CSS does not automatically convert Grid directives.'],
+        limitedForms: ['Recognized gdGap inputs stay unchanged.'],
+        exampleIds: [],
+        diagnosticCodes: ['target-unsupported'],
+        targetDifference: 'Native CSS reports target-unsupported for Grid.',
+      },
+    },
     evidence,
   },
   {
@@ -190,6 +665,24 @@ export const compatibilityReference = deepFreeze([
     category: 'grid',
     tailwind: 'limited',
     css: 'preserved',
+    targetDetails: {
+      tailwind: {
+        status: 'limited',
+        supportedForms: ['Static supported grid-item alignment values convert.'],
+        limitedForms: ['Dynamic, invalid, conflicting, or unverified responsive forms stay unchanged.'],
+        exampleIds: ['grid'],
+        diagnosticCodes: gridDiagnostics,
+        targetDifference: 'Tailwind CSS emits Grid item alignment classes.',
+      },
+      css: {
+        status: 'preserved',
+        supportedForms: ['Native CSS does not automatically convert Grid directives.'],
+        limitedForms: ['Recognized gdGridAlign inputs stay unchanged.'],
+        exampleIds: [],
+        diagnosticCodes: ['target-unsupported'],
+        targetDifference: 'Native CSS reports target-unsupported for Grid.',
+      },
+    },
     evidence,
   },
   {
@@ -198,6 +691,24 @@ export const compatibilityReference = deepFreeze([
     category: 'grid',
     tailwind: 'limited',
     css: 'preserved',
+    targetDetails: {
+      tailwind: {
+        status: 'limited',
+        supportedForms: ['The static unsuffixed gdInline form converts.'],
+        limitedForms: ['Dynamic, conflicting, or unverified responsive forms stay unchanged.'],
+        exampleIds: ['grid'],
+        diagnosticCodes: gridDiagnostics,
+        targetDifference: 'Tailwind CSS emits inline-grid.',
+      },
+      css: {
+        status: 'preserved',
+        supportedForms: ['Native CSS does not automatically convert Grid directives.'],
+        limitedForms: ['Recognized gdInline inputs stay unchanged.'],
+        exampleIds: [],
+        diagnosticCodes: ['target-unsupported'],
+        targetDifference: 'Native CSS reports target-unsupported for Grid.',
+      },
+    },
     evidence,
   },
   {
@@ -206,6 +717,24 @@ export const compatibilityReference = deepFreeze([
     category: 'grid',
     tailwind: 'limited',
     css: 'preserved',
+    targetDetails: {
+      tailwind: {
+        status: 'limited',
+        supportedForms: ['Static supported grid-row values convert.'],
+        limitedForms: ['Dynamic, invalid, conflicting, or unverified responsive forms stay unchanged.'],
+        exampleIds: ['grid'],
+        diagnosticCodes: gridDiagnostics,
+        targetDifference: 'Tailwind CSS emits a verified arbitrary grid-row class.',
+      },
+      css: {
+        status: 'preserved',
+        supportedForms: ['Native CSS does not automatically convert Grid directives.'],
+        limitedForms: ['Recognized gdRow inputs stay unchanged.'],
+        exampleIds: [],
+        diagnosticCodes: ['target-unsupported'],
+        targetDifference: 'Native CSS reports target-unsupported for Grid.',
+      },
+    },
     evidence,
   },
   {
@@ -214,6 +743,24 @@ export const compatibilityReference = deepFreeze([
     category: 'grid',
     tailwind: 'limited',
     css: 'preserved',
+    targetDetails: {
+      tailwind: {
+        status: 'limited',
+        supportedForms: ['Static supported grid-template-rows values convert.'],
+        limitedForms: ['Dynamic, invalid, conflicting, or unverified responsive forms stay unchanged.'],
+        exampleIds: ['grid'],
+        diagnosticCodes: gridDiagnostics,
+        targetDifference: 'Tailwind CSS emits Grid display and a verified template-rows class.',
+      },
+      css: {
+        status: 'preserved',
+        supportedForms: ['Native CSS does not automatically convert Grid directives.'],
+        limitedForms: ['Recognized gdRows inputs stay unchanged.'],
+        exampleIds: [],
+        diagnosticCodes: ['target-unsupported'],
+        targetDifference: 'Native CSS reports target-unsupported for Grid.',
+      },
+    },
     evidence,
   },
   {
@@ -222,6 +769,31 @@ export const compatibilityReference = deepFreeze([
     category: 'responsive-class-style',
     tailwind: 'preserved',
     css: 'preserved',
+    targetDetails: {
+      tailwind: {
+        status: 'preserved',
+        supportedForms: ['No direct class.<breakpoint> conversion is claimed.'],
+        limitedForms: ['Recognized responsive class inputs stay unchanged for manual migration.'],
+        exampleIds: [],
+        diagnosticCodes: [
+          'semantic-unsupported',
+          'dynamic-binding',
+          'context-unverified',
+          'custom-breakpoint',
+          'breakpoint-unverified',
+        ],
+        targetDifference:
+          'Tailwind CSS conversion is implemented for bounded ngClass responsive families, not direct class bindings.',
+      },
+      css: {
+        status: 'preserved',
+        supportedForms: ['Native CSS does not automatically convert responsive class directives.'],
+        limitedForms: ['Recognized class.<breakpoint> inputs stay unchanged.'],
+        exampleIds: [],
+        diagnosticCodes: ['target-unsupported'],
+        targetDifference: 'Native CSS reports target-unsupported for responsive class/style.',
+      },
+    },
     evidence,
   },
   {
@@ -230,6 +802,28 @@ export const compatibilityReference = deepFreeze([
     category: 'responsive-class-style',
     tailwind: 'limited',
     css: 'preserved',
+    targetDetails: {
+      tailwind: {
+        status: 'limited',
+        supportedForms: [
+          'Complete literal responsive families whose every token is a verified Tailwind CSS v4 candidate convert atomically.',
+        ],
+        limitedForms: [
+          'Bound, conflicting, custom, disabled, overlapping, semantically unsupported, or unverified-token families stay unchanged.',
+        ],
+        exampleIds: ['responsive-class-style'],
+        diagnosticCodes: classDiagnostics,
+        targetDifference: 'Tailwind CSS emits arbitrary media variants for the complete proven family.',
+      },
+      css: {
+        status: 'preserved',
+        supportedForms: ['Native CSS does not automatically convert responsive class directives.'],
+        limitedForms: ['Recognized ngClass responsive inputs stay unchanged and produce no CSS rule.'],
+        exampleIds: ['native-css-boundaries'],
+        diagnosticCodes: ['target-unsupported'],
+        targetDifference: 'Native CSS reports target-unsupported for responsive class/style.',
+      },
+    },
     evidence,
   },
   {
@@ -238,6 +832,31 @@ export const compatibilityReference = deepFreeze([
     category: 'responsive-class-style',
     tailwind: 'preserved',
     css: 'preserved',
+    targetDetails: {
+      tailwind: {
+        status: 'preserved',
+        supportedForms: ['No direct style.<property>.<breakpoint> conversion is claimed.'],
+        limitedForms: ['Recognized responsive style inputs stay unchanged for manual migration.'],
+        exampleIds: [],
+        diagnosticCodes: [
+          'semantic-unsupported',
+          'dynamic-binding',
+          'context-unverified',
+          'custom-breakpoint',
+          'breakpoint-unverified',
+        ],
+        targetDifference:
+          'Tailwind CSS conversion is implemented for bounded ngStyle responsive families, not direct style bindings.',
+      },
+      css: {
+        status: 'preserved',
+        supportedForms: ['Native CSS does not automatically convert responsive style directives.'],
+        limitedForms: ['Recognized style responsive inputs stay unchanged.'],
+        exampleIds: [],
+        diagnosticCodes: ['target-unsupported'],
+        targetDifference: 'Native CSS reports target-unsupported for responsive class/style.',
+      },
+    },
     evidence,
   },
   {
@@ -246,6 +865,28 @@ export const compatibilityReference = deepFreeze([
     category: 'responsive-class-style',
     tailwind: 'limited',
     css: 'preserved',
+    targetDetails: {
+      tailwind: {
+        status: 'limited',
+        supportedForms: [
+          'Complete literal responsive families with sanitizer-safe declaration lists convert atomically.',
+        ],
+        limitedForms: [
+          'Bound, conflicting, custom, disabled, overlapping, semantically unsupported, or unsafe-value families stay unchanged.',
+        ],
+        exampleIds: ['responsive-class-style'],
+        diagnosticCodes: styleDiagnostics,
+        targetDifference: 'Tailwind CSS emits arbitrary media variants containing sanitized declarations.',
+      },
+      css: {
+        status: 'preserved',
+        supportedForms: ['Native CSS does not automatically convert responsive style directives.'],
+        limitedForms: ['Recognized ngStyle responsive inputs stay unchanged and produce no CSS rule.'],
+        exampleIds: ['native-css-boundaries'],
+        diagnosticCodes: ['target-unsupported'],
+        targetDifference: 'Native CSS reports target-unsupported for responsive class/style.',
+      },
+    },
     evidence,
   },
   {
@@ -254,6 +895,44 @@ export const compatibilityReference = deepFreeze([
     category: 'images',
     tailwind: 'not-applicable',
     css: 'not-applicable',
+    targetDetails: {
+      tailwind: {
+        status: 'not-applicable',
+        supportedForms: [
+          'Responsive imgSrc is handled by the separate opt-in responsive-image path, not the Tailwind target renderer.',
+        ],
+        limitedForms: ['Without that opt-in, recognized responsive image inputs stay unchanged.'],
+        exampleIds: [],
+        diagnosticCodes: [
+          'target-unsupported',
+          'dynamic-binding',
+          'invalid-value',
+          'context-unverified',
+          'custom-breakpoint',
+          'breakpoint-unverified',
+          'responsive-precedence-unverified',
+        ],
+        targetDifference: 'Tailwind selection does not itself enable responsive-image rewriting.',
+      },
+      css: {
+        status: 'not-applicable',
+        supportedForms: [
+          'Responsive imgSrc is handled by the separate opt-in responsive-image path, not the Native CSS target renderer.',
+        ],
+        limitedForms: ['Without that opt-in, recognized responsive image inputs stay unchanged.'],
+        exampleIds: [],
+        diagnosticCodes: [
+          'target-unsupported',
+          'dynamic-binding',
+          'invalid-value',
+          'context-unverified',
+          'custom-breakpoint',
+          'breakpoint-unverified',
+          'responsive-precedence-unverified',
+        ],
+        targetDifference: 'Native CSS selection does not itself enable responsive-image rewriting.',
+      },
+    },
     evidence,
   },
 ] as const satisfies readonly CompatibilityEntry[]);

@@ -63,18 +63,48 @@ describe('documentation website shell', () => {
     expect(screen.getByRole('navigation', { name: 'Documentation' })).toBeInTheDocument();
   });
 
-  it('leaves same-page fragment navigation to the browser for native scrolling', () => {
+  it('scrolls to and focuses a same-page fragment target', async () => {
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(Element.prototype, 'scrollIntoView', { configurable: true, value: scrollIntoView });
     render(<App />);
-    let defaultWasPrevented: boolean | undefined;
-    const observeNativeDefault = (event: MouseEvent) => {
-      defaultWasPrevented = event.defaultPrevented;
-      event.preventDefault();
-    };
-    window.addEventListener('click', observeNativeDefault, { once: true });
 
     fireEvent.click(screen.getByRole('link', { name: 'Playground' }));
 
-    expect(defaultWasPrevented).toBe(false);
+    await waitFor(() => expect(window.location.hash).toBe('#playground'));
+    expect(screen.getByRole('heading', { name: 'Preview one template in your browser.' })).toHaveFocus();
+    expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'auto', block: 'start' });
+  });
+
+  it.each([
+    ['/docs/diagnostics#dynamic-binding', 'dynamic-binding'],
+    ['/docs/compatibility#gdColumns', 'gdColumns'],
+  ])('restores the exact initial fragment target for %s', async (url, targetId) => {
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(Element.prototype, 'scrollIntoView', { configurable: true, value: scrollIntoView });
+    window.history.replaceState(null, '', url);
+
+    render(<App />);
+
+    const target = await waitFor(() => {
+      const element = document.getElementById(targetId);
+      expect(element).not.toBeNull();
+      expect(element).toHaveFocus();
+      return element!;
+    });
+    expect(target).toHaveAttribute('tabindex', '-1');
+    expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'auto', block: 'start' });
+  });
+
+  it('does not steal focus on an initial documentation route without a fragment', async () => {
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(Element.prototype, 'scrollIntoView', { configurable: true, value: scrollIntoView });
+    window.history.replaceState(null, '', '/docs/diagnostics');
+
+    render(<App />);
+
+    await waitFor(() => expect(screen.getByRole('heading', { level: 1, name: 'Diagnostics' })).toBeVisible());
+    expect(document.activeElement).toBe(document.body);
+    expect(scrollIntoView).not.toHaveBeenCalled();
   });
 
   it('scrolls to and focuses the new heading after a client-side route transition', async () => {

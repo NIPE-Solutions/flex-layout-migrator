@@ -35,6 +35,23 @@ test('renders responsive navigation and follows a direct documentation link', as
   );
 });
 
+test('restores initial documentation fragments and focuses hash navigation targets', async ({ page }) => {
+  await page.goto('/docs/diagnostics#dynamic-binding');
+  const diagnostic = page.locator('#dynamic-binding');
+  await expect(diagnostic).toBeFocused();
+  await expect(diagnostic).toBeInViewport();
+
+  await page.goto('/docs/compatibility#gdColumns');
+  const directive = page.locator('#gdColumns');
+  await expect(directive).toBeFocused();
+  await expect(directive).toBeInViewport();
+
+  await page.goto('/docs/diagnostics');
+  await page.getByRole('link', { name: 'dynamic-binding' }).click();
+  await expect(page).toHaveURL(/\/docs\/diagnostics#dynamic-binding$/u);
+  await expect(page.locator('#dynamic-binding')).toBeFocused();
+});
+
 test('exposes canonical metadata, keyboard focus order, and no critical accessibility violations', async ({ page }) => {
   await page.goto('/');
 
