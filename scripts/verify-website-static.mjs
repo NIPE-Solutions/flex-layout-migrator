@@ -3,6 +3,8 @@ import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 
+import ignore from 'ignore';
+
 const productionOrigin = 'https://angular-flex-layout-codemod.nipesolutions.com';
 const requiredRoutes = [
   '/docs',
@@ -34,18 +36,20 @@ try {
 async function verifyStaticOutput(projectRoot) {
   const dist = path.join(projectRoot, 'website', 'dist');
   const indexPath = path.join(dist, 'index.html');
-  const [html, vercelSource, manifestSource, sitemap, robots] = await Promise.all([
+  const [html, vercelSource, manifestSource, sitemap, robots, gitignore] = await Promise.all([
     readFile(indexPath, 'utf8'),
     readFile(path.join(projectRoot, 'vercel.json'), 'utf8'),
     readFile(path.join(dist, '.vite', 'manifest.json'), 'utf8'),
     readFile(path.join(dist, 'sitemap.xml'), 'utf8').catch(() => ''),
     readFile(path.join(dist, 'robots.txt'), 'utf8').catch(() => ''),
+    readFile(path.join(projectRoot, '.gitignore'), 'utf8').catch(() => ''),
   ]);
   const vercel = JSON.parse(vercelSource);
   const manifest = JSON.parse(manifestSource);
 
   assertCanonicalMetadata(html);
   assertVercelContract(vercel);
+  assertVercelMetadataIgnored(gitignore);
   assertCrawlerFiles(sitemap, robots);
   await assertRouteDocuments(dist);
 
@@ -78,6 +82,12 @@ async function verifyStaticOutput(projectRoot) {
   await assertCompilerIsLazy({ dist, entrySource, manifest });
 
   return { hashedAssets: assetFiles.length };
+}
+
+function assertVercelMetadataIgnored(gitignore) {
+  if (!ignore().add(gitignore).ignores('.vercel/project.json')) {
+    throw new Error('.vercel/project.json must be ignored by Git');
+  }
 }
 
 async function assertCompilerIsLazy({ dist, entrySource, manifest }) {
