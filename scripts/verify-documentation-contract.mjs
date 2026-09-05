@@ -21,7 +21,7 @@ export async function verifyDocumentationContract(root) {
   await verifyCompatibilityEvidence(projectRoot);
   const production = await loadProductionOracle(projectRoot);
   try {
-    await verifyReportExamples(projectRoot, production.MigrationReportBuilder);
+    await verifyReportExamples(projectRoot, production.MigrationReportBuilder, diagnosticCodes.conversion);
     await verifyTransformationExamples(projectRoot, production.previewTemplate, diagnosticCodes);
   } finally {
     await production.close();
@@ -166,7 +166,7 @@ function compatibilityInventoryCategory(family) {
   return compatibilityCategory(compatibilityFamily(family));
 }
 
-async function verifyReportExamples(root, MigrationReportBuilder) {
+async function verifyReportExamples(root, MigrationReportBuilder, conversionDiagnosticCodes) {
   const [registry, source, migrationModeSource] = await Promise.all([
     readRegistry(root, registryPaths.report, 'reportReference'),
     readFile(path.join(root, 'src/report/migration-report.ts'), 'utf8'),
@@ -208,7 +208,7 @@ async function verifyReportExamples(root, MigrationReportBuilder) {
   }
 
   for (const example of registry.examples) {
-    validateReportExample(example);
+    validateReportExample(example, conversionDiagnosticCodes);
     const productionReport = rebuildReportExample(MigrationReportBuilder, example.value);
     if (JSON.stringify(productionReport) !== JSON.stringify(example.value)) {
       throw new Error(
@@ -587,7 +587,7 @@ function describeType(typeNode) {
   throw new Error(`Unsupported report type syntax: ${node.getText()}`);
 }
 
-function validateReportExample(example) {
+function validateReportExample(example, conversionDiagnosticCodes) {
   if (!isNonEmptyString(example.id) || !isNonEmptyString(example.description)) {
     throw new Error('report example registry contains an incomplete entry');
   }
@@ -621,7 +621,7 @@ function validateReportExample(example) {
     if (file.changed) changed += 1;
     assertArray(file.results, `report example ${example.id} results`);
     for (const result of file.results) {
-      validateReportResult(result, example.id);
+      validateReportResult(result, example.id, conversionDiagnosticCodes);
       const countName = result.status === 'parse-error' ? 'parseErrors' : result.status;
       counts[countName] += 1;
     }
@@ -634,10 +634,10 @@ function validateReportExample(example) {
     );
   }
   const expectedApplication =
-    counts.parseErrors > 0
-      ? { status: 'skipped', reason: 'parse-errors' }
-      : report.mode === 'plan'
-        ? { status: 'skipped', reason: 'plan-only' }
+    report.mode === 'plan'
+      ? { status: 'skipped', reason: 'plan-only' }
+      : counts.parseErrors > 0
+        ? { status: 'skipped', reason: 'parse-errors' }
         : { status: 'applied' };
   if (JSON.stringify(report.application) !== JSON.stringify(expectedApplication)) {
     throw new Error(
@@ -718,7 +718,7 @@ function validateApplication(application, id) {
   assertEnum(application.reason, ['plan-only', 'parse-errors'], `report example ${id} application reason`);
 }
 
-function validateReportResult(result, id) {
+function validateReportResult(result, id, conversionDiagnosticCodes) {
   assertObject(result, `report example ${id} result`);
   if (result.status === 'converted') {
     assertExactKeys(result, ['status', 'directive', 'sourceName', 'offset'], [], `report example ${id} result`);
@@ -729,6 +729,9 @@ function validateReportResult(result, id) {
       [],
       `report example ${id} result`,
     );
+    if (!conversionDiagnosticCodes.has(result.code)) {
+      throw new Error(`report example ${id} uses unknown diagnostic code ${String(result.code)}`);
+    }
   } else if (result.status === 'parse-error') {
     assertExactKeys(result, ['status', 'offset', 'code', 'reason'], [], `report example ${id} result`);
     assertEnum(

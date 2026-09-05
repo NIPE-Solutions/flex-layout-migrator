@@ -1,4 +1,4 @@
-import type { ConversionResult, DiagnosticCode } from '../../src/analyzer/conversion-result';
+import type { ConversionResult } from '../../src/analyzer/conversion-result';
 import type { FlexLayoutDirective } from '../../src/analyzer/flex-layout.catalog';
 import { previewTemplate } from '../../src/browser/template-preview';
 import type { FileMigrationResult } from '../../src/migrator/file-migration-result';
@@ -75,7 +75,7 @@ function conversionResult(fileName: string, result: ReportResult): ConversionRes
   return {
     status: result.status,
     input,
-    code: result.code as DiagnosticCode,
+    code: result.code,
     reason: result.reason,
     suggestion: result.suggestion,
   };

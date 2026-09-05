@@ -111,13 +111,51 @@ describe('documentation contract verification', () => {
     );
   });
 
-  test('rejects an application outcome that contradicts mode and parse results', async () => {
+  test('accepts plan-only application when a plan contains parse errors', async () => {
+    const root = await createFixture();
+    await mutate(root, 'website/src/content/report-reference.ts', source =>
+      replaceInRecord(
+        replaceInRecord(source, "id: 'parse-error'", "mode: 'write'", "mode: 'plan'"),
+        "id: 'parse-error'",
+        "reason: 'parse-errors'",
+        "reason: 'plan-only'",
+      ),
+    );
+
+    await expect(verifyDocumentationContract(root)).resolves.toBeUndefined();
+  });
+
+  test('rejects parse-errors application when a plan contains parse errors', async () => {
+    const root = await createFixture();
+    await mutate(root, 'website/src/content/report-reference.ts', source =>
+      replaceInRecord(source, "id: 'parse-error'", "mode: 'write'", "mode: 'plan'"),
+    );
+
+    await expect(verifyDocumentationContract(root)).rejects.toThrow(
+      'report example parse-error application {"status":"skipped","reason":"parse-errors"} differs from {"status":"skipped","reason":"plan-only"}',
+    );
+  });
+
+  test('rejects plan-only application when a write contains parse errors', async () => {
     const root = await createFixture();
     await mutate(root, 'website/src/content/report-reference.ts', source =>
       replaceInRecord(source, "id: 'parse-error'", "reason: 'parse-errors'", "reason: 'plan-only'"),
     );
 
-    await expect(verifyDocumentationContract(root)).rejects.toThrow('report example parse-error application');
+    await expect(verifyDocumentationContract(root)).rejects.toThrow(
+      'report example parse-error application {"status":"skipped","reason":"plan-only"} differs from {"status":"skipped","reason":"parse-errors"}',
+    );
+  });
+
+  test('rejects an invented non-parse report diagnostic code', async () => {
+    const root = await createFixture();
+    await mutate(root, 'website/src/content/report-reference.ts', source =>
+      replaceInRecord(source, "id: 'plan'", "code: 'dynamic-binding'", "code: 'invented-code'"),
+    );
+
+    await expect(verifyDocumentationContract(root)).rejects.toThrow(
+      'report example plan uses unknown diagnostic code invented-code',
+    );
   });
 
   test('rejects a report example that differs from production builder normalization', async () => {

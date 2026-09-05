@@ -96,7 +96,7 @@ export const reportReference = deepFreeze({
     },
     {
       path: 'files[].results[].code',
-      type: 'string',
+      type: 'DiagnosticCode | template-parse-error | generated-template-parse-error',
       required: false,
       description: 'Diagnostic code for unresolved or parse results.',
     },
