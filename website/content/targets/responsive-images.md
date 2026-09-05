@@ -8,14 +8,30 @@ order: 3
 
 # Responsive images
 
-## Why image migration is separate
+## A separate structural migration
 
-Responsive image source directives can require a structural template change rather than a class-only edit. Added picture and source elements may affect selectors, tests, accessibility names, loading behavior, or code that depends on the previous DOM shape.
+Responsive image conversion is independent of both layout targets. `--responsive-images` opts eligible `src.<alias>` inputs into native `<picture>` output and acknowledges that the parent/child DOM shape will change. The flag enables planning; it does not bypass any source, URL, context, or validation check.
 
-For that reason, image conversion is an explicit project decision. A normal layout migration does not need to accept DOM changes simply because an image directive was discovered.
+```text
+npx flex-layout-codemod ./src --responsive-images
+```
 
-## Review the surrounding component
+The codemod does not inspect CSS, Sass, Less, application JavaScript, or test selectors to decide whether wrapping is harmless. Review selectors such as `parent > img`, `img:first-child`, and code that assumes the image's former parent.
 
-Check the generated source sets and media conditions against the application's asset behavior. Then review CSS selectors, component tests, accessibility output, and visual loading at representative viewport widths.
+## Eligible source
 
-Preserved image directives remain actionable migration work. Do not remove the source dependency until the repository-wide check confirms that intended usages are resolved.
+An eligible family belongs to an HTML `<img>`, uses literal values from the 13 standard viewport aliases, and provides one safe descriptor-free URL per responsive source. The fallback may be a literal `src`, a bound `[src]`, or absent. The image must not already be inside `<picture>`, carry an Angular structural-directive attribute, or have ambiguous replacement ranges.
+
+Every nonresponsive attribute stays on the fallback `<img>`, including source fallback, accessibility metadata, dimensions, loading and decoding controls, events, references, classes, styles, and unrelated bindings. Generated `<source>` elements use exact media conditions and descending archived breakpoint priority so the first matching native source reproduces the proven selection order.
+
+## Preserved image families
+
+One unsafe member preserves the complete responsive-image family. Property bindings, interpolation, empty values, orientation, print, custom or empty aliases, duplicate ownership, unsafe `srcset` syntax, non-image hosts, existing `<picture>` ancestry, structural attributes, and overlapping edit ownership remain unchanged with diagnostics.
+
+Orientation and print flags do not extend responsive-image support. The image path accepts only standard viewport aliases. It also does not implement density descriptors or art-direction metadata.
+
+## Validation and application review
+
+The full generated template must reparse with the Angular compiler before a file can be written. Each converted or preserved `imgSrc` occurrence remains visible in the schema-2 report by file and source offset.
+
+After conversion, compile and test the component, inspect its accessible output, verify loading and fallback behavior, and exercise overlapping viewport ranges. Do not remove Angular Flex-Layout until remaining image directives and selector assumptions are resolved across the repository.

@@ -22,6 +22,16 @@ When adapting an example, change one variable at a time and observe status as we
 
 Use the browser playground to vary one template locally. It runs in browser memory and does not perform filesystem discovery, coordinated native CSS ownership, JSON reporting, or project writes. Use a CLI plan for those project-level behaviors, and compare its package version with the version backing the published fixture.
 
+## Published fixture contracts
+
+The blocks below consume the verified example registry. Input and expected output retain exact bytes, including comments, whitespace, attribute spelling, and trailing newlines. The ordered result list comes from the same registry and distinguishes converted results from review, unsupported, invalid, and parse-error results with their diagnostic codes.
+
+The documentation test passes each registry input to the real production `previewTemplate` boundary and compares exact HTML, optional CSS, status, and code output. The display component does not contain a second transformation implementation.
+
+:::verified-examples
+
 ## Validate in application context
 
 After a fixture-like conversion is applied, compile the real template, run its tests, inspect base and responsive states, and review selectors that depend on element structure or generated classes. Repository verification remains necessary even when the isolated transformation is byte-for-byte verified.
+
+These fixtures do not prove responsive-image selector safety, project Tailwind configuration, configured orientation or print behavior, native CSS filesystem ownership, transaction recovery, or compatibility for source forms absent from the fixture. Use a project CLI plan for those boundaries.

@@ -4,7 +4,9 @@ import { documentationGroups, getDocumentationNeighbors, type DocumentationRoute
 import type { DocumentationBlock, DocumentationPage } from '../content/docs-loader';
 import { reportReference } from '../content/report-reference';
 import { CodeBlock } from './code-block';
+import { CompatibilityExplorer, VerifiedExamples } from './compatibility-explorer';
 import { DiagnosticCallout } from './diagnostic-callout';
+import { DiagnosticReference } from './diagnostic-reference';
 import { largeCodebaseChecklist, MigrationChecklist } from './migration-checklist';
 import { ReportExample } from './report-example';
 
@@ -166,9 +168,15 @@ function MarkdownBlocks({ blocks }: { readonly blocks: readonly DocumentationBlo
 function DocumentationContent({ block }: { readonly block: Extract<DocumentationBlock, { kind: 'content' }> }) {
   if (block.name === 'migration-checklist') return <MigrationChecklist {...largeCodebaseChecklist} />;
   if (block.name === 'diagnostic-callout') return <DiagnosticCallout code={block.code} />;
-  const example = reportReference.examples.find(candidate => candidate.id === block.exampleId);
-  if (example === undefined) throw new Error(`Unknown report example: ${block.exampleId}`);
-  return <ReportExample report={example.value} label="Plan report example" />;
+  if (block.name === 'compatibility-explorer') return <CompatibilityExplorer />;
+  if (block.name === 'diagnostic-reference') return <DiagnosticReference />;
+  if (block.name === 'verified-examples') return <VerifiedExamples />;
+  if (block.name === 'report-example') {
+    const example = reportReference.examples.find(candidate => candidate.id === block.exampleId);
+    if (example === undefined) throw new Error(`Unknown report example: ${block.exampleId}`);
+    return <ReportExample report={example.value} label="Plan report example" />;
+  }
+  throw new Error(`Unknown documentation content block: ${block.name}`);
 }
 
 function renderInline(source: string): ReactNode {

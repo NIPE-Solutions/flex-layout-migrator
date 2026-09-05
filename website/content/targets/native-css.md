@@ -8,14 +8,45 @@ order: 2
 
 # Native CSS
 
-## A deliberately narrower target
+## Exactly eight Flex semantic families
 
-Native CSS output focuses on Flex semantic families the migration engine can express through deterministic classes and rules. Source outside that verified boundary remains unchanged with a diagnostic instead of receiving an approximate CSS rewrite.
+Native CSS is deliberately narrower than the Tailwind CSS target. It converts eight Flex semantic families: layout, layout alignment, layout gap, flex-item sizing with its grow and shrink members, self alignment, fill, offset, and order. The directive aliases and target statuses are published once in the [compatibility explorer](/docs/compatibility).
 
-This makes target selection a workflow decision: teams should compare the supported surface of representative templates rather than assuming the two targets are interchangeable.
+The target accepts verified literal base inputs and the 13 standard viewport aliases. Grid, visibility, responsive class/style, orientation, print, custom aliases, and responsive images remain outside this target boundary. Responsive images are a separate opt-in structural migration, not CSS-target behavior.
 
-## Stylesheet ownership
+```text
+npx flex-layout-codemod ./src --target css --stylesheet ./src/flex-layout-migration.css
+```
 
-The CLI writes generated rules inside an owned stylesheet block and coordinates eligible template and stylesheet changes. Handwritten CSS outside that boundary is not a place for the codemod to infer intent.
+`--target css` requires exactly one `--stylesheet` path. Planning proposes template classes and companion stylesheet content. Only `--write` authorizes the coordinated project update.
 
-Keep the companion stylesheet path stable during a batch. Review retained and newly generated rules together, especially when only part of a repository is in scope.
+## Deterministic classes and owned rules
+
+Equivalent semantics share a deterministic `flm-` class and one generated rule. Base rules precede responsive rules; media conditions come from the shared breakpoint catalog rather than a second alias table.
+
+Generated CSS lives inside one exact schema-1 ownership region:
+
+```css
+/* flex-layout-codemod:start schema=1 */
+/* flex-layout-codemod:rule id=<64 lowercase hex characters> */
+.flm-<same identifier > {
+  display: flex;
+}
+/* flex-layout-codemod:end */
+```
+
+Handwritten bytes outside the start and end markers are retained exactly. Invalid, duplicate, nested, unknown, or mismatched ownership markers fail closed instead of being repaired. Keep the stylesheet path stable across a migration batch so every plan sees the same owned region.
+
+## Retained unmatched rules
+
+New rules are merged additively with valid owned rules already present. An invocation retains unmatched owned rules even when every selected destination was scanned, because a scoped input cannot prove that no template outside the invocation still references them. The current CLI has no complete-project pruning mode.
+
+Generated-looking class references must match either an incoming rule or a valid owned rule. A handwritten `flm-`-looking name beside the ownership boundary cannot claim generated ownership.
+
+## Transaction and rerun boundary
+
+After successful parsing, the CLI preflights the complete template-and-stylesheet transaction. Plan mode does not write either project output. A parse-error run still validates CLI configuration and path collisions and produces its complete report, but applies nothing and skips transaction preflight; unrelated late filesystem access failures may therefore remain hidden until parsing is repaired.
+
+In write mode, eligible templates and the stylesheet are one recoverable transaction. Ordinary handled failures and handled interruption attempt to restore both together. Power loss, forced termination, and storage failure remain outside a crash-durability guarantee; reconcile uncertain paths against Git or a verified backup before retrying.
+
+Repeating the same successful scope is byte-idempotent. Review retained rules as well as incoming rules, because a stable rerun intentionally does not prune another scope's ownership.

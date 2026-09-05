@@ -21,7 +21,11 @@ export type DocumentationBlock =
   | { readonly kind: 'code'; readonly language?: string; readonly value: string }
   | { readonly kind: 'content'; readonly name: 'migration-checklist' }
   | { readonly kind: 'content'; readonly name: 'report-example'; readonly exampleId: 'plan' }
-  | { readonly kind: 'content'; readonly name: 'diagnostic-callout'; readonly code: DocumentationDiagnosticCode };
+  | { readonly kind: 'content'; readonly name: 'diagnostic-callout'; readonly code: DocumentationDiagnosticCode }
+  | {
+      readonly kind: 'content';
+      readonly name: 'compatibility-explorer' | 'diagnostic-reference' | 'verified-examples';
+    };
 
 export interface DocumentationPage {
   readonly path: DocumentationPath;
@@ -234,6 +238,10 @@ function parseContentDirective(sourceName: string, source: string): Extract<Docu
   const [, name, argument] = match;
   if (name === 'migration-checklist') {
     if (argument !== undefined) throw new Error(`${sourceName}: migration-checklist does not accept an argument`);
+    return { kind: 'content', name };
+  }
+  if (name === 'compatibility-explorer' || name === 'diagnostic-reference' || name === 'verified-examples') {
+    if (argument !== undefined) throw new Error(`${sourceName}: ${name} does not accept an argument`);
     return { kind: 'content', name };
   }
   if (name === 'report-example') {
