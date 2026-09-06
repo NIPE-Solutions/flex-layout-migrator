@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.0.0-beta.3
+
+### Minor Changes
+
+- ca82744: Expand the documentation site into a comprehensive migration reference with production-verified CLI, diagnostic, compatibility, report, and transformation contracts. Add review-first workflow guidance, target-specific explorers and examples, responsive documentation navigation, and keyboard-accessible code regions.
+
 ## 2.0.0-beta.2
 
 ### Minor Changes
