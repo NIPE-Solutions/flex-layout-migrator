@@ -6,10 +6,7 @@
 
 - bf4d213: Add declared Tailwind v4 target profiles, prefix and breakpoint awareness, static configuration analysis, target environment reports, custom source breakpoint configuration, and shared generated-template validation for browser previews. Preserve exact media semantics and unknown source directives.
 
-## Unreleased
-
 - Lower the CLI runtime requirement to Node 22.12, with Node 22 and 24 core/package CI coverage.
-
 - Resolve declarative Tailwind v4 target profiles with static stylesheet analysis, prefix, breakpoint reset/removal, provenance, assumptions, and fingerprints.
 - Generate prefix-first utilities and exact responsive variants; use named pixel minimums only with equivalent screen semantics. Compile regression output with Tailwind 4.3.3.
 - Accept explicit source breakpoint media queries and priorities. Preserve unknown source aliases.
