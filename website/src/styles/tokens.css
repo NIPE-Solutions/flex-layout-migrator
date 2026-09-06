@@ -21,6 +21,12 @@
   --output-signal: #006f68;
   --focus-ring: #008b82;
   --selection-background: #8ae2da;
+  --status-converted: #006f68;
+  --status-review: #754b00;
+  --status-preserved: #5c5048;
+  --status-unsupported: #70435f;
+  --status-invalid: #b10f38;
+  --status-informational: #315f7a;
 
   --font-display: 'Arial Narrow', 'Roboto Condensed', 'Aptos Narrow', sans-serif;
   --font-body: 'Avenir Next', Aptos, 'Segoe UI', sans-serif;
@@ -69,6 +75,12 @@
     --output-signal: #42dbcd;
     --focus-ring: #42dbcd;
     --selection-background: #196b66;
+    --status-converted: #42dbcd;
+    --status-review: #ffc36d;
+    --status-preserved: #d7c8bd;
+    --status-unsupported: #ecb0da;
+    --status-invalid: #ff8198;
+    --status-informational: #9bd0ea;
   }
 }
 
@@ -87,6 +99,12 @@
   --output-signal: #42dbcd;
   --focus-ring: #42dbcd;
   --selection-background: #196b66;
+  --status-converted: #42dbcd;
+  --status-review: #ffc36d;
+  --status-preserved: #d7c8bd;
+  --status-unsupported: #ecb0da;
+  --status-invalid: #ff8198;
+  --status-informational: #9bd0ea;
 }
 
 :root[data-theme='light'] {

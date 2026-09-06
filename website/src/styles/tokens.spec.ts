@@ -6,6 +6,14 @@ import { parse } from 'postcss';
 import { describe, expect, it } from 'vitest';
 
 const adjacentLightSurfaces = ['--surface-canvas', '--surface-raised', '--surface-quiet'] as const;
+const statusTokens = [
+  '--status-converted',
+  '--status-review',
+  '--status-preserved',
+  '--status-unsupported',
+  '--status-invalid',
+  '--status-informational',
+] as const;
 
 function readLightTokens(css: string): ReadonlyMap<string, string> {
   const stylesheet = parse(css);
@@ -104,5 +112,15 @@ describe('light theme focus tokens', () => {
     const background = resolveCssValue(tokens, declarations.get('background') ?? '');
 
     expect(contrastRatio(foreground, background)).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it('defines readable text signals for every public migration status', async () => {
+    const tokensCss = await readFile(new URL('./tokens.css', import.meta.url), 'utf8');
+    const tokens = readLightTokens(tokensCss);
+    const canvas = resolveToken(tokens, '--surface-canvas');
+
+    for (const token of statusTokens) {
+      expect(contrastRatio(resolveToken(tokens, token), canvas), token).toBeGreaterThanOrEqual(4.5);
+    }
   });
 });

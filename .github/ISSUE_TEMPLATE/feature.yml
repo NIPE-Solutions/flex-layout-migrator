@@ -3,15 +3,59 @@ description: Propose a specific directive case or workflow improvement.
 title: 'feat: '
 labels: [enhancement]
 body:
-  - type: textarea
-    id: case
-    attributes: { label: Migration case, description: Include the source and behavior that must be preserved. }
+  - type: markdown
+    attributes:
+      value: |
+        Do not include secrets or confidential project code. Reduce source to the smallest redacted example.
+        Report security issues through [GitHub private vulnerability reporting](https://github.com/NIPE-Solutions/flex-layout-migrator/security/advisories/new), not a public issue.
+  - type: input
+    id: version
+    attributes:
+      label: Codemod version
+      placeholder: Output of npx flex-layout-codemod --version
+    validations: { required: true }
+  - type: input
+    id: node-version
+    attributes:
+      label: Node.js version
+      placeholder: Output of node --version
+    validations: { required: true }
+  - type: input
+    id: angular-version
+    attributes:
+      label: Angular version
+      placeholder: Relevant @angular/core and @angular/compiler versions
     validations: { required: true }
   - type: dropdown
     id: target
-    attributes: { label: Target, options: [Native CSS, Tailwind CSS, Both, CLI or reporting] }
+    attributes:
+      label: Target
+      options: [Tailwind CSS, Native CSS, Both targets, CLI or reporting]
+    validations: { required: true }
+  - type: textarea
+    id: command
+    attributes:
+      label: Current command or workflow
+      description: Remove private paths, tokens, and environment values.
+      render: shell
+    validations: { required: true }
+  - type: textarea
+    id: source
+    attributes:
+      label: Minimal redacted source template
+      description: Include only the Angular template needed to explain the requested behavior.
+      render: html
+    validations: { required: true }
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Current redacted diagnostics or JSON report excerpt
+      description: Include diagnostic codes and source offsets when available; write “none” when the case has no diagnostic.
+      render: text
     validations: { required: true }
   - type: textarea
     id: semantics
-    attributes: { label: Expected target semantics }
+    attributes:
+      label: Requested behavior and target semantics
+      description: Explain what must remain observably equivalent and why the current result is insufficient.
     validations: { required: true }

@@ -1,3 +1,4 @@
+import type { DiagnosticCode } from '../analyzer/conversion-result';
 import type { MigrationMode } from '../migrator/migration-mode';
 
 export type { MigrationMode } from '../migrator/migration-mode';
@@ -51,7 +52,7 @@ export type ReportResult =
       readonly directive: string;
       readonly sourceName: string;
       readonly offset: number;
-      readonly code: string;
+      readonly code: DiagnosticCode;
       readonly reason: string;
       readonly suggestion: string;
     }

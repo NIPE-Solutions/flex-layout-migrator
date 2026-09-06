@@ -1,7 +1,7 @@
 {
-  "name": "Flex Layout Codemod",
-  "short_name": "Flex Codemod",
-  "description": "A safety-first codemod for migrating Angular Flex-Layout templates.",
+  "name": "Angular Flex-Layout Codemod",
+  "short_name": "Flex-Layout Codemod",
+  "description": "Plan and review Angular Flex-Layout migrations before writing supported output.",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#111b24",

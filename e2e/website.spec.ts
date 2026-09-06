@@ -10,7 +10,7 @@ test('renders responsive navigation and follows a direct documentation link', as
   );
   await page.goto('/docs/tailwind');
 
-  await expect(page.getByRole('heading', { level: 1, name: 'Tailwind CSS output' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: 'Tailwind CSS' })).toBeVisible();
   await expect(page.locator('link[rel="canonical"]')).toHaveAttribute(
     'href',
     'https://angular-flex-layout-codemod.nipesolutions.com/docs/tailwind',
@@ -35,7 +35,27 @@ test('renders responsive navigation and follows a direct documentation link', as
   );
 });
 
-test('exposes canonical metadata, keyboard focus order, and no critical accessibility violations', async ({ page }) => {
+test('restores initial documentation fragments and focuses hash navigation targets', async ({ page }) => {
+  await page.goto('/docs/diagnostics#dynamic-binding');
+  const diagnostic = page.locator('#dynamic-binding');
+  await expect(diagnostic).toBeFocused();
+  await expect(diagnostic).toBeInViewport();
+
+  await page.goto('/docs/compatibility#gdColumns');
+  const directive = page.locator('#gdColumns');
+  await expect(directive).toBeFocused();
+  await expect(directive).toBeInViewport();
+
+  await page.goto('/docs/diagnostics');
+  await page.getByRole('link', { name: 'dynamic-binding' }).click();
+  await expect(page).toHaveURL(/\/docs\/diagnostics#dynamic-binding$/u);
+  await expect(page.locator('#dynamic-binding')).toBeFocused();
+});
+
+test('exposes canonical metadata, keyboard focus order, and no Critical or Serious violations on public routes', async ({
+  page,
+}, testInfo) => {
+  test.slow();
   await page.goto('/');
 
   await expect(page.locator('link[rel="canonical"]')).toHaveAttribute(
@@ -48,8 +68,29 @@ test('exposes canonical metadata, keyboard focus order, and no critical accessib
   await expect(page.getByRole('link', { name: 'Flex Layout Codemod home' })).toBeFocused();
   await expect(page.getByRole('textbox', { name: 'Angular template' })).toBeVisible();
 
-  const results = await new AxeBuilder({ page }).analyze();
-  expect(results.violations.filter(violation => violation.impact === 'critical')).toEqual([]);
+  const routeResponse = await page.request.get('/sitemap.xml');
+  expect(routeResponse.ok()).toBe(true);
+  const routeSource = await routeResponse.text();
+  const routes = [...routeSource.matchAll(/<loc>([^<]+)<\/loc>/gu)].map(match => new URL(match[1] ?? '').pathname);
+  expect(routes[0]).toBe('/');
+  expect(routes).toContain('/privacy');
+  expect(routes).toContain('/imprint');
+  expect(routes.some(route => route.startsWith('/docs'))).toBe(true);
+  expect(new Set(routes)).toHaveProperty('size', routes.length);
+
+  for (const route of routes) {
+    if (route !== '/') await page.goto(route);
+    await expect(page.getByRole('main')).toBeVisible();
+    const results = await new AxeBuilder({ page }).analyze();
+    const materialViolations = results.violations
+      .filter(violation => violation.impact === 'critical' || violation.impact === 'serious')
+      .map(violation => ({
+        id: violation.id,
+        impact: violation.impact,
+        targets: violation.nodes.map(node => node.target),
+      }));
+    expect(materialViolations, `${testInfo.project.name} ${route}`).toEqual([]);
+  }
 });
 
 test('converts both targets, operates output tabs with arrows, and transmits no editor source', async ({ page }) => {
@@ -63,22 +104,23 @@ test('converts both targets, operates output tabs with arrows, and transmits no 
   });
 
   await page.goto('/');
-  const source = page.getByRole('textbox', { name: 'Angular template' });
+  const playground = page.getByRole('region', { name: 'Migration playground preview' });
+  const source = playground.getByRole('textbox', { name: 'Angular template' });
   await expect(source).toBeVisible();
   editingStarted = true;
   await source.fill(`<section id="${sourceMarker}" fxLayout="column"></section>`);
-  await page.getByRole('button', { name: 'Migrate template' }).click();
-  await expect(page.getByRole('tabpanel', { name: 'HTML' })).toContainText('flex flex-col box-border');
+  await playground.getByRole('button', { name: 'Migrate template' }).click();
+  await expect(playground.getByRole('tabpanel', { name: 'HTML' })).toContainText('flex flex-col box-border');
 
-  await page.getByRole('radio', { name: 'Native CSS' }).check();
-  await page.getByRole('button', { name: 'Migrate template' }).click();
-  const htmlTab = page.getByRole('tab', { name: 'HTML' });
-  const cssTab = page.getByRole('tab', { name: 'CSS' });
+  await playground.getByRole('radio', { name: 'Native CSS' }).check();
+  await playground.getByRole('button', { name: 'Migrate template' }).click();
+  const htmlTab = playground.getByRole('tab', { name: 'HTML' });
+  const cssTab = playground.getByRole('tab', { name: 'CSS' });
   await htmlTab.focus();
   await page.keyboard.press('ArrowRight');
   await expect(cssTab).toBeFocused();
   await expect(cssTab).toHaveAttribute('aria-selected', 'true');
-  await expect(page.getByRole('tabpanel', { name: 'CSS' })).toContainText('flex-layout-codemod:start');
+  await expect(playground.getByRole('tabpanel', { name: 'CSS' })).toContainText('flex-layout-codemod:start');
 
   expect(sourceBearingRequests).toEqual([]);
   expect(requestsAfterEditing).toEqual([]);
@@ -99,4 +141,74 @@ test('disables smooth scrolling and transition motion when reduced motion is req
 
   expect(motion.scrollBehavior).toBe('auto');
   expect(['0.01ms', '1e-05s']).toContain(motion.transitionDuration);
+});
+
+test('stacks the real migration plan without page overflow at 375px', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.goto('/');
+
+  await expect(
+    page.getByRole('heading', {
+      name: 'Plan first. Review unresolved cases. Write only when you are ready.',
+    }),
+  ).toBeVisible();
+  const hero = page.locator('.migration-plan-hero');
+  await page.getByRole('radio', { name: 'Native CSS' }).first().check();
+  await expect(hero.getByLabel('Migration HTML output')).toContainText('flm-5db098b5a4e638f');
+  await expect(hero.getByLabel('Migration CSS output')).toContainText('flex-layout-codemod:start');
+
+  const diffScroller = hero.getByRole('list', { name: 'Source change summary lines' });
+  await diffScroller.focus();
+  await expect(diffScroller).toBeFocused();
+  expect(
+    await diffScroller.evaluate(element => ({
+      overflowX: getComputedStyle(element).overflowX,
+      overflows: element.scrollWidth > element.clientWidth,
+    })),
+  ).toEqual({ overflowX: 'auto', overflows: true });
+
+  const heroCodeSizes = await hero
+    .locator('code')
+    .evaluateAll(elements => elements.map(element => Number.parseFloat(getComputedStyle(element).fontSize)));
+  expect(heroCodeSizes.length).toBeGreaterThan(0);
+  expect(Math.min(...heroCodeSizes)).toBeGreaterThanOrEqual(14);
+
+  const planColumns = await hero.locator('.migration-plan-hero__body').evaluate(element => {
+    const style = getComputedStyle(element);
+    return style.gridTemplateColumns.split(' ').length;
+  });
+  expect(planColumns).toBe(1);
+  expect(await page.locator('body').evaluate(element => element.scrollWidth)).toBeLessThanOrEqual(375);
+});
+
+test('keeps mobile documentation context visible and wide content locally scrollable', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.goto('/docs/compatibility');
+
+  const mobileNavigation = page.getByRole('navigation', { name: 'Mobile documentation' });
+  await expect(mobileNavigation).toBeVisible();
+  await expect(mobileNavigation.getByRole('link', { name: 'Compatibility overview' })).toHaveAttribute(
+    'aria-current',
+    'page',
+  );
+  await expect(mobileNavigation.getByText('Compatibility', { exact: true })).toBeVisible();
+
+  const tableScroller = page.locator('.reference-table-scroll');
+  await expect(tableScroller).toBeVisible();
+  expect(
+    await tableScroller.evaluate(element => ({ client: element.clientWidth, scroll: element.scrollWidth })),
+  ).toMatchObject({ client: expect.any(Number), scroll: expect.any(Number) });
+  expect(await tableScroller.evaluate(element => element.scrollWidth > element.clientWidth)).toBe(true);
+  expect(await page.locator('body').evaluate(element => element.scrollWidth)).toBeLessThanOrEqual(375);
+
+  await page.goto('/docs/examples');
+  const exampleCode = page.locator('.verified-example .code-block').first();
+  await expect(exampleCode).toBeVisible();
+  const codeMetrics = await exampleCode.locator('pre').evaluate(element => ({
+    fontSize: Number.parseFloat(getComputedStyle(element).fontSize),
+    overflowX: getComputedStyle(element).overflowX,
+  }));
+  expect(codeMetrics.fontSize).toBeGreaterThanOrEqual(14);
+  expect(codeMetrics.overflowX).toBe('auto');
+  expect(await page.locator('body').evaluate(element => element.scrollWidth)).toBeLessThanOrEqual(375);
 });

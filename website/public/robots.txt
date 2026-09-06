@@ -1,3 +1,0 @@
-User-agent: *
-Allow: /
-Sitemap: https://angular-flex-layout-codemod.nipesolutions.com/sitemap.xml

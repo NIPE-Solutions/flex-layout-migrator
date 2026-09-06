@@ -130,6 +130,34 @@ function inspectMaster(image, path, issues) {
   }
 }
 
+function countRegionColor(image, color, left, right) {
+  let count = 0;
+  for (let y = 0; y < image.height; y += 1) {
+    for (let x = left; x < right; x += 1) {
+      const offset = (y * image.width + x) * 4;
+      if (
+        image.pixels[offset] === color[0] &&
+        image.pixels[offset + 1] === color[1] &&
+        image.pixels[offset + 2] === color[2] &&
+        image.pixels[offset + 3] === color[3]
+      ) {
+        count += 1;
+      }
+    }
+  }
+  return count;
+}
+
+function inspectSocialImage(image, path, issues) {
+  const sourceSignal = countRegionColor(image, PALETTE.red, 0, 400);
+  const convertedPlanSignal = countRegionColor(image, PALETTE.teal, 400, 800);
+  const preservedPlanSignal = countRegionColor(image, PALETTE.review, 400, 800);
+  const outputSignal = countRegionColor(image, PALETTE.teal, 800, image.width);
+  if ([sourceSignal, convertedPlanSignal, preservedPlanSignal, outputSignal].some(count => count < 100)) {
+    issues.push(`${path}: missing source-plan-output composition`);
+  }
+}
+
 function inspectMaskable(image, path, issues) {
   let opaque = true;
   let outsideSafeCircle = false;
@@ -288,6 +316,7 @@ export async function inspectWebsiteAssets(repository = resolve(import.meta.dirn
       if (asset.kind === 'favicon') inspectFavicon(image, asset.path, issues);
       if (asset.kind === 'derivative') inspectTransparency(image, asset.path, issues);
       if (asset.kind === 'maskable') inspectMaskable(image, asset.path, issues);
+      if (asset.kind === 'social') inspectSocialImage(image, asset.path, issues);
     } catch (error) {
       issues.push(`${asset.path}: invalid PNG (${error instanceof Error ? error.message : String(error)})`);
     }

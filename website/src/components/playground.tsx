@@ -52,7 +52,7 @@ export function Playground() {
       );
       return;
     }
-    setStatus(`Migration complete. ${converted} ${pluralize(converted, 'directive')} converted.`);
+    setStatus(`Preview complete. ${converted} ${pluralize(converted, 'directive')} converted.`);
   }
 
   function reset(): void {

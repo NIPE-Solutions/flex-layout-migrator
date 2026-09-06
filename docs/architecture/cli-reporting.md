@@ -99,14 +99,14 @@ type ReportResult =
       readonly directive: string;
       readonly sourceName: string;
       readonly offset: number;
-      readonly code: string;
+      readonly code: DiagnosticCode;
       readonly reason: string;
       readonly suggestion: string;
     }
   | {
       readonly status: 'parse-error';
       readonly offset: number;
-      readonly code: 'template-parse-error';
+      readonly code: 'template-parse-error' | 'generated-template-parse-error';
       readonly reason: string;
     };
 ```

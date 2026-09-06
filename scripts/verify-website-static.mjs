@@ -5,35 +5,14 @@ import { fileURLToPath } from 'node:url';
 
 import ignore from 'ignore';
 
+import { readSiteRouteManifest } from './documentation-route-manifest.mjs';
+import { readTagAttributes, stripMarkupComments } from './authoritative-markup.mjs';
+
 const productionOrigin = 'https://angular-flex-layout-codemod.nipesolutions.com';
-const requiredRoutes = [
-  '/docs',
-  '/docs/cli',
-  '/docs/tailwind',
-  '/docs/native-css',
-  '/docs/safety',
-  '/docs/troubleshooting',
-];
-const siteRoutes = ['/', ...requiredRoutes, '/privacy', '/imprint'];
-const deepLinkRoutes = siteRoutes.filter(route => route !== '/');
 const maximumEntryBytes = 500 * 1024;
 const compilerSentinels = ['Parser Error', 'Unexpected closing tag', 'Incomplete block'];
 
-const root = resolveRoot(process.argv.slice(2));
-
-try {
-  const result = await verifyStaticOutput(root);
-  process.stdout.write(
-    `Website static output verified: ${requiredRoutes.length} routes, ${result.hashedAssets} hashed assets.\n`,
-  );
-} catch (error) {
-  process.stderr.write(
-    `Website static verification failed: ${error instanceof Error ? error.message : String(error)}\n`,
-  );
-  process.exitCode = 1;
-}
-
-async function verifyStaticOutput(projectRoot) {
+export async function verifyStaticOutput(projectRoot) {
   const dist = path.join(projectRoot, 'website', 'dist');
   const indexPath = path.join(dist, 'index.html');
   const [html, vercelSource, manifestSource, sitemap, robots, gitignore] = await Promise.all([
@@ -46,12 +25,19 @@ async function verifyStaticOutput(projectRoot) {
   ]);
   const vercel = JSON.parse(vercelSource);
   const manifest = JSON.parse(manifestSource);
+  const routeManifest = await readSiteRouteManifest(projectRoot);
+  const siteRoutes = routeManifest.map(route => route.path);
+  const requiredRoutes = siteRoutes.filter(route => route.startsWith('/docs'));
+  const deepLinkRoutes = siteRoutes.filter(route => route !== '/');
 
-  assertCanonicalMetadata(html);
-  assertVercelContract(vercel);
+  assertCanonicalMetadata(html, routeManifest[0]);
+  assertVercelContract(vercel, deepLinkRoutes);
   assertVercelMetadataIgnored(gitignore);
-  assertCrawlerFiles(sitemap, robots);
-  await assertRouteDocuments(dist);
+  assertCrawlerFiles(sitemap, robots, siteRoutes);
+  await assertRouteDocuments(
+    dist,
+    routeManifest.filter(route => route.path !== '/'),
+  );
 
   const assetReferences = [...html.matchAll(/(?:href|src)="(\/assets\/[^"?#]+)"/gu)].map(match => match[1]);
   if (assetReferences.length === 0) throw new Error('index.html does not reference built assets');
@@ -71,17 +57,9 @@ async function verifyStaticOutput(projectRoot) {
     throw new Error('index.html references source code instead of built assets');
   }
 
-  const javascript = (
-    await Promise.all(
-      assetFiles.filter(asset => asset.endsWith('.js')).map(asset => readFile(path.join(dist, asset.slice(1)), 'utf8')),
-    )
-  ).join('\n');
-  for (const route of requiredRoutes) {
-    if (!javascript.includes(JSON.stringify(route))) throw new Error(`built JavaScript is missing route ${route}`);
-  }
   await assertCompilerIsLazy({ dist, entrySource, manifest });
 
-  return { hashedAssets: assetFiles.length };
+  return { hashedAssets: assetFiles.length, documentationRoutes: requiredRoutes.length };
 }
 
 function assertVercelMetadataIgnored(gitignore) {
@@ -173,43 +151,144 @@ async function readManifestAssets(dist, manifest, graph) {
   return [...assetsByFile.values()];
 }
 
-function assertCrawlerFiles(sitemap, robots) {
-  for (const route of siteRoutes) {
-    const routeUrl = `${productionOrigin}${route}`;
-    if (!sitemap.includes(`<loc>${routeUrl}</loc>`)) {
-      throw new Error(`sitemap.xml is missing required URL ${routeUrl}`);
-    }
+export function assertCrawlerFiles(sitemap, robots, siteRoutes) {
+  const expectedUrls = siteRoutes.map(route => `${productionOrigin}${route}`);
+  const sitemapUrls = parseSitemapUrls(sitemap);
+  const duplicate = sitemapUrls.find((url, index) => sitemapUrls.indexOf(url) !== index);
+  if (duplicate !== undefined) throw new Error(`sitemap.xml contains duplicate URL ${duplicate}`);
+  const expectedSet = new Set(expectedUrls);
+  const unexpected = sitemapUrls.find(url => !expectedSet.has(url));
+  if (unexpected !== undefined) throw new Error(`sitemap.xml contains unexpected URL ${unexpected}`);
+  const sitemapSet = new Set(sitemapUrls);
+  const missing = expectedUrls.find(url => !sitemapSet.has(url));
+  if (missing !== undefined) throw new Error(`sitemap.xml is missing required URL ${missing}`);
+  if (sitemapUrls.length !== expectedUrls.length) {
+    throw new Error('sitemap.xml URL set does not exactly match the route manifest');
   }
-  if (!/^Allow:\s*\/\s*$/mu.test(robots) || /^Disallow:\s*\/\s*$/mu.test(robots)) {
-    throw new Error('robots.txt must explicitly allow crawling');
-  }
-  if (!robots.includes('User-agent: *') || !robots.includes(`Sitemap: ${productionOrigin}/sitemap.xml`)) {
-    throw new Error('robots.txt must identify the production sitemap');
-  }
-}
-
-async function assertRouteDocuments(dist) {
-  for (const route of deepLinkRoutes) {
-    const routeUrl = `${productionOrigin}${route}`;
-    const routeHtml = await readFile(path.join(dist, `${route.slice(1)}.html`), 'utf8').catch(() => '');
-    if (
-      !routeHtml.includes(`<link rel="canonical" href="${routeUrl}"`) ||
-      !routeHtml.includes(`<meta property="og:url" content="${routeUrl}"`)
-    ) {
-      throw new Error(`raw route metadata is incorrect for ${route}`);
-    }
+  const expectedRobots = `User-agent: *\nAllow: /\nSitemap: ${productionOrigin}/sitemap.xml\n`;
+  if (robots !== expectedRobots) {
+    throw new Error('robots.txt must equal the exact production crawler policy');
   }
 }
 
-function assertCanonicalMetadata(html) {
-  const canonical = `<link rel="canonical" href="${productionOrigin}/"`;
-  if (!html.includes(canonical)) throw new Error(`index.html canonical URL must be ${productionOrigin}/`);
+async function assertRouteDocuments(dist, routes) {
+  for (const route of routes) {
+    const routeHtml = await readFile(path.join(dist, `${route.path.slice(1)}.html`), 'utf8').catch(() => '');
+    try {
+      assertExactSeoMetadata(routeHtml, route);
+    } catch (error) {
+      throw new Error(`raw route metadata is incorrect for ${route.path}: ${errorMessage(error)}`, { cause: error });
+    }
+  }
+}
+
+function assertCanonicalMetadata(html, homeRoute) {
+  try {
+    assertExactSeoMetadata(html, homeRoute);
+  } catch (error) {
+    throw new Error(
+      `index.html SEO metadata is incomplete or inconsistent with the route manifest: ${errorMessage(error)}`,
+      { cause: error },
+    );
+  }
   if (/\/(?:src\/|@vite\/client)|\.tsx(?:[?"'])/u.test(html)) {
     throw new Error('index.html references source code instead of built assets');
   }
 }
 
-function assertVercelContract(vercel) {
+function assertExactSeoMetadata(html, route) {
+  const activeHtml = stripMarkupComments(html, {
+    relevantElement: /<(?:title|meta|link)\b/iu,
+    relevantMessage: 'HTML comments must not contain authoritative metadata elements',
+    malformedMessage: 'HTML contains malformed comments',
+  });
+  const routeUrl = `${productionOrigin}${route.path}`;
+  const title = escapeHtml(route.title);
+  const description = escapeHtml(route.description);
+  const image = `${productionOrigin}/og-image.png`;
+  const imageAlt = 'Angular Flex-Layout migration from source through review plan to output';
+  const titles = [...activeHtml.matchAll(/<title\b[^>]*>([\s\S]*?)<\/title\s*>/giu)];
+  const titleOpenings = [...activeHtml.matchAll(/<title\b/giu)].length;
+  if (titles.length !== 1 || titleOpenings !== 1) {
+    throw new Error(`expected exactly one title, found ${titleOpenings}`);
+  }
+  if (titles[0]?.[1] !== title) throw new Error(`title value mismatch for ${route.path}`);
+
+  const linkTags = [...activeHtml.matchAll(/<link\b[^>]*>/giu)].map(match => readTagAttributes(match[0]));
+  assertSingleMetadataValue(
+    linkTags.filter(attributes => hasToken(attributes.get('rel'), 'canonical')),
+    'canonical',
+    'href',
+    routeUrl,
+  );
+
+  const metaTags = [...activeHtml.matchAll(/<meta\b[^>]*>/giu)].map(match => readTagAttributes(match[0]));
+  const expected = [
+    ['name', 'description', description],
+    ['property', 'og:type', 'website'],
+    ['property', 'og:site_name', 'Angular Flex-Layout Codemod'],
+    ['property', 'og:locale', 'en_US'],
+    ['property', 'og:url', routeUrl],
+    ['property', 'og:title', title],
+    ['property', 'og:description', description],
+    ['property', 'og:image', image],
+    ['property', 'og:image:width', '1200'],
+    ['property', 'og:image:height', '630'],
+    ['property', 'og:image:alt', imageAlt],
+    ['name', 'twitter:card', 'summary_large_image'],
+    ['name', 'twitter:title', title],
+    ['name', 'twitter:description', description],
+    ['name', 'twitter:image', image],
+    ['name', 'twitter:image:alt', imageAlt],
+  ];
+  for (const [selector, key, value] of expected) {
+    assertSingleMetadataValue(
+      metaTags.filter(attributes => attributes.get(selector)?.toLowerCase() === key.toLowerCase()),
+      key,
+      'content',
+      value,
+    );
+  }
+}
+
+function hasToken(value, expected) {
+  return value?.split(/\s+/u).some(token => token.toLowerCase() === expected) ?? false;
+}
+
+function parseSitemapUrls(sitemap) {
+  if (sitemap.trim() === '') return [];
+  const activeXml = stripMarkupComments(sitemap, {
+    relevantElement: /<loc\b/iu,
+    relevantMessage: 'sitemap.xml comments must not contain loc elements',
+    malformedMessage: 'sitemap.xml has invalid comment structure',
+  });
+  const document = activeXml.match(
+    /^\s*<\?xml\s+version="1\.0"\s+encoding="UTF-8"\s*\?>\s*<urlset\s+xmlns="http:\/\/www\.sitemaps\.org\/schemas\/sitemap\/0\.9"\s*>\s*([\s\S]*?)\s*<\/urlset>\s*$/u,
+  );
+  if (document === null) throw new Error('sitemap.xml has invalid structure');
+  const body = document[1] ?? '';
+  const urls = [];
+  const entryPattern = /<url\s*>\s*<loc\s*>([^<]+)<\/loc\s*>\s*<\/url\s*>/gu;
+  let cursor = 0;
+  for (const match of body.matchAll(entryPattern)) {
+    if (body.slice(cursor, match.index).trim() !== '') throw new Error('sitemap.xml has invalid structure');
+    urls.push(match[1].trim());
+    cursor = (match.index ?? 0) + match[0].length;
+  }
+  if (body.slice(cursor).trim() !== '') throw new Error('sitemap.xml has invalid structure');
+  return urls;
+}
+
+function assertSingleMetadataValue(tags, key, valueAttribute, expectedValue) {
+  if (tags.length !== 1) throw new Error(`expected exactly one ${key}, found ${tags.length}`);
+  if (tags[0]?.get(valueAttribute) !== expectedValue) throw new Error(`${key} value mismatch`);
+}
+
+function errorMessage(error) {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function assertVercelContract(vercel, deepLinkRoutes) {
   const exactSettings = {
     framework: 'vite',
     installCommand: 'npm ci',
@@ -239,13 +318,36 @@ function assertVercelContract(vercel) {
     }
   }
 
+  assertRouteDeliveryContract(vercel, deepLinkRoutes);
+}
+
+export function assertRouteDeliveryContract(vercel, deepLinkRoutes) {
+  const rootRedirect = { source: '/index.html', destination: '/', permanent: true };
+  const expectedRedirects = [
+    rootRedirect,
+    ...deepLinkRoutes.map(route => ({
+      source: `${route}.html`,
+      destination: route,
+      permanent: true,
+    })),
+  ];
+  if (JSON.stringify(vercel.redirects?.[0]) !== JSON.stringify(rootRedirect)) {
+    throw new Error('vercel.json must define the permanent root HTML redirect from /index.html to /');
+  }
+  if (JSON.stringify(vercel.redirects) !== JSON.stringify(expectedRedirects)) {
+    throw new Error('vercel.json must define canonical HTML redirects for every deep-link document');
+  }
   const expectedRewrites = [
     ...deepLinkRoutes.map(route => ({ source: route, destination: `${route}.html` })),
     { source: '/(.*)', destination: '/index.html' },
   ];
   if (JSON.stringify(vercel.rewrites) !== JSON.stringify(expectedRewrites)) {
-    throw new Error('vercel.json must provide the SPA deep-link fallback');
+    throw new Error('vercel.json must deliver exact route documents before the SPA fallback');
   }
+}
+
+function escapeHtml(value) {
+  return value.replaceAll('&', '&amp;').replaceAll('"', '&quot;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
 }
 
 function resolveRoot(arguments_) {
@@ -256,4 +358,19 @@ function resolveRoot(arguments_) {
   const rootValue = arguments_[rootIndex + 1];
   if (rootValue === undefined) throw new Error('--root requires a directory');
   return path.resolve(rootValue);
+}
+
+if (process.argv[1] !== undefined && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  const root = resolveRoot(process.argv.slice(2));
+  try {
+    const result = await verifyStaticOutput(root);
+    process.stdout.write(
+      `Website static output verified: ${result.documentationRoutes} routes, ${result.hashedAssets} hashed assets.\n`,
+    );
+  } catch (error) {
+    process.stderr.write(
+      `Website static verification failed: ${error instanceof Error ? error.message : String(error)}\n`,
+    );
+    process.exitCode = 1;
+  }
 }

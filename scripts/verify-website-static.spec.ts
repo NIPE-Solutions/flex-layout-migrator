@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -40,22 +40,22 @@ describe('website static output verification', () => {
     expect(verification.stderr).toContain('index.html references source code instead of built assets');
   });
 
-  it('rejects an output that omits a required documentation route', async () => {
+  it('rejects an output that omits a content-backed documentation document', async () => {
     const root = await createFixture({ routes: requiredRoutes.slice(0, -1) });
 
     const verification = runVerifier(root);
 
     expect(verification.status).toBe(1);
-    expect(verification.stderr).toContain('built JavaScript is missing route /docs/troubleshooting');
+    expect(verification.stderr).toContain('raw route metadata is incorrect for /docs/troubleshooting');
   });
 
-  it('matches route tokens exactly instead of accepting a child route for /docs', async () => {
+  it('requires the exact root documentation document instead of accepting only child routes', async () => {
     const root = await createFixture({ routes: requiredRoutes.slice(1) });
 
     const verification = runVerifier(root);
 
     expect(verification.status).toBe(1);
-    expect(verification.stderr).toContain('built JavaScript is missing route /docs');
+    expect(verification.stderr).toContain('raw route metadata is incorrect for /docs');
   });
 
   it('rejects an oversized entry bundle that would eagerly load the compiler on documentation routes', async () => {
@@ -74,7 +74,7 @@ describe('website static output verification', () => {
 
     expect(verification.status).toBe(1);
     expect(verification.stderr).toContain('eager JavaScript graph exceeds the 500 KiB aggregate budget');
-    expect(verification.stderr).toContain('532575 bytes');
+    expect(verification.stderr).toContain('532481 bytes');
   });
 
   it('rejects an unhashed lazy asset that cannot be cached immutably', async () => {
@@ -164,6 +164,72 @@ describe('website static output verification', () => {
     expect(verification.stderr).toContain('sitemap.xml is missing required URL');
   });
 
+  it('rejects a duplicate sitemap URL even when the required URL set is present', async () => {
+    const root = await createFixture();
+    await mutateFile(root, 'website/dist/sitemap.xml', source => {
+      const entry = '<url><loc>https://angular-flex-layout-codemod.nipesolutions.com/</loc></url>';
+      return source.replace(entry, `${entry}${entry}`);
+    });
+
+    const verification = runVerifier(root);
+
+    expect(verification.status).toBe(1);
+    expect(verification.stderr).toContain('sitemap.xml contains duplicate URL');
+  });
+
+  it('rejects an unexpected sitemap URL even when every required URL is present', async () => {
+    const root = await createFixture();
+    await mutateFile(root, 'website/dist/sitemap.xml', source =>
+      source.replace(
+        '</urlset>',
+        '<url><loc>https://angular-flex-layout-codemod.nipesolutions.com/extra</loc></url></urlset>',
+      ),
+    );
+
+    const verification = runVerifier(root);
+
+    expect(verification.status).toBe(1);
+    expect(verification.stderr).toContain('sitemap.xml contains unexpected URL');
+  });
+
+  it('rejects a required sitemap URL hidden inside an XML comment', async () => {
+    const root = await createFixture();
+    await mutateFile(root, 'website/dist/sitemap.xml', source => {
+      const entry = '<url><loc>https://angular-flex-layout-codemod.nipesolutions.com/</loc></url>';
+      return source.replace(entry, `<!-- ${entry} -->`);
+    });
+
+    const verification = runVerifier(root);
+
+    expect(verification.status).toBe(1);
+    expect(verification.stderr).toContain('sitemap.xml comments must not contain loc elements');
+  });
+
+  it('rejects malformed sitemap nesting even when every expected loc value is present', async () => {
+    const root = await createFixture();
+    await mutateFile(root, 'website/dist/sitemap.xml', source =>
+      source.replace(
+        '<url><loc>https://angular-flex-layout-codemod.nipesolutions.com/docs</loc></url>',
+        '<url><loc>https://angular-flex-layout-codemod.nipesolutions.com/docs</url></loc>',
+      ),
+    );
+
+    const verification = runVerifier(root);
+
+    expect(verification.status).toBe(1);
+    expect(verification.stderr).toContain('sitemap.xml has invalid structure');
+  });
+
+  it('rejects additional robots directives even when the required policy is present', async () => {
+    const root = await createFixture();
+    await mutateFile(root, 'website/dist/robots.txt', source => `${source}Disallow: /private\n`);
+
+    const verification = runVerifier(root);
+
+    expect(verification.status).toBe(1);
+    expect(verification.stderr).toContain('robots.txt must equal the exact production crawler policy');
+  });
+
   it('rejects raw deep-link documents that reuse the root canonical metadata', async () => {
     const root = await createFixture({ routeMetadata: false });
 
@@ -173,13 +239,83 @@ describe('website static output verification', () => {
     expect(verification.stderr).toContain('raw route metadata is incorrect for /docs');
   });
 
+  it('rejects raw deep-link documents without route-specific Twitter metadata', async () => {
+    const root = await createFixture({ routeTwitterMetadata: false });
+
+    const verification = runVerifier(root);
+
+    expect(verification.status).toBe(1);
+    expect(verification.stderr).toContain('raw route metadata is incorrect for /docs');
+  });
+
+  it.each([
+    ['title', '<title>Migration guide — Angular Flex-Layout Codemod</title>'],
+    ['description', '<meta name="description" content="Documentation fixture for /docs." />'],
+    ['canonical', '<link rel="canonical" href="https://angular-flex-layout-codemod.nipesolutions.com/docs" />'],
+    ['og:title', '<meta property="og:title" content="Conflicting route title" />'],
+  ])('rejects a second authoritative %s tag in a generated route document', async (key, duplicate) => {
+    const root = await createFixture();
+    await mutateFile(root, 'website/dist/docs.html', source => `${source}${duplicate}`);
+
+    const verification = runVerifier(root);
+
+    expect(verification.status).toBe(1);
+    expect(verification.stderr).toContain(`expected exactly one ${key}`);
+  });
+
+  it('rejects expected Open Graph metadata that exists only inside an HTML comment', async () => {
+    const root = await createFixture();
+    await mutateFile(root, 'website/dist/docs.html', source => {
+      const tag = '<meta property="og:title" content="Migration guide — Angular Flex-Layout Codemod" />';
+      return source.replace(tag, `<!-- ${tag} -->`);
+    });
+
+    const verification = runVerifier(root);
+
+    expect(verification.status).toBe(1);
+    expect(verification.stderr).toContain('HTML comments must not contain authoritative metadata elements');
+  });
+
+  it('rejects case-insensitive duplicate attributes before applying browser-first metadata semantics', async () => {
+    const root = await createFixture();
+    await mutateFile(root, 'website/dist/docs.html', source =>
+      source.replace(
+        '<meta property="og:title" content="Migration guide — Angular Flex-Layout Codemod" />',
+        '<meta property="og:title" CONTENT="wrong" content="Migration guide — Angular Flex-Layout Codemod" />',
+      ),
+    );
+
+    const verification = runVerifier(root);
+
+    expect(verification.status).toBe(1);
+    expect(verification.stderr).toContain('metadata tag contains duplicate attribute content');
+  });
+
+  it('rejects root output without complete review-first SEO metadata', async () => {
+    const root = await createFixture({ rootSeoMetadata: false });
+
+    const verification = runVerifier(root);
+
+    expect(verification.status).toBe(1);
+    expect(verification.stderr).toContain('index.html SEO metadata is incomplete');
+  });
+
+  it('rejects deployment routing that exposes generated HTML aliases without canonical redirects', async () => {
+    const root = await createFixture({ htmlRedirects: false });
+
+    const verification = runVerifier(root);
+
+    expect(verification.status).toBe(1);
+    expect(verification.stderr).toContain('canonical HTML redirects');
+  });
+
   it('rejects a robots policy that blocks the website', async () => {
     const root = await createFixture({ robotsDisallow: true });
 
     const verification = runVerifier(root);
 
     expect(verification.status).toBe(1);
-    expect(verification.stderr).toContain('robots.txt must explicitly allow crawling');
+    expect(verification.stderr).toContain('robots.txt must equal the exact production crawler policy');
   });
 
   it('rejects a deployment configuration that leaves local Vercel metadata trackable', async () => {
@@ -210,6 +346,9 @@ async function createFixture(
     readonly eagerCompiler?: boolean;
     readonly crawlerFiles?: boolean;
     readonly routeMetadata?: boolean;
+    readonly routeTwitterMetadata?: boolean;
+    readonly rootSeoMetadata?: boolean;
+    readonly htmlRedirects?: boolean;
     readonly robotsDisallow?: boolean;
     readonly aggregateEagerImports?: boolean;
     readonly eagerImportedCompiler?: boolean;
@@ -227,6 +366,8 @@ async function createFixture(
   const dist = path.join(root, 'website', 'dist');
   const assets = path.join(dist, 'assets');
   await mkdir(assets, { recursive: true });
+  const content = path.join(root, 'website', 'content', 'start');
+  await mkdir(content, { recursive: true });
   await writeFile(
     path.join(root, '.gitignore'),
     [options.vercelIgnored === false ? '' : '.vercel/', options.vercelEnvironmentIgnored === false ? '' : '.env.local']
@@ -235,7 +376,14 @@ async function createFixture(
   );
 
   const routes = options.routes ?? requiredRoutes;
-  const routeSource = routes.map(route => JSON.stringify(route)).join(';');
+  const routeSource = '';
+  for (const [index, route] of requiredRoutes.entries()) {
+    const metadata = metadataForRoute(route);
+    await writeFile(
+      path.join(content, `${index}.md`),
+      `---\npath: ${route}\ntitle: ${metadata.title}\ndescription: ${metadata.description}\ngroup: start\norder: ${index + 1}\n---\n# ${metadata.title}\n\n## Fixture section\n\nSubstantive fixture content.\n`,
+    );
+  }
   const compilerSentinel = 'Parser Error: Unexpected closing tag; Incomplete block';
   const entrySource = `${routeSource};${options.eagerCompiler ? compilerSentinel : ''}${'x'.repeat(Math.max(0, (options.entryBytes ?? 0) - routeSource.length - 1))}`;
   await writeFile(path.join(assets, 'index-Ab12Cd34.js'), entrySource);
@@ -297,7 +445,40 @@ async function createFixture(
   if (options.unhashedAsset) await writeFile(path.join(assets, 'playground.js'), 'export{}');
   await writeFile(
     path.join(dist, 'index.html'),
-    `<!doctype html><html lang="en"><head><link rel="canonical" href="https://angular-flex-layout-codemod.nipesolutions.com/" /><link rel="stylesheet" href="/assets/index-Ef56Gh78.css" /></head><body><div id="root"></div><script type="module" src="${options.sourceEntry ? '/src/main.tsx' : '/assets/index-Ab12Cd34.js'}"></script></body></html>`,
+    `<!doctype html><html lang="en"><head>
+<link rel="canonical" href="https://angular-flex-layout-codemod.nipesolutions.com/" />
+<link rel="stylesheet" href="/assets/index-Ef56Gh78.css" />
+<title>Angular Flex-Layout Codemod — Plan, review, migrate</title>
+${
+  options.rootSeoMetadata === false
+    ? ''
+    : `<meta
+  name="description"
+  content="Plan and review Angular Flex-Layout migrations before writing supported Tailwind CSS or native CSS output. Unresolved source stays visible."
+/>
+<meta property="og:type" content="website" />
+<meta property="og:site_name" content="Angular Flex-Layout Codemod" />
+<meta property="og:locale" content="en_US" />
+<meta property="og:url" content="https://angular-flex-layout-codemod.nipesolutions.com/" />
+<meta property="og:title" content="Angular Flex-Layout Codemod — Plan, review, migrate" />
+<meta
+  property="og:description"
+  content="Plan and review Angular Flex-Layout migrations before writing supported Tailwind CSS or native CSS output. Unresolved source stays visible."
+/>
+<meta property="og:image" content="https://angular-flex-layout-codemod.nipesolutions.com/og-image.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="Angular Flex-Layout migration from source through review plan to output" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="Angular Flex-Layout Codemod — Plan, review, migrate" />
+<meta
+  name="twitter:description"
+  content="Plan and review Angular Flex-Layout migrations before writing supported Tailwind CSS or native CSS output. Unresolved source stays visible."
+/>
+<meta name="twitter:image" content="https://angular-flex-layout-codemod.nipesolutions.com/og-image.png" />
+<meta name="twitter:image:alt" content="Angular Flex-Layout migration from source through review plan to output" />`
+}
+</head><body><div id="root"></div><script type="module" src="${options.sourceEntry ? '/src/main.tsx' : '/assets/index-Ab12Cd34.js'}"></script></body></html>`,
   );
   await writeFile(
     path.join(root, 'vercel.json'),
@@ -307,6 +488,17 @@ async function createFixture(
       installCommand: 'npm ci',
       buildCommand: 'npm run build:website',
       outputDirectory: 'website/dist',
+      redirects:
+        options.htmlRedirects === false
+          ? [{ source: '/index.html', destination: '/', permanent: true }]
+          : [
+              { source: '/index.html', destination: '/', permanent: true },
+              ...[...requiredRoutes, '/privacy', '/imprint'].map(route => ({
+                source: `${route}.html`,
+                destination: route,
+                permanent: true,
+              })),
+            ],
       headers: [
         {
           source: '/assets/(.*)',
@@ -358,7 +550,12 @@ async function createFixture(
   if (options.crawlerFiles !== false) {
     await writeFile(
       path.join(dist, 'sitemap.xml'),
-      `<?xml version="1.0" encoding="UTF-8"?><urlset>${['/', ...requiredRoutes, '/privacy', '/imprint']
+      `<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${[
+        '/',
+        ...requiredRoutes,
+        '/privacy',
+        '/imprint',
+      ]
         .map(route => `<url><loc>https://angular-flex-layout-codemod.nipesolutions.com${route}</loc></url>`)
         .join('')}</urlset>`,
     );
@@ -367,15 +564,17 @@ async function createFixture(
       `User-agent: *\n${options.robotsDisallow ? 'Disallow' : 'Allow'}: /\nSitemap: https://angular-flex-layout-codemod.nipesolutions.com/sitemap.xml\n`,
     );
   }
-  for (const route of [...requiredRoutes, '/privacy', '/imprint']) {
+  for (const route of [...routes, '/privacy', '/imprint']) {
     const routeUrl = `https://angular-flex-layout-codemod.nipesolutions.com${route}`;
     const metadataUrl =
       options.routeMetadata === false ? 'https://angular-flex-layout-codemod.nipesolutions.com/' : routeUrl;
+    const metadata = metadataForRoute(route);
+    const title = route.startsWith('/docs') ? `${metadata.title} — Angular Flex-Layout Codemod` : metadata.title;
     const outputPath = path.join(dist, `${route.slice(1)}.html`);
     await mkdir(path.dirname(outputPath), { recursive: true });
     await writeFile(
       outputPath,
-      `<link rel="canonical" href="${metadataUrl}" /><meta property="og:url" content="${metadataUrl}" />`,
+      `<link rel="canonical" href="${metadataUrl}" /><title>${title}</title><meta name="description" content="${metadata.description}" /><meta property="og:type" content="website" /><meta property="og:site_name" content="Angular Flex-Layout Codemod" /><meta property="og:locale" content="en_US" /><meta property="og:url" content="${metadataUrl}" /><meta property="og:title" content="${title}" /><meta property="og:description" content="${metadata.description}" /><meta property="og:image" content="https://angular-flex-layout-codemod.nipesolutions.com/og-image.png" /><meta property="og:image:width" content="1200" /><meta property="og:image:height" content="630" /><meta property="og:image:alt" content="Angular Flex-Layout migration from source through review plan to output" /><meta name="twitter:card" content="summary_large_image" />${options.routeTwitterMetadata === false ? '' : `<meta name="twitter:title" content="${title}" /><meta name="twitter:description" content="${metadata.description}" />`}<meta name="twitter:image" content="https://angular-flex-layout-codemod.nipesolutions.com/og-image.png" /><meta name="twitter:image:alt" content="Angular Flex-Layout migration from source through review plan to output" />`,
     );
   }
   return root;
@@ -391,8 +590,40 @@ async function createFixture(
   }
 }
 
+function metadataForRoute(route: string): { readonly title: string; readonly description: string } {
+  const documentation = new Map([
+    ['/docs', 'Migration guide'],
+    ['/docs/cli', 'CLI reference'],
+    ['/docs/tailwind', 'Tailwind CSS'],
+    ['/docs/native-css', 'Native CSS'],
+    ['/docs/safety', 'Safety model'],
+    ['/docs/troubleshooting', 'Troubleshooting'],
+  ]);
+  if (route === '/privacy') {
+    return {
+      title: 'Privacy — Angular Flex-Layout Codemod',
+      description: 'The template playground is designed as a local, in-browser preview.',
+    };
+  }
+  if (route === '/imprint') {
+    return {
+      title: 'Imprint — Angular Flex-Layout Codemod',
+      description: 'Project and publisher information for Flex Layout Codemod.',
+    };
+  }
+  return {
+    title: documentation.get(route) ?? 'Documentation',
+    description: `Documentation fixture for ${route}.`,
+  };
+}
+
 function runVerifier(root: string) {
   return spawnSync(process.execPath, [verifier.pathname, '--root', root], {
     encoding: 'utf8',
   });
+}
+
+async function mutateFile(root: string, relativePath: string, mutation: (source: string) => string): Promise<void> {
+  const file = path.join(root, relativePath);
+  await writeFile(file, mutation(await readFile(file, 'utf8')));
 }

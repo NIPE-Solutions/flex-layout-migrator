@@ -4,6 +4,48 @@
   "installCommand": "npm ci",
   "buildCommand": "npm run build:website",
   "outputDirectory": "website/dist",
+  "redirects": [
+    { "source": "/index.html", "destination": "/", "permanent": true },
+    { "source": "/docs.html", "destination": "/docs", "permanent": true },
+    { "source": "/docs/installation.html", "destination": "/docs/installation", "permanent": true },
+    { "source": "/docs/quick-start.html", "destination": "/docs/quick-start", "permanent": true },
+    { "source": "/docs/workflow.html", "destination": "/docs/workflow", "permanent": true },
+    { "source": "/docs/large-codebase.html", "destination": "/docs/large-codebase", "permanent": true },
+    { "source": "/docs/tailwind.html", "destination": "/docs/tailwind", "permanent": true },
+    { "source": "/docs/native-css.html", "destination": "/docs/native-css", "permanent": true },
+    { "source": "/docs/responsive-images.html", "destination": "/docs/responsive-images", "permanent": true },
+    { "source": "/docs/compatibility.html", "destination": "/docs/compatibility", "permanent": true },
+    {
+      "source": "/docs/compatibility/directives.html",
+      "destination": "/docs/compatibility/directives",
+      "permanent": true
+    },
+    {
+      "source": "/docs/compatibility/dynamic-bindings.html",
+      "destination": "/docs/compatibility/dynamic-bindings",
+      "permanent": true
+    },
+    { "source": "/docs/safety.html", "destination": "/docs/safety", "permanent": true },
+    { "source": "/docs/atomic-migrations.html", "destination": "/docs/atomic-migrations", "permanent": true },
+    {
+      "source": "/docs/class-style-conflicts.html",
+      "destination": "/docs/class-style-conflicts",
+      "permanent": true
+    },
+    { "source": "/docs/parsing.html", "destination": "/docs/parsing", "permanent": true },
+    { "source": "/docs/transactions.html", "destination": "/docs/transactions", "permanent": true },
+    { "source": "/docs/reruns.html", "destination": "/docs/reruns", "permanent": true },
+    { "source": "/docs/diagnostics.html", "destination": "/docs/diagnostics", "permanent": true },
+    { "source": "/docs/reports.html", "destination": "/docs/reports", "permanent": true },
+    { "source": "/docs/ci.html", "destination": "/docs/ci", "permanent": true },
+    { "source": "/docs/unresolved.html", "destination": "/docs/unresolved", "permanent": true },
+    { "source": "/docs/cli.html", "destination": "/docs/cli", "permanent": true },
+    { "source": "/docs/examples.html", "destination": "/docs/examples", "permanent": true },
+    { "source": "/docs/troubleshooting.html", "destination": "/docs/troubleshooting", "permanent": true },
+    { "source": "/docs/project.html", "destination": "/docs/project", "permanent": true },
+    { "source": "/privacy.html", "destination": "/privacy", "permanent": true },
+    { "source": "/imprint.html", "destination": "/imprint", "permanent": true }
+  ],
   "headers": [
     {
       "source": "/assets/(.*)",
@@ -42,8 +84,20 @@
       "destination": "/docs.html"
     },
     {
-      "source": "/docs/cli",
-      "destination": "/docs/cli.html"
+      "source": "/docs/installation",
+      "destination": "/docs/installation.html"
+    },
+    {
+      "source": "/docs/quick-start",
+      "destination": "/docs/quick-start.html"
+    },
+    {
+      "source": "/docs/workflow",
+      "destination": "/docs/workflow.html"
+    },
+    {
+      "source": "/docs/large-codebase",
+      "destination": "/docs/large-codebase.html"
     },
     {
       "source": "/docs/tailwind",
@@ -54,12 +108,76 @@
       "destination": "/docs/native-css.html"
     },
     {
+      "source": "/docs/responsive-images",
+      "destination": "/docs/responsive-images.html"
+    },
+    {
+      "source": "/docs/compatibility",
+      "destination": "/docs/compatibility.html"
+    },
+    {
+      "source": "/docs/compatibility/directives",
+      "destination": "/docs/compatibility/directives.html"
+    },
+    {
+      "source": "/docs/compatibility/dynamic-bindings",
+      "destination": "/docs/compatibility/dynamic-bindings.html"
+    },
+    {
       "source": "/docs/safety",
       "destination": "/docs/safety.html"
     },
     {
+      "source": "/docs/atomic-migrations",
+      "destination": "/docs/atomic-migrations.html"
+    },
+    {
+      "source": "/docs/class-style-conflicts",
+      "destination": "/docs/class-style-conflicts.html"
+    },
+    {
+      "source": "/docs/parsing",
+      "destination": "/docs/parsing.html"
+    },
+    {
+      "source": "/docs/transactions",
+      "destination": "/docs/transactions.html"
+    },
+    {
+      "source": "/docs/reruns",
+      "destination": "/docs/reruns.html"
+    },
+    {
+      "source": "/docs/diagnostics",
+      "destination": "/docs/diagnostics.html"
+    },
+    {
+      "source": "/docs/reports",
+      "destination": "/docs/reports.html"
+    },
+    {
+      "source": "/docs/ci",
+      "destination": "/docs/ci.html"
+    },
+    {
+      "source": "/docs/unresolved",
+      "destination": "/docs/unresolved.html"
+    },
+    {
+      "source": "/docs/cli",
+      "destination": "/docs/cli.html"
+    },
+    {
+      "source": "/docs/examples",
+      "destination": "/docs/examples.html"
+    },
+    {
       "source": "/docs/troubleshooting",
       "destination": "/docs/troubleshooting.html"
+    },
+    {
+      "source": "/docs/project",
+      "destination": "/docs/project.html"
     },
     {
       "source": "/privacy",

@@ -39,7 +39,7 @@ describe('migration playground', () => {
       ),
     ).toBeInTheDocument();
     expect(source).toHaveValue(editedSource);
-    expect(screen.getByRole('status')).toHaveTextContent('Migration complete. 1 directive converted.');
+    expect(screen.getByRole('status')).toHaveTextContent('Preview complete. 1 directive converted.');
     expect(networkRequest).not.toHaveBeenCalled();
   });
 
