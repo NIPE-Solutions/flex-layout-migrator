@@ -23,9 +23,13 @@ describe('website route metadata generation', () => {
     expect(html).toContain(
       '<link rel="canonical" href="https://angular-flex-layout-codemod.nipesolutions.com/docs/example"',
     );
-    expect(html).toContain('<title>Example &amp; review — Flex Layout Codemod</title>');
+    expect(html).toContain('<title>Example &amp; review — Angular Flex-Layout Codemod</title>');
     expect(html).toContain('<meta name="description" content="Inspect &quot;safe&quot; route output &amp; metadata."');
-    expect(html).toContain('<meta property="og:title" content="Example &amp; review — Flex Layout Codemod"');
+    expect(html).toContain('<meta property="og:title" content="Example &amp; review — Angular Flex-Layout Codemod"');
+    expect(html).toContain('<meta name="twitter:title" content="Example &amp; review — Angular Flex-Layout Codemod"');
+    expect(html).toContain(
+      '<meta name="twitter:description" content="Inspect &quot;safe&quot; route output &amp; metadata."',
+    );
 
     const sitemap = await readFile(path.join(root, 'website/dist/sitemap.xml'), 'utf8');
     const robots = await readFile(path.join(root, 'website/dist/robots.txt'), 'utf8');
@@ -57,6 +61,7 @@ describe('website route metadata generation', () => {
   it('fails route delivery verification when a content route loses its exact rewrite', () => {
     const routes = ['/docs', '/docs/example', '/privacy', '/imprint'];
     const complete = {
+      redirects: routes.map(route => ({ source: `${route}.html`, destination: route, permanent: true })),
       rewrites: [
         ...routes.map(route => ({ source: route, destination: `${route}.html` })),
         { source: '/(.*)', destination: '/index.html' },
@@ -101,6 +106,8 @@ Substantive fixture content.
 <meta property="og:url" content="https://angular-flex-layout-codemod.nipesolutions.com/" />
 <meta property="og:title" content="Flex Layout Codemod — NIPE Open Source" />
 <meta property="og:description" content="Home description." />
+<meta name="twitter:title" content="Flex Layout Codemod — NIPE Open Source" />
+<meta name="twitter:description" content="Home description." />
 <title>Flex Layout Codemod — NIPE Open Source</title>
 </head><body></body></html>`,
   );

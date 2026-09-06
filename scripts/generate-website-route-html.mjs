@@ -27,27 +27,23 @@ function applyRouteMetadata(html, route) {
   const routeUrl = `${productionOrigin}${route.path}`;
   const title = escapeHtml(route.title);
   const description = escapeHtml(route.description);
-  return replaceRequired(
-    replaceRequired(
-      replaceRequired(
-        replaceRequired(
-          replaceRequired(
-            replaceRequired(html, /<link rel="canonical" href="[^"]+"/u, `<link rel="canonical" href="${routeUrl}"`),
-            /<title>[^<]*<\/title>/u,
-            `<title>${title}</title>`,
-          ),
-          /<meta\s+name="description"\s+content="[^"]*"\s*\/?\s*>/u,
-          `<meta name="description" content="${description}" />`,
-        ),
-        /<meta property="og:url" content="[^"]+"/u,
-        `<meta property="og:url" content="${routeUrl}"`,
-      ),
-      /<meta property="og:title" content="[^"]*"/u,
-      `<meta property="og:title" content="${title}"`,
-    ),
-    /<meta\s+property="og:description"\s+content="[^"]*"\s*\/?\s*>/u,
-    `<meta property="og:description" content="${description}" />`,
-  );
+  const replacements = [
+    [/<link rel="canonical" href="[^"]+"/u, `<link rel="canonical" href="${routeUrl}"`],
+    [/<title>[^<]*<\/title>/u, `<title>${title}</title>`],
+    [/<meta\s+name="description"\s+content="[^"]*"\s*\/?\s*>/u, `<meta name="description" content="${description}" />`],
+    [/<meta property="og:url" content="[^"]+"/u, `<meta property="og:url" content="${routeUrl}"`],
+    [/<meta property="og:title" content="[^"]*"/u, `<meta property="og:title" content="${title}"`],
+    [
+      /<meta\s+property="og:description"\s+content="[^"]*"\s*\/?\s*>/u,
+      `<meta property="og:description" content="${description}" />`,
+    ],
+    [/<meta\s+name="twitter:title"\s+content="[^"]*"\s*\/?\s*>/u, `<meta name="twitter:title" content="${title}" />`],
+    [
+      /<meta\s+name="twitter:description"\s+content="[^"]*"\s*\/?\s*>/u,
+      `<meta name="twitter:description" content="${description}" />`,
+    ],
+  ];
+  return replacements.reduce((source, [pattern, replacement]) => replaceRequired(source, pattern, replacement), html);
 }
 
 function replaceRequired(source, pattern, replacement) {

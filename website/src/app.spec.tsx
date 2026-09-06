@@ -21,7 +21,7 @@ describe('documentation website shell', () => {
     expect(
       screen.getByRole('heading', {
         level: 1,
-        name: 'Migrate Angular Flex-Layout with confidence.',
+        name: 'Plan an Angular Flex-Layout migration before you write.',
       }),
     ).toBeInTheDocument();
     expect(
@@ -41,16 +41,22 @@ describe('documentation website shell', () => {
     render(<App />);
 
     const familyUrl = 'https://opensource.nipesolutions.com';
+    const footer = screen.getByRole('contentinfo');
     expect(
       within(screen.getByRole('banner')).getByRole('link', {
         name: 'NIPE Open Source',
       }),
     ).toHaveAttribute('href', familyUrl);
     expect(
-      within(screen.getByRole('contentinfo')).getByRole('link', {
+      within(footer).getByRole('link', {
         name: 'NIPE Open Source',
       }),
     ).toHaveAttribute('href', familyUrl);
+    expect(
+      within(footer)
+        .getAllByRole('heading', { level: 2 })
+        .map(heading => heading.textContent),
+    ).toEqual(['Project', 'NIPE', 'Legal', 'License']);
   });
 
   it('navigates from the home page to documentation without a page load', () => {
@@ -179,6 +185,14 @@ describe('documentation website shell', () => {
     openGraphDescription.setAttribute('property', 'og:description');
     openGraphDescription.dataset.routeMetadataTest = '';
     document.head.append(openGraphDescription);
+    const twitterTitle = document.createElement('meta');
+    twitterTitle.name = 'twitter:title';
+    twitterTitle.dataset.routeMetadataTest = '';
+    document.head.append(twitterTitle);
+    const twitterDescription = document.createElement('meta');
+    twitterDescription.name = 'twitter:description';
+    twitterDescription.dataset.routeMetadataTest = '';
+    document.head.append(twitterDescription);
     window.history.replaceState(null, '', '/docs/native-css');
 
     render(<App />);
@@ -193,12 +207,14 @@ describe('documentation website shell', () => {
       'content',
       'https://angular-flex-layout-codemod.nipesolutions.com/docs/native-css',
     );
-    expect(document.title).toBe('Native CSS — Flex Layout Codemod');
+    expect(document.title).toBe('Native CSS — Angular Flex-Layout Codemod');
     expect(description.content).toBe(
       'Generate deterministic template classes and a bounded, tool-owned stylesheet for supported Flex semantics.',
     );
-    expect(openGraphTitle.content).toBe('Native CSS — Flex Layout Codemod');
+    expect(openGraphTitle.content).toBe('Native CSS — Angular Flex-Layout Codemod');
     expect(openGraphDescription.content).toBe(description.content);
+    expect(twitterTitle.content).toBe('Native CSS — Angular Flex-Layout Codemod');
+    expect(twitterDescription.content).toBe(description.content);
   });
 
   it('renders and copies the published large-codebase checklist from its Markdown route', async () => {

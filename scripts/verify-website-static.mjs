@@ -29,7 +29,7 @@ export async function verifyStaticOutput(projectRoot) {
   const requiredRoutes = siteRoutes.filter(route => route.startsWith('/docs'));
   const deepLinkRoutes = siteRoutes.filter(route => route !== '/');
 
-  assertCanonicalMetadata(html);
+  assertCanonicalMetadata(html, routeManifest[0]);
   assertVercelContract(vercel, deepLinkRoutes);
   assertVercelMetadataIgnored(gitignore);
   assertCrawlerFiles(sitemap, robots, siteRoutes);
@@ -167,26 +167,55 @@ export function assertCrawlerFiles(sitemap, robots, siteRoutes) {
 
 async function assertRouteDocuments(dist, routes) {
   for (const route of routes) {
-    const routeUrl = `${productionOrigin}${route.path}`;
     const routeHtml = await readFile(path.join(dist, `${route.path.slice(1)}.html`), 'utf8').catch(() => '');
-    if (
-      !routeHtml.includes(`<link rel="canonical" href="${routeUrl}"`) ||
-      !routeHtml.includes(`<meta property="og:url" content="${routeUrl}"`) ||
-      !routeHtml.includes(`<title>${escapeHtml(route.title)}</title>`) ||
-      !routeHtml.includes(`<meta name="description" content="${escapeHtml(route.description)}"`) ||
-      !routeHtml.includes(`<meta property="og:title" content="${escapeHtml(route.title)}"`) ||
-      !routeHtml.includes(`<meta property="og:description" content="${escapeHtml(route.description)}"`)
-    ) {
+    try {
+      assertExactSeoMetadata(routeHtml, route);
+    } catch {
       throw new Error(`raw route metadata is incorrect for ${route.path}`);
     }
   }
 }
 
-function assertCanonicalMetadata(html) {
-  const canonical = `<link rel="canonical" href="${productionOrigin}/"`;
-  if (!html.includes(canonical)) throw new Error(`index.html canonical URL must be ${productionOrigin}/`);
+function assertCanonicalMetadata(html, homeRoute) {
+  try {
+    assertExactSeoMetadata(html, homeRoute);
+  } catch {
+    throw new Error('index.html SEO metadata is incomplete or inconsistent with the route manifest');
+  }
   if (/\/(?:src\/|@vite\/client)|\.tsx(?:[?"'])/u.test(html)) {
     throw new Error('index.html references source code instead of built assets');
+  }
+}
+
+function assertExactSeoMetadata(html, route) {
+  const normalizedHtml = html.replace(/\s+/gu, ' ');
+  const routeUrl = `${productionOrigin}${route.path}`;
+  const title = escapeHtml(route.title);
+  const description = escapeHtml(route.description);
+  const image = `${productionOrigin}/og-image.png`;
+  const imageAlt = 'Angular Flex-Layout migration from source through review plan to output';
+  const expected = [
+    `<link rel="canonical" href="${routeUrl}"`,
+    `<title>${title}</title>`,
+    `<meta name="description" content="${description}"`,
+    '<meta property="og:type" content="website"',
+    '<meta property="og:site_name" content="Angular Flex-Layout Codemod"',
+    '<meta property="og:locale" content="en_US"',
+    `<meta property="og:url" content="${routeUrl}"`,
+    `<meta property="og:title" content="${title}"`,
+    `<meta property="og:description" content="${description}"`,
+    `<meta property="og:image" content="${image}"`,
+    '<meta property="og:image:width" content="1200"',
+    '<meta property="og:image:height" content="630"',
+    `<meta property="og:image:alt" content="${imageAlt}"`,
+    '<meta name="twitter:card" content="summary_large_image"',
+    `<meta name="twitter:title" content="${title}"`,
+    `<meta name="twitter:description" content="${description}"`,
+    `<meta name="twitter:image" content="${image}"`,
+    `<meta name="twitter:image:alt" content="${imageAlt}"`,
+  ];
+  if (expected.some(fragment => !normalizedHtml.includes(fragment))) {
+    throw new Error(`metadata mismatch for ${route.path}`);
   }
 }
 
@@ -224,6 +253,14 @@ function assertVercelContract(vercel, deepLinkRoutes) {
 }
 
 export function assertRouteDeliveryContract(vercel, deepLinkRoutes) {
+  const expectedRedirects = deepLinkRoutes.map(route => ({
+    source: `${route}.html`,
+    destination: route,
+    permanent: true,
+  }));
+  if (JSON.stringify(vercel.redirects) !== JSON.stringify(expectedRedirects)) {
+    throw new Error('vercel.json must define canonical HTML redirects for every deep-link document');
+  }
   const expectedRewrites = [
     ...deepLinkRoutes.map(route => ({ source: route, destination: `${route}.html` })),
     { source: '/(.*)', destination: '/index.html' },

@@ -38,23 +38,23 @@ export async function readSiteRouteManifest(projectRoot) {
   return [
     {
       path: '/',
-      title: 'Flex Layout Codemod — NIPE Open Source',
+      title: 'Angular Flex-Layout Codemod — Plan, review, migrate',
       description:
-        'Migrate supported Angular Flex-Layout templates to Tailwind CSS or native CSS with a safety-first codemod.',
+        'Plan and review Angular Flex-Layout migrations before writing supported Tailwind CSS or native CSS output. Unresolved source stays visible.',
     },
     ...documentation.map(route => ({
       path: route.path,
-      title: `${route.title} — Flex Layout Codemod`,
+      title: `${route.title} — Angular Flex-Layout Codemod`,
       description: route.description,
     })),
     {
       path: '/privacy',
-      title: 'Privacy — Flex Layout Codemod',
+      title: 'Privacy — Angular Flex-Layout Codemod',
       description: 'The template playground is designed as a local, in-browser preview.',
     },
     {
       path: '/imprint',
-      title: 'Imprint — Flex Layout Codemod',
+      title: 'Imprint — Angular Flex-Layout Codemod',
       description: 'Project and publisher information for Flex Layout Codemod.',
     },
   ];

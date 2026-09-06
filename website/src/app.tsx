@@ -43,22 +43,23 @@ function updateRouteMetadata(path: string): void {
   const title =
     documentationRoute === undefined
       ? legalPage === undefined
-        ? 'Flex Layout Codemod — NIPE Open Source'
-        : `${legalPage.heading} — Flex Layout Codemod`
-      : `${documentationRoute.title} — Flex Layout Codemod`;
-  const description =
-    documentationRoute?.description ??
-    legalPage?.introduction ??
-    'Migrate supported Angular Flex-Layout templates to Tailwind CSS or native CSS with a safety-first codemod.';
+        ? siteContent.metadata.title
+        : `${legalPage.heading} — Angular Flex-Layout Codemod`
+      : `${documentationRoute.title} — Angular Flex-Layout Codemod`;
+  const description = documentationRoute?.description ?? legalPage?.introduction ?? siteContent.metadata.description;
   const canonical = document.querySelector<HTMLLinkElement>('link[rel="canonical"]');
   const openGraphUrl = document.querySelector<HTMLMetaElement>('meta[property="og:url"]');
   const descriptionMeta = document.querySelector<HTMLMetaElement>('meta[name="description"]');
   const openGraphTitle = document.querySelector<HTMLMetaElement>('meta[property="og:title"]');
   const openGraphDescription = document.querySelector<HTMLMetaElement>('meta[property="og:description"]');
+  const twitterTitle = document.querySelector<HTMLMetaElement>('meta[name="twitter:title"]');
+  const twitterDescription = document.querySelector<HTMLMetaElement>('meta[name="twitter:description"]');
   document.title = title;
   canonical?.setAttribute('href', routeUrl);
   openGraphUrl?.setAttribute('content', routeUrl);
   descriptionMeta?.setAttribute('content', description);
   openGraphTitle?.setAttribute('content', title);
   openGraphDescription?.setAttribute('content', description);
+  twitterTitle?.setAttribute('content', title);
+  twitterDescription?.setAttribute('content', description);
 }

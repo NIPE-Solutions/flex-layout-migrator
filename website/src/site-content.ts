@@ -4,6 +4,11 @@ export const siteContent = {
     productName: 'Flex Layout Codemod',
     familyName: 'NIPE Open Source',
   },
+  metadata: {
+    title: 'Angular Flex-Layout Codemod — Plan, review, migrate',
+    description:
+      'Plan and review Angular Flex-Layout migrations before writing supported Tailwind CSS or native CSS output. Unresolved source stays visible.',
+  },
   navigationLabel: 'Primary navigation',
   navigation: [
     { label: 'Overview', href: '/#overview' },
@@ -11,7 +16,7 @@ export const siteContent = {
     { label: 'Documentation', href: '/docs' },
   ],
   hero: {
-    heading: 'Migrate Angular Flex-Layout with confidence.',
+    heading: 'Plan an Angular Flex-Layout migration before you write.',
     introduction:
       'Convert supported template directives to Tailwind CSS or native CSS while preserving the source that still needs a human decision.',
   },
@@ -102,25 +107,42 @@ export const siteContent = {
       ],
     },
   },
-  footerLabel: 'Project links',
-  footerLinks: [
+  footerLabel: 'Footer',
+  footerGroups: [
     {
-      label: 'NIPE Open Source',
-      href: 'https://opensource.nipesolutions.com',
+      label: 'Project',
+      links: [
+        { label: 'Documentation', href: '/docs' },
+        { label: 'Repository', href: 'https://github.com/NIPE-Solutions/flex-layout-migrator' },
+        {
+          label: 'npm package',
+          href: 'https://www.npmjs.com/package/@nipe-solutions/flex-layout-codemod',
+        },
+      ],
     },
     {
-      label: 'Repository',
-      href: 'https://github.com/NIPE-Solutions/flex-layout-migrator',
+      label: 'NIPE',
+      links: [{ label: 'NIPE Open Source', href: 'https://opensource.nipesolutions.com' }],
     },
     {
-      label: 'Package',
-      href: 'https://www.npmjs.com/package/@nipe-solutions/flex-layout-codemod',
+      label: 'Legal',
+      links: [
+        { label: 'Imprint', href: '/imprint' },
+        { label: 'Privacy', href: '/privacy' },
+        {
+          label: 'Security',
+          href: 'https://github.com/NIPE-Solutions/flex-layout-migrator/blob/main/SECURITY.md',
+        },
+      ],
     },
     {
       label: 'License',
-      href: 'https://github.com/NIPE-Solutions/flex-layout-migrator/blob/main/LICENSE',
+      links: [
+        {
+          label: 'MIT License',
+          href: 'https://github.com/NIPE-Solutions/flex-layout-migrator/blob/main/LICENSE',
+        },
+      ],
     },
-    { label: 'Imprint', href: '/imprint' },
-    { label: 'Privacy', href: '/privacy' },
   ],
 } as const;

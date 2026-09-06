@@ -9,13 +9,20 @@ export function SiteFooter() {
           <span>from {siteContent.identity.familyName}</span>
         </p>
         <nav aria-label={siteContent.footerLabel}>
-          <ul className="footer-links">
-            {siteContent.footerLinks.map(link => (
-              <li key={link.href}>
-                <a href={link.href}>{link.label}</a>
-              </li>
+          <div className="footer-groups">
+            {siteContent.footerGroups.map(group => (
+              <section className="footer-group" key={group.label}>
+                <h2>{group.label}</h2>
+                <ul className="footer-links">
+                  {group.links.map(link => (
+                    <li key={link.href}>
+                      <a href={link.href}>{link.label}</a>
+                    </li>
+                  ))}
+                </ul>
+              </section>
             ))}
-          </ul>
+          </div>
         </nav>
       </div>
     </footer>

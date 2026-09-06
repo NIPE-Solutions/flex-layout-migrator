@@ -28,6 +28,8 @@ describe('website route HTML generation', () => {
 <meta property="og:url" content="https://angular-flex-layout-codemod.nipesolutions.com/" />
 <meta property="og:title" content="Flex Layout Codemod" />
 <meta property="og:description" content="Root description" />
+<meta name="twitter:title" content="Flex Layout Codemod" />
+<meta name="twitter:description" content="Root description" />
 </head><body></body></html>`;
     await writeFile(path.join(dist, 'index.html'), rootHtml);
 

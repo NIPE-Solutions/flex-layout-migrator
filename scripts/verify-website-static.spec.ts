@@ -173,6 +173,33 @@ describe('website static output verification', () => {
     expect(verification.stderr).toContain('raw route metadata is incorrect for /docs');
   });
 
+  it('rejects raw deep-link documents without route-specific Twitter metadata', async () => {
+    const root = await createFixture({ routeTwitterMetadata: false });
+
+    const verification = runVerifier(root);
+
+    expect(verification.status).toBe(1);
+    expect(verification.stderr).toContain('raw route metadata is incorrect for /docs');
+  });
+
+  it('rejects root output without complete review-first SEO metadata', async () => {
+    const root = await createFixture({ rootSeoMetadata: false });
+
+    const verification = runVerifier(root);
+
+    expect(verification.status).toBe(1);
+    expect(verification.stderr).toContain('index.html SEO metadata is incomplete');
+  });
+
+  it('rejects deployment routing that exposes generated HTML aliases without canonical redirects', async () => {
+    const root = await createFixture({ htmlRedirects: false });
+
+    const verification = runVerifier(root);
+
+    expect(verification.status).toBe(1);
+    expect(verification.stderr).toContain('canonical HTML redirects');
+  });
+
   it('rejects a robots policy that blocks the website', async () => {
     const root = await createFixture({ robotsDisallow: true });
 
@@ -210,6 +237,9 @@ async function createFixture(
     readonly eagerCompiler?: boolean;
     readonly crawlerFiles?: boolean;
     readonly routeMetadata?: boolean;
+    readonly routeTwitterMetadata?: boolean;
+    readonly rootSeoMetadata?: boolean;
+    readonly htmlRedirects?: boolean;
     readonly robotsDisallow?: boolean;
     readonly aggregateEagerImports?: boolean;
     readonly eagerImportedCompiler?: boolean;
@@ -306,7 +336,40 @@ async function createFixture(
   if (options.unhashedAsset) await writeFile(path.join(assets, 'playground.js'), 'export{}');
   await writeFile(
     path.join(dist, 'index.html'),
-    `<!doctype html><html lang="en"><head><link rel="canonical" href="https://angular-flex-layout-codemod.nipesolutions.com/" /><link rel="stylesheet" href="/assets/index-Ef56Gh78.css" /></head><body><div id="root"></div><script type="module" src="${options.sourceEntry ? '/src/main.tsx' : '/assets/index-Ab12Cd34.js'}"></script></body></html>`,
+    `<!doctype html><html lang="en"><head>
+<link rel="canonical" href="https://angular-flex-layout-codemod.nipesolutions.com/" />
+<link rel="stylesheet" href="/assets/index-Ef56Gh78.css" />
+<title>Angular Flex-Layout Codemod — Plan, review, migrate</title>
+${
+  options.rootSeoMetadata === false
+    ? ''
+    : `<meta
+  name="description"
+  content="Plan and review Angular Flex-Layout migrations before writing supported Tailwind CSS or native CSS output. Unresolved source stays visible."
+/>
+<meta property="og:type" content="website" />
+<meta property="og:site_name" content="Angular Flex-Layout Codemod" />
+<meta property="og:locale" content="en_US" />
+<meta property="og:url" content="https://angular-flex-layout-codemod.nipesolutions.com/" />
+<meta property="og:title" content="Angular Flex-Layout Codemod — Plan, review, migrate" />
+<meta
+  property="og:description"
+  content="Plan and review Angular Flex-Layout migrations before writing supported Tailwind CSS or native CSS output. Unresolved source stays visible."
+/>
+<meta property="og:image" content="https://angular-flex-layout-codemod.nipesolutions.com/og-image.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="Angular Flex-Layout migration from source through review plan to output" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="Angular Flex-Layout Codemod — Plan, review, migrate" />
+<meta
+  name="twitter:description"
+  content="Plan and review Angular Flex-Layout migrations before writing supported Tailwind CSS or native CSS output. Unresolved source stays visible."
+/>
+<meta name="twitter:image" content="https://angular-flex-layout-codemod.nipesolutions.com/og-image.png" />
+<meta name="twitter:image:alt" content="Angular Flex-Layout migration from source through review plan to output" />`
+}
+</head><body><div id="root"></div><script type="module" src="${options.sourceEntry ? '/src/main.tsx' : '/assets/index-Ab12Cd34.js'}"></script></body></html>`,
   );
   await writeFile(
     path.join(root, 'vercel.json'),
@@ -316,6 +379,14 @@ async function createFixture(
       installCommand: 'npm ci',
       buildCommand: 'npm run build:website',
       outputDirectory: 'website/dist',
+      redirects:
+        options.htmlRedirects === false
+          ? []
+          : [...requiredRoutes, '/privacy', '/imprint'].map(route => ({
+              source: `${route}.html`,
+              destination: route,
+              permanent: true,
+            })),
       headers: [
         {
           source: '/assets/(.*)',
@@ -381,12 +452,12 @@ async function createFixture(
     const metadataUrl =
       options.routeMetadata === false ? 'https://angular-flex-layout-codemod.nipesolutions.com/' : routeUrl;
     const metadata = metadataForRoute(route);
-    const title = route.startsWith('/docs') ? `${metadata.title} — Flex Layout Codemod` : metadata.title;
+    const title = route.startsWith('/docs') ? `${metadata.title} — Angular Flex-Layout Codemod` : metadata.title;
     const outputPath = path.join(dist, `${route.slice(1)}.html`);
     await mkdir(path.dirname(outputPath), { recursive: true });
     await writeFile(
       outputPath,
-      `<link rel="canonical" href="${metadataUrl}" /><title>${title}</title><meta name="description" content="${metadata.description}" /><meta property="og:url" content="${metadataUrl}" /><meta property="og:title" content="${title}" /><meta property="og:description" content="${metadata.description}" />`,
+      `<link rel="canonical" href="${metadataUrl}" /><title>${title}</title><meta name="description" content="${metadata.description}" /><meta property="og:type" content="website" /><meta property="og:site_name" content="Angular Flex-Layout Codemod" /><meta property="og:locale" content="en_US" /><meta property="og:url" content="${metadataUrl}" /><meta property="og:title" content="${title}" /><meta property="og:description" content="${metadata.description}" /><meta property="og:image" content="https://angular-flex-layout-codemod.nipesolutions.com/og-image.png" /><meta property="og:image:width" content="1200" /><meta property="og:image:height" content="630" /><meta property="og:image:alt" content="Angular Flex-Layout migration from source through review plan to output" /><meta name="twitter:card" content="summary_large_image" />${options.routeTwitterMetadata === false ? '' : `<meta name="twitter:title" content="${title}" /><meta name="twitter:description" content="${metadata.description}" />`}<meta name="twitter:image" content="https://angular-flex-layout-codemod.nipesolutions.com/og-image.png" /><meta name="twitter:image:alt" content="Angular Flex-Layout migration from source through review plan to output" />`,
     );
   }
   return root;
@@ -413,13 +484,13 @@ function metadataForRoute(route: string): { readonly title: string; readonly des
   ]);
   if (route === '/privacy') {
     return {
-      title: 'Privacy — Flex Layout Codemod',
+      title: 'Privacy — Angular Flex-Layout Codemod',
       description: 'The template playground is designed as a local, in-browser preview.',
     };
   }
   if (route === '/imprint') {
     return {
-      title: 'Imprint — Flex Layout Codemod',
+      title: 'Imprint — Angular Flex-Layout Codemod',
       description: 'Project and publisher information for Flex Layout Codemod.',
     };
   }

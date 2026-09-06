@@ -4,6 +4,47 @@
   "installCommand": "npm ci",
   "buildCommand": "npm run build:website",
   "outputDirectory": "website/dist",
+  "redirects": [
+    { "source": "/docs.html", "destination": "/docs", "permanent": true },
+    { "source": "/docs/installation.html", "destination": "/docs/installation", "permanent": true },
+    { "source": "/docs/quick-start.html", "destination": "/docs/quick-start", "permanent": true },
+    { "source": "/docs/workflow.html", "destination": "/docs/workflow", "permanent": true },
+    { "source": "/docs/large-codebase.html", "destination": "/docs/large-codebase", "permanent": true },
+    { "source": "/docs/tailwind.html", "destination": "/docs/tailwind", "permanent": true },
+    { "source": "/docs/native-css.html", "destination": "/docs/native-css", "permanent": true },
+    { "source": "/docs/responsive-images.html", "destination": "/docs/responsive-images", "permanent": true },
+    { "source": "/docs/compatibility.html", "destination": "/docs/compatibility", "permanent": true },
+    {
+      "source": "/docs/compatibility/directives.html",
+      "destination": "/docs/compatibility/directives",
+      "permanent": true
+    },
+    {
+      "source": "/docs/compatibility/dynamic-bindings.html",
+      "destination": "/docs/compatibility/dynamic-bindings",
+      "permanent": true
+    },
+    { "source": "/docs/safety.html", "destination": "/docs/safety", "permanent": true },
+    { "source": "/docs/atomic-migrations.html", "destination": "/docs/atomic-migrations", "permanent": true },
+    {
+      "source": "/docs/class-style-conflicts.html",
+      "destination": "/docs/class-style-conflicts",
+      "permanent": true
+    },
+    { "source": "/docs/parsing.html", "destination": "/docs/parsing", "permanent": true },
+    { "source": "/docs/transactions.html", "destination": "/docs/transactions", "permanent": true },
+    { "source": "/docs/reruns.html", "destination": "/docs/reruns", "permanent": true },
+    { "source": "/docs/diagnostics.html", "destination": "/docs/diagnostics", "permanent": true },
+    { "source": "/docs/reports.html", "destination": "/docs/reports", "permanent": true },
+    { "source": "/docs/ci.html", "destination": "/docs/ci", "permanent": true },
+    { "source": "/docs/unresolved.html", "destination": "/docs/unresolved", "permanent": true },
+    { "source": "/docs/cli.html", "destination": "/docs/cli", "permanent": true },
+    { "source": "/docs/examples.html", "destination": "/docs/examples", "permanent": true },
+    { "source": "/docs/troubleshooting.html", "destination": "/docs/troubleshooting", "permanent": true },
+    { "source": "/docs/project.html", "destination": "/docs/project", "permanent": true },
+    { "source": "/privacy.html", "destination": "/privacy", "permanent": true },
+    { "source": "/imprint.html", "destination": "/imprint", "permanent": true }
+  ],
   "headers": [
     {
       "source": "/assets/(.*)",
