@@ -58,10 +58,40 @@ describe('website route metadata generation', () => {
     ).toThrow(/sitemap.xml is missing required URL/u);
   });
 
+  it('rejects duplicate and unexpected sitemap URLs and any non-canonical robots policy', async () => {
+    const root = await createFixture();
+    const manifest = await readDocumentationRouteManifest(root);
+    await generateWebsiteRouteHtml(root);
+    const sitemap = await readFile(path.join(root, 'website/dist/sitemap.xml'), 'utf8');
+    const robots = await readFile(path.join(root, 'website/dist/robots.txt'), 'utf8');
+    const routes = ['/', ...manifest.map(route => route.path), '/privacy', '/imprint'];
+    const rootEntry = '  <url><loc>https://angular-flex-layout-codemod.nipesolutions.com/</loc></url>';
+
+    expect(() => assertCrawlerFiles(sitemap.replace(rootEntry, `${rootEntry}\n${rootEntry}`), robots, routes)).toThrow(
+      /duplicate URL/u,
+    );
+    expect(() =>
+      assertCrawlerFiles(
+        sitemap.replace(
+          '</urlset>',
+          '  <url><loc>https://angular-flex-layout-codemod.nipesolutions.com/extra</loc></url>\n</urlset>',
+        ),
+        robots,
+        routes,
+      ),
+    ).toThrow(/unexpected URL/u);
+    expect(() => assertCrawlerFiles(sitemap, `${robots}Disallow: /private\n`, routes)).toThrow(
+      /exact production crawler policy/u,
+    );
+  });
+
   it('fails route delivery verification when a content route loses its exact rewrite', () => {
     const routes = ['/docs', '/docs/example', '/privacy', '/imprint'];
     const complete = {
-      redirects: routes.map(route => ({ source: `${route}.html`, destination: route, permanent: true })),
+      redirects: [
+        { source: '/index.html', destination: '/', permanent: true },
+        ...routes.map(route => ({ source: `${route}.html`, destination: route, permanent: true })),
+      ],
       rewrites: [
         ...routes.map(route => ({ source: route, destination: `${route}.html` })),
         { source: '/(.*)', destination: '/index.html' },
@@ -74,6 +104,17 @@ describe('website route metadata generation', () => {
         routes,
       ),
     ).toThrow(/exact route documents/u);
+  });
+
+  it('requires the permanent root HTML alias redirect', () => {
+    const routes = ['/docs', '/privacy', '/imprint'];
+    const rewrites = [
+      ...routes.map(route => ({ source: route, destination: `${route}.html` })),
+      { source: '/(.*)', destination: '/index.html' },
+    ];
+    const redirects = routes.map(route => ({ source: `${route}.html`, destination: route, permanent: true }));
+
+    expect(() => assertRouteDeliveryContract({ redirects, rewrites }, routes)).toThrow(/root HTML redirect/u);
   });
 });
 

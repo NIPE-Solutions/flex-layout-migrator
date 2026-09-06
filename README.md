@@ -6,7 +6,7 @@ Angular Flex-Layout Codemod is a review-first CLI for migrating supported Angula
 
 The codemod changes only cases for which it can produce a supported equivalent. When it cannot prove that boundary, it leaves the source in place and reports a diagnostic instead of guessing.
 
-Detailed documentation and the single-template browser playground are at [angular-flex-layout-codemod.nipesolutions.com](https://angular-flex-layout-codemod.nipesolutions.com/docs).
+Read the [detailed documentation](https://angular-flex-layout-codemod.nipesolutions.com/docs), or try a single template in the separate [browser playground](https://angular-flex-layout-codemod.nipesolutions.com/#playground).
 
 ## Requirements and installation
 

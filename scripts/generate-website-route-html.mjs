@@ -28,27 +28,34 @@ function applyRouteMetadata(html, route) {
   const title = escapeHtml(route.title);
   const description = escapeHtml(route.description);
   const replacements = [
-    [/<link rel="canonical" href="[^"]+"/u, `<link rel="canonical" href="${routeUrl}"`],
-    [/<title>[^<]*<\/title>/u, `<title>${title}</title>`],
-    [/<meta\s+name="description"\s+content="[^"]*"\s*\/?\s*>/u, `<meta name="description" content="${description}" />`],
-    [/<meta property="og:url" content="[^"]+"/u, `<meta property="og:url" content="${routeUrl}"`],
-    [/<meta property="og:title" content="[^"]*"/u, `<meta property="og:title" content="${title}"`],
+    [/<link\b(?=[^>]*\brel\s*=\s*["']canonical["'])[^>]*>/giu, `<link rel="canonical" href="${routeUrl}" />`],
+    [/<title\b[^>]*>[\s\S]*?<\/title\s*>/giu, `<title>${title}</title>`],
     [
-      /<meta\s+property="og:description"\s+content="[^"]*"\s*\/?\s*>/u,
+      /<meta\b(?=[^>]*\bname\s*=\s*["']description["'])[^>]*>/giu,
+      `<meta name="description" content="${description}" />`,
+    ],
+    [/<meta\b(?=[^>]*\bproperty\s*=\s*["']og:url["'])[^>]*>/giu, `<meta property="og:url" content="${routeUrl}" />`],
+    [/<meta\b(?=[^>]*\bproperty\s*=\s*["']og:title["'])[^>]*>/giu, `<meta property="og:title" content="${title}" />`],
+    [
+      /<meta\b(?=[^>]*\bproperty\s*=\s*["']og:description["'])[^>]*>/giu,
       `<meta property="og:description" content="${description}" />`,
     ],
-    [/<meta\s+name="twitter:title"\s+content="[^"]*"\s*\/?\s*>/u, `<meta name="twitter:title" content="${title}" />`],
+    [/<meta\b(?=[^>]*\bname\s*=\s*["']twitter:title["'])[^>]*>/giu, `<meta name="twitter:title" content="${title}" />`],
     [
-      /<meta\s+name="twitter:description"\s+content="[^"]*"\s*\/?\s*>/u,
+      /<meta\b(?=[^>]*\bname\s*=\s*["']twitter:description["'])[^>]*>/giu,
       `<meta name="twitter:description" content="${description}" />`,
     ],
   ];
-  return replacements.reduce((source, [pattern, replacement]) => replaceRequired(source, pattern, replacement), html);
+  return replacements.reduce((source, [pattern, replacement]) => normalizeRequired(source, pattern, replacement), html);
 }
 
-function replaceRequired(source, pattern, replacement) {
-  const result = source.replace(pattern, replacement);
-  if (result === source) throw new Error(`Root HTML is missing required route metadata matching ${pattern}`);
+function normalizeRequired(source, pattern, replacement) {
+  let matches = 0;
+  const result = source.replace(pattern, () => {
+    matches += 1;
+    return matches === 1 ? replacement : '';
+  });
+  if (matches === 0) throw new Error(`Root HTML is missing required route metadata matching ${pattern}`);
   return result;
 }
 

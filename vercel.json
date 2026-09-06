@@ -5,6 +5,7 @@
   "buildCommand": "npm run build:website",
   "outputDirectory": "website/dist",
   "redirects": [
+    { "source": "/index.html", "destination": "/", "permanent": true },
     { "source": "/docs.html", "destination": "/docs", "permanent": true },
     { "source": "/docs/installation.html", "destination": "/docs/installation", "permanent": true },
     { "source": "/docs/quick-start.html", "destination": "/docs/quick-start", "permanent": true },

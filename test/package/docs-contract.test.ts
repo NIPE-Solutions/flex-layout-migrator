@@ -173,6 +173,7 @@ describe('maintainer documentation', () => {
     expect(readme).toContain('Plan first. Review unresolved cases. Write only when you are ready.');
     for (const destination of [
       'https://angular-flex-layout-codemod.nipesolutions.com/docs',
+      'https://angular-flex-layout-codemod.nipesolutions.com/#playground',
       'https://angular-flex-layout-codemod.nipesolutions.com/docs/installation',
       'https://angular-flex-layout-codemod.nipesolutions.com/docs/compatibility',
       'https://angular-flex-layout-codemod.nipesolutions.com/docs/diagnostics',
@@ -185,6 +186,18 @@ describe('maintainer documentation', () => {
     expect(readme).not.toContain('production-ready conversion coverage');
     expect(readme).not.toContain('## Examples');
     expect(readme).not.toContain('## Reports and exit codes');
+  });
+
+  it('states the automated and human-reviewed boundaries of the public claim audit', async () => {
+    const audit = await readRepositoryFile('docs/maintenance/2026-09-05-documentation-claim-audit.md');
+
+    expect(audit).toContain('## Enforcement boundaries');
+    expect(audit).toContain('Registry-enforced facts');
+    expect(audit).toContain('Static metadata and link contracts');
+    expect(audit).toContain('Targeted exact public-copy tests');
+    expect(audit).toContain('Human-reviewed prose');
+    expect(audit).toContain('does not comprehensively validate authored prose');
+    expect(audit).not.toContain('Detailed facts remain under `website/content/**` and are checked');
   });
 
   it('collects actionable, redacted context in both public issue forms', async () => {

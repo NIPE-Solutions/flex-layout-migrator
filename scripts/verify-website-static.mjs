@@ -151,17 +151,24 @@ async function readManifestAssets(dist, manifest, graph) {
 }
 
 export function assertCrawlerFiles(sitemap, robots, siteRoutes) {
-  for (const route of siteRoutes) {
-    const routeUrl = `${productionOrigin}${route}`;
-    if (!sitemap.includes(`<loc>${routeUrl}</loc>`)) {
-      throw new Error(`sitemap.xml is missing required URL ${routeUrl}`);
-    }
+  const expectedUrls = siteRoutes.map(route => `${productionOrigin}${route}`);
+  const sitemapUrls = [...sitemap.matchAll(/<loc\b[^>]*>([^<]*)<\/loc\s*>/giu)].map(match => match[1].trim());
+  const locOpenings = [...sitemap.matchAll(/<loc\b/giu)].length;
+  if (locOpenings !== sitemapUrls.length) throw new Error('sitemap.xml contains a malformed URL entry');
+  const duplicate = sitemapUrls.find((url, index) => sitemapUrls.indexOf(url) !== index);
+  if (duplicate !== undefined) throw new Error(`sitemap.xml contains duplicate URL ${duplicate}`);
+  const expectedSet = new Set(expectedUrls);
+  const unexpected = sitemapUrls.find(url => !expectedSet.has(url));
+  if (unexpected !== undefined) throw new Error(`sitemap.xml contains unexpected URL ${unexpected}`);
+  const sitemapSet = new Set(sitemapUrls);
+  const missing = expectedUrls.find(url => !sitemapSet.has(url));
+  if (missing !== undefined) throw new Error(`sitemap.xml is missing required URL ${missing}`);
+  if (sitemapUrls.length !== expectedUrls.length) {
+    throw new Error('sitemap.xml URL set does not exactly match the route manifest');
   }
-  if (!/^Allow:\s*\/\s*$/mu.test(robots) || /^Disallow:\s*\/\s*$/mu.test(robots)) {
-    throw new Error('robots.txt must explicitly allow crawling');
-  }
-  if (!robots.includes('User-agent: *') || !robots.includes(`Sitemap: ${productionOrigin}/sitemap.xml`)) {
-    throw new Error('robots.txt must identify the production sitemap');
+  const expectedRobots = `User-agent: *\nAllow: /\nSitemap: ${productionOrigin}/sitemap.xml\n`;
+  if (robots !== expectedRobots) {
+    throw new Error('robots.txt must equal the exact production crawler policy');
   }
 }
 
@@ -170,8 +177,8 @@ async function assertRouteDocuments(dist, routes) {
     const routeHtml = await readFile(path.join(dist, `${route.path.slice(1)}.html`), 'utf8').catch(() => '');
     try {
       assertExactSeoMetadata(routeHtml, route);
-    } catch {
-      throw new Error(`raw route metadata is incorrect for ${route.path}`);
+    } catch (error) {
+      throw new Error(`raw route metadata is incorrect for ${route.path}: ${errorMessage(error)}`, { cause: error });
     }
   }
 }
@@ -179,8 +186,11 @@ async function assertRouteDocuments(dist, routes) {
 function assertCanonicalMetadata(html, homeRoute) {
   try {
     assertExactSeoMetadata(html, homeRoute);
-  } catch {
-    throw new Error('index.html SEO metadata is incomplete or inconsistent with the route manifest');
+  } catch (error) {
+    throw new Error(
+      `index.html SEO metadata is incomplete or inconsistent with the route manifest: ${errorMessage(error)}`,
+      { cause: error },
+    );
   }
   if (/\/(?:src\/|@vite\/client)|\.tsx(?:[?"'])/u.test(html)) {
     throw new Error('index.html references source code instead of built assets');
@@ -188,35 +198,74 @@ function assertCanonicalMetadata(html, homeRoute) {
 }
 
 function assertExactSeoMetadata(html, route) {
-  const normalizedHtml = html.replace(/\s+/gu, ' ');
   const routeUrl = `${productionOrigin}${route.path}`;
   const title = escapeHtml(route.title);
   const description = escapeHtml(route.description);
   const image = `${productionOrigin}/og-image.png`;
   const imageAlt = 'Angular Flex-Layout migration from source through review plan to output';
-  const expected = [
-    `<link rel="canonical" href="${routeUrl}"`,
-    `<title>${title}</title>`,
-    `<meta name="description" content="${description}"`,
-    '<meta property="og:type" content="website"',
-    '<meta property="og:site_name" content="Angular Flex-Layout Codemod"',
-    '<meta property="og:locale" content="en_US"',
-    `<meta property="og:url" content="${routeUrl}"`,
-    `<meta property="og:title" content="${title}"`,
-    `<meta property="og:description" content="${description}"`,
-    `<meta property="og:image" content="${image}"`,
-    '<meta property="og:image:width" content="1200"',
-    '<meta property="og:image:height" content="630"',
-    `<meta property="og:image:alt" content="${imageAlt}"`,
-    '<meta name="twitter:card" content="summary_large_image"',
-    `<meta name="twitter:title" content="${title}"`,
-    `<meta name="twitter:description" content="${description}"`,
-    `<meta name="twitter:image" content="${image}"`,
-    `<meta name="twitter:image:alt" content="${imageAlt}"`,
-  ];
-  if (expected.some(fragment => !normalizedHtml.includes(fragment))) {
-    throw new Error(`metadata mismatch for ${route.path}`);
+  const titles = [...html.matchAll(/<title\b[^>]*>([\s\S]*?)<\/title\s*>/giu)];
+  const titleOpenings = [...html.matchAll(/<title\b/giu)].length;
+  if (titles.length !== 1 || titleOpenings !== 1) {
+    throw new Error(`expected exactly one title, found ${titleOpenings}`);
   }
+  if (titles[0]?.[1] !== title) throw new Error(`title value mismatch for ${route.path}`);
+
+  const linkTags = [...html.matchAll(/<link\b[^>]*>/giu)].map(match => readTagAttributes(match[0]));
+  assertSingleMetadataValue(
+    linkTags.filter(attributes => hasToken(attributes.get('rel'), 'canonical')),
+    'canonical',
+    'href',
+    routeUrl,
+  );
+
+  const metaTags = [...html.matchAll(/<meta\b[^>]*>/giu)].map(match => readTagAttributes(match[0]));
+  const expected = [
+    ['name', 'description', description],
+    ['property', 'og:type', 'website'],
+    ['property', 'og:site_name', 'Angular Flex-Layout Codemod'],
+    ['property', 'og:locale', 'en_US'],
+    ['property', 'og:url', routeUrl],
+    ['property', 'og:title', title],
+    ['property', 'og:description', description],
+    ['property', 'og:image', image],
+    ['property', 'og:image:width', '1200'],
+    ['property', 'og:image:height', '630'],
+    ['property', 'og:image:alt', imageAlt],
+    ['name', 'twitter:card', 'summary_large_image'],
+    ['name', 'twitter:title', title],
+    ['name', 'twitter:description', description],
+    ['name', 'twitter:image', image],
+    ['name', 'twitter:image:alt', imageAlt],
+  ];
+  for (const [selector, key, value] of expected) {
+    assertSingleMetadataValue(
+      metaTags.filter(attributes => attributes.get(selector)?.toLowerCase() === key.toLowerCase()),
+      key,
+      'content',
+      value,
+    );
+  }
+}
+
+function readTagAttributes(tag) {
+  const attributes = new Map();
+  for (const match of tag.matchAll(/([^\s"'<>/=]+)\s*=\s*(["'])(.*?)\2/gu)) {
+    attributes.set(match[1].toLowerCase(), match[3]);
+  }
+  return attributes;
+}
+
+function hasToken(value, expected) {
+  return value?.split(/\s+/u).some(token => token.toLowerCase() === expected) ?? false;
+}
+
+function assertSingleMetadataValue(tags, key, valueAttribute, expectedValue) {
+  if (tags.length !== 1) throw new Error(`expected exactly one ${key}, found ${tags.length}`);
+  if (tags[0]?.get(valueAttribute) !== expectedValue) throw new Error(`${key} value mismatch`);
+}
+
+function errorMessage(error) {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function assertVercelContract(vercel, deepLinkRoutes) {
@@ -253,11 +302,18 @@ function assertVercelContract(vercel, deepLinkRoutes) {
 }
 
 export function assertRouteDeliveryContract(vercel, deepLinkRoutes) {
-  const expectedRedirects = deepLinkRoutes.map(route => ({
-    source: `${route}.html`,
-    destination: route,
-    permanent: true,
-  }));
+  const rootRedirect = { source: '/index.html', destination: '/', permanent: true };
+  const expectedRedirects = [
+    rootRedirect,
+    ...deepLinkRoutes.map(route => ({
+      source: `${route}.html`,
+      destination: route,
+      permanent: true,
+    })),
+  ];
+  if (JSON.stringify(vercel.redirects?.[0]) !== JSON.stringify(rootRedirect)) {
+    throw new Error('vercel.json must define the permanent root HTML redirect from /index.html to /');
+  }
   if (JSON.stringify(vercel.redirects) !== JSON.stringify(expectedRedirects)) {
     throw new Error('vercel.json must define canonical HTML redirects for every deep-link document');
   }

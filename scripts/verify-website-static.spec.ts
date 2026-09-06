@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -164,6 +164,44 @@ describe('website static output verification', () => {
     expect(verification.stderr).toContain('sitemap.xml is missing required URL');
   });
 
+  it('rejects a duplicate sitemap URL even when the required URL set is present', async () => {
+    const root = await createFixture();
+    await mutateFile(root, 'website/dist/sitemap.xml', source => {
+      const entry = '<url><loc>https://angular-flex-layout-codemod.nipesolutions.com/</loc></url>';
+      return source.replace(entry, `${entry}${entry}`);
+    });
+
+    const verification = runVerifier(root);
+
+    expect(verification.status).toBe(1);
+    expect(verification.stderr).toContain('sitemap.xml contains duplicate URL');
+  });
+
+  it('rejects an unexpected sitemap URL even when every required URL is present', async () => {
+    const root = await createFixture();
+    await mutateFile(root, 'website/dist/sitemap.xml', source =>
+      source.replace(
+        '</urlset>',
+        '<url><loc>https://angular-flex-layout-codemod.nipesolutions.com/extra</loc></url></urlset>',
+      ),
+    );
+
+    const verification = runVerifier(root);
+
+    expect(verification.status).toBe(1);
+    expect(verification.stderr).toContain('sitemap.xml contains unexpected URL');
+  });
+
+  it('rejects additional robots directives even when the required policy is present', async () => {
+    const root = await createFixture();
+    await mutateFile(root, 'website/dist/robots.txt', source => `${source}Disallow: /private\n`);
+
+    const verification = runVerifier(root);
+
+    expect(verification.status).toBe(1);
+    expect(verification.stderr).toContain('robots.txt must equal the exact production crawler policy');
+  });
+
   it('rejects raw deep-link documents that reuse the root canonical metadata', async () => {
     const root = await createFixture({ routeMetadata: false });
 
@@ -180,6 +218,21 @@ describe('website static output verification', () => {
 
     expect(verification.status).toBe(1);
     expect(verification.stderr).toContain('raw route metadata is incorrect for /docs');
+  });
+
+  it.each([
+    ['title', '<title>Migration guide — Angular Flex-Layout Codemod</title>'],
+    ['description', '<meta name="description" content="Documentation fixture for /docs." />'],
+    ['canonical', '<link rel="canonical" href="https://angular-flex-layout-codemod.nipesolutions.com/docs" />'],
+    ['og:title', '<meta property="og:title" content="Conflicting route title" />'],
+  ])('rejects a second authoritative %s tag in a generated route document', async (key, duplicate) => {
+    const root = await createFixture();
+    await mutateFile(root, 'website/dist/docs.html', source => `${source}${duplicate}`);
+
+    const verification = runVerifier(root);
+
+    expect(verification.status).toBe(1);
+    expect(verification.stderr).toContain(`expected exactly one ${key}`);
   });
 
   it('rejects root output without complete review-first SEO metadata', async () => {
@@ -206,7 +259,7 @@ describe('website static output verification', () => {
     const verification = runVerifier(root);
 
     expect(verification.status).toBe(1);
-    expect(verification.stderr).toContain('robots.txt must explicitly allow crawling');
+    expect(verification.stderr).toContain('robots.txt must equal the exact production crawler policy');
   });
 
   it('rejects a deployment configuration that leaves local Vercel metadata trackable', async () => {
@@ -381,12 +434,15 @@ ${
       outputDirectory: 'website/dist',
       redirects:
         options.htmlRedirects === false
-          ? []
-          : [...requiredRoutes, '/privacy', '/imprint'].map(route => ({
-              source: `${route}.html`,
-              destination: route,
-              permanent: true,
-            })),
+          ? [{ source: '/index.html', destination: '/', permanent: true }]
+          : [
+              { source: '/index.html', destination: '/', permanent: true },
+              ...[...requiredRoutes, '/privacy', '/imprint'].map(route => ({
+                source: `${route}.html`,
+                destination: route,
+                permanent: true,
+              })),
+            ],
       headers: [
         {
           source: '/assets/(.*)',
@@ -504,4 +560,9 @@ function runVerifier(root: string) {
   return spawnSync(process.execPath, [verifier.pathname, '--root', root], {
     encoding: 'utf8',
   });
+}
+
+async function mutateFile(root: string, relativePath: string, mutation: (source: string) => string): Promise<void> {
+  const file = path.join(root, relativePath);
+  await writeFile(file, mutation(await readFile(file, 'utf8')));
 }
