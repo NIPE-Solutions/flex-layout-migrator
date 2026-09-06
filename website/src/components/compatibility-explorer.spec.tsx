@@ -301,6 +301,14 @@ describe('CompatibilityExplorer', () => {
     }
   });
 
+  it('makes every scrollable verified-example code region keyboard accessible', () => {
+    render(<VerifiedExamples />);
+
+    const codeRegions = document.querySelectorAll('.verified-example pre');
+    expect(codeRegions.length).toBeGreaterThan(0);
+    for (const region of codeRegions) expect(region).toHaveAttribute('tabindex', '0');
+  });
+
   it('publishes registry-backed compatibility and example components through Markdown routes', () => {
     render(<DocsLayout page={loadDocumentationPage('/docs/compatibility')} />);
     expect(screen.getByRole('table', { name: 'Directive compatibility' })).toBeVisible();

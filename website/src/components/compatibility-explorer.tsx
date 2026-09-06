@@ -196,20 +196,20 @@ export function VerifiedExamples() {
           </p>
           <figure className="code-block code-block--source">
             <figcaption>Input template</figcaption>
-            <pre data-example-input>
+            <pre data-example-input tabIndex={0}>
               <code>{example.input.source}</code>
             </pre>
           </figure>
           <figure className="code-block code-block--output">
             <figcaption>Expected template output</figcaption>
-            <pre data-example-output>
+            <pre data-example-output tabIndex={0}>
               <code>{example.expectedOutput}</code>
             </pre>
           </figure>
           {example.expectedCss === undefined ? null : (
             <figure className="code-block code-block--output">
               <figcaption>Expected stylesheet output</figcaption>
-              <pre data-example-css>
+              <pre data-example-css tabIndex={0}>
                 <code>{example.expectedCss}</code>
               </pre>
             </figure>
