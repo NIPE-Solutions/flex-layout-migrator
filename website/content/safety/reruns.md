@@ -16,7 +16,7 @@ Compare reports by path and diagnostic rather than expecting identical summary c
 
 ## Avoid mixed ownership
 
-Native CSS output is byte-idempotent for supported unchanged input: a rerun can report an unchanged owned stylesheet. Do not hand-edit the generated marker block while also expecting the codemod to own it. Keep manual rules outside the owned boundary and let the current plan determine generated rules, including removal when no owned rules remain.
+Native CSS output is byte-idempotent for supported unchanged input: a rerun can report an unchanged owned stylesheet. The merger replaces matching incoming rule IDs and retains unmatched valid owned rules, even when the current invocation proposes fewer or no rules. Reruns do not garbage-collect stale owned CSS or remove its file, and the current CLI has no complete-project pruning mode. Do not hand-edit the generated marker block while also expecting the codemod to own it; keep manual rules outside the owned boundary.
 
 Idempotency is not a promise that all preserved cases disappear or that a different invocation produces identical bytes. If a rerun differs unexpectedly, inspect the exact package version, target, scope, output, stylesheet, breakpoint assertions, responsive-image option, source bytes, and manual stylesheet changes before writing again.
 

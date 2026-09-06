@@ -52,7 +52,10 @@ test('restores initial documentation fragments and focuses hash navigation targe
   await expect(page.locator('#dynamic-binding')).toBeFocused();
 });
 
-test('exposes canonical metadata, keyboard focus order, and no critical accessibility violations', async ({ page }) => {
+test('exposes canonical metadata, keyboard focus order, and no Critical or Serious violations on public routes', async ({
+  page,
+}, testInfo) => {
+  test.slow();
   await page.goto('/');
 
   await expect(page.locator('link[rel="canonical"]')).toHaveAttribute(
@@ -65,8 +68,29 @@ test('exposes canonical metadata, keyboard focus order, and no critical accessib
   await expect(page.getByRole('link', { name: 'Flex Layout Codemod home' })).toBeFocused();
   await expect(page.getByRole('textbox', { name: 'Angular template' })).toBeVisible();
 
-  const results = await new AxeBuilder({ page }).analyze();
-  expect(results.violations.filter(violation => violation.impact === 'critical')).toEqual([]);
+  const routeResponse = await page.request.get('/sitemap.xml');
+  expect(routeResponse.ok()).toBe(true);
+  const routeSource = await routeResponse.text();
+  const routes = [...routeSource.matchAll(/<loc>([^<]+)<\/loc>/gu)].map(match => new URL(match[1] ?? '').pathname);
+  expect(routes[0]).toBe('/');
+  expect(routes).toContain('/privacy');
+  expect(routes).toContain('/imprint');
+  expect(routes.some(route => route.startsWith('/docs'))).toBe(true);
+  expect(new Set(routes)).toHaveProperty('size', routes.length);
+
+  for (const route of routes) {
+    if (route !== '/') await page.goto(route);
+    await expect(page.getByRole('main')).toBeVisible();
+    const results = await new AxeBuilder({ page }).analyze();
+    const materialViolations = results.violations
+      .filter(violation => violation.impact === 'critical' || violation.impact === 'serious')
+      .map(violation => ({
+        id: violation.id,
+        impact: violation.impact,
+        targets: violation.nodes.map(node => node.target),
+      }));
+    expect(materialViolations, `${testInfo.project.name} ${route}`).toEqual([]);
+  }
 });
 
 test('converts both targets, operates output tabs with arrows, and transmits no editor source', async ({ page }) => {

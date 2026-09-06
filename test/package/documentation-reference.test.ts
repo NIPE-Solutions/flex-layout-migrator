@@ -1,3 +1,8 @@
+import { readFile } from 'node:fs/promises';
+
+import type { OwnedCssRule } from '../../src/adapter/css/css-artifact.model';
+import { serializeOwnedCssBlock } from '../../src/adapter/css/stylesheet/owned-css-block.serializer';
+import { mergeOwnedStylesheet } from '../../src/adapter/css/stylesheet/owned-stylesheet.merger';
 import type { ConversionResult } from '../../src/analyzer/conversion-result';
 import type { FlexLayoutDirective } from '../../src/analyzer/flex-layout.catalog';
 import { previewTemplate } from '../../src/browser/template-preview';
@@ -25,6 +30,29 @@ describe('documentation reference production parity', () => {
     for (const example of reportReference.examples) {
       expect(rebuild(example.value), example.id).toEqual(example.value);
     }
+  });
+
+  test('binds rerun guidance to the production merger retaining unmatched owned CSS', async () => {
+    const ownedRule = (hex: string): OwnedCssRule => ({
+      owner: 'flex-layout-codemod',
+      id: hex.repeat(64),
+      className: `flm-${hex.repeat(64)}`,
+      family: 'layout',
+      declarations: [{ property: 'display', value: 'flex' }],
+      context: { priority: 0 },
+    });
+    const retainedRule = ownedRule('a');
+    const incomingRule = ownedRule('b');
+    const existing = serializeOwnedCssBlock([retainedRule, incomingRule], '\n');
+
+    expect(mergeOwnedStylesheet(existing, [incomingRule])).toEqual({ changed: false, output: existing });
+    expect(mergeOwnedStylesheet(existing, [])).toEqual({ changed: false, output: existing });
+
+    const guidance = await readFile(new URL('../../website/content/safety/reruns.md', import.meta.url), 'utf8');
+    expect(guidance).toContain('retains unmatched valid owned rules');
+    expect(guidance).toContain('do not garbage-collect stale owned CSS or remove its file');
+    expect(guidance).toContain('no complete-project pruning mode');
+    expect(guidance).not.toContain('removal when no owned rules remain');
   });
 });
 
