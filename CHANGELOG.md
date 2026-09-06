@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.0.0-beta.4
+
+### Minor Changes
+
+- bf4d213: Add declared Tailwind v4 target profiles, prefix and breakpoint awareness, static configuration analysis, target environment reports, custom source breakpoint configuration, and shared generated-template validation for browser previews. Preserve exact media semantics and unknown source directives.
+
 ## Unreleased
 
 - Lower the CLI runtime requirement to Node 22.12, with Node 22 and 24 core/package CI coverage.
