@@ -1,3 +1,5 @@
+import { assertConfigurationUnchanged } from '../../config/migration-config';
+import { pathsOverlapOnFileSystem } from '../../migrator/migration-path.validator';
 import type { MigrationMode } from '../../migrator/migration-mode';
 import { MigrationApplicationError } from '../../migrator/migration-application.error';
 import { MigrationTransaction } from '../../transaction/migration-transaction';
@@ -22,6 +24,13 @@ export class ApplyProjectStage implements ApplyStage {
       );
     }
     const plan = validated.plan;
+    const snapshots = validated.rendered.analyzed.manifest.invocation.options.configurationSnapshots ?? [];
+    await assertConfigurationUnchanged(snapshots);
+    for (const artifact of plan.artifacts)
+      for (const snapshot of snapshots) {
+        if (await pathsOverlapOnFileSystem(artifact.path, snapshot.path))
+          throw new Error(`Migration output collides with target configuration: ${artifact.path}`);
+      }
     const hasParseError = plan.files.some(file => file.results.some(result => result.status === 'parse-error'));
     if (this.mode === 'plan') {
       if (!hasParseError) await this.transaction.preflight(plan);
@@ -32,6 +41,7 @@ export class ApplyProjectStage implements ApplyStage {
     }
 
     await this.transaction.preflight(plan);
+    await assertConfigurationUnchanged(snapshots);
     if (plan.artifacts.length > 0) await this.transaction.apply(plan);
     return appliedProject({ validated, application: { status: 'applied' } });
   }

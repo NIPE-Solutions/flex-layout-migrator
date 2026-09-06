@@ -1,5 +1,5 @@
 import type { MigrationReport } from '../report/migration-report';
-import { MigrationReportBuilder } from '../report/migration-report.builder';
+import { MigrationReportBuilder, withReportEnvironment } from '../report/migration-report.builder';
 import type { AppliedProject } from './applied-project';
 import { remapInvocationErrorPaths } from './invocation-error-path.mapper';
 import type { MigrationPipeline } from './migration-pipeline';
@@ -24,7 +24,7 @@ export class MigrationRunner {
     const { validated, application } = applied;
     const { plan, rendered, stylesheet } = validated;
 
-    return this.reports.build(
+    const report = this.reports.build(
       rendered.analyzed.manifest.invocation.inputPath,
       rendered.analyzed.manifest.invocation.outputPath,
       plan.target,
@@ -34,6 +34,7 @@ export class MigrationRunner {
       plan.files,
       stylesheet,
     );
+    return withReportEnvironment(report, invocation.options);
   }
 
   private async execute(invocation: MigrationInvocation): Promise<AppliedProject> {

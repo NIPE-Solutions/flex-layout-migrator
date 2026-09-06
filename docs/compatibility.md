@@ -207,3 +207,17 @@ The CLI prints a concise deterministic summary and one line per unresolved resul
 Unresolved results are strict in both modes. Exit code `0` means planning or application completed cleanly, or unresolved work was accepted with `--allow-unresolved`; code `1` means configuration, parsing, project I/O, transaction, report writing, or an internal invariant failed; code `2` means planning or application completed safely with unresolved `review`, `unsupported`, or `invalid` results in strict mode. `--allow-unresolved` changes only the final exit code and does not hide diagnostics or change migration output.
 
 Existing scripts that relied on implicit writes must add `--write`. Existing preview scripts must remove `--dry-run`, because planning is now the default and the obsolete option is rejected. Schema-1 consumers must replace `dryRun` checks with the schema-2 `mode` and required `application` fields.
+
+## Target configuration support
+
+| Feature                           | Tailwind target                                                                     | Native CSS target                               |
+| --------------------------------- | ----------------------------------------------------------------------------------- | ----------------------------------------------- |
+| Standard source breakpoint ranges | Exact media variants                                                                | Exact media rules for supported families        |
+| Custom source breakpoints         | Explicit screen/px/orientation media and integer priority                           | Same source definitions for supported families  |
+| Custom target breakpoints         | Static CSS/JSON; exact named pixel minimums where safe                              | Not applicable                                  |
+| Tailwind v4 prefix                | Prefix-first utilities, including responsive output                                 | Not applicable                                  |
+| Legacy @config / @plugin          | Detected, never executed; unknown semantics require review or explicit declarations | Not applicable                                  |
+| Arbitrary range preservation      | Yes; inclusive maximums remain exact                                                | Yes                                             |
+| Compiler evidence                 | Pinned Tailwind 4.3.3                                                               | CSS declaration and responsive regression tests |
+
+See [target configuration](../website/content/targets/configuration.md) for the supported grammar, precedence, and assumptions. Named aliases such as print that collide with built-in Tailwind variants remain arbitrary media ranges. Representative Angular syntax fixtures cover legacy and modern eras; this is not a claim that every Angular release was built or tested.

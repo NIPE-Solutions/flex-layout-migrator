@@ -1,0 +1,6 @@
+<ng-container *ngIf="user?.active">
+  <div #panel fxLayout="row" [title]="user?.name" (click)="select(user)">
+    <span *ngFor="let item of items; let i = index" fxFlexOrder="2">{{ item.name | uppercase }}</span>
+  </div>
+</ng-container>
+<ng-template #empty><p fxLayout="column">No items</p></ng-template>

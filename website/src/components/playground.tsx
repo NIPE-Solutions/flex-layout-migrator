@@ -1,3 +1,4 @@
+import { analyzeTailwindStylesheet, resolveTailwindTargetProfile } from '@core/config/tailwind-target-profile';
 import { useRef, useState, type KeyboardEvent } from 'react';
 
 import { previewTemplate, type TemplatePreviewResult } from '@core/browser/template-preview';
@@ -14,6 +15,10 @@ export function Playground() {
   const [presetId, setPresetId] = useState<string>(initialPlaygroundPreset.id);
   const [source, setSource] = useState<string>(initialPlaygroundPreset.source);
   const [target, setTarget] = useState<MigrationTarget>('tailwind');
+  const [prefix, setPrefix] = useState('');
+  const [breakpoints, setBreakpoints] = useState('');
+  const [targetCss, setTargetCss] = useState('');
+  const [profileError, setProfileError] = useState('');
   const [result, setResult] = useState<TemplatePreviewResult>();
   const [activeTab, setActiveTab] = useState<OutputTab>('html');
   const [status, setStatus] = useState('Ready to preview one template.');
@@ -41,12 +46,43 @@ export function Playground() {
     );
   }
 
-  function migrate(): void {
-    const nextResult = previewTemplate({ source, target });
+  function migrate(nextPrefix = prefix, nextBreakpoints = breakpoints, nextCss = targetCss): void {
+    let nextResult: TemplatePreviewResult;
+    try {
+      const custom: Record<string, string | null> = {};
+      for (const line of nextBreakpoints
+        .split('\n')
+        .map(value => value.trim())
+        .filter(Boolean)) {
+        const entry = /^(\*|[a-zA-Z0-9_-]+)\s+(\S+)$/.exec(line);
+        if (!entry || Object.hasOwn(custom, entry[1]!))
+          throw new Error('Target breakpoints require unique name and length pairs, for example tablet 48rem.');
+        custom[entry[1]!] = entry[2] === 'initial' ? null : entry[2]!;
+      }
+      const targetProfile =
+        target === 'tailwind'
+          ? resolveTailwindTargetProfile({
+              ...(nextCss.trim() ? { detected: analyzeTailwindStylesheet(nextCss) } : {}),
+              ...(nextPrefix || nextBreakpoints.trim()
+                ? { explicit: { ...(nextPrefix ? { prefix: nextPrefix } : {}), breakpoints: custom } }
+                : {}),
+            })
+          : undefined;
+      nextResult = previewTemplate({ source, target, targetProfile });
+      setProfileError('');
+    } catch (error) {
+      setProfileError(error instanceof Error ? error.message : 'Target configuration is invalid.');
+      invalidatePreview('Target configuration needs correction.');
+      return;
+    }
     setResult(nextResult);
     setActiveTab('html');
     const converted = nextResult.results.filter(item => item.status === 'converted').length;
-    if (nextResult.diagnostics.length > 0) {
+    if (nextResult.state === 'rejected') {
+      setStatus('Generated proposal rejected. Original source is preserved.');
+      return;
+    }
+    if (nextResult.state === 'review-required') {
       setStatus(
         `Migration needs review. ${nextResult.diagnostics.length} ${pluralize(nextResult.diagnostics.length, 'diagnostic')} reported.`,
       );
@@ -56,6 +92,10 @@ export function Playground() {
   }
 
   function reset(): void {
+    setPrefix('');
+    setBreakpoints('');
+    setTargetCss('');
+    setProfileError('');
     setPresetId(initialPlaygroundPreset.id);
     setSource(initialPlaygroundPreset.source);
     setTarget('tailwind');
@@ -157,6 +197,64 @@ export function Playground() {
           </label>
         </fieldset>
 
+        {target === 'tailwind' ? (
+          <fieldset className="target-profile-controls">
+            <legend>
+              {prefix || breakpoints || targetCss
+                ? 'Profile: custom Tailwind v4 environment'
+                : 'Profile: Tailwind v4 defaults'}
+            </legend>
+            <label>
+              Tailwind prefix
+              <input
+                value={prefix}
+                placeholder="none"
+                onChange={event => {
+                  setPrefix(event.target.value);
+                  if (result) migrate(event.target.value, breakpoints, targetCss);
+                }}
+              />
+            </label>
+            <label>
+              Target breakpoints
+              <textarea
+                rows={3}
+                value={breakpoints}
+                placeholder={'tablet 48rem\ndesktop 80rem'}
+                spellCheck={false}
+                onChange={event => {
+                  setBreakpoints(event.target.value);
+                  if (result) migrate(prefix, event.target.value, targetCss);
+                }}
+              />
+            </label>
+            <p>
+              Leave blank for defaults or pasted CSS settings. Use <code>* initial</code> to replace the breakpoint
+              namespace.
+            </p>
+            <details>
+              <summary>Analyze Tailwind stylesheet</summary>
+              <p>
+                Extracts migration-relevant Tailwind configuration from this stylesheet. Local imports are not loaded
+                here. Nothing is uploaded or persisted.
+              </p>
+              <label>
+                Target stylesheet CSS
+                <textarea
+                  rows={5}
+                  value={targetCss}
+                  spellCheck={false}
+                  onChange={event => {
+                    setTargetCss(event.target.value);
+                    if (result) migrate(prefix, breakpoints, event.target.value);
+                  }}
+                />
+              </label>
+            </details>
+            {profileError ? <p role="alert">{profileError}</p> : null}
+          </fieldset>
+        ) : null}
+
         <div className="playground-actions">
           <button className="action-button action-button--primary" type="submit">
             Migrate template
@@ -186,6 +284,24 @@ export function Playground() {
           <p className="playground-empty">Run a migration to inspect the proposed output.</p>
         ) : (
           <>
+            {result.targetProfile ? (
+              <details className="target-assumptions" open>
+                <summary>Assumptions {result.targetProfile.assumptions.length}</summary>
+                <p>
+                  Profile: {result.targetProfile.fingerprint}; prefix: {result.targetProfile.prefix.value ?? 'none'}
+                </p>
+                <ul>
+                  {result.targetProfile.assumptions.map(item => (
+                    <li key={item}>{item}</li>
+                  ))}
+                </ul>
+                {result.targetProfile.diagnostics.map((item, index) => (
+                  <p key={index}>
+                    [{item.code}] {item.message}
+                  </p>
+                ))}
+              </details>
+            ) : null}
             <div className="output-tabs" role="tablist" aria-label="Migration output format">
               <button
                 ref={htmlTab}

@@ -19,6 +19,15 @@ export async function generateWebsiteRouteHtml(projectRoot) {
     await mkdir(path.dirname(outputPath), { recursive: true });
     await writeFile(outputPath, routeHtml);
   }
+  const notFound = applyRouteMetadata(rootHtml, {
+    path: '/404',
+    title: '404 — Page not found',
+    description: 'This address does not match a page on this site.',
+  }).replace(
+    '<div id="root"></div>',
+    '<div id="root"><main><h1>404 — Page not found</h1><p><a href="/">Go to homepage</a> · <a href="/docs">Read the documentation</a></p></main></div>',
+  );
+  await writeFile(path.join(dist, '404.html'), notFound);
   await writeFile(path.join(dist, 'sitemap.xml'), buildSitemap(routes));
   await writeFile(path.join(dist, 'robots.txt'), `User-agent: *\nAllow: /\nSitemap: ${productionOrigin}/sitemap.xml\n`);
   return routes;

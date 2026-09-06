@@ -1,3 +1,5 @@
+import type { TailwindTargetProfile } from '../config/tailwind-target-profile';
+import type { SourceBreakpoints } from '../config/source-breakpoints';
 import type { DiagnosticCode } from '../analyzer/conversion-result';
 import type { MigrationMode } from '../migrator/migration-mode';
 
@@ -8,6 +10,8 @@ export type MigrationApplication =
 
 export interface MigrationReport {
   readonly schemaVersion: 2;
+  readonly targetProfile?: TailwindTargetProfile;
+  readonly sourceBreakpoints?: SourceBreakpoints;
   readonly mode: MigrationMode;
   readonly target: 'css' | 'tailwind';
   readonly application: MigrationApplication;

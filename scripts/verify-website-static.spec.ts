@@ -523,7 +523,6 @@ ${
           '/privacy',
           '/imprint',
         ].map(route => ({ source: route, destination: `${route}.html` })),
-        { source: '/(.*)', destination: '/index.html' },
       ],
     }),
   );

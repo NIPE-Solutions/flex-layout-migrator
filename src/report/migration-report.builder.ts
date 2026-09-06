@@ -1,3 +1,4 @@
+import type { MigrationOptions } from '../pipeline/project-manifest';
 import path from 'node:path';
 import type { ConversionResult } from '../analyzer/conversion-result';
 import type { LocatedFlexLayoutInput } from '../analyzer/flex-layout-attribute.analyzer';
@@ -172,4 +173,13 @@ export class MigrationReportBuilder {
       ...resultCounts,
     };
   }
+}
+
+/** Additive schema-2 environment metadata, separate from template result normalization. */
+export function withReportEnvironment(report: MigrationReport, options: MigrationOptions): MigrationReport {
+  return {
+    ...report,
+    ...(options.targetProfile ? { targetProfile: options.targetProfile } : {}),
+    ...(options.sourceBreakpoints ? { sourceBreakpoints: options.sourceBreakpoints } : {}),
+  };
 }

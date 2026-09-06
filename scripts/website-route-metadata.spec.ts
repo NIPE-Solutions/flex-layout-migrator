@@ -92,10 +92,7 @@ describe('website route metadata generation', () => {
         { source: '/index.html', destination: '/', permanent: true },
         ...routes.map(route => ({ source: `${route}.html`, destination: route, permanent: true })),
       ],
-      rewrites: [
-        ...routes.map(route => ({ source: route, destination: `${route}.html` })),
-        { source: '/(.*)', destination: '/index.html' },
-      ],
+      rewrites: [...routes.map(route => ({ source: route, destination: `${route}.html` }))],
     };
     expect(() => assertRouteDeliveryContract(complete, routes)).not.toThrow();
     expect(() =>
@@ -108,10 +105,7 @@ describe('website route metadata generation', () => {
 
   it('requires the permanent root HTML alias redirect', () => {
     const routes = ['/docs', '/privacy', '/imprint'];
-    const rewrites = [
-      ...routes.map(route => ({ source: route, destination: `${route}.html` })),
-      { source: '/(.*)', destination: '/index.html' },
-    ];
+    const rewrites = [...routes.map(route => ({ source: route, destination: `${route}.html` }))];
     const redirects = routes.map(route => ({ source: `${route}.html`, destination: route, permanent: true }));
 
     expect(() => assertRouteDeliveryContract({ redirects, rewrites }, routes)).toThrow(/root HTML redirect/u);

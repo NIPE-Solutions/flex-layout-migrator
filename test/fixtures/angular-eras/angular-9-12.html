@@ -1,0 +1,6 @@
+<section *ngIf="items$ | async as items; else loading" fxLayout="column" fxLayoutGap="12px">
+  <button *ngFor="let item of items; trackBy: trackItem" [attr.aria-label]="item.name" (click)="pick(item)">
+    {{ item.name }}
+  </button>
+</section>
+<ng-template #loading><div fxLayout="row">Loading</div></ng-template>

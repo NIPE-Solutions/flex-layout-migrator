@@ -164,3 +164,15 @@ describe('migration playground', () => {
     );
   });
 });
+
+it('previews prefix settings locally and rejects malformed breakpoint values', () => {
+  render(<Playground />);
+  fireEvent.change(screen.getByLabelText('Tailwind prefix'), { target: { value: 'tw' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Migrate template' }));
+  expect(screen.getByRole('tabpanel', { name: 'HTML' })).toHaveTextContent('tw:flex');
+  expect(screen.getByText(/Assumptions/)).toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText('Target breakpoints'), { target: { value: 'tablet nope' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Migrate template' }));
+  expect(screen.getByRole('alert')).toHaveTextContent(/breakpoint/i);
+  expect(screen.queryByRole('tabpanel')).not.toBeInTheDocument();
+});

@@ -24,6 +24,18 @@ export interface ReportReference {
 export const reportReference = deepFreeze({
   schemaVersion: 2,
   fields: [
+    {
+      path: 'targetProfile',
+      type: 'TailwindTargetProfile',
+      required: false,
+      description: 'Resolved Tailwind environment, provenance, fingerprint, diagnostics and assumptions.',
+    },
+    {
+      path: 'sourceBreakpoints',
+      type: 'SourceBreakpoints',
+      required: false,
+      description: 'Explicit source media queries and priorities for reproducibility.',
+    },
     { path: 'schemaVersion', type: '2', required: true, description: 'Public report schema version.' },
     { path: 'mode', type: 'plan | write', required: true, description: 'Requested migration mode.' },
     { path: 'target', type: 'css | tailwind', required: true, description: 'Selected rendering target.' },

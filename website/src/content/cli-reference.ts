@@ -13,6 +13,30 @@ export interface CliOptionReference {
 
 export const cliReference = deepFreeze([
   {
+    longFlag: '--config',
+    valueName: 'path',
+    description: 'declarative migration JSON configuration',
+    evidence: ['src/cli/run-cli.ts', 'src/cli/target-config-cli.spec.ts'],
+  },
+  {
+    longFlag: '--tailwind-stylesheet',
+    valueName: 'path',
+    description: 'statically analyze a Tailwind v4 target stylesheet',
+    evidence: ['src/cli/run-cli.ts', 'src/cli/target-config-cli.spec.ts'],
+  },
+  {
+    longFlag: '--tailwind-prefix',
+    valueName: 'prefix',
+    description: 'override Tailwind v4 prefix; empty string means none',
+    evidence: ['src/cli/run-cli.ts', 'src/cli/target-config-cli.spec.ts'],
+  },
+  {
+    longFlag: '--plan',
+    description: 'explicitly request the default review-only plan',
+    evidence: ['src/cli/run-cli.ts', 'src/cli/target-config-cli.spec.ts'],
+  },
+
+  {
     longFlag: '--output',
     shortFlag: '-o',
     valueName: 'path',

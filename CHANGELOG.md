@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+- Lower the CLI runtime requirement to Node 22.12, with Node 22 and 24 core/package CI coverage.
+
+- Resolve declarative Tailwind v4 target profiles with static stylesheet analysis, prefix, breakpoint reset/removal, provenance, assumptions, and fingerprints.
+- Generate prefix-first utilities and exact responsive variants; use named pixel minimums only with equivalent screen semantics. Compile regression output with Tailwind 4.3.3.
+- Accept explicit source breakpoint media queries and priorities. Preserve unknown source aliases.
+- Detect legacy `@config`, plugins, remote/unsafe imports, and source exclusions without executing project code. Reject detected configuration drift before writes.
+- Share generated-template validation between CLI and browser preview; reject malformed proposals.
+- Add target settings to the playground, configuration documentation, legacy Angular syntax fixtures, and a real not-found page with static 404 output.
+
 ## 2.0.0-beta.3
 
 ### Minor Changes

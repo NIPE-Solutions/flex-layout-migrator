@@ -12,7 +12,7 @@ order: 1
 
 The Tailwind target converts only semantics it can express exactly with Tailwind CSS v4. Keyword behavior uses stable utilities. Source lengths and percentages use arbitrary values, so `fxLayoutGap="4"` keeps its `4px` meaning and `fxFlexOffset="4"` keeps its `4%` meaning instead of depending on a project's spacing scale.
 
-The output is self-contained template syntax. This target does not edit CSS, Sass, Less, a Tailwind configuration file, or a companion stylesheet. It also does not read project theme or plugin configuration to justify a candidate.
+The output is self-contained template syntax. This target does not edit CSS, Sass, Less, a Tailwind configuration file, or a companion stylesheet. It statically reads migration-relevant target settings when you supply a stylesheet or declarative profile. Plugins are never executed. See [Target configuration](/docs/configuration).
 
 ```text
 npx flex-layout-codemod ./src --target tailwind

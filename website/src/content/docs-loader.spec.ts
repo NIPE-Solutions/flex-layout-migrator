@@ -59,7 +59,7 @@ describe('documentation content loader', () => {
       'Reference',
       'Project',
     ]);
-    expect(documentationRoutes).toHaveLength(25);
+    expect(documentationRoutes).toHaveLength(26);
 
     for (const route of documentationRoutes) {
       const page = loadDocumentationPage(route.path);

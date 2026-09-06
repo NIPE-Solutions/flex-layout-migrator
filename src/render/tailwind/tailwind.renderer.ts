@@ -1,3 +1,5 @@
+import { normalizeTargetCandidate, renderTargetCandidate } from '../../config/tailwind-candidate-profile';
+import { resolveTailwindTargetProfile, type TailwindTargetProfile } from '../../config/tailwind-target-profile';
 import type { LocatedFlexLayoutInput } from '../../analyzer/flex-layout-attribute.analyzer';
 import type { BreakpointMigrationConfig } from '../../config/breakpoint-migration-config';
 import { MigrationApplicationError } from '../../migrator/migration-application.error';
@@ -101,17 +103,38 @@ function compatibleVisibilityClasses(
 export class TailwindRenderer implements ConversionRenderer {
   readonly target = 'tailwind' as const;
   readonly breakpointConfig: BreakpointMigrationConfig;
-  readonly sourcePropertyEvidence = new TailwindSourcePropertyEvidence();
+  readonly sourcePropertyEvidence: TailwindSourcePropertyEvidence;
+  readonly targetProfile: TailwindTargetProfile;
   private readonly responsiveEmitter = new ResponsiveVariantEmitter();
   private readonly visibilityEmitter = new VisibilityEmitter();
   private readonly extendedEmitter = new ExtendedResponsiveEmitter();
   private readonly gridRenderer = new TailwindGridRenderer();
 
   constructor(config: BreakpointMigrationConfig = { orientationBreakpoints: false }) {
+    this.targetProfile = config.targetProfile ?? resolveTailwindTargetProfile();
     this.breakpointConfig = Object.freeze({ ...config });
+    this.sourcePropertyEvidence = new TailwindSourcePropertyEvidence(this.targetProfile);
   }
 
   eligibility(input: LocatedFlexLayoutInput): PlannedConversion | undefined {
+    const unresolved = this.targetProfile.diagnostics.filter(
+      item =>
+        item.code === 'tailwind-prefix-conflict' ||
+        item.code === 'tailwind-target-unknown' ||
+        (['tailwind-config-external', 'tailwind-plugin-external', 'tailwind-import-unresolved'].includes(item.code) &&
+          (this.targetProfile.coreUtilities.value === 'unknown' ||
+            this.targetProfile.prefix.confidence !== 'explicit' ||
+            this.targetProfile.important.confidence !== 'explicit')),
+    );
+    if (unresolved.length)
+      return {
+        status: 'review',
+        input,
+        code: 'context-unverified',
+        reason: `Target configuration is unresolved: ${unresolved.map(item => item.message).join(' ')}`,
+        suggestion: 'Resolve the target stylesheet or supply explicit migration profile settings before migrating.',
+      };
+
     if (input.binding !== 'property') {
       if (
         !sharedDirectives.has(input.directive) &&
@@ -131,7 +154,13 @@ export class TailwindRenderer implements ConversionRenderer {
     return undefined;
   }
 
-  render(plan: ResolvedSemanticPlan, _context: SemanticConversionContext): PlannedConversion {
+  render(plan: ResolvedSemanticPlan, context: SemanticConversionContext): PlannedConversion {
+    const result = this.renderUnprefixed(plan, context);
+    if (result.status !== 'converted') return result;
+    return { ...result, classNames: result.classNames.map(token => renderTargetCandidate(token, this.targetProfile)) };
+  }
+
+  private renderUnprefixed(plan: ResolvedSemanticPlan, _context: SemanticConversionContext): PlannedConversion {
     const inputFamily = directiveFamily(plan.input.directive);
     if (inputFamily !== plan.family) {
       throw new MigrationApplicationError(
@@ -214,7 +243,15 @@ export class TailwindRenderer implements ConversionRenderer {
     plans: readonly PlannedConversion[],
     context: SemanticConversionContext,
   ): readonly PlannedConversion[] {
-    return this.resolveClassConflicts(plans, context.existingClassNames);
+    const normalize = (token: string) => normalizeTargetCandidate(token, this.targetProfile);
+    const normalized = plans.map(plan =>
+      plan.status === 'converted' ? { ...plan, classNames: plan.classNames.map(token => normalize(token)) } : plan,
+    );
+    const resolved = this.resolveClassConflicts(
+      normalized,
+      context.existingClassNames.map(token => normalize(token)),
+    );
+    return resolved.map((plan, index) => (plan.status === 'converted' ? plans[index]! : plan));
   }
 
   record(_plans: readonly PlannedConversion[]): void {}
@@ -256,6 +293,11 @@ export class TailwindRenderer implements ConversionRenderer {
           }
         : plan,
     );
+  }
+
+  private unprefix(token: string): string {
+    const prefix = this.targetProfile.prefix.value;
+    return prefix && token.startsWith(`${prefix}:`) ? token.slice(prefix.length + 1) : token;
   }
 
   private decorate(classNames: readonly string[], plan: ResolvedSemanticPlan): readonly string[] {
@@ -313,7 +355,7 @@ export class TailwindRenderer implements ConversionRenderer {
                 return this.extendedEmitter.emitClass({
                   input: plan.input,
                   activation: itemActivation,
-                  value: { tokens: state.tokens.map(token => token.source) },
+                  value: { tokens: state.tokens.map(token => this.unprefix(token.source)) },
                 });
               }),
             ),

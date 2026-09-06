@@ -1,0 +1,7 @@
+@if (user(); as current) {
+<section fxLayout="column" fxLayoutGap="13px">
+  @for (item of current.items; track item.id) { <button (click)="select(item)">{{ item.name }}</button> } @empty {
+  <p>Nothing yet</p>
+  }
+</section>
+}

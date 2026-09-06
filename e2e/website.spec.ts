@@ -212,3 +212,21 @@ test('keeps mobile documentation context visible and wide content locally scroll
   expect(codeMetrics.overflowX).toBe('auto');
   expect(await page.locator('body').evaluate(element => element.scrollWidth)).toBeLessThanOrEqual(375);
 });
+
+test('returns HTTP 404 with useful navigation for unknown routes', async ({ page }) => {
+  const response = await page.goto('/unknown-target-profile-route');
+  expect(response?.status()).toBe(404);
+  await expect(page.getByRole('heading', { level: 1, name: '404 — Page not found' })).toBeVisible();
+  await page.getByRole('link', { name: 'Read the documentation' }).click();
+  await expect(page).toHaveURL(/\/docs$/);
+});
+
+test('keeps target stylesheet and template input local and prefixes the preview', async ({ page }) => {
+  await page.goto('/#playground');
+  await page.getByLabel('Tailwind prefix', { exact: true }).fill('tw');
+  await page.getByRole('button', { name: 'Migrate template' }).click();
+  await expect(page.getByRole('tabpanel', { name: 'HTML' })).toContainText('tw:flex');
+  await page.getByLabel('Target breakpoints', { exact: true }).fill('tablet invalid');
+  await page.getByRole('button', { name: 'Migrate template' }).click();
+  await expect(page.getByRole('alert')).toBeVisible();
+});

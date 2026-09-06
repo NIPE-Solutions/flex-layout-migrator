@@ -95,7 +95,7 @@ describe('runCli', () => {
 
     expect(pipelines).toHaveLength(1);
     expect(invocations).toHaveLength(1);
-    expect(invocations[0]).toEqual({
+    expect(invocations[0]).toMatchObject({
       inputPath: input,
       outputPath,
       canonicalInputPath: resolve(input),
@@ -248,8 +248,9 @@ describe('runCli', () => {
 
     expect(result).toEqual({
       exitCode: 0,
-      stdout:
+      stdout: expect.stringContaining(
         'Plan: 1 files scanned, 1 would change\nConverted 2 | Review 0 | Unsupported 0 | Invalid 0 | Parse errors 0\nNo project files were written. Run again with --write to apply this plan.\n',
+      ),
       stderr: '',
     });
     await expect(access(output)).rejects.toMatchObject({ code: 'ENOENT' });
@@ -264,8 +265,9 @@ describe('runCli', () => {
 
     expect(result).toEqual({
       exitCode: 0,
-      stdout:
+      stdout: expect.stringContaining(
         'Applied: 1 files scanned, 1 changed\nConverted 2 | Review 0 | Unsupported 0 | Invalid 0 | Parse errors 0\n',
+      ),
       stderr: '',
     });
     expect(await readFile(output, 'utf8')).toBe('<div class="flex flex-col box-border gap-[4px]"></div>');

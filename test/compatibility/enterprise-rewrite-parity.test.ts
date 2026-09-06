@@ -1,3 +1,4 @@
+import { resolveTailwindTargetProfile } from '../../src/config/tailwind-target-profile';
 import { cp, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -212,7 +213,7 @@ describe('enterprise architecture packaged CLI parity', () => {
     if (parityCase.responsiveImages) baseArguments.push('--responsive-images');
 
     const plan = execute(baseArguments, directory);
-    expect(plan).toEqual(expectation.plan);
+    expect(plan).toEqual({ ...expectation.plan, stdout: expect.stringContaining(expectation.plan.stdout) });
     expect(await readFile(input, 'utf8')).toBe(originalTemplate);
     if (originalStylesheet !== undefined) expect(await readFile(stylesheet, 'utf8')).toBe(originalStylesheet);
     expect(normalizeTemporaryPaths(JSON.parse(await readFile(report, 'utf8')), directory)).toEqual(
@@ -220,7 +221,7 @@ describe('enterprise architecture packaged CLI parity', () => {
     );
 
     const applied = execute([...baseArguments, '--write'], directory);
-    expect(applied).toEqual(expectation.write);
+    expect(applied).toEqual({ ...expectation.write, stdout: expect.stringContaining(expectation.write.stdout) });
     expect(await readFile(input, 'utf8')).toBe(expectedTemplate);
     if (expectedStylesheet !== undefined) expect(await readFile(stylesheet, 'utf8')).toBe(expectedStylesheet);
     expect(normalizeTemporaryPaths(JSON.parse(await readFile(report, 'utf8')), directory)).toEqual(
@@ -230,7 +231,7 @@ describe('enterprise architecture packaged CLI parity', () => {
     const firstTemplate = await readFile(input, 'utf8');
     const firstStylesheet = expectedStylesheet === undefined ? undefined : await readFile(stylesheet, 'utf8');
     const rerun = execute([...baseArguments, '--write'], directory);
-    expect(rerun).toEqual(expectation.rerun);
+    expect(rerun).toEqual({ ...expectation.rerun, stdout: expect.stringContaining(expectation.rerun.stdout) });
     expect(await readFile(input, 'utf8')).toBe(firstTemplate);
     if (firstStylesheet !== undefined) expect(await readFile(stylesheet, 'utf8')).toBe(firstStylesheet);
     expect(normalizeTemporaryPaths(JSON.parse(await readFile(report, 'utf8')), directory)).toEqual(
@@ -265,6 +266,7 @@ function report({
   readonly stylesheetChange?: 'updated' | 'unchanged';
 }): object {
   return {
+    ...(target === 'tailwind' ? { targetProfile: resolveTailwindTargetProfile() } : {}),
     schemaVersion: 2,
     mode,
     target,

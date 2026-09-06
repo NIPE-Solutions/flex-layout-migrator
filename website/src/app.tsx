@@ -28,6 +28,20 @@ export function App() {
         Skip to content
       </a>
       <SiteHeader />
+      {path === '/404' ? (
+        <main id="main-content" className="site-container not-found">
+          <h1>404 — Page not found</h1>
+          <p>This address does not match a page on this site.</p>
+          <p>
+            <a className="action-link" href="/">
+              Go to homepage
+            </a>{' '}
+            <a className="action-link" href="/docs">
+              Read the documentation
+            </a>
+          </p>
+        </main>
+      ) : null}
       {path === '/' ? <HomePage /> : null}
       {documentationPaths.includes(path as DocumentationPath) ? <DocsPage path={path as DocumentationPath} /> : null}
       {legalPaths.includes(path as LegalPath) ? <LegalPage path={path as LegalPath} /> : null}
@@ -54,7 +68,7 @@ function updateRouteMetadata(path: string): void {
   const openGraphDescription = document.querySelector<HTMLMetaElement>('meta[property="og:description"]');
   const twitterTitle = document.querySelector<HTMLMetaElement>('meta[name="twitter:title"]');
   const twitterDescription = document.querySelector<HTMLMetaElement>('meta[name="twitter:description"]');
-  document.title = title;
+  document.title = path === '/404' ? '404 — Page not found' : title;
   canonical?.setAttribute('href', routeUrl);
   openGraphUrl?.setAttribute('content', routeUrl);
   descriptionMeta?.setAttribute('content', description);

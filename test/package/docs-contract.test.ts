@@ -167,8 +167,8 @@ describe('maintainer documentation', () => {
 
     expectInOrder(readme, [
       'npm install --save-dev --save-exact @nipe-solutions/flex-layout-codemod@beta',
-      'npx flex-layout-codemod ./src --report ./reports/flex-layout.json',
-      'npx flex-layout-codemod ./src --target tailwind --write',
+      'npx flex-layout-codemod ./src --target tailwind --tailwind-stylesheet ./src/styles.css --plan --report ./reports/flex-layout.json',
+      'npx flex-layout-codemod ./src --target tailwind --tailwind-stylesheet ./src/styles.css --write',
     ]);
     expect(readme).toContain('Plan first. Review unresolved cases. Write only when you are ready.');
     for (const destination of [
