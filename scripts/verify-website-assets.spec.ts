@@ -122,12 +122,12 @@ describe('website asset contract', () => {
       fixturePng(1200, 630, () => [246, 241, 231, 255]),
     );
 
-    expect(await inspectWebsiteAssets(fixture)).toContain(
+    const violations = await inspectWebsiteAssets(fixture);
+
+    expect(violations).toContain(
       'website/public/og-image.png: derivative does not match deterministic social composition',
     );
-    expect(await inspectWebsiteAssets(fixture)).toContain(
-      'website/public/og-image.png: missing source-plan-output composition',
-    );
+    expect(violations).toContain('website/public/og-image.png: missing source-plan-output composition');
   });
 
   it('builds the social image from a deterministic source-plan-output composition, not the master mark', async () => {
