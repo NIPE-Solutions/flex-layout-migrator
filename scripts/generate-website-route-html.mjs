@@ -4,6 +4,7 @@ import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 
 import { readSiteRouteManifest } from './documentation-route-manifest.mjs';
+import { readTagAttributes, stripMarkupComments } from './authoritative-markup.mjs';
 
 const productionOrigin = 'https://angular-flex-layout-codemod.nipesolutions.com';
 
@@ -24,6 +25,14 @@ export async function generateWebsiteRouteHtml(projectRoot) {
 }
 
 function applyRouteMetadata(html, route) {
+  const activeHtml = stripMarkupComments(html, {
+    relevantElement: /<(?:title|meta|link)\b/iu,
+    relevantMessage: 'HTML comments must not contain route metadata elements',
+    malformedMessage: 'Root HTML contains malformed comments',
+  });
+  for (const match of activeHtml.matchAll(/<(?:title|meta|link)\b[^>]*>/giu)) {
+    readTagAttributes(match[0]);
+  }
   const routeUrl = `${productionOrigin}${route.path}`;
   const title = escapeHtml(route.title);
   const description = escapeHtml(route.description);

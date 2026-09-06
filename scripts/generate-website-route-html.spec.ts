@@ -69,4 +69,57 @@ describe('website route HTML generation', () => {
       '<meta property="og:url" content="https://angular-flex-layout-codemod.nipesolutions.com/privacy"',
     );
   });
+
+  it('rejects a route metadata seed that exists only inside an HTML comment', async () => {
+    const root = await createGeneratorRoot(
+      routeMetadataSeed().replace(
+        '<meta property="og:title" content="Flex Layout Codemod" />',
+        '<!-- <meta property="og:title" content="Flex Layout Codemod" /> -->',
+      ),
+    );
+
+    const generation = spawnSync(process.execPath, [generator.pathname, '--root', root], { encoding: 'utf8' });
+
+    expect(generation.status).not.toBe(0);
+    expect(generation.stderr).toContain('HTML comments must not contain route metadata elements');
+  });
+
+  it('rejects case-insensitive duplicate attributes before normalizing route metadata', async () => {
+    const root = await createGeneratorRoot(
+      routeMetadataSeed().replace(
+        '<meta property="og:title" content="Flex Layout Codemod" />',
+        '<meta property="og:title" CONTENT="wrong" content="Flex Layout Codemod" />',
+      ),
+    );
+
+    const generation = spawnSync(process.execPath, [generator.pathname, '--root', root], { encoding: 'utf8' });
+
+    expect(generation.status).not.toBe(0);
+    expect(generation.stderr).toContain('metadata tag contains duplicate attribute content');
+  });
 });
+
+async function createGeneratorRoot(rootHtml: string): Promise<string> {
+  const root = await mkdtemp(path.join(tmpdir(), 'website-routes-adversarial-'));
+  roots.push(root);
+  const dist = path.join(root, 'website', 'dist');
+  await mkdir(dist, { recursive: true });
+  await cp(path.join(import.meta.dirname, '../website/content'), path.join(root, 'website/content'), {
+    recursive: true,
+  });
+  await writeFile(path.join(dist, 'index.html'), rootHtml);
+  return root;
+}
+
+function routeMetadataSeed(): string {
+  return `<!doctype html><html><head>
+<title>Flex Layout Codemod</title>
+<meta name="description" content="Root description" />
+<link rel="canonical" href="https://angular-flex-layout-codemod.nipesolutions.com/" />
+<meta property="og:url" content="https://angular-flex-layout-codemod.nipesolutions.com/" />
+<meta property="og:title" content="Flex Layout Codemod" />
+<meta property="og:description" content="Root description" />
+<meta name="twitter:title" content="Flex Layout Codemod" />
+<meta name="twitter:description" content="Root description" />
+</head><body></body></html>`;
+}

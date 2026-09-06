@@ -192,6 +192,34 @@ describe('website static output verification', () => {
     expect(verification.stderr).toContain('sitemap.xml contains unexpected URL');
   });
 
+  it('rejects a required sitemap URL hidden inside an XML comment', async () => {
+    const root = await createFixture();
+    await mutateFile(root, 'website/dist/sitemap.xml', source => {
+      const entry = '<url><loc>https://angular-flex-layout-codemod.nipesolutions.com/</loc></url>';
+      return source.replace(entry, `<!-- ${entry} -->`);
+    });
+
+    const verification = runVerifier(root);
+
+    expect(verification.status).toBe(1);
+    expect(verification.stderr).toContain('sitemap.xml comments must not contain loc elements');
+  });
+
+  it('rejects malformed sitemap nesting even when every expected loc value is present', async () => {
+    const root = await createFixture();
+    await mutateFile(root, 'website/dist/sitemap.xml', source =>
+      source.replace(
+        '<url><loc>https://angular-flex-layout-codemod.nipesolutions.com/docs</loc></url>',
+        '<url><loc>https://angular-flex-layout-codemod.nipesolutions.com/docs</url></loc>',
+      ),
+    );
+
+    const verification = runVerifier(root);
+
+    expect(verification.status).toBe(1);
+    expect(verification.stderr).toContain('sitemap.xml has invalid structure');
+  });
+
   it('rejects additional robots directives even when the required policy is present', async () => {
     const root = await createFixture();
     await mutateFile(root, 'website/dist/robots.txt', source => `${source}Disallow: /private\n`);
@@ -233,6 +261,34 @@ describe('website static output verification', () => {
 
     expect(verification.status).toBe(1);
     expect(verification.stderr).toContain(`expected exactly one ${key}`);
+  });
+
+  it('rejects expected Open Graph metadata that exists only inside an HTML comment', async () => {
+    const root = await createFixture();
+    await mutateFile(root, 'website/dist/docs.html', source => {
+      const tag = '<meta property="og:title" content="Migration guide — Angular Flex-Layout Codemod" />';
+      return source.replace(tag, `<!-- ${tag} -->`);
+    });
+
+    const verification = runVerifier(root);
+
+    expect(verification.status).toBe(1);
+    expect(verification.stderr).toContain('HTML comments must not contain authoritative metadata elements');
+  });
+
+  it('rejects case-insensitive duplicate attributes before applying browser-first metadata semantics', async () => {
+    const root = await createFixture();
+    await mutateFile(root, 'website/dist/docs.html', source =>
+      source.replace(
+        '<meta property="og:title" content="Migration guide — Angular Flex-Layout Codemod" />',
+        '<meta property="og:title" CONTENT="wrong" content="Migration guide — Angular Flex-Layout Codemod" />',
+      ),
+    );
+
+    const verification = runVerifier(root);
+
+    expect(verification.status).toBe(1);
+    expect(verification.stderr).toContain('metadata tag contains duplicate attribute content');
   });
 
   it('rejects root output without complete review-first SEO metadata', async () => {
@@ -494,7 +550,12 @@ ${
   if (options.crawlerFiles !== false) {
     await writeFile(
       path.join(dist, 'sitemap.xml'),
-      `<?xml version="1.0" encoding="UTF-8"?><urlset>${['/', ...requiredRoutes, '/privacy', '/imprint']
+      `<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${[
+        '/',
+        ...requiredRoutes,
+        '/privacy',
+        '/imprint',
+      ]
         .map(route => `<url><loc>https://angular-flex-layout-codemod.nipesolutions.com${route}</loc></url>`)
         .join('')}</urlset>`,
     );

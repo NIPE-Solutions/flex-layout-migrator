@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import ignore from 'ignore';
 
 import { readSiteRouteManifest } from './documentation-route-manifest.mjs';
+import { readTagAttributes, stripMarkupComments } from './authoritative-markup.mjs';
 
 const productionOrigin = 'https://angular-flex-layout-codemod.nipesolutions.com';
 const maximumEntryBytes = 500 * 1024;
@@ -152,9 +153,7 @@ async function readManifestAssets(dist, manifest, graph) {
 
 export function assertCrawlerFiles(sitemap, robots, siteRoutes) {
   const expectedUrls = siteRoutes.map(route => `${productionOrigin}${route}`);
-  const sitemapUrls = [...sitemap.matchAll(/<loc\b[^>]*>([^<]*)<\/loc\s*>/giu)].map(match => match[1].trim());
-  const locOpenings = [...sitemap.matchAll(/<loc\b/giu)].length;
-  if (locOpenings !== sitemapUrls.length) throw new Error('sitemap.xml contains a malformed URL entry');
+  const sitemapUrls = parseSitemapUrls(sitemap);
   const duplicate = sitemapUrls.find((url, index) => sitemapUrls.indexOf(url) !== index);
   if (duplicate !== undefined) throw new Error(`sitemap.xml contains duplicate URL ${duplicate}`);
   const expectedSet = new Set(expectedUrls);
@@ -198,19 +197,24 @@ function assertCanonicalMetadata(html, homeRoute) {
 }
 
 function assertExactSeoMetadata(html, route) {
+  const activeHtml = stripMarkupComments(html, {
+    relevantElement: /<(?:title|meta|link)\b/iu,
+    relevantMessage: 'HTML comments must not contain authoritative metadata elements',
+    malformedMessage: 'HTML contains malformed comments',
+  });
   const routeUrl = `${productionOrigin}${route.path}`;
   const title = escapeHtml(route.title);
   const description = escapeHtml(route.description);
   const image = `${productionOrigin}/og-image.png`;
   const imageAlt = 'Angular Flex-Layout migration from source through review plan to output';
-  const titles = [...html.matchAll(/<title\b[^>]*>([\s\S]*?)<\/title\s*>/giu)];
-  const titleOpenings = [...html.matchAll(/<title\b/giu)].length;
+  const titles = [...activeHtml.matchAll(/<title\b[^>]*>([\s\S]*?)<\/title\s*>/giu)];
+  const titleOpenings = [...activeHtml.matchAll(/<title\b/giu)].length;
   if (titles.length !== 1 || titleOpenings !== 1) {
     throw new Error(`expected exactly one title, found ${titleOpenings}`);
   }
   if (titles[0]?.[1] !== title) throw new Error(`title value mismatch for ${route.path}`);
 
-  const linkTags = [...html.matchAll(/<link\b[^>]*>/giu)].map(match => readTagAttributes(match[0]));
+  const linkTags = [...activeHtml.matchAll(/<link\b[^>]*>/giu)].map(match => readTagAttributes(match[0]));
   assertSingleMetadataValue(
     linkTags.filter(attributes => hasToken(attributes.get('rel'), 'canonical')),
     'canonical',
@@ -218,7 +222,7 @@ function assertExactSeoMetadata(html, route) {
     routeUrl,
   );
 
-  const metaTags = [...html.matchAll(/<meta\b[^>]*>/giu)].map(match => readTagAttributes(match[0]));
+  const metaTags = [...activeHtml.matchAll(/<meta\b[^>]*>/giu)].map(match => readTagAttributes(match[0]));
   const expected = [
     ['name', 'description', description],
     ['property', 'og:type', 'website'],
@@ -247,16 +251,32 @@ function assertExactSeoMetadata(html, route) {
   }
 }
 
-function readTagAttributes(tag) {
-  const attributes = new Map();
-  for (const match of tag.matchAll(/([^\s"'<>/=]+)\s*=\s*(["'])(.*?)\2/gu)) {
-    attributes.set(match[1].toLowerCase(), match[3]);
-  }
-  return attributes;
-}
-
 function hasToken(value, expected) {
   return value?.split(/\s+/u).some(token => token.toLowerCase() === expected) ?? false;
+}
+
+function parseSitemapUrls(sitemap) {
+  if (sitemap.trim() === '') return [];
+  const activeXml = stripMarkupComments(sitemap, {
+    relevantElement: /<loc\b/iu,
+    relevantMessage: 'sitemap.xml comments must not contain loc elements',
+    malformedMessage: 'sitemap.xml has invalid comment structure',
+  });
+  const document = activeXml.match(
+    /^\s*<\?xml\s+version="1\.0"\s+encoding="UTF-8"\s*\?>\s*<urlset\s+xmlns="http:\/\/www\.sitemaps\.org\/schemas\/sitemap\/0\.9"\s*>\s*([\s\S]*?)\s*<\/urlset>\s*$/u,
+  );
+  if (document === null) throw new Error('sitemap.xml has invalid structure');
+  const body = document[1] ?? '';
+  const urls = [];
+  const entryPattern = /<url\s*>\s*<loc\s*>([^<]+)<\/loc\s*>\s*<\/url\s*>/gu;
+  let cursor = 0;
+  for (const match of body.matchAll(entryPattern)) {
+    if (body.slice(cursor, match.index).trim() !== '') throw new Error('sitemap.xml has invalid structure');
+    urls.push(match[1].trim());
+    cursor = (match.index ?? 0) + match[0].length;
+  }
+  if (body.slice(cursor).trim() !== '') throw new Error('sitemap.xml has invalid structure');
+  return urls;
 }
 
 function assertSingleMetadataValue(tags, key, valueAttribute, expectedValue) {
