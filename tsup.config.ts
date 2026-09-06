@@ -3,7 +3,7 @@ import { defineConfig } from 'tsup';
 export default defineConfig({
   entry: { cli: 'src/main.ts' },
   format: ['esm'],
-  target: 'node24',
+  target: 'node22.12',
   platform: 'node',
   clean: true,
   sourcemap: true,

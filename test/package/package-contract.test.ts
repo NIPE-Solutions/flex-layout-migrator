@@ -105,7 +105,7 @@ describe('package contract', () => {
     expect(pkg).toMatchObject({
       name: '@nipe-solutions/flex-layout-codemod',
       type: 'module',
-      engines: { node: '>=24' },
+      engines: { node: '>=22.12.0' },
       bin: { 'flex-layout-codemod': './dist/cli.js' },
       files: ['dist', 'README.md', 'LICENSE', 'CHANGELOG.md'],
     });
@@ -114,6 +114,7 @@ describe('package contract', () => {
       commander: '^15.0.0',
       'fs-extra': '^11.4.0',
       ignore: '5.2.4',
+      postcss: '^8.5.26',
       winston: '^3.19.0',
     });
     expect(pkg.dependencies).not.toHaveProperty('cheerio');

@@ -1048,6 +1048,7 @@ describe('enterprise pipeline dependency boundary', { timeout: wholeProjectInspe
   test('forbids validation authorities in Render and requires them under concrete Validate', () => {
     const validationAuthorities = new Set<string>([
       'ChangedTemplateValidation.parse',
+      'GeneratedTemplateValidation.validate',
       'CssReferenceCollector.collect',
       'CssReferenceParser.parse',
       'DestinationTemplateSource.read',
@@ -1067,14 +1068,15 @@ describe('enterprise pipeline dependency boundary', { timeout: wholeProjectInspe
         validationAuthorities,
       ),
     ).toEqual([
+      { source: 'browser/template-preview.ts', authority: 'GeneratedTemplateValidation.validate' },
       { source: 'browser/template-preview.ts', authority: 'SourceEditor.apply' },
       { source: 'image/picture.renderer.ts', authority: 'SourceEditor.apply' },
     ]);
     expect(normalizedAuthoritySources(validateCalls, validationAuthorities)).toEqual([
       { source: 'pipeline/validate/css-reference.collector.ts', authority: 'CssReferenceParser.parse' },
       { source: 'pipeline/validate/css-reference.collector.ts', authority: 'DestinationTemplateSource.read' },
-      { source: 'pipeline/validate/template-proposal.validator.ts', authority: 'ChangedTemplateValidation.parse' },
       { source: 'pipeline/validate/template-proposal.validator.ts', authority: 'DestinationTemplateSource.read' },
+      { source: 'pipeline/validate/template-proposal.validator.ts', authority: 'GeneratedTemplateValidation.validate' },
       { source: 'pipeline/validate/template-proposal.validator.ts', authority: 'SourceEditor.apply' },
       { source: 'pipeline/validate/validate-project.stage.ts', authority: 'CssReferenceCollector.collect' },
       { source: 'pipeline/validate/validate-project.stage.ts', authority: 'MigrationPathValidation.validate' },
@@ -1521,6 +1523,14 @@ describe('enterprise pipeline dependency boundary', { timeout: wholeProjectInspe
 
   test('keeps direct filesystem and ignore authorities at their named production owners', () => {
     expect(normalizedAuthoritySources(productionSemanticAuthorities(), resourceAuthorityNames)).toEqual([
+      { source: 'config/migration-config.ts', authority: 'FileSystem.acquire.readFile' },
+      { source: 'config/migration-config.ts', authority: 'FileSystem.acquire.realpath' },
+      { source: 'config/migration-config.ts', authority: 'FileSystem.readFile' },
+      { source: 'config/migration-config.ts', authority: 'FileSystem.readFile' },
+      { source: 'config/migration-config.ts', authority: 'FileSystem.realpath' },
+      { source: 'config/migration-config.ts', authority: 'FileSystem.realpath' },
+      { source: 'config/migration-config.ts', authority: 'FileSystem.realpath' },
+      { source: 'config/migration-config.ts', authority: 'FileSystem.realpath' },
       { source: 'lib/atomic-file.writer.ts', authority: 'FileSystem.acquire.lstat' },
       { source: 'lib/atomic-file.writer.ts', authority: 'FileSystem.acquire.open' },
       { source: 'lib/gitignore.helper.ts', authority: 'FileSystem.acquire.*' },
@@ -1698,7 +1708,7 @@ describe('enterprise pipeline dependency boundary', { timeout: wholeProjectInspe
       { source: 'browser/template-preview.ts', authority: 'AngularTemplateParser.parse' },
       { source: 'pipeline/analyze/analyze-project.stage.ts', authority: 'OriginalTemplateParser.parse' },
       { source: 'pipeline/validate/css-reference.collector.ts', authority: 'CssReferenceParser.parse' },
-      { source: 'pipeline/validate/template-proposal.validator.ts', authority: 'ChangedTemplateValidation.parse' },
+      { source: 'template/generated-template-validation.ts', authority: 'AngularTemplateParser.parse' },
       { source: 'transaction/transaction-unit.session.ts', authority: 'StagedTemplateValidation.parse' },
     ]);
     expect(

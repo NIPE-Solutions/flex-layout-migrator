@@ -1643,3 +1643,37 @@ p {
     transition-duration: 0.01ms !important;
   }
 }
+
+.target-profile-controls {
+  display: grid;
+  gap: 1rem;
+  min-width: 0;
+  padding: 1rem;
+  border: 1px solid var(--color-border);
+}
+.target-profile-controls label {
+  display: grid;
+  gap: 0.5rem;
+}
+.target-profile-controls input,
+.target-profile-controls textarea {
+  width: 100%;
+  min-height: 44px;
+  padding: 0.75rem;
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: 1px solid currentColor;
+  border-radius: 0.25rem;
+}
+.target-profile-controls textarea {
+  font-family: monospace;
+  resize: vertical;
+}
+.target-assumptions {
+  padding: 1rem;
+}
+.not-found {
+  padding-block: 5rem;
+  min-height: 60vh;
+}

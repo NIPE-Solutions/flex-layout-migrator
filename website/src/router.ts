@@ -10,7 +10,7 @@ export const documentationPaths = Object.freeze(documentationRoutes.map(route =>
 export const legalPaths = ['/privacy', '/imprint'] as const;
 
 export type LegalPath = (typeof legalPaths)[number];
-export type SitePath = '/' | DocumentationPath | LegalPath;
+export type SitePath = '/404' | '/' | DocumentationPath | LegalPath;
 
 const sitePaths = new Set<string>(['/', ...documentationPaths, ...legalPaths]);
 
@@ -74,7 +74,7 @@ function subscribe(notify: () => void): () => void {
 
 function currentPath(): SitePath {
   const path = normalizePath(window.location.pathname);
-  return sitePaths.has(path) ? (path as SitePath) : '/';
+  return sitePaths.has(path) ? (path as SitePath) : '/404';
 }
 
 function normalizePath(path: string): string {

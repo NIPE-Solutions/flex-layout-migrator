@@ -169,6 +169,7 @@ export type SemanticAuthorityName =
   | 'AnalyzeProjectStage.run'
   | 'ApplyProjectStage.run'
   | 'AngularTemplateParser.parse'
+  | 'GeneratedTemplateValidation.validate'
   | 'ChangedTemplateValidation.parse'
   | 'CssReferenceCollector.collect'
   | 'CssReferenceParser.parse'
@@ -2922,6 +2923,11 @@ const semanticAuthorityConfigs: readonly SemanticAuthorityConfig[] = [
     name: 'StylesheetRootTopologyValidation.validate',
     methodName: 'validateStylesheetRootTopology',
     declarations: [{ sourcePathSuffix: '/migrator/migration-path.validator.ts' }],
+  },
+  {
+    name: 'GeneratedTemplateValidation.validate',
+    methodName: 'generatedTemplateErrors',
+    declarations: [{ sourcePathSuffix: '/template/generated-template-validation.ts' }],
   },
   {
     name: 'TemplateProposalValidator.validate',

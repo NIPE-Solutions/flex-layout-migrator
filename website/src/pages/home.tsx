@@ -44,6 +44,28 @@ export function HomePage() {
         </div>
       </section>
 
+      <section className="support-section" aria-labelledby="target-profile-heading">
+        <div className="site-container support-section__grid">
+          <div>
+            <h2 id="target-profile-heading">Migrate into your Tailwind setup</h2>
+            <p>
+              Point the codemod at your Tailwind v4 stylesheet or provide an explicit migration profile. Prefixes and
+              responsive mappings use the declared target environment.
+            </p>
+            <a href="/docs/configuration">Tailwind target configuration</a>
+          </div>
+          <CodeBlock label="Target profile → exact output">{`Tailwind v4
+prefix  tw
+sm      40rem
+md      48rem
+lg      64rem
+
+fxLayout="row"
+  ↓
+tw:flex tw:flex-row tw:box-border`}</CodeBlock>
+        </div>
+      </section>
+
       <section className="support-section" aria-labelledby="support-heading">
         <div className="site-container support-section__grid">
           <div>

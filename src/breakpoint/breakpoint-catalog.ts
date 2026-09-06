@@ -1,3 +1,4 @@
+import { sourceBreakpointDefinition } from '../config/source-breakpoints';
 import { ORIENTATION_BREAKPOINTS } from '../analyzer/flex-layout.catalog';
 import type { BreakpointMigrationConfig } from '../config/breakpoint-migration-config';
 
@@ -122,6 +123,9 @@ export class BreakpointCatalog {
       ...(config.printWithBreakpoints === undefined
         ? []
         : ([[frozenPrintDefinition.alias, frozenPrintDefinition]] as const)),
+      ...Object.entries(config.sourceBreakpoints ?? {}).map(
+        ([alias, value]) => [alias, sourceBreakpointDefinition(alias, value)] as const,
+      ),
     ]);
   }
 

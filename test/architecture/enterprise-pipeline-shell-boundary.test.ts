@@ -39,7 +39,16 @@ const handoffImports = new Map<string, readonly string[]>([
       'node:path',
     ],
   ],
-  ['project-manifest.ts', ['../migrator/migration-mode', 'node:path']],
+  [
+    'project-manifest.ts',
+    [
+      '../config/migration-config',
+      '../config/source-breakpoints',
+      '../config/tailwind-target-profile',
+      '../migrator/migration-mode',
+      'node:path',
+    ],
+  ],
   [
     'rendered-project.ts',
     [

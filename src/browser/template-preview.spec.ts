@@ -108,7 +108,8 @@ describe('previewTemplate', () => {
       'Unexpected closing tag "div". It may happen when the tag has already been closed by another tag. For more info see https://www.w3.org/TR/html5/syntax.html#closing-elements-that-have-implied-end-tags';
     const result = previewTemplate({ source, target: 'tailwind', fileName: 'broken.html' });
 
-    expect(result).toEqual({
+    expect(result).toMatchObject({
+      state: 'rejected',
       html: source,
       css: undefined,
       results: [
@@ -133,7 +134,8 @@ describe('previewTemplate', () => {
   test('returns unchanged valid input with empty result collections', () => {
     const source = '<section class="hero">Hello</section>';
 
-    expect(previewTemplate({ source, target: 'tailwind' })).toEqual({
+    expect(previewTemplate({ source, target: 'tailwind' })).toMatchObject({
+      state: 'valid',
       html: source,
       css: undefined,
       results: [],

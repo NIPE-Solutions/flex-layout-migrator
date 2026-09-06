@@ -1,8 +1,14 @@
+import type { TailwindTargetProfile } from '../config/tailwind-target-profile';
+import type { ConfigurationSnapshot } from '../config/migration-config';
+import type { SourceBreakpoints } from '../config/source-breakpoints';
 import * as path from 'node:path';
 import type { MigrationMode } from '../migrator/migration-mode';
 
 export interface MigrationOptions {
   readonly mode: MigrationMode;
+  readonly targetProfile?: TailwindTargetProfile;
+  readonly sourceBreakpoints?: SourceBreakpoints;
+  readonly configurationSnapshots?: readonly ConfigurationSnapshot[];
   readonly responsiveImages?: boolean;
   readonly stylesheetPath?: string;
   readonly stylesheetPathInput?: string;

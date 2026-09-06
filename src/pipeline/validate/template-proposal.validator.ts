@@ -1,3 +1,4 @@
+import { generatedTemplateErrors } from '../../template/generated-template-validation';
 import * as path from 'node:path';
 import type { ConversionResult } from '../../analyzer/conversion-result';
 import { SourceEditor } from '../../edit/source-editor';
@@ -35,21 +36,8 @@ export class TemplateProposalValidator {
 
     if (edited.output === template.source) return planResult(template, rendered, false, rendered.results);
 
-    const reparsed = this.validationParser.parse(edited.output, template.file.outputPath);
-    if (reparsed.status === 'parse-error') {
-      return planResult(
-        template,
-        rendered,
-        false,
-        reparsed.diagnostics.map(diagnostic => ({
-          status: 'parse-error' as const,
-          fileName: template.file.outputPath,
-          code: 'generated-template-parse-error' as const,
-          reason: diagnostic.message,
-          source: diagnostic.source,
-        })),
-      );
-    }
+    const errors = generatedTemplateErrors(edited.output, template.file.outputPath, this.validationParser);
+    if (errors.length) return planResult(template, rendered, false, errors);
 
     const original = await originalState(template, this.destinationTemplates);
     const proposed: ArtifactState = { status: 'present', contents: edited.output };

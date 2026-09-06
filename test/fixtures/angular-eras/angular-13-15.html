@@ -1,0 +1,5 @@
+<ng-container [ngSwitch]="state">
+  <section *ngSwitchCase="'ready'" fxLayout="row" fxLayout.md="column">
+    <p [class.selected]="selected" [style.color]="color">{{ account?.name ?? 'Guest' }}</p>
+  </section>
+</ng-container>

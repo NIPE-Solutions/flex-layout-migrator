@@ -1,3 +1,6 @@
+import type { BreakpointMigrationConfig } from '../config/breakpoint-migration-config';
+import { generatedTemplateErrors } from '../template/generated-template-validation';
+import { resolveTailwindTargetProfile, type TailwindTargetProfile } from '../config/tailwind-target-profile';
 import type { ConversionResult, DiagnosticCode } from '../analyzer/conversion-result';
 import { TemplateAnalyzer } from '../analyzer/template.analyzer';
 import { SourceEditor } from '../edit/source-editor';
@@ -12,6 +15,8 @@ export interface TemplatePreviewInput {
   readonly source: string;
   readonly target: 'tailwind' | 'css';
   readonly fileName?: string;
+  readonly targetProfile?: TailwindTargetProfile;
+  readonly sourceConfig?: BreakpointMigrationConfig;
 }
 
 export type TemplatePreviewDiagnostic =
@@ -22,13 +27,15 @@ export type TemplatePreviewDiagnostic =
       readonly source: SourceRange;
     }
   | {
-      readonly code: 'template-parse-error';
+      readonly code: 'template-parse-error' | 'generated-template-parse-error';
       readonly message: string;
       readonly source: SourceRange;
     }
   | EditDiagnostic;
 
 export interface TemplatePreviewResult {
+  readonly state: 'valid' | 'review-required' | 'rejected';
+  readonly targetProfile?: TailwindTargetProfile;
   readonly html: string;
   readonly css: string | undefined;
   readonly results: readonly ConversionResult[];
@@ -37,6 +44,8 @@ export interface TemplatePreviewResult {
 
 export function previewTemplate(input: TemplatePreviewInput): TemplatePreviewResult {
   const fileName = input.fileName ?? 'template.html';
+  const targetProfile =
+    input.target === 'tailwind' ? (input.targetProfile ?? resolveTailwindTargetProfile()) : undefined;
   const parsed = new AngularTemplateParser().parse(input.source, fileName);
   if (parsed.status === 'parse-error') {
     const results = parsed.diagnostics.map(diagnostic => ({
@@ -47,6 +56,8 @@ export function previewTemplate(input: TemplatePreviewInput): TemplatePreviewRes
       source: diagnostic.source,
     })) satisfies readonly ConversionResult[];
     return freezeValue({
+      state: 'rejected',
+      targetProfile,
       html: input.source,
       css: input.target === 'css' ? '' : undefined,
       results,
@@ -58,7 +69,11 @@ export function previewTemplate(input: TemplatePreviewInput): TemplatePreviewRes
   }
 
   const inputs = new TemplateAnalyzer().analyze(fileName, parsed.elements);
-  const session = createRenderSession(input.target);
+  const session = createRenderSession(input.target, {
+    orientationBreakpoints: false,
+    ...input.sourceConfig,
+    targetProfile,
+  });
   const plan = new ConversionPlanner().plan(input.source, parsed.elements, inputs, session.renderer);
   const edited = new SourceEditor().apply(input.source, plan.edits);
   const finalized = session.finalize();
@@ -79,6 +94,8 @@ export function previewTemplate(input: TemplatePreviewInput): TemplatePreviewRes
   if (edited.status === 'invalid') {
     diagnostics.push(...edited.diagnostics);
     return freezeValue({
+      state: 'rejected',
+      targetProfile,
       html: input.source,
       css: input.target === 'css' ? '' : undefined,
       results: plan.results,
@@ -86,8 +103,28 @@ export function previewTemplate(input: TemplatePreviewInput): TemplatePreviewRes
     });
   }
 
+  const generatedErrors = generatedTemplateErrors(edited.output, fileName);
+  if (generatedErrors.length)
+    return freezeValue({
+      state: 'rejected',
+      targetProfile,
+      html: input.source,
+      css: input.target === 'css' ? '' : undefined,
+      results: generatedErrors,
+      diagnostics: generatedErrors.flatMap(result =>
+        result.status === 'parse-error' ? [{ code: result.code, message: result.reason, source: result.source }] : [],
+      ),
+    });
+
   const css = finalized.target === 'css' ? mergeStylesheetContents('', finalized.rules).output : undefined;
-  return freezeValue({ html: edited.output, css, results: plan.results, diagnostics });
+  return freezeValue({
+    state: diagnostics.length || targetProfile?.diagnostics.length ? 'review-required' : 'valid',
+    targetProfile,
+    html: edited.output,
+    css,
+    results: plan.results,
+    diagnostics,
+  });
 }
 
 function freezeValue<T>(value: T): T {

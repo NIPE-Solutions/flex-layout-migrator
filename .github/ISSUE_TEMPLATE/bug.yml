@@ -61,3 +61,15 @@ body:
     id: expected
     attributes: { label: Expected result }
     validations: { required: true }
+  - type: input
+    id: tailwind-version
+    attributes: { label: Tailwind version and prefix, placeholder: '4.3.3; prefix(tw)' }
+  - type: textarea
+    id: target-config
+    attributes:
+      label: Minimal target stylesheet and breakpoint configuration
+      description: Include only relevant imports, prefix, breakpoints, important mode, and custom source aliases. Do not upload an entire proprietary configuration.
+      render: css
+  - type: input
+    id: directive
+    attributes: { label: Flex Layout directive, placeholder: 'fxLayout.md' }

@@ -1,3 +1,4 @@
+import type { TailwindTargetProfile } from '../config/tailwind-target-profile';
 import { TailwindArbitraryPropertyEncoder } from '../adapter/tailwind/extended/tailwind-arbitrary-property.encoder';
 import { TailwindCandidateClassifier } from '../adapter/tailwind/extended/tailwind-candidate-classifier';
 import { describeTailwindDisplay } from '../adapter/tailwind/tailwind-class-conflict';
@@ -13,16 +14,22 @@ export class TailwindSourcePropertyEvidence implements SourcePropertyEvidence {
   private readonly classifier = new TailwindCandidateClassifier();
   private readonly styleEncoder = new TailwindArbitraryPropertyEncoder();
 
+  constructor(private readonly profile?: TailwindTargetProfile) {}
+
   classifyClassToken(token: string): SourceClassTokenClassification {
-    const classification = this.classifier.classify(token);
+    const prefix = this.profile?.prefix.value;
+    if (prefix && !token.startsWith(`${prefix}:`))
+      return { status: 'unverified', reason: 'Class is not a utility in the declared prefixed target.' };
+    const normalized = prefix ? token.slice(prefix.length + 1) : token;
+    const classification = this.classifier.classify(normalized);
     if (classification.status === 'unverified') return classification;
-    const display = describeTailwindDisplay(token);
+    const display = describeTailwindDisplay(normalized);
     return {
       status: 'verified',
       evidence: {
         source: token,
         properties: classification.descriptor.cssProperties,
-        important: classification.descriptor.important,
+        important: classification.descriptor.important || this.profile?.important.value === 'important',
         activation: classification.descriptor.activation,
         ...(display === undefined ? {} : { display: display.utility }),
       },

@@ -28,13 +28,17 @@ describe('public documentation registries', () => {
   test('covers every public CLI option exactly once with current option metadata', () => {
     expect(cliReference.map(option => option.longFlag).sort()).toEqual([
       '--allow-unresolved',
+      '--config',
       '--debug',
       '--orientation-breakpoints',
       '--output',
+      '--plan',
       '--print-with-breakpoints',
       '--report',
       '--responsive-images',
       '--stylesheet',
+      '--tailwind-prefix',
+      '--tailwind-stylesheet',
       '--target',
       '--version',
       '--write',
@@ -91,6 +95,8 @@ describe('public documentation registries', () => {
   test('publishes the complete schema-2 report field contract and valid examples', () => {
     expect(reportReference.schemaVersion).toBe(2);
     expect(reportReference.fields.map(field => field.path)).toEqual([
+      'targetProfile',
+      'sourceBreakpoints',
       'schemaVersion',
       'mode',
       'target',

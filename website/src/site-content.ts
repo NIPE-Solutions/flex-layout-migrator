@@ -53,7 +53,8 @@ export const siteContent = {
   ],
   playground: {
     heading: 'Preview one template in your browser.',
-    description: 'The interactive playground uses the same browser-safe migration boundary as the production engine.',
+    description:
+      'Browser preview shares parser, analyzer, planner, renderer, and generated-template validation with the CLI. Filesystem transactions and project-wide checks remain CLI-only.',
     privacyStatement: 'Your template never leaves this browser.',
     regionLabel: 'Migration playground preview',
   },

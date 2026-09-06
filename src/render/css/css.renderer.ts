@@ -62,7 +62,12 @@ export class CssRenderer implements ConversionRenderer {
   eligibility(input: LocatedFlexLayoutInput): PlannedConversion | undefined {
     const family = this.cssFamily(input);
     if (family === undefined) return targetUnsupported(input);
-    if (input.breakpoint !== undefined && !supportedBreakpoints.has(input.breakpoint)) return targetUnsupported(input);
+    if (
+      input.breakpoint !== undefined &&
+      !supportedBreakpoints.has(input.breakpoint) &&
+      !Object.hasOwn(this.breakpointConfig.sourceBreakpoints ?? {}, input.breakpoint)
+    )
+      return targetUnsupported(input);
     return undefined;
   }
 

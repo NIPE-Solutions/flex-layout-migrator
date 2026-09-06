@@ -33,3 +33,7 @@ The example below is loaded directly from the registry that the documentation ve
 Plan mode reports `application.status` as skipped for `plan-only`, including plans containing parse errors. Write mode with any parse error reports skipped for `parse-errors`. A successful valid write reports applied, including an unchanged plan with no bytes to commit.
 
 Configuration, discovery, transaction, and report-writing exceptions return exit code 1 rather than a successful report object. A project transaction failure leaves an existing report path untouched. Conversely, report writing happens after application and outside the project transaction, so a report-write failure does not reverse already applied project files.
+
+## Target environment
+
+Schema 2 now has additive optional `targetProfile` and `sourceBreakpoints` fields. Tailwind CLI reports include version, prefix, breakpoint values with units and provenance, important mode, diagnostics, assumptions, and a deterministic fingerprint. Consumers should tolerate additional fields. A report is review evidence, not an executable saved plan.

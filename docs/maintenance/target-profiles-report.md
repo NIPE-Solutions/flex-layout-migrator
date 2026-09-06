@@ -1,0 +1,40 @@
+# Target profile hardening report
+
+Implementation branch: `feat/target-profiles`, based on `e2e931d` (2.0.0-beta.3).
+
+1. **Architecture.** A frozen, browser-safe Tailwind target profile is resolved before planning. Renderers and class evidence consume that profile. It carries v4 intent, prefix, breakpoint values, importance, core utility assumptions, per-setting provenance/confidence, diagnostics, and a deterministic SHA-256 fingerprint. Analyze → Plan → Review → Write → Verify remains intact.
+2. **Configuration and CLI.** Declarative `flex-layout-migrator.config.json`, or `--config file.json`, supports target settings and explicit source media definitions. Added `--tailwind-stylesheet`, `--tailwind-prefix`, and explicit `--plan`. Existing `--report` and unresolved policy are retained. No executable config or additional inspection command.
+3. **Precedence.** CLI → explicit JSON profile → stylesheet → documented defaults. Conflicting prefixes remain visible and prevent affected automatic conversions. Each important setting records its origin.
+4. **Stylesheet analysis.** Narrow PostCSS analysis handles full/split Tailwind imports, prefix and important modifiers, ordered breakpoint declarations, namespace/global resets, individual removals, and bounded local CSS imports. Theme-only imports do not imply utilities exist. Remote, conditional, malformed, cyclic, and unsupported imports produce diagnostics.
+5. **Prefixes.** Final candidate serialization places the v4 prefix first across generated utility channels. Existing prefixed classes are normalized for semantic conflict analysis while original tokens are preserved. Compiler tests cover prefix/variant ordering and important syntax.
+6. **Target breakpoints.** Raw px/rem/em values are retained. Mixed units warn. No assumed font-size conversion. Exact eligible pixel minima can use named variants with an explicit screen restriction; built-in variant collisions retain arbitrary media syntax.
+7. **Source semantics.** Standard source semantics remain in the shared breakpoint catalog. Explicit custom aliases require a supported screen/pixel/orientation media definition and actual priority. Unknown aliases retain directives and the established `custom-breakpoint` diagnostic. Responsive truth tables compare selected source expectations with compiled Tailwind and Native CSS output.
+8. **Arbitrary variants.** Non-equivalent named aliases and bounded ranges retain exact arbitrary media conditions. Exclusive Tailwind maximum variants are not substituted for inclusive fractional Flex Layout maxima. Arbitrary values avoid guessing customized theme scales.
+9. **Compiler validation.** Tests use pinned Tailwind 4.3.3 as the oracle for candidates, declarations, prefixes, importance, and media. A built-in variant registry test protects named-variant selection. No runtime project compiler invocation or broader v4 compatibility promise is introduced.
+10. **Legacy `@config`.** Detected and reported without execution. Unknown utility semantics preserve affected directives. Independently vetted explicit prefix, importance, and `coreUtilities: "standard"` can declare assumptions; that declaration is not compiler verification.
+11. **Security.** No plugins, JavaScript config, remote CSS, or legacy application code is executed. Local imports stay within the canonical project root, with cycle detection, 16-level/128-visit limits, and 2 MB per file. Config inputs remain read-only. Content and symlink identity are checked before application, including after transaction preflight. This is drift detection, not an atomic filesystem lock against another process.
+12. **Assumptions.** Terminal, JSON, and browser results expose applicable assumptions and confidence. Custom application CSS remains outside global analysis. Configuration confidence is separate from directive migration safety.
+13. **Browser safety.** CLI and browser share generated-template reparsing. Rejected browser proposals return original source with parse-error diagnostics; result state distinguishes valid, review-required, and rejected. Transactions, rollback, filesystem and project-wide orchestration remain CLI-only.
+14. **Node compatibility.** Runtime requirement lowered to Node >=22.12.0, bundle target updated, and CI runs Node 22.12.0 and 24. The codemod runtime can differ from a legacy application's build runtime; the application need not install its dependencies for source analysis.
+15. **Angular corpus.** Four representative template-era fixtures cover Angular 5–8, 9–12, 13–15, and modern syntax, including structural directives, refs, bindings, pipes, safe navigation, and modern control flow. These are syntax fixtures, not full historical Angular build certification.
+16. **Website.** Added target configuration docs, homepage profile visual, prefix/breakpoint/pasted-CSS playground controls, visible assumptions, and accurate browser boundary/privacy copy. Unknown routes render a useful 404. Static output includes 404.html; hosting no longer rewrites every unknown path to the homepage. Local HTTP status and navigation are tested. Production deployment is separate.
+17. **JSON schema.** Existing schema version 2 is retained with additive optional `targetProfile` and `sourceBreakpoints`. Reports include resolved settings and fingerprint; reports are not executable saved plans.
+18. **Diagnostics.** Added `tailwind-prefix-conflict`, `tailwind-config-external`, `tailwind-plugin-external`, `tailwind-breakpoint-unknown`, `tailwind-mixed-breakpoint-units`, `tailwind-target-unknown`, `tailwind-source-excluded`, `tailwind-import-unresolved`, and `tailwind-target-assumption`. Existing directive diagnostics remain in use.
+19. **Issue #20.** Prefix support is implemented end-to-end in this branch, with regression coverage. The GitHub issue remains open pending integration; no issue closure or public release is claimed.
+20. **Tests.** Added profile/parser/import/precedence/drift, CLI/report, browser rejection/profile, compiler oracle, responsive comparison, era fixtures, and 404/playground tests. Existing Native CSS, architecture, transaction, package, docs and website suites remain quality gates. Verification results are recorded below.
+21. **Unsupported configurations.** No stylesheet auto-discovery, per-file environment routing, v3 migration, arbitrary media expression evaluation, general CSS/config evaluator, remote/package import bundler, trusted plugin execution, runtime compile mode, or saved-plan execution. Multiple entrypoints require explicit selection. Conditional/custom utility/variant semantics require review.
+22. **Migration limits.** Existing conservative responsive-family restrictions remain; fixture evidence does not prove every custom fallback combination. Review unresolved directives and perform application builds, component/E2E tests, screenshots and responsive checks. Dependencies are not automatically removed.
+23. **Release readiness.** Ready for beta review after the complete quality gate passed. This branch does not publish a package, deploy the website, or claim stable application-level equivalence.
+
+## Verification
+
+- Node 24.20.0: `PLAYWRIGHT_WEBSITE_PORT=4187 npm run check` passed (exit 0).
+- Core/package tests: 149 files, 3,393 tests passed, including Native CSS and architecture boundaries.
+- Coverage: 92.29% statements, 87.87% branches, 96.99% functions, 94.55% lines.
+- Website: 11 files, 84 unit tests; 18 desktop/mobile Chromium E2E tests passed.
+- Formatting, ESLint, both TypeScript configurations, documentation contracts, asset/static verification, both builds, and package smoke checks passed.
+- Node 22.12.0: all 3,393 tests, build, and package verification passed (exit 0).
+- Independent review found and prompted fixes for variant collisions in rendering and normalization, unknown plugin semantics, utility-layer detection, symlink drift, and global theme reset. Each confirmed bug has regression coverage.
+- GitHub CI matrix is configured; hosted CI, deployment and publishing have not been run from this local branch.
+
+BETA READY

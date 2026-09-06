@@ -238,3 +238,12 @@ describe('documentation website shell', () => {
     );
   });
 });
+
+it('shows a real not-found page for unknown paths', () => {
+  window.history.replaceState(null, '', '/this-route-does-not-exist');
+  render(<App />);
+  expect(screen.getByRole('heading', { level: 1, name: '404 — Page not found' })).toBeInTheDocument();
+  expect(
+    screen.queryByRole('heading', { name: 'Plan an Angular Flex-Layout migration before you write.' }),
+  ).not.toBeInTheDocument();
+});

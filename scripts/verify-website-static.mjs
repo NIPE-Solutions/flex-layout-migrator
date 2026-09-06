@@ -337,12 +337,9 @@ export function assertRouteDeliveryContract(vercel, deepLinkRoutes) {
   if (JSON.stringify(vercel.redirects) !== JSON.stringify(expectedRedirects)) {
     throw new Error('vercel.json must define canonical HTML redirects for every deep-link document');
   }
-  const expectedRewrites = [
-    ...deepLinkRoutes.map(route => ({ source: route, destination: `${route}.html` })),
-    { source: '/(.*)', destination: '/index.html' },
-  ];
+  const expectedRewrites = [...deepLinkRoutes.map(route => ({ source: route, destination: `${route}.html` }))];
   if (JSON.stringify(vercel.rewrites) !== JSON.stringify(expectedRewrites)) {
-    throw new Error('vercel.json must deliver exact route documents before the SPA fallback');
+    throw new Error('vercel.json must deliver exact route documents without a homepage fallback');
   }
 }
 

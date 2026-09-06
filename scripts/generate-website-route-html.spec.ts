@@ -45,7 +45,7 @@ describe('website route HTML generation', () => {
 
     expect(generation.status).toBe(0);
     expect(generation.stderr).toBe('');
-    expect(generation.stdout).toContain('Generated route metadata for 27 deep links.');
+    expect(generation.stdout).toContain('Generated route metadata for 28 deep links.');
     expect(await readFile(path.join(dist, 'index.html'), 'utf8')).toBe(rootHtml);
     const tailwind = await readFile(path.join(dist, 'docs', 'tailwind.html'), 'utf8');
     expect(tailwind.match(/<title\b/gu)).toHaveLength(1);

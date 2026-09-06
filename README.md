@@ -10,7 +10,7 @@ Read the [detailed documentation](https://angular-flex-layout-codemod.nipesoluti
 
 ## Requirements and installation
 
-The CLI requires Node.js 24 or newer. Install the current beta as an exact development dependency so your package manifest and lockfile retain the reviewed version:
+The CLI requires Node.js 22.12 or newer (tested on Node 22 and 24). This runtime can differ from your legacy Angular build runtime; the codemod reads source without loading the application dependencies. Install the current beta as an exact development dependency so your package manifest and lockfile retain the reviewed version:
 
 ```bash
 npm install --save-dev --save-exact @nipe-solutions/flex-layout-codemod@beta
@@ -23,15 +23,17 @@ See [Installation and requirements](https://angular-flex-layout-codemod.nipesolu
 Create a plan and an optional JSON report without changing project templates or stylesheets:
 
 ```bash
-npx flex-layout-codemod ./src --report ./reports/flex-layout.json
+npx flex-layout-codemod ./src --target tailwind --tailwind-stylesheet ./src/styles.css --plan --report ./reports/flex-layout.json
 ```
+
+The Tailwind stylesheet is optional. Supplying it lets the codemod respect a project-specific v4 prefix and breakpoint configuration. See [target configuration](https://angular-flex-layout-codemod.nipesolutions.com/docs/configuration), [responsive mapping](https://angular-flex-layout-codemod.nipesolutions.com/docs/configuration#responsive-mapping), and the [safety model](https://angular-flex-layout-codemod.nipesolutions.com/docs/safety).
 
 Review the proposed output and every unresolved diagnostic. The report is the command's intentional filesystem output in plan mode.
 
 Apply the reviewed Tailwind CSS plan explicitly:
 
 ```bash
-npx flex-layout-codemod ./src --target tailwind --write
+npx flex-layout-codemod ./src --target tailwind --tailwind-stylesheet ./src/styles.css --write
 ```
 
 For native CSS output, target limits, output paths, and recovery behavior, follow the [migration workflow](https://angular-flex-layout-codemod.nipesolutions.com/docs/workflow). Keep the migration on a clean branch and review the resulting diff and application tests.

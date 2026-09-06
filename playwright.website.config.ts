@@ -1,6 +1,7 @@
 import { defineConfig, devices } from '@playwright/test';
 
-const websiteUrl = 'http://127.0.0.1:4173';
+const websitePort = process.env.PLAYWRIGHT_WEBSITE_PORT ?? '4173';
+const websiteUrl = `http://127.0.0.1:${websitePort}`;
 
 export default defineConfig({
   testDir: './e2e',
@@ -9,8 +10,7 @@ export default defineConfig({
   retries: process.env.CI ? 2 : 0,
   reporter: process.env.CI ? 'github' : 'list',
   webServer: {
-    command:
-      'npm run build:website && npm exec vite -- preview --config vite.website.config.ts --host 127.0.0.1 --port 4173',
+    command: `npm run build:website && npm exec vite -- preview --config vite.website.config.ts --host 127.0.0.1 --port ${websitePort}`,
     url: websiteUrl,
     reuseExistingServer: false,
     timeout: 120_000,

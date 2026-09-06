@@ -14,5 +14,7 @@ export function resolveMigrationMode(argv: readonly string[], write: boolean): M
     throw new Error('--write may only be specified once.');
   }
 
+  if (write && optionArguments.includes('--plan')) throw new Error('--plan and --write cannot be combined.');
+
   return write ? 'write' : 'plan';
 }

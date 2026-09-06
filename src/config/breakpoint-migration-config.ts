@@ -1,7 +1,11 @@
+import type { SourceBreakpoints } from './source-breakpoints';
+import type { TailwindTargetProfile } from './tailwind-target-profile';
 import { DEFAULT_BREAKPOINTS, ORIENTATION_BREAKPOINTS } from '../analyzer/flex-layout.catalog';
 
 export interface BreakpointMigrationConfig {
   readonly orientationBreakpoints: boolean;
+  readonly targetProfile?: TailwindTargetProfile;
+  readonly sourceBreakpoints?: SourceBreakpoints;
   readonly printWithBreakpoints?: readonly string[];
 }
 

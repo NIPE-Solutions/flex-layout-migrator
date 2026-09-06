@@ -1,3 +1,5 @@
+import { pathsOverlapOnFileSystem } from '../migrator/migration-path.validator';
+import { loadMigrationConfig } from '../config/migration-config';
 import { Command, CommanderError, InvalidArgumentError, Option } from 'commander';
 import * as path from 'node:path';
 import packageJson from '../../package.json' with { type: 'json' };
@@ -22,6 +24,9 @@ import { resolveMigrationMode } from './migration-mode.parser';
 
 interface ProgramOptions {
   readonly output?: string;
+  readonly config?: string;
+  readonly tailwindStylesheet?: string;
+  readonly tailwindPrefix?: string;
   readonly target: string;
   readonly write: boolean;
   readonly report?: string;
@@ -85,6 +90,10 @@ export async function runCli(
         parseSingleStylesheet,
       ),
     )
+    .option('--config <path>', 'declarative migration JSON configuration')
+    .option('--tailwind-stylesheet <path>', 'statically analyze a Tailwind v4 target stylesheet')
+    .option('--tailwind-prefix <prefix>', 'override Tailwind v4 prefix; empty string means none')
+    .option('--plan', 'explicitly request the default review-only plan')
     .option('--write', 'apply the validated migration plan', false)
     .option('--report <path>', 'atomically write a JSON report; path must end in .json')
     .option('--allow-unresolved', 'return success when unresolved inputs remain', false)
@@ -104,14 +113,28 @@ export async function runCli(
       debug = options.debug;
       logger.level = debug ? 'debug' : 'warn';
 
+      const configuration = await loadMigrationConfig({
+        config: options.config,
+        stylesheet: options.tailwindStylesheet,
+        prefix: options.tailwindPrefix,
+      });
+      const target =
+        program.getOptionValueSource('target') === 'cli' ? options.target : (configuration.target ?? options.target);
+      if (target !== 'tailwind' && (options.tailwindStylesheet !== undefined || options.tailwindPrefix !== undefined))
+        throw new Error('Tailwind target options require --target tailwind.');
       const destination = options.output ?? input;
       let reportPath: string | undefined;
       if (options.report !== undefined) {
         validateReportPath(options.report);
         reportPath = path.resolve(options.report);
       }
+      if (reportPath)
+        for (const snapshot of configuration.snapshots) {
+          if (await pathsOverlapOnFileSystem(reportPath, snapshot.path))
+            throw new Error('Report path collides with a target configuration input.');
+        }
       const stylesheetPath = await validateStylesheetPath({
-        target: options.target,
+        target,
         stylesheetPath: options.stylesheet,
         inputPath: input,
         outputPath: destination,
@@ -121,9 +144,11 @@ export async function runCli(
         options.printWithBreakpoints === undefined
           ? undefined
           : parsePrintWithBreakpoints(options.printWithBreakpoints, options.orientationBreakpoints);
-      const session = AdapterFactory.createRenderSession(options.target, {
+      const session = AdapterFactory.createRenderSession(target, {
         orientationBreakpoints: options.orientationBreakpoints,
         printWithBreakpoints,
+        targetProfile: target === 'tailwind' ? configuration.targetProfile : undefined,
+        sourceBreakpoints: configuration.sourceBreakpoints,
       });
       const render = new RenderProjectStage(session);
       const pipeline = new MigrationPipeline(
@@ -143,6 +168,9 @@ export async function runCli(
           outputPath: destination,
           options: {
             mode,
+            targetProfile: target === 'tailwind' ? configuration.targetProfile : undefined,
+            sourceBreakpoints: configuration.sourceBreakpoints,
+            configurationSnapshots: configuration.snapshots,
             responsiveImages: options.responsiveImages,
             stylesheetPath,
             stylesheetPathInput: options.stylesheet,
@@ -155,7 +183,10 @@ export async function runCli(
       new TerminalPresenter().present(report, reportOutput);
       if (reportPath !== undefined) {
         await new JsonReportWriter().write(reportPath, report, {
-          protectedPaths: stylesheetPath === undefined ? [] : [stylesheetPath],
+          protectedPaths: [
+            ...configuration.snapshots.map(snapshot => snapshot.path),
+            ...(stylesheetPath === undefined ? [] : [stylesheetPath]),
+          ],
         });
       }
 

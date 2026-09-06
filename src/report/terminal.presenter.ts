@@ -32,8 +32,25 @@ export class TerminalPresenter {
         .map(result => `${file.path}:${result.offset} [${result.code}] ${result.reason}`),
     );
 
+    const profile = report.targetProfile;
+    const environment = profile
+      ? [
+          'Target environment',
+          `Tailwind: v${profile.version} (${profile.fingerprint})`,
+          `Stylesheet: ${profile.stylesheet ?? 'not supplied'}`,
+          `Prefix: ${profile.prefix.value ?? 'none'} (${profile.prefix.source}; ${profile.prefix.confidence})`,
+          `Important utilities: ${profile.important.value} (${profile.important.source})`,
+          `Core utilities: ${profile.coreUtilities.value} (${profile.coreUtilities.source}; ${profile.coreUtilities.confidence})`,
+          ...Object.entries(profile.breakpoints).map(
+            ([name, setting]) => `Breakpoint ${name}: ${setting.value} (${setting.source}; ${setting.confidence})`,
+          ),
+          ...profile.diagnostics.map(item => `[${item.code}] ${item.message}`),
+          ...profile.assumptions.map(item => `Assumption: ${item}`),
+          '',
+        ]
+      : [];
     output.write(
-      [presentation.outcome, totals, stylesheet, ...diagnostics, presentation.footer, '']
+      [...environment, presentation.outcome, totals, stylesheet, ...diagnostics, presentation.footer, '']
         .filter((line): line is string => line !== undefined)
         .join('\n'),
     );
