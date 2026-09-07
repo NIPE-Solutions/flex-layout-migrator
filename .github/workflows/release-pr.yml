@@ -21,7 +21,7 @@ jobs:
       - run: npm install --global npm@11.19.0
       - run: npm ci
       - run: node scripts/prepare-changesets-action.mjs
-      - uses: changesets/action@a45c4d594aa4e2c509dc14a9f2b3b67ba3780d0d
+      - uses: changesets/action@8488615a623b1b9c987934bb89eae8af6a946ac1
         with:
           version: npm run release:version
           title: 'chore: version packages'
