@@ -70,7 +70,7 @@
   },
   "homepage": "https://angular-flex-layout-codemod.nipesolutions.com",
   "dependencies": {
-    "@angular/compiler": "21.2.22",
+    "@angular/compiler": "22.1.5",
     "commander": "^15.0.0",
     "fs-extra": "^11.4.0",
     "ignore": "5.2.4",
