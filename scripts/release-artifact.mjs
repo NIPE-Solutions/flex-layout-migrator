@@ -88,8 +88,8 @@ async function cleanupInvocationArtifacts(paths, rmImpl) {
 }
 
 export function validateReleaseVersion(version) {
-  if (!/^2\.0\.0-beta\.[1-9]\d*$/.test(version)) {
-    throw new Error(`Release version boundary rejected unsupported version: ${version}`);
+  if (version !== '2.0.0') {
+    throw new Error(`Release version boundary requires exactly 2.0.0; received ${version}`);
   }
 }
 

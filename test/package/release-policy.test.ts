@@ -62,7 +62,7 @@ describe('release policy', () => {
     });
 
     expect(runCommands.filter(command => /\bnpm (?:publish|stage)\b/u.test(command))).toEqual([
-      'npm stage publish "./${{ steps.release.outputs.tarball }}" --access public --tag beta',
+      'npm stage publish "./${{ steps.release.outputs.tarball }}" --access public --tag latest',
     ]);
     expect(runCommands.join('\n')).not.toMatch(
       /\bnpm publish\b|\bnpm stage (?:approve|reject)\b|\bgit tag\b|\bgh release\b/u,
@@ -77,7 +77,7 @@ describe('release policy', () => {
     );
     const stageIndex = job.steps.findIndex(
       (step: { run?: string }) =>
-        step.run === 'npm stage publish "./${{ steps.release.outputs.tarball }}" --access public --tag beta',
+        step.run === 'npm stage publish "./${{ steps.release.outputs.tarball }}" --access public --tag latest',
     );
     expect(uploadIndex).toBeGreaterThanOrEqual(0);
     expect(stageIndex).toBeGreaterThan(uploadIndex);

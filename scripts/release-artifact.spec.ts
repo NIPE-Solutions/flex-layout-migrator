@@ -15,7 +15,7 @@ import {
 
 const repositoryManifest = {
   name: '@nipe-solutions/flex-layout-codemod',
-  version: '2.0.0-beta.1',
+  version: '2.0.0',
 };
 
 const packageFiles = ['CHANGELOG.md', 'LICENSE', 'README.md', 'dist/cli.js', 'dist/cli.js.map', 'package.json'];
@@ -24,14 +24,14 @@ const validIntegrity =
   'sha512-9Jhh+r3AV3ueQrk/q5yzjjwLjiu31YNEUwiSaanCkT/xltlT/xl29M58AExj5C85YykKP4CnpE9WeSmv4AbsaA==';
 
 const validPackManifest = {
-  id: '@nipe-solutions/flex-layout-codemod@2.0.0-beta.1',
+  id: '@nipe-solutions/flex-layout-codemod@2.0.0',
   name: '@nipe-solutions/flex-layout-codemod',
-  version: '2.0.0-beta.1',
+  version: '2.0.0',
   size: 12_345,
   unpackedSize: 54_321,
   shasum: '0123456789abcdef0123456789abcdef01234567',
   integrity: validIntegrity,
-  filename: 'nipe-solutions-flex-layout-codemod-2.0.0-beta.1.tgz',
+  filename: 'nipe-solutions-flex-layout-codemod-2.0.0.tgz',
   files: packageFiles.map(path => ({ path, size: 100, mode: 0o644 })),
   entryCount: packageFiles.length,
   bundled: [],
@@ -41,16 +41,13 @@ const tarballFilename = validPackManifest.filename;
 const metadataFilename = 'release-artifact.json';
 
 describe('validateReleaseVersion', () => {
-  it('accepts a positive 2.0.0 beta version', () => {
-    expect(() => validateReleaseVersion('2.0.0-beta.1')).not.toThrow();
+  it('accepts exactly 2.0.0', () => {
+    expect(() => validateReleaseVersion('2.0.0')).not.toThrow();
   });
 
-  it.each(['2.0.0-beta.0', '2.0.0', '2.0.1-beta.1', '2.0.0-alpha.1', '2.0.0-beta.x'])(
-    'rejects unsupported version %s',
-    invalid => {
-      expect(() => validateReleaseVersion(invalid)).toThrow(/release version boundary/i);
-    },
-  );
+  it.each(['2.0.0-beta.4', '2.0.1', '2.1.0', 'v2.0.0', '2.0.0+build.1'])('rejects unsupported version %s', invalid => {
+    expect(() => validateReleaseVersion(invalid)).toThrow(/release version boundary/i);
+  });
 });
 
 describe('registryVersionExists', () => {
@@ -63,13 +60,11 @@ describe('registryVersionExists', () => {
     await expect(
       registryVersionExists({
         name: '@nipe-solutions/flex-layout-codemod',
-        version: '2.0.0-beta.1',
+        version: '2.0.0',
         fetchImpl,
       }),
     ).resolves.toBe(expected);
-    expect(fetchImpl).toHaveBeenCalledWith(
-      'https://registry.npmjs.org/%40nipe-solutions%2Fflex-layout-codemod/2.0.0-beta.1',
-    );
+    expect(fetchImpl).toHaveBeenCalledWith('https://registry.npmjs.org/%40nipe-solutions%2Fflex-layout-codemod/2.0.0');
   });
 
   it.each([401, 429, 500])('rejects registry status %i', async status => {
@@ -78,7 +73,7 @@ describe('registryVersionExists', () => {
     await expect(
       registryVersionExists({
         name: '@nipe-solutions/flex-layout-codemod',
-        version: '2.0.0-beta.1',
+        version: '2.0.0',
         fetchImpl,
       }),
     ).rejects.toThrow(new RegExp(`registry uniqueness boundary.*${status}`, 'i'));
@@ -92,7 +87,7 @@ describe('registryVersionExists', () => {
     await expect(
       registryVersionExists({
         name: '@nipe-solutions/flex-layout-codemod',
-        version: '2.0.0-beta.1',
+        version: '2.0.0',
         fetchImpl,
       }),
     ).rejects.toThrow(/registry uniqueness boundary.*request failed/i);
@@ -111,8 +106,8 @@ describe('inspectPackManifest', () => {
 
     expect(artifact).toEqual({
       name: '@nipe-solutions/flex-layout-codemod',
-      version: '2.0.0-beta.1',
-      tarball: 'nipe-solutions-flex-layout-codemod-2.0.0-beta.1.tgz',
+      version: '2.0.0',
+      tarball: 'nipe-solutions-flex-layout-codemod-2.0.0.tgz',
       integrity: validIntegrity,
     });
     expect(Object.isFrozen(artifact)).toBe(true);
@@ -120,9 +115,9 @@ describe('inspectPackManifest', () => {
 
   it.each([
     ['wrong package name', { name: '@nipe-solutions/other-package' }, /package identity boundary/i],
-    ['wrong package version', { version: '2.0.0-beta.2' }, /package version boundary/i],
+    ['wrong package version', { version: '2.0.1' }, /package version boundary/i],
     ['absent integrity', { integrity: undefined }, /package integrity boundary/i],
-    ['wrong tarball filename', { filename: 'other-package-2.0.0-beta.1.tgz' }, /tarball filename boundary/i],
+    ['wrong tarball filename', { filename: 'other-package-2.0.0.tgz' }, /tarball filename boundary/i],
   ])('rejects a pack manifest with %s', (_label, overrides, expectedError) => {
     expect(() =>
       inspectPackManifest({
@@ -551,8 +546,8 @@ describe('runReleaseArtifact', () => {
 
       expect(artifact).toEqual({
         name: '@nipe-solutions/flex-layout-codemod',
-        version: '2.0.0-beta.1',
-        tarball: 'nipe-solutions-flex-layout-codemod-2.0.0-beta.1.tgz',
+        version: '2.0.0',
+        tarball: 'nipe-solutions-flex-layout-codemod-2.0.0.tgz',
         integrity: validIntegrity,
       });
       expect(execFileImpl).toHaveBeenCalledOnce();
@@ -575,9 +570,9 @@ describe('runReleaseArtifact', () => {
       await expect(readFile(githubOutput, 'utf8')).resolves.toBe(
         [
           'existing=kept',
-          'tarball=nipe-solutions-flex-layout-codemod-2.0.0-beta.1.tgz',
+          'tarball=nipe-solutions-flex-layout-codemod-2.0.0.tgz',
           'name=@nipe-solutions/flex-layout-codemod',
-          'version=2.0.0-beta.1',
+          'version=2.0.0',
           `integrity=${validIntegrity}`,
           '',
         ].join('\n'),

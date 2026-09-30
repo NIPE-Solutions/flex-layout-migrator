@@ -75,13 +75,13 @@ describe('maintainer documentation', () => {
     expect(changesetReadme).not.toContain('workflow is reviewed separately');
   });
 
-  it('publishes the exact npm beta operator contract', async () => {
+  it('publishes the exact stable 2.0.0 operator contract with historical bootstrap context', async () => {
     const [readme, contributing, releaseProcess] = await Promise.all([
       readRepositoryFile('README.md'),
       readRepositoryFile('CONTRIBUTING.md'),
       readRepositoryFile('docs/architecture/release-process.md'),
     ]);
-    const contributingRelease = sectionAfter(contributing, '## Releasing a beta');
+    const contributingRelease = sectionAfter(contributing, '## Releasing stable 2.0.0');
     const architectureRelease = sectionAfter(releaseProcess, '## Repository automation');
 
     expect(readme).toContain('npm install --save-dev --save-exact @nipe-solutions/flex-layout-codemod@beta');
@@ -93,6 +93,7 @@ describe('maintainer documentation', () => {
       'npm',
       'npm stage publish',
       'npm stage approve',
+      'npm stage publish <tarball> --access public --tag latest',
       'npm publish <tarball> --access public --tag beta',
       '2.0.0-beta.1',
     ];
@@ -103,7 +104,7 @@ describe('maintainer documentation', () => {
     const contributingTrust = sectionBetween(
       contributing,
       'Immediately after registry verification',
-      '### Later publications: stage, review, and approve',
+      '### Stage stable 2.0.0, review, and approve',
     );
     for (const trustInput of [
       'GitHub organization and repository: `NIPE-Solutions/flex-layout-migrator`',
@@ -114,7 +115,11 @@ describe('maintainer documentation', () => {
       expect(contributingTrust).toContain(trustInput);
     }
 
-    const architectureTrust = sectionBetween(releaseProcess, '## npm trust boundary', '## Bootstrap release');
+    const architectureTrust = sectionBetween(
+      releaseProcess,
+      '## npm trust boundary',
+      '## Historical bootstrap release',
+    );
     for (const trustInput of [
       'for `NIPE-Solutions/flex-layout-migrator`',
       '- workflow filename: `stage-release.yml`;',
@@ -132,25 +137,42 @@ describe('maintainer documentation', () => {
       'gh workflow run stage-release.yml',
       'npm stage download <stage-id>',
       'npm stage approve <stage-id>',
-      'npm view @nipe-solutions/flex-layout-codemod@<version>',
-      'git tag -s <version>',
-      'gh release create <version>',
+      'npm view @nipe-solutions/flex-layout-codemod@2.0.0 name version dist.integrity --json',
+      'npm view @nipe-solutions/flex-layout-codemod dist-tags --json',
+      'npm exec --yes --package=@nipe-solutions/flex-layout-codemod@2.0.0 -- flex-layout-codemod --version',
+      'git tag -s v2.0.0 <staged-commit> -m "Release 2.0.0"',
+      'git push origin v2.0.0',
+      'gh release create v2.0.0 --repo NIPE-Solutions/flex-layout-migrator --verify-tag --title 2.0.0 --generate-notes',
     ]) {
       expect(contributingRelease).toContain(operatorCommand);
     }
 
     const contributingBootstrap = sectionBetween(
       contributing,
-      '### First publication: one-time bootstrap exception',
-      '### Later publications: stage, review, and approve',
+      '### Historical bootstrap: completed beta.1 exception',
+      '### Stage stable 2.0.0, review, and approve',
     );
     const architectureBootstrap = sectionBetween(
       releaseProcess,
-      '## Bootstrap release',
+      '## Historical bootstrap release',
       '## Approval and finalization',
     );
     expect(contributingBootstrap).toContain('explicit user approval');
     expect(architectureBootstrap).toContain('user explicitly approves');
+
+    for (const document of [contributingRelease, releaseProcess]) {
+      expect(document).toContain('exactly `2.0.0`');
+      expect(document).toContain('`latest=2.0.0`');
+      expect(document).toContain('`beta=2.0.0-beta.4`');
+      expect(document).toContain('not a prerelease');
+    }
+    for (const currentInstructions of [
+      sectionBetween(contributing, '### Stage stable 2.0.0, review, and approve', '### Recovery'),
+      sectionBetween(releaseProcess, '## Approval and finalization', '## Error handling'),
+    ]) {
+      expect(currentInstructions).not.toContain('--tag beta');
+      expect(currentInstructions).not.toContain('--prerelease');
+    }
 
     for (const document of [contributingRelease, releaseProcess]) {
       expect(document).toContain('Do not add an npm token to GitHub');
@@ -241,10 +263,10 @@ describe('maintainer documentation', () => {
     ]);
     const stagedReview = sectionBetween(
       contributing,
-      '### Later publications: stage, review, and approve',
+      '### Stage stable 2.0.0, review, and approve',
       '### Verify and finalize',
     );
-    const contributingRelease = sectionAfter(contributing, '## Releasing a beta');
+    const contributingRelease = sectionAfter(contributing, '## Releasing stable 2.0.0');
     const architectureApproval = sectionBetween(releaseProcess, '## Approval and finalization', '## Error handling');
 
     for (const commandFragment of [
@@ -262,15 +284,15 @@ describe('maintainer documentation', () => {
 
     expectInOrder(contributingRelease, [
       'npm stage approve <stage-id>',
-      'npm view @nipe-solutions/flex-layout-codemod@<version>',
-      'git tag -s <version>',
-      'gh release create <version>',
+      'npm view @nipe-solutions/flex-layout-codemod@2.0.0',
+      'git tag -s v2.0.0',
+      'gh release create v2.0.0',
     ]);
     expectInOrder(architectureApproval, [
       'npm stage approve <stage-id>',
       'verifies the published integrity',
       'signed or protected Git tag',
-      'GitHub prerelease',
+      'GitHub release',
     ]);
   });
 
@@ -291,8 +313,9 @@ describe('maintainer documentation', () => {
       expect(section).toContain('same version');
       expect(section).toContain('identical SHA-512 SRI');
       expect(section).toContain('retained `release-artifact.json` from the rejected stage');
-      expect(section).toContain('Changed or rebuilt bytes always require a new beta version');
-      expect(section).not.toContain('cannot be reused');
+      expect(section).toContain('Changed or rebuilt bytes cannot reuse `2.0.0`');
+      expect(section).toContain('later reviewed patch');
+      expect(section).toContain('overwrite or unpublish');
     }
 
     expectInOrder(recovery, [
