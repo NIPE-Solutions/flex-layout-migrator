@@ -21,7 +21,7 @@ export function HomePage() {
           <div className="hero__copy">
             <h1>{siteContent.hero.heading}</h1>
             <p className="hero__introduction">{siteContent.hero.introduction}</p>
-            <CodeBlock label="Install the beta">{siteContent.installCommand}</CodeBlock>
+            <CodeBlock label="Install the CLI">{siteContent.installCommand}</CodeBlock>
             <nav className="hero__actions" aria-label="Project destinations">
               <a className="action-link action-link--primary" href={siteContent.links.github.href}>
                 {siteContent.links.github.label}

@@ -40,4 +40,4 @@ Current migration configuration is command-driven. There is no separate codemod 
 
 The CLI validates option combinations and path collisions before discovery where possible. Output, stylesheet, report, and input identities cannot overlap in ways that would make one artifact overwrite or rediscover another. Report paths must be nonblank and end in `.json`, case-insensitively.
 
-Run from the intended workspace context and inspect help for the installed version. Examples written for another prerelease must not override the locally verified interface. The obsolete `--dry-run` form is rejected because planning is now the default.
+Run from the intended workspace context and inspect help for the installed version. Examples written for another release must not override the locally verified interface. The obsolete `--dry-run` form is rejected because planning is now the default.

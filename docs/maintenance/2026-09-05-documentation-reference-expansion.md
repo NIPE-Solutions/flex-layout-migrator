@@ -4,7 +4,7 @@ This is the local release-candidate record for the documentation reference expan
 
 ## 1. Release-candidate status and evidence authority
 
-The candidate starts from published `2.0.0-beta.2` at `6e21d31274a380b7e9d256d75b4881b1bba5ba66` and contains the reviewed documentation expansion Tasks 1–6 plus the bounded Task 7 accessibility correction. The exact local Task 7 commit and command transcript are recorded in the ignored SDD handoff at `.superpowers/sdd/2026-09-05-documentation-reference-expansion/task-7-report.md` so this tracked document does not attempt to name its own commit.
+The candidate starts from published `2.0.0-beta.2` at `6e21d31274a380b7e9d256d75b4881b1bba5ba66` and contains the reviewed documentation expansion Tasks 1–6 plus the bounded Task 7 accessibility correction.
 
 Claims were reviewed in this order:
 

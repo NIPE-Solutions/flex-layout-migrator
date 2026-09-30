@@ -1,4 +1,4 @@
-import { access, readFile } from 'node:fs/promises';
+import { access, readFile, readdir } from 'node:fs/promises';
 import { describe, expect, it } from 'vitest';
 import { parse } from 'yaml';
 
@@ -67,7 +67,9 @@ describe('maintainer documentation', () => {
       readRepositoryFile('README.md'),
       readRepositoryFile('.changeset/README.md'),
     ]);
-    expect(readme).toContain('Version 2 remains a prerelease');
+    expect(readme).toContain('Version 2.0.0 is stable');
+    expect(readme).not.toMatch(/Version 2 remains a prerelease|current beta/iu);
+    expect(readme).not.toContain('@beta');
     expect(readme).not.toContain('not published to npm yet');
     expect(readme).not.toContain('After the v2 beta is published');
     expect(readme).not.toContain('npm install -g @ng-flex/layout-migrator');
@@ -84,7 +86,7 @@ describe('maintainer documentation', () => {
     const contributingRelease = sectionAfter(contributing, '## Releasing stable 2.0.0');
     const architectureRelease = sectionAfter(releaseProcess, '## Repository automation');
 
-    expect(readme).toContain('npm install --save-dev --save-exact @nipe-solutions/flex-layout-codemod@beta');
+    expect(readme).toContain('npm install --save-dev --save-exact @nipe-solutions/flex-layout-codemod');
     expect(readme).toContain('docs/architecture/release-process.md');
 
     const exactTrustInputs = [
@@ -188,7 +190,7 @@ describe('maintainer documentation', () => {
     const readme = await readRepositoryFile('README.md');
 
     expectInOrder(readme, [
-      'npm install --save-dev --save-exact @nipe-solutions/flex-layout-codemod@beta',
+      'npm install --save-dev --save-exact @nipe-solutions/flex-layout-codemod',
       'npx flex-layout-codemod ./src --target tailwind --tailwind-stylesheet ./src/styles.css --plan --report ./reports/flex-layout.json',
       'npx flex-layout-codemod ./src --target tailwind --tailwind-stylesheet ./src/styles.css --write',
     ]);
@@ -208,6 +210,37 @@ describe('maintainer documentation', () => {
     expect(readme).not.toContain('production-ready conversion coverage');
     expect(readme).not.toContain('## Examples');
     expect(readme).not.toContain('## Reports and exit codes');
+  });
+
+  it('keeps current public guidance on the stable lane while retaining historical release evidence', async () => {
+    const [contributing, releaseProcess, ...currentDocuments] = await Promise.all([
+      readRepositoryFile('CONTRIBUTING.md'),
+      readRepositoryFile('docs/architecture/release-process.md'),
+      readRepositoryFile('README.md'),
+      readRepositoryFile('docs/compatibility.md'),
+      readRepositoryFile('website/src/site-content.ts'),
+      readRepositoryFile('website/src/pages/home.tsx'),
+      ...(await readdir(new URL('website/content/', root), { recursive: true }))
+        .filter(path => path.endsWith('.md'))
+        .map(path => readRepositoryFile(`website/content/${path}`)),
+    ]);
+    const contributingCurrent = contributing.replace(
+      sectionBetween(
+        contributing,
+        '### Historical bootstrap: completed beta.1 exception',
+        '### Stage stable 2.0.0, review, and approve',
+      ),
+      '',
+    );
+    const releaseProcessCurrent = releaseProcess.replace(
+      sectionBetween(releaseProcess, '## Historical bootstrap release', '## Approval and finalization'),
+      '',
+    );
+
+    for (const document of [contributingCurrent, releaseProcessCurrent, ...currentDocuments]) {
+      expect(document).not.toMatch(/@beta|remains a prerelease|GitHub prerelease|latest[`'" ]+is reserved/iu);
+    }
+    expect(siteContent.installCommand).toBe('npm install --save-dev --save-exact @nipe-solutions/flex-layout-codemod');
   });
 
   it('states the automated and human-reviewed boundaries of the public claim audit', async () => {

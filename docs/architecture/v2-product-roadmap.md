@@ -99,7 +99,7 @@ The engine emits typed progress and result events. Interactive, plain-text, and 
 The README is a concise adoption guide:
 
 1. problem and intended users;
-2. prerelease status and compatibility;
+2. stable status and conservative compatibility boundaries;
 3. `npx` quick start using plan-only behavior;
 4. pinned development installation for teams and CI;
 5. review and explicit apply workflow;
@@ -110,7 +110,7 @@ The README is a concise adoption guide:
 
 `docs/compatibility.md` is the detailed source of truth for directives, breakpoint variants, targets, converted cases, conservative boundaries, and supported toolchain versions. Executable contracts compare the compatibility claims with the directive catalog wherever practical.
 
-Global installation is not recommended because it makes developer and CI versions drift. Beta users are directed to the explicit `beta` tag and teams are advised to pin the exact prerelease version before applying project changes.
+Global installation is not recommended because it makes developer and CI versions drift. Stable users install an exact development dependency without a distribution-tag suffix, keeping the reviewed version in their package manifest and lockfile before applying project changes. Earlier version 2 betas used the explicit `beta` tag; that historical lane does not describe the current stable installation path.
 
 ## Verification strategy
 

@@ -30,6 +30,6 @@ Known limitations include dynamic application expressions, custom breakpoint def
 
 ### Migrating scripts from version 1 behavior
 
-Current version 2 prereleases plan by default. Scripts that depended on implicit application must add `--write`; scripts using the removed `--dry-run` option must remove it. Schema-1 report consumers must require schema 2 and replace `dryRun` inference with `mode` plus `application`. Review release notes for the installed prerelease before changing automation.
+Stable version 2 plans by default. Scripts that depended on implicit application must add `--write`; scripts using the removed `--dry-run` option must remove it. Schema-1 report consumers must require schema 2 and replace `dryRun` inference with `mode` plus `application`. Review release notes for the installed version before changing automation.
 
 When filing an issue, include the installed version, exact command, target, minimal non-sensitive source, actual and expected output, and relevant diagnostics or report excerpt.

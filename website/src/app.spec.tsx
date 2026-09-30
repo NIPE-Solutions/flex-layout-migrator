@@ -25,8 +25,10 @@ describe('documentation website shell', () => {
       }),
     ).toBeInTheDocument();
     expect(
-      screen.getByText('npm install --save-dev --save-exact @nipe-solutions/flex-layout-codemod@beta'),
+      screen.getByText('npm install --save-dev --save-exact @nipe-solutions/flex-layout-codemod'),
     ).toBeInTheDocument();
+    expect(screen.getByText('Install the CLI')).toBeInTheDocument();
+    expect(screen.queryByText(/Install the beta|@beta/iu)).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'View on GitHub' })).toHaveAttribute(
       'href',
       'https://github.com/NIPE-Solutions/flex-layout-migrator',

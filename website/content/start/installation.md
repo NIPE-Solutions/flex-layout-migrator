@@ -1,7 +1,7 @@
 ---
 path: /docs/installation
 title: Installation and requirements
-description: Install an exact beta version and establish a reviewable project baseline before migration.
+description: Install an exact stable version and establish a reviewable project baseline before migration.
 group: start
 order: 2
 ---
@@ -12,10 +12,10 @@ order: 2
 
 The codemod runtime requirement is Node.js 22.12 or newer, with Node 22 and Node 24 in the CI test matrix. The repository release workflow currently installs npm 11, but the package does not advertise a blanket npm, Angular, or Nx compatibility range. Verify your workspace through a plan, the application compiler, and its own test suite instead of treating framework version proximity as proof.
 
-Install the codemod as an exact development dependency in the Angular workspace you intend to migrate. Keeping the selected version in both the package manifest and lockfile makes later plans reproducible during review.
+Version 2.0.0 is stable, with conversion limited to the supported cases in the [compatibility reference](/docs/compatibility). Install the codemod as an exact development dependency in the Angular workspace you intend to migrate. Keeping the selected version in both the package manifest and lockfile makes later plans reproducible during review.
 
 ```sh
-npm install --save-dev --save-exact @nipe-solutions/flex-layout-codemod@beta
+npm install --save-dev --save-exact @nipe-solutions/flex-layout-codemod
 ```
 
 The installed executable is `flex-layout-codemod`. Confirm its local version and help before recording migration evidence.
