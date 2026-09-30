@@ -13,10 +13,10 @@ interface ExecutionResult {
   readonly stderr: string;
 }
 
-function execute(arguments_: readonly string[]): Promise<ExecutionResult> {
+function execute(arguments_: readonly string[], cwd = repository): Promise<ExecutionResult> {
   return new Promise((resolveExecution, reject) => {
     const child = spawn(process.execPath, [executable, ...arguments_], {
-      cwd: repository,
+      cwd,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     let stdout = '';
@@ -62,6 +62,31 @@ describe('packaged CLI execution', () => {
 
     expect(result).toMatchObject({ status: 0, stdout: `${packageJson.version}\n`, stderr: '' });
     expect(result.stdout).not.toContain('Flex-Layout Migrator');
+  });
+
+  test('keeps unresolved stylesheet imports portable in reports and terminal diagnostics', async () => {
+    const source = '<div fxLayout="row"></div>';
+    await writeFile(join(temporaryDirectory, 'input.html'), source);
+    await writeFile(join(temporaryDirectory, 'style.css'), '@import "tailwindcss"; @import "./missing-private.css";');
+    const result = await execute(
+      ['input.html', '--tailwind-stylesheet', 'style.css', '--report', 'report.json'],
+      temporaryDirectory,
+    );
+    const reportText = await readFile(join(temporaryDirectory, 'report.json'), 'utf8');
+    const report = JSON.parse(reportText);
+    expect(result.status).toBe(2);
+    expect(report).toMatchObject({ schemaVersion: 2, mode: 'plan', application: { status: 'skipped' } });
+    expect(report.targetProfile.diagnostics).toContainEqual({
+      code: 'tailwind-import-unresolved',
+      message: expect.stringMatching(/style\.css: \.\/missing-private\.css: ENOENT/),
+    });
+    for (const text of [reportText, result.stdout + result.stderr]) {
+      expect(text).toContain('./missing-private.css');
+      expect(text).toContain('ENOENT');
+      expect(text).not.toContain(temporaryDirectory);
+      expect(text).not.toContain('file://');
+    }
+    expect(await readFile(join(temporaryDirectory, 'input.html'), 'utf8')).toBe(source);
   });
 
   test('preserves the relative missing input path in the packaged CLI error', async () => {

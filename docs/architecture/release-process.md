@@ -59,12 +59,14 @@ The workflow:
 2. installs Node.js 24 and npm 11.19.0 without a dependency cache;
 3. installs from `package-lock.json` with `npm ci`;
 4. runs formatting, linting, type checking, coverage, build, package-contract checks, and `npm audit --audit-level=high`;
-5. creates one tarball with `npm pack --json` and validates its six-file package surface;
+5. verifies current remote `main`, then creates one tarball with `npm pack --json` and validates its six-file package surface;
 6. computes SHA-512 SRI from the generated tarball bytes, requires an exact match with npm's descriptor, and removes the tarball and metadata if reading, hashing, or comparison fails;
 7. smoke-installs and executes that exact tarball in a temporary project;
 8. rehashes that path after the smoke test, confirms the manifest is the unpublished `2.0.0` version, and writes metadata and GitHub outputs only while the bytes still match;
 9. uploads that tarball and metadata as the workflow artifact;
-10. rehashes the retained tarball immediately before staging, then passes that exact path to `npm stage publish <tarball> --access public --tag latest`.
+10. rehashes the retained tarball immediately before staging, repeats current remote `main` verification, then passes that exact path to `npm stage publish <tarball> --access public --tag latest`.
+
+Both freshness checks run `node scripts/release-artifact.mjs --verify-current-main`, using a fresh `git ls-remote --exit-code origin refs/heads/main` network lookup. Exactly one valid commit must match checked-out `HEAD` and `GITHUB_SHA` byte-for-byte. Missing, ambiguous, malformed, failed, or stale lookups fail closed. Reruns retain their original commit, so a run becomes ineligible when `main` advances; dispatch a new run from current `main`. This guard is mandatory in the protected staging workflow. Local pre-merge `npm run verify` and `npm run package:check` remain usable on a release branch without claiming current-main freshness.
 
 The workflow uploads the verified tarball and package metadata as GitHub artifacts before staging. It never runs `npm publish`, never uses `NODE_AUTH_TOKEN`, and never approves a staged package.
 

@@ -11,6 +11,39 @@ import { isDirectInvocation, npmExecutable, smokePackageTarball } from './verify
 
 const execFileAsync = promisify(execFile);
 
+export async function verifyCurrentMain({
+  githubSha = process.env.GITHUB_SHA,
+  repository = resolve(import.meta.dirname, '..'),
+  execFileImpl = execFileAsync,
+} = {}) {
+  if (typeof githubSha !== 'string' || !/^[a-f0-9]{40}$/.test(githubSha)) {
+    throw new Error('Current main boundary requires a valid GitHub commit SHA');
+  }
+  let head;
+  let remote;
+  try {
+    head = (await execFileImpl('git', ['rev-parse', '--verify', 'HEAD'], { cwd: repository })).stdout;
+    remote = (
+      await execFileImpl('git', ['ls-remote', '--exit-code', 'origin', 'refs/heads/main'], {
+        cwd: repository,
+        timeout: 30_000,
+      })
+    ).stdout;
+  } catch (error) {
+    throw new Error('Current main boundary lookup failed', { cause: error });
+  }
+  const checkedOut = typeof head === 'string' ? /^([a-f0-9]{40})\r?\n?$/.exec(head)?.[1] : undefined;
+  const currentMain =
+    typeof remote === 'string' ? /^([a-f0-9]{40})\trefs\/heads\/main\r?\n?$/.exec(remote)?.[1] : undefined;
+  if (!checkedOut || !currentMain) {
+    throw new Error('Current main boundary requires exactly one valid HEAD and remote refs/heads/main commit');
+  }
+  if (checkedOut !== githubSha || currentMain !== checkedOut) {
+    throw new Error('Current main boundary rejected a stale or mismatched checkout; dispatch again from current main');
+  }
+  return checkedOut;
+}
+
 const expectedPackageFiles = Object.freeze([
   'CHANGELOG.md',
   'LICENSE',
@@ -376,9 +409,11 @@ export async function runRetainedReleaseArtifact({ env, repository, readTarballI
 if (isDirectInvocation(import.meta.url)) {
   const directArguments = process.argv.slice(2);
   const operation =
-    directArguments.length === 1 && directArguments[0] === '--verify-retained'
-      ? runRetainedReleaseArtifact()
-      : runReleaseArtifact();
+    directArguments.length === 1 && directArguments[0] === '--verify-current-main'
+      ? verifyCurrentMain()
+      : directArguments.length === 1 && directArguments[0] === '--verify-retained'
+        ? runRetainedReleaseArtifact()
+        : runReleaseArtifact();
   operation.catch(error => {
     console.error(error instanceof Error ? error.message : error);
     process.exitCode = 1;

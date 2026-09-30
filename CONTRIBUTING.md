@@ -92,6 +92,10 @@ npm stage publish <tarball> --access public --tag latest
 
 The manual protected workflow performs this step through OIDC. It never publishes directly and never approves its own stage.
 
+Before artifact preparation and again immediately before staging, `node scripts/release-artifact.mjs --verify-current-main` performs a fresh `git ls-remote --exit-code origin refs/heads/main` lookup. The single returned commit must match both checked-out `HEAD` and `GITHUB_SHA` byte-for-byte. Missing, ambiguous, malformed, failed, or stale lookups stop the workflow. Reruns retain their original commit; if `main` has advanced, dispatch a new run from current `main` instead of rerunning the stale candidate.
+
+Local pre-merge checks use `npm run verify` and `npm run package:check` on the release branch. Those artifact checks do not claim that the branch is current remote `main`; the freshness guard is mandatory in the protected staging workflow.
+
 Record the workflow run ID and exact commit. Inspect the `npm-release` workflow artifact and the staged package on npmjs.com. To download the staged package for independent inspection, use:
 
 ```bash

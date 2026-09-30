@@ -35,6 +35,18 @@ function expectInOrder(source: string, markers: string[]): void {
 }
 
 describe('maintainer documentation', () => {
+  it('documents declarative CLI configuration discovery and precedence', async () => {
+    const cli = await readRepositoryFile('website/content/reference/cli.md');
+    expect(cli).toContain('`flex-layout-migrator.config.json` in the current working directory');
+    expect(cli).toContain('`--config`');
+    expect(cli).toContain('does not search parent directories');
+    expect(cli).toContain(
+      'CLI overrides take precedence over the migration profile, then statically analyzed CSS, then Tailwind v4 defaults.',
+    );
+    expect(cli).toContain('[configuration reference](/docs/configuration)');
+    expect(cli).not.toContain('There is no separate codemod configuration file');
+  });
+
   it('marks the enterprise architecture roadmap complete with final evidence', async () => {
     const architecture = await readRepositoryFile('docs/architecture/enterprise-architecture-rewrite.md');
 
@@ -164,6 +176,11 @@ describe('maintainer documentation', () => {
 
     for (const document of [contributingRelease, releaseProcess]) {
       expect(document).toContain('exactly `2.0.0`');
+      expect(document).toContain('git ls-remote --exit-code origin refs/heads/main');
+      expect(document).toContain('`HEAD` and `GITHUB_SHA` byte-for-byte');
+      expect(document).toContain('Reruns retain their original commit');
+      expect(document).toContain('dispatch a new run from current `main`');
+      expect(document).toContain('Local pre-merge');
       expect(document).toContain('`latest=2.0.0`');
       expect(document).toContain('`beta=2.0.0-beta.4`');
       expect(document).toContain('not a prerelease');

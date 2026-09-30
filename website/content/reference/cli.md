@@ -36,7 +36,9 @@ npx flex-layout-codemod --version
 
 ## Configuration boundary
 
-Current migration configuration is command-driven. There is no separate codemod configuration file. Record the full invocation with a batch so target, output, reporting, breakpoint, image, unresolved, and write decisions remain visible to reviewers and reproducible in automation.
+The CLI reads `flex-layout-migrator.config.json` in the current working directory when present, or the declarative JSON file selected with `--config`. It does not search parent directories or automatically select a project stylesheet. A missing explicitly selected file is an error. Executable configuration is not supported.
+
+CLI overrides take precedence over the migration profile, then statically analyzed CSS, then Tailwind v4 defaults. `--target` overrides the profile target. `--tailwind-stylesheet` selects a stylesheet relative to the working directory; a stylesheet declared in the profile is relative to that JSON file. `--tailwind-prefix` overrides the profile and detected prefix. See the [configuration reference](/docs/configuration) for supported settings and unresolved-configuration behavior. Record the invocation and configuration inputs with each batch for reproducible review.
 
 The CLI validates option combinations and path collisions before discovery where possible. Output, stylesheet, report, and input identities cannot overlap in ways that would make one artifact overwrite or rediscover another. Report paths must be nonblank and end in `.json`, case-insensitively.
 

@@ -15,6 +15,7 @@
 
 ### Patch Changes
 
+- Keep unresolved local CSS import diagnostics portable in reports and terminal output while preserving the relative import and filesystem error code.
 - 4715a71: Add an executable compatibility inventory and rewrite beta onboarding around safe previews, pinned team installation, exact support boundaries, and copyable CLI workflows.
 
 ## 2.0.0-beta.4

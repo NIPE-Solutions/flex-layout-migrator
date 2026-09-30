@@ -143,9 +143,15 @@ export async function loadMigrationConfig(options: {
           try {
             await visit(path.resolve(path.dirname(canonical), imported), [...ancestors, canonical], depth + 1);
           } catch (error) {
+            const detail =
+              error instanceof Error && 'code' in error && /^E[A-Z0-9]+$/.test(String(error.code))
+                ? `${error.code}: Unable to read CSS import.`
+                : error instanceof Error
+                  ? error.message
+                  : 'Import unresolved';
             diagnostics.push({
               code: 'tailwind-import-unresolved',
-              message: `${relative(canonical)}: ${imported}: ${error instanceof Error ? error.message : 'Import unresolved'}`,
+              message: `${relative(canonical)}: ${imported}: ${detail}`,
             });
           }
         }

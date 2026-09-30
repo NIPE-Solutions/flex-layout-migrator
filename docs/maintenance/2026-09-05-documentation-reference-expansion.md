@@ -143,11 +143,11 @@ git diff --check
 git status --short
 ```
 
-The fresh command evidence and exact commit are recorded in the Task 7 handoff. The gate covers formatting, linting, package and website type checking, root coverage, package build and six-file package surface, documentation contracts, website unit tests, asset contracts, generated route/static metadata, desktop/mobile browser behavior and accessibility, high-severity dependency audit, whitespace hygiene, and clean repository state. A candidate for which the handoff does not show zero exit statuses and empty final status is not accepted by this report.
+Release verification requires fresh command evidence tied to the exact candidate commit. The gate covers formatting, linting, package and website type checking, root coverage, package build and six-file package surface, documentation contracts, website unit tests, asset contracts, generated route/static metadata, desktop/mobile browser behavior and accessibility, high-severity dependency audit, whitespace hygiene, and clean repository state. A candidate without recorded zero exit statuses and empty final status is not accepted by this report.
 
 ## 20. External release, deployment, and publication evidence — pending
 
-The following facts are intentionally **PENDING — controller** until the protected workflow observes and records them:
+The following facts remain **pending verification** until the protected workflow observes and records them:
 
 - **Implementation pull request:** pending URL, reviewed head SHA, required CI, CodeQL, dependency-review, package, website, and architecture conclusions, merge result, and exact merged `main` SHA.
 - **Production deployment:** pending Vercel deployment identifier and exact source SHA; HTTPS/TLS, `/`, critical documentation routes, legacy paths and redirects, static assets, response security headers, sitemap, robots, canonical/Open Graph metadata, and absence of unintended SSO protection on `angular-flex-layout-codemod.nipesolutions.com` must be observed live.
