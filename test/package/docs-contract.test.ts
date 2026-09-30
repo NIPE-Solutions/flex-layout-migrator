@@ -71,7 +71,7 @@ describe('maintainer documentation', () => {
     expect(readme).not.toContain('not published to npm yet');
     expect(readme).not.toContain('After the v2 beta is published');
     expect(readme).not.toContain('npm install -g @ng-flex/layout-migrator');
-    expect(changesetReadme).toContain('reviewed beta release process');
+    expect(changesetReadme).toContain('reviewed release process');
     expect(changesetReadme).not.toContain('workflow is reviewed separately');
   });
 

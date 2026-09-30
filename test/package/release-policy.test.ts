@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { cp, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { access, cp, mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { delimiter, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
@@ -8,16 +8,6 @@ import { parse } from 'yaml';
 
 const execFileAsync = promisify(execFile);
 const repository = resolve(import.meta.dirname, '../..');
-
-function nextBetaVersion(version: string): string {
-  const match = /^(?<base>\d+\.\d+\.\d+)-beta\.(?<sequence>\d+)$/u.exec(version);
-  const base = match?.groups?.base;
-  const sequence = match?.groups?.sequence;
-  if (base === undefined || sequence === undefined) {
-    throw new Error(`Expected current package version to be a beta prerelease, got ${version}`);
-  }
-  return `${base}-beta.${Number(sequence) + 1}`;
-}
 
 describe('release policy', () => {
   it('keeps the release pull request workflow inside the preparation trust boundary', async () => {
@@ -182,14 +172,17 @@ describe('release policy', () => {
     });
   });
 
-  it('commits the beta prerelease lane and exact npm toolchain', async () => {
-    const [pre, manifest, lockfile] = await Promise.all(
-      ['.changeset/pre.json', 'package.json', 'package-lock.json'].map(async path =>
+  it('commits the stable 2.0.0 lane and exact npm toolchain', async () => {
+    const [manifest, lockfile] = await Promise.all(
+      ['package.json', 'package-lock.json'].map(async path =>
         JSON.parse(await readFile(join(repository, path), 'utf8')),
       ),
     );
 
-    expect(pre).toEqual({ mode: 'pre', tag: 'beta' });
+    await expect(access(join(repository, '.changeset', 'pre.json'))).rejects.toMatchObject({ code: 'ENOENT' });
+    expect(manifest.version).toBe('2.0.0');
+    expect(lockfile.version).toBe('2.0.0');
+    expect(lockfile.packages[''].version).toBe('2.0.0');
     expect(manifest.packageManager).toBe('npm@11.19.0');
     expect(manifest.publishConfig).toEqual({ access: 'public' });
     expect(manifest.devDependencies.yaml).toBeDefined();
@@ -197,34 +190,27 @@ describe('release policy', () => {
     expect(lockfile.packages[''].packageManager).toBeUndefined();
   });
 
-  it('versions the pending changesets as the next public beta', async () => {
+  it('keeps stable versioning aligned when no unreleased changesets remain', async () => {
     const temporaryDirectory = await mkdtemp(join(tmpdir(), 'flex-layout-changeset-version-'));
 
     try {
-      const [manifest, lockfile] = await Promise.all(
-        ['package.json', 'package-lock.json'].map(async path =>
-          JSON.parse(await readFile(join(repository, path), 'utf8')),
-        ),
-      );
-      const expectedVersion = nextBetaVersion(manifest.version);
-      expect(lockfile.packages[''].version).toBe(manifest.version);
-
       await Promise.all(
         ['package.json', 'package-lock.json', 'CHANGELOG.md', '.changeset'].map(path =>
           cp(join(repository, path), join(temporaryDirectory, path), { recursive: true }),
         ),
       );
-      await writeFile(
-        join(temporaryDirectory, '.changeset', 'release-policy-fixture.md'),
-        "---\n'@nipe-solutions/flex-layout-codemod': patch\n---\n\nExercise prerelease versioning.\n",
-      );
-
-      await execFileAsync('npm', ['run', 'release:version'], {
-        cwd: temporaryDirectory,
-        env: {
-          ...process.env,
-          PATH: `${join(repository, 'node_modules', '.bin')}${delimiter}${process.env.PATH ?? ''}`,
-        },
+      await expect(
+        execFileAsync('npm', ['run', 'release:version'], {
+          cwd: temporaryDirectory,
+          env: {
+            ...process.env,
+            NPM_CONFIG_USERCONFIG: '/dev/null',
+            PATH: `${join(repository, 'node_modules', '.bin')}${delimiter}${process.env.PATH ?? ''}`,
+          },
+        }),
+      ).rejects.toMatchObject({
+        code: 1,
+        stdout: expect.stringContaining('No unreleased changesets found.'),
       });
 
       const [versionedManifest, versionedLockfile] = await Promise.all(
@@ -232,9 +218,13 @@ describe('release policy', () => {
           JSON.parse(await readFile(join(temporaryDirectory, path), 'utf8')),
         ),
       );
-      expect(versionedManifest.version).toBe(expectedVersion);
-      expect(versionedLockfile.packages[''].version).toBe(expectedVersion);
+      expect(versionedManifest.version).toBe('2.0.0');
+      expect(versionedLockfile.version).toBe('2.0.0');
+      expect(versionedLockfile.packages[''].version).toBe('2.0.0');
       expect(versionedLockfile.packages[''].version).toBe(versionedManifest.version);
+      await expect(access(join(temporaryDirectory, '.changeset', 'pre.json'))).rejects.toMatchObject({
+        code: 'ENOENT',
+      });
     } finally {
       await rm(temporaryDirectory, { recursive: true, force: true });
     }

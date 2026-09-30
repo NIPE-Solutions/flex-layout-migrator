@@ -1,5 +1,22 @@
 # Changelog
 
+## 2.0.0
+
+### Minor Changes
+
+- 89c6f92: Make migration planning the default, require `--write` to apply project changes, and publish schema-2 reports with explicit execution and application state.
+- 77391e3: Launch the public documentation site and browser-only single-template migration playground, and point package metadata to the production documentation homepage.
+- f058c0b: Add opt-in Tailwind conversion for the archived orientation breakpoints and project-configured print fallback behavior.
+- ca82744: Expand the documentation site into a comprehensive migration reference with production-verified CLI, diagnostic, compatibility, report, and transformation contracts. Add review-first workflow guidance, target-specific explorers and examples, responsive documentation navigation, and keyboard-accessible code regions.
+- 40e3719: Add an explicit native CSS target that updates templates and one owned companion stylesheet as a recoverable transaction.
+- 029562c: Add opt-in migration of safe literal responsive image sources to native picture markup with atomic template validation and report-based review locations.
+- 6f8ef7a: Convert literal Angular Flex-Layout Grid directives, including standard responsive aliases, when Tailwind compiler output and element ownership prove an exact migration.
+- bf4d213: Add declared Tailwind v4 target profiles, prefix and breakpoint awareness, static configuration analysis, target environment reports, custom source breakpoint configuration, and shared generated-template validation for browser previews. Preserve exact media semantics and unknown source directives.
+
+### Patch Changes
+
+- 4715a71: Add an executable compatibility inventory and rewrite beta onboarding around safe previews, pinned team installation, exact support boundaries, and copyable CLI workflows.
+
 ## 2.0.0-beta.4
 
 ### Minor Changes
