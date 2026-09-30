@@ -13,6 +13,18 @@ afterEach(async () => {
   await Promise.all(roots.splice(0).map(value => rm(value, { recursive: true, force: true })));
 });
 describe('declarative migration config', () => {
+  it('bounds filesystem import errors without leaking canonical project paths', async () => {
+    const cwd = await root();
+    await writeFile(path.join(cwd, 'style.css'), '@import "tailwindcss"; @import "./missing-private.css";');
+    const loaded = await loadMigrationConfig({ cwd, stylesheet: 'style.css' });
+    expect(loaded.targetProfile.diagnostics).toContainEqual({
+      code: 'tailwind-import-unresolved',
+      message: 'style.css: ./missing-private.css: ENOENT: Unable to read CSS import.',
+    });
+    expect(JSON.stringify(loaded.targetProfile)).not.toContain(cwd);
+    expect(JSON.stringify(loaded.targetProfile)).not.toContain('file://');
+  });
+
   it('loads local imports in order and CLI overrides profile and CSS', async () => {
     const cwd = await root();
     await writeFile(

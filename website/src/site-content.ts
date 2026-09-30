@@ -20,7 +20,7 @@ export const siteContent = {
     introduction:
       'Convert supported template directives to Tailwind CSS or native CSS while preserving the source that still needs a human decision.',
   },
-  installCommand: 'npm install --save-dev --save-exact @nipe-solutions/flex-layout-codemod@beta',
+  installCommand: 'npm install --save-dev --save-exact @nipe-solutions/flex-layout-codemod',
   links: {
     nipeOpenSource: {
       label: 'NIPE Open Source',

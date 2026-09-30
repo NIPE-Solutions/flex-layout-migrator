@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { access, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { access, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, join, relative, resolve, sep } from 'node:path';
 import packageJson from '../../package.json' with { type: 'json' };
@@ -13,10 +13,10 @@ interface ExecutionResult {
   readonly stderr: string;
 }
 
-function execute(arguments_: readonly string[]): Promise<ExecutionResult> {
+function execute(arguments_: readonly string[], cwd = repository): Promise<ExecutionResult> {
   return new Promise((resolveExecution, reject) => {
     const child = spawn(process.execPath, [executable, ...arguments_], {
-      cwd: repository,
+      cwd,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     let stdout = '';
@@ -31,6 +31,19 @@ function execute(arguments_: readonly string[]): Promise<ExecutionResult> {
     child.once('error', reject);
     child.once('close', status => resolveExecution({ status, stdout, stderr }));
   });
+}
+
+function collectStringValues(value: unknown): string[] {
+  if (typeof value === 'string') {
+    return [value];
+  }
+  if (Array.isArray(value)) {
+    return value.flatMap(collectStringValues);
+  }
+  if (typeof value === 'object' && value !== null) {
+    return Object.values(value).flatMap(collectStringValues);
+  }
+  return [];
 }
 
 describe('packaged CLI execution', () => {
@@ -49,6 +62,31 @@ describe('packaged CLI execution', () => {
 
     expect(result).toMatchObject({ status: 0, stdout: `${packageJson.version}\n`, stderr: '' });
     expect(result.stdout).not.toContain('Flex-Layout Migrator');
+  });
+
+  test('keeps unresolved stylesheet imports portable in reports and terminal diagnostics', async () => {
+    const source = '<div fxLayout="row"></div>';
+    await writeFile(join(temporaryDirectory, 'input.html'), source);
+    await writeFile(join(temporaryDirectory, 'style.css'), '@import "tailwindcss"; @import "./missing-private.css";');
+    const result = await execute(
+      ['input.html', '--tailwind-stylesheet', 'style.css', '--report', 'report.json'],
+      temporaryDirectory,
+    );
+    const reportText = await readFile(join(temporaryDirectory, 'report.json'), 'utf8');
+    const report = JSON.parse(reportText);
+    expect(result.status).toBe(2);
+    expect(report).toMatchObject({ schemaVersion: 2, mode: 'plan', application: { status: 'skipped' } });
+    expect(report.targetProfile.diagnostics).toContainEqual({
+      code: 'tailwind-import-unresolved',
+      message: expect.stringMatching(/style\.css: \.\/missing-private\.css: ENOENT/),
+    });
+    for (const text of [reportText, result.stdout + result.stderr]) {
+      expect(text).toContain('./missing-private.css');
+      expect(text).toContain('ENOENT');
+      expect(text).not.toContain(temporaryDirectory);
+      expect(text).not.toContain('file://');
+    }
+    expect(await readFile(join(temporaryDirectory, 'input.html'), 'utf8')).toBe(source);
   });
 
   test('preserves the relative missing input path in the packaged CLI error', async () => {
@@ -78,18 +116,23 @@ describe('packaged CLI execution', () => {
   });
 
   test('plans a clean Tailwind migration by default and applies it only with --write', async () => {
+    const sourceTemplate = '<div fxLayout="row"></div>';
     const input = join(temporaryDirectory, 'input.html');
     const output = join(temporaryDirectory, 'output.html');
     const report = join(temporaryDirectory, 'report.json');
-    await writeFile(input, '<div fxLayout="row"></div>', 'utf8');
+    await writeFile(input, sourceTemplate, 'utf8');
 
     const plan = await execute([input, '--output', output, '--report', report]);
 
     expect(plan).toMatchObject({ status: 0, stderr: '' });
     expect(plan.stdout).toContain('Plan: 1 files scanned, 1 would change');
     await expect(access(output)).rejects.toMatchObject({ code: 'ENOENT' });
-    expect(await readFile(input, 'utf8')).toBe('<div fxLayout="row"></div>');
+    expect(await readFile(input, 'utf8')).toBe(sourceTemplate);
     const planReport = JSON.parse(await readFile(report, 'utf8')) as Record<string, unknown>;
+    const planReportStrings = collectStringValues(planReport);
+    expect(collectStringValues({ source: sourceTemplate }).some(value => value.includes(sourceTemplate))).toBe(true);
+    expect(planReportStrings.some(value => value.includes(temporaryDirectory))).toBe(false);
+    expect(planReportStrings.some(value => value.includes(sourceTemplate))).toBe(false);
     expect(planReport).toMatchObject({
       schemaVersion: 2,
       mode: 'plan',
@@ -107,6 +150,22 @@ describe('packaged CLI execution', () => {
       mode: 'write',
       application: { status: 'applied' },
     });
+  });
+
+  test.runIf(process.platform !== 'win32')('rejects a symbolic-link output without changing its target', async () => {
+    const input = join(temporaryDirectory, 'input.html');
+    const target = join(temporaryDirectory, 'protected.html');
+    const output = join(temporaryDirectory, 'output.html');
+    await writeFile(input, '<div fxLayout="row"></div>', 'utf8');
+    await writeFile(target, 'protected bytes', 'utf8');
+    await symlink(target, output);
+
+    const result = await execute([input, '--output', output, '--write']);
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('must not be a symbolic link');
+    expect(await readFile(target, 'utf8')).toBe('protected bytes');
+    expect(await readFile(input, 'utf8')).toBe('<div fxLayout="row"></div>');
   });
 
   test('preserves the adapter-session debug message through the real CLI route', async () => {

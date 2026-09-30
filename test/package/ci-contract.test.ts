@@ -85,6 +85,7 @@ describe('continuous integration', () => {
           { run: 'npm ci' },
           { run: 'npm run verify' },
           { run: 'npm audit --audit-level=high' },
+          { run: 'node scripts/release-artifact.mjs --verify-current-main' },
           {
             id: 'release',
             run: 'npm run release:prepare -- --github-output "$GITHUB_OUTPUT"',
@@ -98,9 +99,10 @@ describe('continuous integration', () => {
             },
           },
           { run: 'npm run release:verify' },
+          { run: 'node scripts/release-artifact.mjs --verify-current-main' },
           {
             name: 'Stage ${{ steps.release.outputs.name }}@${{ steps.release.outputs.version }} (${{ steps.release.outputs.integrity }})',
-            run: 'npm stage publish "./${{ steps.release.outputs.tarball }}" --access public --tag beta',
+            run: 'npm stage publish "./${{ steps.release.outputs.tarball }}" --access public --tag latest',
           },
         ],
       },

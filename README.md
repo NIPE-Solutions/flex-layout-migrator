@@ -1,6 +1,6 @@
 # Angular Flex-Layout Codemod
 
-Angular Flex-Layout Codemod is a review-first CLI for migrating supported Angular Flex-Layout template directives to Tailwind CSS v4 or native CSS. Version 2 remains a prerelease.
+Angular Flex-Layout Codemod is a review-first CLI for migrating supported Angular Flex-Layout template directives to Tailwind CSS v4 or native CSS. Version 2.0.0 is stable; conversion remains limited to supported, safety-proven cases.
 
 > Plan first. Review unresolved cases. Write only when you are ready.
 
@@ -10,10 +10,10 @@ Read the [detailed documentation](https://angular-flex-layout-codemod.nipesoluti
 
 ## Requirements and installation
 
-The CLI requires Node.js 22.12 or newer (tested on Node 22 and 24). This runtime can differ from your legacy Angular build runtime; the codemod reads source without loading the application dependencies. Install the current beta as an exact development dependency so your package manifest and lockfile retain the reviewed version:
+The CLI requires Node.js 22.12 or newer (tested on Node 22 and 24). This runtime can differ from your legacy Angular build runtime; the codemod reads source without loading the application dependencies. Install the stable CLI as an exact development dependency so your package manifest and lockfile retain the reviewed version:
 
 ```bash
-npm install --save-dev --save-exact @nipe-solutions/flex-layout-codemod@beta
+npm install --save-dev --save-exact @nipe-solutions/flex-layout-codemod
 ```
 
 See [Installation and requirements](https://angular-flex-layout-codemod.nipesolutions.com/docs/installation) for the project-baseline checklist.

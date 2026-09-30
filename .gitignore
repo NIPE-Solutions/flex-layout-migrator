@@ -5,6 +5,6 @@ playwright-report/
 test-results/
 .vercel/
 .env.local
-**/DS_Store
+**/.DS_Store
 
 .idea/

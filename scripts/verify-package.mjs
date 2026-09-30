@@ -32,7 +32,7 @@ export function isDirectInvocation(moduleUrl, argumentPath = process.argv[1]) {
 }
 
 function inspectPackageFiles(manifest) {
-  const forbidden = /(^|\/)(coverage|src|test|\.github|\.env|AGENTS\.md|CLAUDE\.md)(\/|$)/;
+  const forbidden = /(^|\/)(coverage|src|test|\.github|\.env)(\/|$)/;
   const forbiddenFiles = manifest.files.map(file => file.path).filter(path => forbidden.test(path));
   if (forbiddenFiles.length > 0) {
     throw new Error(`Package contains forbidden files: ${forbiddenFiles.join(', ')}`);

@@ -1,6 +1,6 @@
 # Compatibility
 
-Version 2 is prerelease software. Its current conversion coverage is deliberately narrow while the project replaces legacy best-effort behavior with a safety-first conversion pipeline.
+Version 2.0.0 is stable. Its conversion coverage remains deliberately bounded by the supported, safety-proven cases below; stable status does not imply complete automatic migration coverage.
 
 The source contract and classification rules are documented in [Conversion safety model](architecture/conversion-safety.md).
 

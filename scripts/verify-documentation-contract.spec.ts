@@ -52,6 +52,16 @@ describe('documentation contract verification', () => {
     await expect(verifyDocumentationContract(root)).resolves.toBeUndefined();
   });
 
+  test('accepts the stable compatibility overview with its conservative inventory unchanged', async () => {
+    const root = await createFixture();
+    const compatibility = await readFile(path.join(root, 'docs/compatibility.md'), 'utf8');
+
+    expect(compatibility).toContain('Version 2.0.0 is stable');
+    expect(compatibility).toContain('conversion coverage remains deliberately bounded');
+    expect(compatibility).not.toMatch(/prerelease software|@beta/iu);
+    await expect(verifyDocumentationContract(root)).resolves.toBeUndefined();
+  });
+
   test('rejects a documented CLI option removed from the Commander definition', async () => {
     const root = await createFixture();
     await mutate(root, 'src/cli/run-cli.ts', source =>
