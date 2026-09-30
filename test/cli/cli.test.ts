@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { access, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { access, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, join, relative, resolve, sep } from 'node:path';
 import packageJson from '../../package.json' with { type: 'json' };
@@ -90,6 +90,9 @@ describe('packaged CLI execution', () => {
     await expect(access(output)).rejects.toMatchObject({ code: 'ENOENT' });
     expect(await readFile(input, 'utf8')).toBe('<div fxLayout="row"></div>');
     const planReport = JSON.parse(await readFile(report, 'utf8')) as Record<string, unknown>;
+    const serializedPlanReport = JSON.stringify(planReport);
+    expect(serializedPlanReport).not.toContain(temporaryDirectory);
+    expect(serializedPlanReport).not.toContain('<div fxLayout="row"></div>');
     expect(planReport).toMatchObject({
       schemaVersion: 2,
       mode: 'plan',
@@ -107,6 +110,22 @@ describe('packaged CLI execution', () => {
       mode: 'write',
       application: { status: 'applied' },
     });
+  });
+
+  test.runIf(process.platform !== 'win32')('rejects a symbolic-link output without changing its target', async () => {
+    const input = join(temporaryDirectory, 'input.html');
+    const target = join(temporaryDirectory, 'protected.html');
+    const output = join(temporaryDirectory, 'output.html');
+    await writeFile(input, '<div fxLayout="row"></div>', 'utf8');
+    await writeFile(target, 'protected bytes', 'utf8');
+    await symlink(target, output);
+
+    const result = await execute([input, '--output', output, '--write']);
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('must not be a symbolic link');
+    expect(await readFile(target, 'utf8')).toBe('protected bytes');
+    expect(await readFile(input, 'utf8')).toBe('<div fxLayout="row"></div>');
   });
 
   test('preserves the adapter-session debug message through the real CLI route', async () => {
