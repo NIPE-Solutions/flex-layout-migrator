@@ -33,6 +33,19 @@ function execute(arguments_: readonly string[]): Promise<ExecutionResult> {
   });
 }
 
+function collectStringValues(value: unknown): string[] {
+  if (typeof value === 'string') {
+    return [value];
+  }
+  if (Array.isArray(value)) {
+    return value.flatMap(collectStringValues);
+  }
+  if (typeof value === 'object' && value !== null) {
+    return Object.values(value).flatMap(collectStringValues);
+  }
+  return [];
+}
+
 describe('packaged CLI execution', () => {
   let temporaryDirectory: string;
 
@@ -78,21 +91,23 @@ describe('packaged CLI execution', () => {
   });
 
   test('plans a clean Tailwind migration by default and applies it only with --write', async () => {
+    const sourceTemplate = '<div fxLayout="row"></div>';
     const input = join(temporaryDirectory, 'input.html');
     const output = join(temporaryDirectory, 'output.html');
     const report = join(temporaryDirectory, 'report.json');
-    await writeFile(input, '<div fxLayout="row"></div>', 'utf8');
+    await writeFile(input, sourceTemplate, 'utf8');
 
     const plan = await execute([input, '--output', output, '--report', report]);
 
     expect(plan).toMatchObject({ status: 0, stderr: '' });
     expect(plan.stdout).toContain('Plan: 1 files scanned, 1 would change');
     await expect(access(output)).rejects.toMatchObject({ code: 'ENOENT' });
-    expect(await readFile(input, 'utf8')).toBe('<div fxLayout="row"></div>');
+    expect(await readFile(input, 'utf8')).toBe(sourceTemplate);
     const planReport = JSON.parse(await readFile(report, 'utf8')) as Record<string, unknown>;
-    const serializedPlanReport = JSON.stringify(planReport);
-    expect(serializedPlanReport).not.toContain(temporaryDirectory);
-    expect(serializedPlanReport).not.toContain('<div fxLayout="row"></div>');
+    const planReportStrings = collectStringValues(planReport);
+    expect(collectStringValues({ source: sourceTemplate }).some(value => value.includes(sourceTemplate))).toBe(true);
+    expect(planReportStrings.some(value => value.includes(temporaryDirectory))).toBe(false);
+    expect(planReportStrings.some(value => value.includes(sourceTemplate))).toBe(false);
     expect(planReport).toMatchObject({
       schemaVersion: 2,
       mode: 'plan',
