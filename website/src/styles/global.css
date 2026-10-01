@@ -628,6 +628,18 @@ p {
   padding-block: var(--space-9);
   border-bottom: var(--rule-width) solid var(--border-quiet);
 }
+.project-support {
+  padding-block: var(--space-7);
+  border-bottom: var(--rule-width) solid var(--border-quiet);
+}
+.project-support p {
+  color: var(--text-secondary);
+}
+.project-support__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
 
 .support-section__grid {
   display: grid;

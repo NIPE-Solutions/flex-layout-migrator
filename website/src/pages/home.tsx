@@ -99,6 +99,26 @@ tw:flex tw:flex-row tw:box-border`}</CodeBlock>
         </div>
       </section>
 
+      <section className="project-support" aria-labelledby="project-support-heading">
+        <div className="site-container">
+          <h2 id="project-support-heading">Useful in your project?</h2>
+          <p>
+            If this codemod helps your migration, a GitHub star is a simple way to support the work and help others find
+            it.
+          </p>
+          <div className="project-support__actions">
+            <a
+              className="action-link action-link--primary"
+              href="https://github.com/NIPE-Solutions/flex-layout-migrator"
+            >
+              Star on GitHub
+            </a>
+            <a className="action-link" href="https://opensource.nipesolutions.com">
+              Explore NIPE Open Source
+            </a>
+          </div>
+        </div>
+      </section>
       <section className="documentation-section" id="documentation" aria-labelledby="docs-heading">
         <div className="site-container documentation-section__inner">
           <div>
