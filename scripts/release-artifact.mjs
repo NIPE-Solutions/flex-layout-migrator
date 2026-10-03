@@ -121,8 +121,8 @@ async function cleanupInvocationArtifacts(paths, rmImpl) {
 }
 
 export function validateReleaseVersion(version) {
-  if (version !== '2.0.0') {
-    throw new Error(`Release version boundary requires exactly 2.0.0; received ${version}`);
+  if (version !== '2.0.1') {
+    throw new Error(`Release version boundary requires exactly 2.0.1; received ${version}`);
   }
 }
 

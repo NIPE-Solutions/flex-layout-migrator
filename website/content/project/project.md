@@ -32,8 +32,8 @@ Do not publish vulnerability details, credentials, or proprietary templates in a
 
 Version 2 releases use reviewed Changesets, a protected release pull request, a manual staging workflow on protected `main`, npm Trusted Publishing through GitHub OIDC, and maintainer approval with two-factor authentication. The staging job verifies source, audit, package surface, tarball integrity, and a clean-install CLI smoke before it invokes npm staging.
 
-The current stable release is `2.0.0` and uses the `latest` distribution tag. Earlier version 2 betas used the `beta` tag; that historical tag remains at `2.0.0-beta.4`. Stable status retains the documented conservative conversion boundaries.
+The current stable release is `2.0.1` and uses the `latest` distribution tag. Earlier version 2 betas used the `beta` tag; that historical tag remains at `2.0.0-beta.4`. Stable status retains the documented conservative conversion boundaries.
 
-Staging is not publication: a maintainer compares the staged tarball and recorded SHA-512 integrity before approval. An ambiguous staging result must be listed and downloaded for byte comparison before retry. Rejection removes the staged record; only retained, byte-identical artifacts with identical integrity can reuse the same version. Changed or rebuilt bytes require a later reviewed patch and cannot reuse `2.0.0`.
+Staging is not publication: a maintainer compares the staged tarball and recorded SHA-512 integrity before approval. An ambiguous staging result must be listed and downloaded for byte comparison before retry. Rejection removes the staged record; only retained, byte-identical artifacts with identical integrity can reuse the same version. Changed or rebuilt bytes require a later reviewed patch and cannot reuse `2.0.1`.
 
 Git tags and ordinary GitHub releases follow npm approval and registry verification. The stable release is not marked as a prerelease. Consult the [repository changelog](https://github.com/NIPE-Solutions/flex-layout-migrator/blob/main/CHANGELOG.md) for version-specific changes rather than inferring behavior from the website alone.

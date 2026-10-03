@@ -23,7 +23,7 @@ Add a Changeset for user-facing behavior, CLI, or API changes. Tests, internal r
 
 Do not include confidential templates, credentials, customer names, or proprietary source code in issues or fixtures.
 
-## Releasing stable 2.0.0
+## Releasing stable 2.0.1
 
 Releases are operated from `NIPE-Solutions/flex-layout-migrator`. The release pull-request workflow prepares version and changelog changes only. It cannot publish or stage a package. To request a version pull request after the required Changesets reach `main`, run:
 
@@ -31,7 +31,7 @@ Releases are operated from `NIPE-Solutions/flex-layout-migrator`. The release pu
 gh workflow run release-pr.yml --repo NIPE-Solutions/flex-layout-migrator --ref main
 ```
 
-Review the resulting pull request like any other change. The current stable target is exactly `2.0.0`: confirm that the package and both lockfile version fields agree, the changelog preserves beta history, consumed Changesets and `.changeset/pre.json` are removed, and CI and required review pass. Merging makes the version eligible for staging; it does not publish it. This one-time lane rejects every other version. Its required public postcondition is `latest=2.0.0` and `beta=2.0.0-beta.4`.
+Review the resulting pull request like any other change. The current stable target is exactly `2.0.1`: confirm that the package and both lockfile version fields agree, the changelog preserves beta history, consumed Changesets and `.changeset/pre.json` are removed, and CI and required review pass. Merging makes the version eligible for staging; it does not publish it. This one-time lane rejects every other version. Its required public postcondition is `latest=2.0.1` and `beta=2.0.0-beta.4`.
 
 ### Inspect the release artifact
 
@@ -64,7 +64,7 @@ The first publication of `@nipe-solutions/flex-layout-codemod` used a one-time b
 npm publish <tarball> --access public --tag beta
 ```
 
-The bootstrap had to stop if approval was absent, the checkout changed, the tarball differed, the version already existed, or npm reported an unexpected identity. Never put this bootstrap command in a workflow or use it for stable `2.0.0`.
+The bootstrap had to stop if approval was absent, the checkout changed, the tarball differed, the version already existed, or npm reported an unexpected identity. Never put this bootstrap command in a workflow or use it for stable `2.0.1`.
 
 Immediately after registry verification of that bootstrap, an npm organization owner configured the package's Trusted Publisher. The stable workflow requires the same exact security inputs:
 
@@ -76,9 +76,9 @@ Immediately after registry verification of that bootstrap, an npm organization o
 
 Require two-factor authentication for package changes and disallow traditional publish tokens. Do not add an npm token to GitHub. Future stages authenticate only through the `stage-release.yml` job's short-lived OIDC identity in the protected `npm` environment.
 
-### Stage stable 2.0.0, review, and approve
+### Stage stable 2.0.1, review, and approve
 
-For stable `2.0.0`, dispatch the manual staging workflow from the reviewed versioned `main` commit:
+For stable `2.0.1`, dispatch the manual staging workflow from the reviewed versioned `main` commit:
 
 ```bash
 gh workflow run stage-release.yml --repo NIPE-Solutions/flex-layout-migrator --ref main
@@ -128,17 +128,17 @@ Approval is the publication boundary. Do not create a Git tag or GitHub release 
 Verify the published version directly from the registry; do not rely only on the workflow result:
 
 ```bash
-npm view @nipe-solutions/flex-layout-codemod@2.0.0 name version dist.integrity --json
+npm view @nipe-solutions/flex-layout-codemod@2.0.1 name version dist.integrity --json
 npm view @nipe-solutions/flex-layout-codemod dist-tags --json
-npm exec --yes --package=@nipe-solutions/flex-layout-codemod@2.0.0 -- flex-layout-codemod --version
+npm exec --yes --package=@nipe-solutions/flex-layout-codemod@2.0.1 -- flex-layout-codemod --version
 ```
 
-The name, version, and integrity must match `release-artifact.json`, and the packaged CLI must report `2.0.0`. Require `latest=2.0.0` and `beta=2.0.0-beta.4` in the registry's distribution tags. Then create the signed tag `v2.0.0` from the exact staged commit and a matching GitHub release that is not a prerelease:
+The name, version, and integrity must match `release-artifact.json`, and the packaged CLI must report `2.0.1`. Require `latest=2.0.1` and `beta=2.0.0-beta.4` in the registry's distribution tags. Then create the signed tag `v2.0.1` from the exact staged commit and a matching GitHub release that is not a prerelease:
 
 ```bash
-git tag -s v2.0.0 <staged-commit> -m "Release 2.0.0"
-git push origin v2.0.0
-gh release create v2.0.0 --repo NIPE-Solutions/flex-layout-migrator --verify-tag --title 2.0.0 --generate-notes
+git tag -s v2.0.1 <staged-commit> -m "Release 2.0.1"
+git push origin v2.0.1
+gh release create v2.0.1 --repo NIPE-Solutions/flex-layout-migrator --verify-tag --title 2.0.1 --generate-notes
 ```
 
 ### Recovery
@@ -155,7 +155,7 @@ If the version is listed, inspect the downloaded tarball and compare its SHA-512
 - If verification fails before a staging request, correct the cause and rerun from the same unchanged versioned commit.
 - If OIDC or Trusted Publisher matching fails, correct the npm publisher configuration or GitHub environment. Do not fall back to a token.
 - If inspection fails after staging, retain immutable copies of the downloaded tarball and workflow `release-artifact.json`, then run `npm stage reject <stage-id>` and complete two-factor authentication. Successful rejection removes the staged record. An operational retry may restage the same version only after rejection, and only when the candidate is byte-identical and produces an identical SHA-512 SRI to the retained `release-artifact.json` from the rejected stage.
-- Changed or rebuilt bytes cannot reuse `2.0.0` after rejection. They require a later reviewed patch version, a Changeset, and a separately reviewed update to the exact-version release lane; never stage different bytes under the rejected version.
+- Changed or rebuilt bytes cannot reuse `2.0.1` after rejection. They require a later reviewed patch version, a Changeset, and a separately reviewed update to the exact-version release lane; never stage different bytes under the rejected version.
 - If an approved stable package is incorrect, do not overwrite or unpublish it. Correct the issue in a later reviewed patch with a Changeset and updated release policy.
 - If tagging or GitHub release creation fails after npm approval, retry those steps against the already published version and exact staged commit.
 
@@ -178,6 +178,6 @@ cmp --silent "$retained_tarball" "$candidate_tarball"
 test "$candidate_sri" = "$retained_sri"
 ```
 
-Both final commands must exit successfully before the same version may be restaged. Any byte or SRI difference requires a later reviewed patch version, a Changeset, and an updated release policy; it cannot reuse `2.0.0`.
+Both final commands must exit successfully before the same version may be restaged. Any byte or SRI difference requires a later reviewed patch version, a Changeset, and an updated release policy; it cannot reuse `2.0.1`.
 
 The architecture and trust-boundary rationale are defined in [docs/architecture/release-process.md](docs/architecture/release-process.md).

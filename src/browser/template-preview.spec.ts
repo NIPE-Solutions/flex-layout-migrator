@@ -25,6 +25,79 @@ const literalCss = `/* flex-layout-codemod:start schema=1 */
 /* flex-layout-codemod:end */`;
 
 describe('previewTemplate', () => {
+  test.each(['tailwind', 'css'] as const)('%s preserves standalone footer gaps for review', target => {
+    const source = `<div fxLayoutGap="16px">
+  <span><a href="/docs">Documentation</a></span>
+  <span><a href="/community">Community</a></span>
+  <span><a href="/feedback">Feedback</a></span>
+  <span><a href="/slack">Slack</a></span>
+</div>`;
+    const result = previewTemplate({ source, target });
+
+    expect(result.html).toBe(source);
+    expect(result.state).toBe('review-required');
+    expect(result.results).toMatchObject([{ status: 'review', code: 'context-unverified' }]);
+    expect(result.css).toBe(target === 'css' ? '' : undefined);
+  });
+
+  test.each(['tailwind', 'css'] as const)('%s does not treat a parent layout as a gap container', target => {
+    const result = previewTemplate({
+      source: '<section fxLayout="row"><div fxLayoutGap="16px"><span>A</span><span>B</span></div></section>',
+      target,
+    });
+
+    expect(result.html).toContain('<div fxLayoutGap="16px"><span>A</span><span>B</span></div>');
+    expect(result.results).toMatchObject([
+      { status: 'converted', input: { directive: 'fxLayout' } },
+      { status: 'review', code: 'context-unverified', input: { directive: 'fxLayoutGap' } },
+    ]);
+    expect(result.css ?? result.html).not.toContain('gap:');
+    expect(result.html).not.toContain('gap-[');
+  });
+
+  test.each(['tailwind', 'css'] as const)('%s preserves all members of a standalone responsive gap family', target => {
+    const source = '<div fxLayoutGap="16px" fxLayoutGap.sm="8px"><span>A</span><span>B</span></div>';
+    const result = previewTemplate({ source, target });
+
+    expect(result.html).toBe(source);
+    expect(result.results).toMatchObject([
+      { status: 'review', code: 'context-unverified' },
+      { status: 'review', code: 'context-unverified' },
+    ]);
+  });
+
+  test.each(['tailwind', 'css'] as const)('%s converts gaps with a same-element layout or alignment', target => {
+    for (const layout of ['fxLayout="row"', 'fxLayoutAlign="start center"']) {
+      const result = previewTemplate({
+        source: `<div ${layout} fxLayoutGap="16px"><span>A</span><span>B</span></div>`,
+        target,
+      });
+
+      expect(result.state).toBe('valid');
+      expect(result.results.map(item => item.status)).toEqual(['converted', 'converted']);
+      expect(result.html).not.toContain('fxLayoutGap');
+      expect(result.css ?? result.html).toContain(target === 'css' ? 'gap: 16px;' : 'gap-[16px]');
+    }
+  });
+
+  test.each(['tailwind', 'css'] as const)('%s preserves gaps outside a responsive layout activation', target => {
+    const source = '<div fxLayout.md="row" fxLayoutGap="16px"><span>A</span><span>B</span></div>';
+    const result = previewTemplate({ source, target });
+
+    expect(result.html).toBe(source);
+    expect(result.results.map(item => item.status)).toEqual(['review', 'review']);
+  });
+
+  test.each(['tailwind', 'css'] as const)('%s converts gaps covered by the same responsive layout', target => {
+    const result = previewTemplate({
+      source: '<div fxLayout.md="row" fxLayoutGap.md="16px"><span>A</span><span>B</span></div>',
+      target,
+    });
+
+    expect(result.state).toBe('valid');
+    expect(result.results.map(item => item.status)).toEqual(['converted', 'converted']);
+  });
+
   test('migrates literal Flex-Layout directives to literal Tailwind HTML without CSS diagnostics', () => {
     const result = previewTemplate({ source: literalSource, target: 'tailwind' });
 

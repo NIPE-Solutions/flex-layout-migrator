@@ -146,6 +146,7 @@ async function fixture(name: string, kind: 'input' | 'expected'): Promise<string
 
 describe('Angular template engine compatibility', () => {
   const preservedCodes: Record<string, readonly string[]> = {
+    'angular-syntax': ['context-unverified'],
     responsive: [
       'responsive-precedence-unverified',
       'responsive-precedence-unverified',
@@ -408,7 +409,7 @@ describe('Angular template engine compatibility', () => {
     expect(first.output).toBe(expected);
     expect(resultCounts(first.results)).toEqual({
       converted: 43,
-      review: 41,
+      review: 42,
       unsupported: 0,
       invalid: 0,
       parseError: 0,
@@ -422,7 +423,7 @@ describe('Angular template engine compatibility', () => {
       'custom-breakpoint': 1,
       'breakpoint-unverified': 3,
       'style-value-unverified': 6,
-      'context-unverified': 5,
+      'context-unverified': 6,
       'display-restoration-unverified': 2,
       'bound-class': 1,
     });

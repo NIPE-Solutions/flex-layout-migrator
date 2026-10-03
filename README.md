@@ -2,7 +2,7 @@
 
 Plan the move from Angular Flex-Layout directives to Tailwind CSS v4 or native CSS. The CLI converts supported cases and preserves unresolved source attributes with diagnostics explaining what needs attention. Use it to pilot a migration on external HTML templates, inventory manual work, or apply reviewed batches.
 
-Version 2.0.0 is stable; conversion remains limited to supported, safety-proven cases.
+Version 2.0.1 is stable; conversion remains limited to supported, safety-proven cases.
 
 > Plan first. Review unresolved cases. Write only when you are ready.
 

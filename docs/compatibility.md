@@ -66,7 +66,7 @@ Every command plans the complete migration without changing project files by def
 
 - `fxLayout`: Static directions plus wrap and inline modifiers; coupled unresolved gaps preserve the layout.
 - `fxLayoutAlign`: Static main/cross axes with layout, content alignment, sizing, and border-box semantics.
-- `fxLayoutGap`: Static nonnegative non-wrapping gaps; unitless values remain pixels. Grid, computed, negative, and wrapped gaps are review.
+- `fxLayoutGap`: Static nonnegative non-wrapping gaps with a same-element flex layout proven throughout the gap's active range; unitless values remain pixels. Standalone gaps keep Flex-Layout's child-margin behavior and require review. Grid, computed, negative, and wrapped gaps are review.
 - `fxFlex`: Static basis, keyword, and three-part forms with parent-axis min/max sizing.
 - `fxGrow` and `fxShrink`: Converted atomically with a static `fxFlex`; standalone use is invalid.
 - `fxFlexAlign`: Static `align-self` keywords.

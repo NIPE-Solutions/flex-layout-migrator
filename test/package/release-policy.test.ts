@@ -172,7 +172,7 @@ describe('release policy', () => {
     });
   });
 
-  it('commits the stable 2.0.0 lane and exact npm toolchain', async () => {
+  it('keeps stable package versions aligned and uses the exact npm toolchain', async () => {
     const [manifest, lockfile] = await Promise.all(
       ['package.json', 'package-lock.json'].map(async path =>
         JSON.parse(await readFile(join(repository, path), 'utf8')),
@@ -180,9 +180,9 @@ describe('release policy', () => {
     );
 
     await expect(access(join(repository, '.changeset', 'pre.json'))).rejects.toMatchObject({ code: 'ENOENT' });
-    expect(manifest.version).toBe('2.0.0');
-    expect(lockfile.version).toBe('2.0.0');
-    expect(lockfile.packages[''].version).toBe('2.0.0');
+    expect(manifest.version).toMatch(/^2\.0\.\d+$/u);
+    expect(lockfile.version).toBe(manifest.version);
+    expect(lockfile.packages[''].version).toBe(manifest.version);
     expect(manifest.packageManager).toBe('npm@11.19.0');
     expect(manifest.publishConfig).toEqual({ access: 'public' });
     expect(manifest.devDependencies.yaml).toBeDefined();
@@ -195,7 +195,7 @@ describe('release policy', () => {
 
     try {
       await Promise.all(
-        ['package.json', 'package-lock.json', 'CHANGELOG.md', '.changeset'].map(path =>
+        ['package.json', 'package-lock.json', 'CHANGELOG.md', '.changeset/config.json'].map(path =>
           cp(join(repository, path), join(temporaryDirectory, path), { recursive: true }),
         ),
       );
@@ -218,9 +218,10 @@ describe('release policy', () => {
           JSON.parse(await readFile(join(temporaryDirectory, path), 'utf8')),
         ),
       );
-      expect(versionedManifest.version).toBe('2.0.0');
-      expect(versionedLockfile.version).toBe('2.0.0');
-      expect(versionedLockfile.packages[''].version).toBe('2.0.0');
+      const originalManifest = JSON.parse(await readFile(join(repository, 'package.json'), 'utf8'));
+      expect(versionedManifest.version).toBe(originalManifest.version);
+      expect(versionedLockfile.version).toBe(originalManifest.version);
+      expect(versionedLockfile.packages[''].version).toBe(originalManifest.version);
       expect(versionedLockfile.packages[''].version).toBe(versionedManifest.version);
       await expect(access(join(temporaryDirectory, '.changeset', 'pre.json'))).rejects.toMatchObject({
         code: 'ENOENT',
