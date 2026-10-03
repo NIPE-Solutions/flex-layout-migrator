@@ -260,7 +260,7 @@ describe('compatibility reference contract', () => {
         ['fxLayoutAlign', 'Static main/cross axes with layout, content alignment, sizing, and border-box semantics.'],
         [
           'fxLayoutGap',
-          'Static nonnegative non-wrapping gaps; unitless values remain pixels. Grid, computed, negative, and wrapped gaps are review.',
+          "Static nonnegative non-wrapping gaps with a same-element flex layout proven throughout the gap's active range; unitless values remain pixels. Standalone gaps keep Flex-Layout's child-margin behavior and require review. Grid, computed, negative, and wrapped gaps are review.",
         ],
         ['fxFlex', 'Static basis, keyword, and three-part forms with parent-axis min/max sizing.'],
         ['fxGrow', 'Converted atomically with a static `fxFlex`; standalone use is invalid.'],

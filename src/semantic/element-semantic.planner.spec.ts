@@ -353,7 +353,10 @@ describe('ElementSemanticPlanner', () => {
         sourceName: testCase.directive,
         value: testCase.value,
       });
-      const semanticContext = context([member]);
+      const semanticContext = {
+        ...context([member]),
+        ...(testCase.directive === 'fxLayoutGap' ? { activeLayout: 'row' } : {}),
+      };
       const tailwind = new RecordingRenderer(new TailwindRenderer());
       const registry = new CssArtifactRegistry();
       const css = new RecordingRenderer(new CssRenderer(registry));

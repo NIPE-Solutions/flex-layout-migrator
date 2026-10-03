@@ -318,9 +318,16 @@ export class ResponsiveFamilyPlanner<TPlan extends ResponsiveOrchestrationPlan> 
       const layoutValues =
         layoutInputs.length === 0 && explicitLayout !== undefined
           ? [explicitLayout]
-          : this.layoutValuesFor(input, inputs, layoutInputs);
+          : this.layoutValuesFor(input, inputs, layoutInputs, context);
       if (!layoutValues.length) {
-        return this.policy.contextUnverified(input, 'The active responsive layout cannot be resolved for this input.');
+        const existingPlan = this.planOneWithEligibility(input, context, planOne);
+        if (existingPlan.status !== 'converted') return existingPlan;
+        return this.policy.contextUnverified(
+          input,
+          input.directive === 'fxLayoutGap'
+            ? 'A same-element flex layout is not proven throughout the active responsive gap range.'
+            : 'The active responsive layout cannot be resolved for this input.',
+        );
       }
       const candidates = layoutValues.map(value => planOne(input, { ...context, [contextKey]: value }));
       const unresolved = candidates.find(candidate => candidate.status !== 'converted');
@@ -395,6 +402,7 @@ export class ResponsiveFamilyPlanner<TPlan extends ResponsiveOrchestrationPlan> 
     input: LocatedFlexLayoutInput,
     familyInputs: readonly LocatedFlexLayoutInput[],
     layoutInputs: readonly LocatedFlexLayoutInput[],
+    context: SemanticConversionContext,
   ): readonly string[] {
     const baseLayouts = layoutInputs.filter(layout => !layout.breakpoint);
     const responsiveLayouts = layoutInputs.flatMap(layout => {
@@ -420,6 +428,12 @@ export class ResponsiveFamilyPlanner<TPlan extends ResponsiveOrchestrationPlan> 
         if (baseLayouts.length) {
           for (const layout of baseLayouts) values.add(layout.value);
         } else {
+          if (
+            input.directive === 'fxLayoutGap' &&
+            !context.inputs.some(item => item.directive === 'fxLayoutAlign' && item.breakpoint === undefined)
+          ) {
+            return [];
+          }
           values.add('row');
         }
       }

@@ -711,11 +711,12 @@ describe('ConversionPlanner', () => {
     ['different native gap', '8', 'gap-4'],
     ['identical native gap', '16px', 'gap-[16px]'],
   ])('preserves responsive fxLayoutGap replacement beside %s', (_case, gap, className) => {
-    const source = `<div fxLayoutGap.sm="${gap}" ngClass.sm="${className}"></div>`;
+    const source = `<div fxLayout="row" fxLayoutGap.sm="${gap}" ngClass.sm="${className}"></div>`;
     const result = migrate(source);
 
     expect(result.output).toBe(source);
     expect(result.results).toEqual([
+      expect.objectContaining({ status: 'review', code: 'context-unverified' }),
       expect.objectContaining({ status: 'review', code: 'context-unverified' }),
       expect.objectContaining({ status: 'review', code: 'context-unverified' }),
     ]);
@@ -1185,22 +1186,21 @@ describe('ConversionPlanner', () => {
   });
 
   test.each([
-    ['semantic gap replacement', '<div ngClass="gap-4" ngClass.sm="gap-4" fxLayoutGap.sm="8"></div>'],
+    ['semantic gap replacement', '<div fxLayout="row" ngClass="gap-4" ngClass.sm="gap-4" fxLayoutGap.sm="8"></div>'],
     [
       'inline style replacement',
       '<div ngClass="text-red-500" ngClass.sm="text-red-500" ngStyle.sm="color:blue"></div>',
     ],
     ['display replacement', '<div ngClass="block" ngClass.sm="block" fxLayout.sm="row"></div>'],
     ['visibility replacement', '<div ngClass="block" ngClass.sm="block" fxHide.sm></div>'],
-  ])('retains identical ngClass fallback ownership during %s composition', (_case, source) => {
+  ])('retains identical ngClass fallback ownership during %s composition', (composition, source) => {
     const result = migrate(source);
 
     expect(result.output).toBe(source);
-    expect(result.results).toHaveLength(2);
-    expect(result.results).toEqual([
-      expect.objectContaining({ status: 'review', code: 'context-unverified' }),
-      expect.objectContaining({ status: 'review', code: 'context-unverified' }),
-    ]);
+    expect(result.results).toHaveLength(composition === 'semantic gap replacement' ? 3 : 2);
+    for (const item of result.results) {
+      expect(item).toMatchObject({ status: 'review', code: 'context-unverified' });
+    }
   });
 
   test('keeps an identical ngStyle fallback authoritative during display composition', () => {

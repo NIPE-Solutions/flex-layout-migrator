@@ -10,7 +10,7 @@ order: 2
 
 ## Flex families are planned atomically
 
-Base and responsive members of one semantic family are decided together. Layout establishes direction, wrapping, display, and border-box behavior. Layout alignment carries main-axis and cross-axis behavior plus required layout context. Gap converts only when nonnegative, non-wrapping behavior is proven; unitless gaps are pixels, while the source `grid` gap algorithm remains unsupported by the current edit model.
+Base and responsive members of one semantic family are decided together. Layout establishes direction, wrapping, display, and border-box behavior. Layout alignment carries main-axis and cross-axis behavior plus required layout context. Gap converts only when nonnegative, non-wrapping behavior and a same-element flex layout throughout the active gap range are proven; standalone gaps remain for review because Flex-Layout uses child margins without establishing flex display; unitless gaps are pixels, while the source `grid` gap algorithm remains unsupported by the current edit model.
 
 Flex-item sizing combines `fxFlex`, `fxGrow`, and `fxShrink`. Grow and shrink do not convert alone because they are not independent Flex-Layout directive instances. Fill aliases include zero margin and full width, height, minimum width, and minimum height. Offset depends on the parent axis and treats unitless values as percentages. Order uses the source integer contract rather than a Tailwind theme value.
 

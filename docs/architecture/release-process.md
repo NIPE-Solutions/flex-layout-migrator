@@ -2,7 +2,7 @@
 
 ## Decision
 
-The reviewed stable release targets exactly `2.0.0` under `latest`. Version 2 releases use reviewed Changesets, a protected GitHub release workflow, npm Trusted Publishing, and npm staged publishing. Repository automation may prepare a release and stage an existing package version, but a maintainer must approve every staged package with two-factor authentication before it becomes public. The public postcondition is `latest=2.0.0` and `beta=2.0.0-beta.4`.
+The reviewed stable release targets exactly `2.0.1` under `latest`. Version 2 releases use reviewed Changesets, a protected GitHub release workflow, npm Trusted Publishing, and npm staged publishing. Repository automation may prepare a release and stage an existing package version, but a maintainer must approve every staged package with two-factor authentication before it becomes public. The public postcondition is `latest=2.0.1` and `beta=2.0.0-beta.4`.
 
 The first public package used a one-time bootstrap exception because npm could not stage or configure a trusted publisher for a package that did not yet exist. A maintainer published `2.0.0-beta.1` directly from a verified local checkout with two-factor authentication and the `beta` distribution tag. That completed bootstrap is historical context; the stable release uses the staged workflow.
 
@@ -12,7 +12,7 @@ The first public package used a one-time bootstrap exception because npm could n
 - Prevent a pull request, ordinary push, or untrusted fork from publishing.
 - Avoid long-lived npm write tokens in GitHub.
 - Require human proof of presence for every automated publication.
-- Publish stable `2.0.0` under `latest` while retaining `beta=2.0.0-beta.4`.
+- Publish stable `2.0.1` under `latest` while retaining `beta=2.0.0-beta.4`.
 - Generate npm provenance through GitHub Actions OIDC.
 - Make release failures safe to retry without silently publishing a different artifact.
 
@@ -27,15 +27,15 @@ The first public package used a one-time bootstrap exception because npm could n
 
 ## Version policy
 
-The current one-time release lane accepts only literal `2.0.0`, with no prefix, prerelease component, or build metadata, and stages it with `--tag latest`. The existing `beta` distribution tag remains at `2.0.0-beta.4`. A later stable version requires a separate reviewed update to the release policy and its tests.
+The current one-time release lane accepts only literal `2.0.1`, with no prefix, prerelease component, or build metadata, and stages it with `--tag latest`. The existing `beta` distribution tag remains at `2.0.0-beta.4`. A later stable version requires a separate reviewed update to the release policy and its tests.
 
-The reviewed stable transition has consumed Changesets prerelease state: `.changeset/pre.json` is absent, `package.json` and both lockfile version fields equal `2.0.0`, and the stable changelog preserves all beta history. Historically, the first public version was `2.0.0-beta.1` and beta versions used `2.0.0-beta.N` with `--tag beta`; these are no longer accepted by the artifact validator.
+The reviewed stable patch retains the completed transition out of Changesets prerelease state: `.changeset/pre.json` is absent, `package.json` and both lockfile version fields equal `2.0.1`, and the stable changelog preserves the 2.0.0 and beta history. Historically, the first public version was `2.0.0-beta.1` and beta versions used `2.0.0-beta.N` with `--tag beta`; these are no longer accepted by the artifact validator.
 
 User-facing behavior, CLI, or API changes require a Changeset. The Changesets release pull request consumes pending Changesets, updates `package.json`, `package-lock.json`, and `CHANGELOG.md`, and is reviewed like any other pull request. Merging it makes the selected version eligible for staging; it does not publish.
 
 The release workflow rejects:
 
-- any version other than exactly `2.0.0`;
+- any version other than exactly `2.0.1`;
 - a version already present in the npm registry;
 - a checkout other than the protected `main` branch;
 - a package whose verification, audit, build, or package-content checks fail;
@@ -62,7 +62,7 @@ The workflow:
 5. verifies current remote `main`, then creates one tarball with `npm pack --json` and validates its six-file package surface;
 6. computes SHA-512 SRI from the generated tarball bytes, requires an exact match with npm's descriptor, and removes the tarball and metadata if reading, hashing, or comparison fails;
 7. smoke-installs and executes that exact tarball in a temporary project;
-8. rehashes that path after the smoke test, confirms the manifest is the unpublished `2.0.0` version, and writes metadata and GitHub outputs only while the bytes still match;
+8. rehashes that path after the smoke test, confirms the manifest is the unpublished `2.0.1` version, and writes metadata and GitHub outputs only while the bytes still match;
 9. uploads that tarball and metadata as the workflow artifact;
 10. rehashes the retained tarball immediately before staging, repeats current remote `main` verification, then passes that exact path to `npm stage publish <tarball> --access public --tag latest`.
 
@@ -106,9 +106,9 @@ The bootstrap command is never embedded in repository automation. It runs only a
 
 ## Approval and finalization
 
-For stable `2.0.0`, a maintainer reviews the staged package on npmjs.com or downloads it with `npm stage download <stage-id>`. For a download, the maintainer computes its SHA-512 SRI from the tarball bytes and compares the complete SRI string byte-for-byte with `release-artifact.json`. Approval uses `npm stage approve <stage-id>` or the npmjs.com approval interface and always requires two-factor authentication.
+For stable `2.0.1`, a maintainer reviews the staged package on npmjs.com or downloads it with `npm stage download <stage-id>`. For a download, the maintainer computes its SHA-512 SRI from the tarball bytes and compares the complete SRI string byte-for-byte with `release-artifact.json`. Approval uses `npm stage approve <stage-id>` or the npmjs.com approval interface and always requires two-factor authentication.
 
-After registry approval, the maintainer verifies the published integrity, package identity, installed CLI version, and distribution tags. The required public postcondition is `latest=2.0.0` and `beta=2.0.0-beta.4`. Only then does the maintainer create the signed or protected Git tag `v2.0.0` and the matching GitHub release, which is not a prerelease, from the exact staged commit. Tags and GitHub releases are not created before npm approval, so a rejected staged artifact cannot appear as a completed release.
+After registry approval, the maintainer verifies the published integrity, package identity, installed CLI version, and distribution tags. The required public postcondition is `latest=2.0.1` and `beta=2.0.0-beta.4`. Only then does the maintainer create the signed or protected Git tag `v2.0.1` and the matching GitHub release, which is not a prerelease, from the exact staged commit. Tags and GitHub releases are not created before npm approval, so a rejected staged artifact cannot appear as a completed release.
 
 ## Error handling
 
@@ -116,9 +116,9 @@ After registry approval, the maintainer verifies the published integrity, packag
 - After an ambiguous staging network result or version collision, the operator first runs `npm stage list @nipe-solutions/flex-layout-codemod`. If a stage exists, the operator recovers its stage ID, runs `npm stage download <stage-id>`, and compares the downloaded bytes and SHA-512 SRI with the retained workflow artifact before deciding whether to approve or reject it. A blind retry is prohibited; retry is allowed only after the list proves npm accepted no stage.
 - An OIDC or trusted-publisher mismatch fails without falling back to a token.
 - A staged package that fails manual inspection is rejected with `npm stage reject <stage-id>` and two-factor authentication. Before rejection, the operator retains both the downloaded tarball and `release-artifact.json`. Successful rejection removes the staged record. An operational retry may restage the same version only after rejection, and only when an exact byte comparison proves the candidate is byte-identical and re-verification produces an identical SHA-512 SRI to the retained `release-artifact.json` from the rejected stage.
-- Changed or rebuilt bytes cannot reuse `2.0.0` after rejection. They require a later reviewed patch version, a Changeset, and a separately reviewed update to the exact-version release lane; different bytes are never staged under the rejected version.
+- Changed or rebuilt bytes cannot reuse `2.0.1` after rejection. They require a later reviewed patch version, a Changeset, and a separately reviewed update to the exact-version release lane; different bytes are never staged under the rejected version.
 - A successful stage is not described as published until npm approval completes.
-- A published stable package is immutable. Correct a defect in a later reviewed patch with a Changeset and updated release policy; do not overwrite or unpublish `2.0.0`.
+- A published stable package is immutable. Correct a defect in a later reviewed patch with a Changeset and updated release policy; do not overwrite or unpublish `2.0.1`.
 
 ## Testing strategy
 
@@ -129,7 +129,7 @@ Repository contract tests parse the workflows and release scripts to prove:
 - only the staging job has `id-token: write` and no npm token is referenced;
 - actions are pinned to immutable commits;
 - the stage command always specifies the verified tarball, public access, and `latest` tag;
-- versions other than literal `2.0.0`, existing registry versions, mismatched tarball metadata, and unexpected package files fail before staging;
+- versions other than literal `2.0.1`, existing registry versions, mismatched tarball metadata, and unexpected package files fail before staging;
 - the tarball contains exactly `CHANGELOG.md`, `LICENSE`, `README.md`, `dist/cli.js`, `dist/cli.js.map`, and `package.json`;
 - the descriptor SRI equals SHA-512 over the generated tarball bytes, and hash failures remove invocation-owned release artifacts;
 - the same tarball path flows through hashing, a clean temporary CLI installation, metadata, GitHub outputs, artifact upload, final retained-byte verification, and staging;
