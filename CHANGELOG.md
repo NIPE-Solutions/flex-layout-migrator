@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.0.1
+
+### Patch Changes
+
+- 1a9f71f: Preserve standalone `fxLayoutGap` directives for manual review in both native CSS and Tailwind migrations. CSS gap is emitted only when a same-element flex layout is proven throughout the gap's active responsive range, preventing loss of the original child-margin spacing on block containers such as the Kubernetes Dashboard footer.
+
 ## 2.0.0
 
 ### Minor Changes
