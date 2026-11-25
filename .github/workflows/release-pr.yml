@@ -23,8 +23,7 @@ jobs:
       - run: node scripts/prepare-changesets-action.mjs
       - uses: changesets/action@ae32849d5ba541f9ae29e40e22a623bc13562f51
         with:
-          version: npm run release:version
-          title: 'chore: version packages'
-          commit: 'chore: version packages'
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          version-script: npm run release:version
+          pr-title: 'chore: version packages'
+          commit-message: 'chore: version packages'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
