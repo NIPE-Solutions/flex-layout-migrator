@@ -426,9 +426,6 @@ const namespaceAdmissionSuffixes = [
   '01/2',
   '1/02',
 ] as const;
-const namespaceAdmissionCandidates = namespaceAdmissionPrefixes.flatMap(namespace =>
-  namespaceAdmissionSuffixes.flatMap(value => [`${namespace}-${value}`, `-${namespace}-${value}`]),
-);
 const variantAdmissionCandidates = [
   'hover',
   'focus',
@@ -449,10 +446,13 @@ const variantAdmissionCandidates = [
   '[>img]',
   '[@supports(display:grid)]',
 ].flatMap(variant => ['flex', 'p-4', 'text-sm'].map(utility => `${variant}:${utility}`));
-const admissionAuditCandidates = [
-  ...exactAdmissionCandidates,
-  ...namespaceAdmissionCandidates,
-  ...variantAdmissionCandidates,
+const admissionAuditCases = [
+  { scope: 'exact', candidates: exactAdmissionCandidates },
+  ...namespaceAdmissionPrefixes.map(namespace => ({
+    scope: `namespace ${namespace}`,
+    candidates: namespaceAdmissionSuffixes.flatMap(value => [`${namespace}-${value}`, `-${namespace}-${value}`]),
+  })),
+  { scope: 'variant', candidates: variantAdmissionCandidates },
 ];
 
 const arbitraryCompilerOwnershipMatrix = [
@@ -642,23 +642,27 @@ describe('TailwindCandidateClassifier', () => {
     },
   );
 
-  test('keeps every verified candidate in a parameterized namespace and variant audit compiler-backed', async () => {
-    const classifier = new TailwindCandidateClassifier();
-    const mismatches: {
-      readonly candidate: string;
-      readonly modeled: readonly string[];
-      readonly emitted: readonly string[];
-    }[] = [];
+  test.each(admissionAuditCases)(
+    'keeps verified $scope candidates compiler-backed',
+    async ({ candidates }) => {
+      const classifier = new TailwindCandidateClassifier();
+      const mismatches: {
+        readonly candidate: string;
+        readonly modeled: readonly string[];
+        readonly emitted: readonly string[];
+      }[] = [];
 
-    for (const candidate of admissionAuditCandidates) {
-      const result = classifier.classify(candidate);
-      if (result.status !== 'verified') continue;
-      const emitted = await compiledCssProperties(candidate);
-      if (emitted.join('\0') !== result.descriptor.cssProperties.join('\0')) {
-        mismatches.push({ candidate, modeled: result.descriptor.cssProperties, emitted });
+      for (const candidate of candidates) {
+        const result = classifier.classify(candidate);
+        if (result.status !== 'verified') continue;
+        const emitted = await compiledCssProperties(candidate);
+        if (emitted.join('\0') !== result.descriptor.cssProperties.join('\0')) {
+          mismatches.push({ candidate, modeled: result.descriptor.cssProperties, emitted });
+        }
       }
-    }
 
-    expect(mismatches).toEqual([]);
-  }, 15_000);
+      expect(mismatches).toEqual([]);
+    },
+    15_000,
+  );
 });
