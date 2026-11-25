@@ -20,20 +20,20 @@ describe('continuous integration', () => {
         steps: [
           { uses: 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1' },
           {
-            uses: 'actions/setup-node@820762786026740c76f36085b0efc47a31fe5020',
+            uses: 'actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1',
             with: { 'node-version': 24 },
           },
           { run: 'npm install --global npm@11.19.0' },
           { run: 'npm ci' },
           { run: 'node scripts/prepare-changesets-action.mjs' },
           {
-            uses: 'changesets/action@a45c4d594aa4e2c509dc14a9f2b3b67ba3780d0d',
+            uses: 'changesets/action@ae32849d5ba541f9ae29e40e22a623bc13562f51',
             with: {
-              version: 'npm run release:version',
-              title: 'chore: version packages',
-              commit: 'chore: version packages',
+              'version-script': 'npm run release:version',
+              'pr-title': 'chore: version packages',
+              'commit-message': 'chore: version packages',
+              'github-token': '${{ secrets.GITHUB_TOKEN }}',
             },
-            env: { GITHUB_TOKEN: '${{ secrets.GITHUB_TOKEN }}' },
           },
         ],
       },
@@ -74,7 +74,7 @@ describe('continuous integration', () => {
             run: 'git fetch --no-tags origin 41c0714bca3ec09470e25efde0f30b6bc96cc0ac 92f720211a04563bd4216b90e52b9a7a230c048b',
           },
           {
-            uses: 'actions/setup-node@820762786026740c76f36085b0efc47a31fe5020',
+            uses: 'actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1',
             with: {
               'node-version': 24,
               'package-manager-cache': false,
@@ -91,7 +91,7 @@ describe('continuous integration', () => {
             run: 'npm run release:prepare -- --github-output "$GITHUB_OUTPUT"',
           },
           {
-            uses: 'actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a',
+            uses: 'actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9',
             with: {
               name: 'npm-release',
               path: '${{ steps.release.outputs.tarball }}\nrelease-artifact.json\n',
@@ -144,7 +144,7 @@ describe('continuous integration', () => {
       steps: [
         { uses: 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1' },
         {
-          uses: 'actions/setup-node@820762786026740c76f36085b0efc47a31fe5020',
+          uses: 'actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1',
           with: { 'node-version': 24, cache: 'npm' },
         },
         { run: 'npm install --global npm@11.19.0' },
@@ -186,7 +186,7 @@ describe('continuous integration', () => {
       steps: [
         { uses: 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1' },
         {
-          uses: 'actions/setup-node@820762786026740c76f36085b0efc47a31fe5020',
+          uses: 'actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1',
           with: { 'node-version': 24, cache: 'npm' },
         },
         { run: 'npm install --global npm@11.19.0' },
@@ -194,7 +194,7 @@ describe('continuous integration', () => {
         { run: 'npm run build' },
         { run: 'npm run benchmark:architecture -- --json architecture-benchmark.json' },
         {
-          uses: 'actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a',
+          uses: 'actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9',
           with: {
             name: 'architecture-benchmark',
             path: 'architecture-benchmark.json',

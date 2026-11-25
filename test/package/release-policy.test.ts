@@ -19,19 +19,19 @@ describe('release policy', () => {
       'pull-requests': 'write',
     });
     expect(workflow.jobs.version.steps.at(-1)).toEqual({
-      uses: 'changesets/action@a45c4d594aa4e2c509dc14a9f2b3b67ba3780d0d',
+      uses: 'changesets/action@ae32849d5ba541f9ae29e40e22a623bc13562f51',
       with: {
-        version: 'npm run release:version',
-        title: 'chore: version packages',
-        commit: 'chore: version packages',
+        'version-script': 'npm run release:version',
+        'pr-title': 'chore: version packages',
+        'commit-message': 'chore: version packages',
+        'github-token': '${{ secrets.GITHUB_TOKEN }}',
       },
-      env: { GITHUB_TOKEN: '${{ secrets.GITHUB_TOKEN }}' },
     });
     const prepareInputIndex = workflow.jobs.version.steps.findIndex(
       (step: { run?: string }) => step.run === 'node scripts/prepare-changesets-action.mjs',
     );
     const changesetsActionIndex = workflow.jobs.version.steps.findIndex(
-      (step: { uses?: string }) => step.uses === 'changesets/action@a45c4d594aa4e2c509dc14a9f2b3b67ba3780d0d',
+      (step: { uses?: string }) => step.uses === 'changesets/action@ae32849d5ba541f9ae29e40e22a623bc13562f51',
     );
     expect(prepareInputIndex).toBeGreaterThanOrEqual(0);
     expect(changesetsActionIndex).toBeGreaterThan(prepareInputIndex);
@@ -73,7 +73,7 @@ describe('release policy', () => {
     );
 
     const uploadIndex = job.steps.findIndex(
-      (step: { uses?: string }) => step.uses === 'actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a',
+      (step: { uses?: string }) => step.uses === 'actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9',
     );
     const stageIndex = job.steps.findIndex(
       (step: { run?: string }) =>
